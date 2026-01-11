@@ -16,8 +16,10 @@ type projectItem struct {
 	project gcp.Project
 }
 
-func (i projectItem) Title() string       { return i.project.Name }
-func (i projectItem) Description() string { return fmt.Sprintf("ID: %s • State: %s", i.project.ID, i.project.State) }
+func (i projectItem) Title() string { return i.project.Name }
+func (i projectItem) Description() string {
+	return fmt.Sprintf("ID: %s • State: %s", i.project.ID, i.project.State)
+}
 func (i projectItem) FilterValue() string { return i.project.Name + " " + i.project.ID }
 
 // ProjectsView displays and manages the list of GCP projects
