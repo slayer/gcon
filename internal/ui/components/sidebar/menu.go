@@ -20,11 +20,27 @@ const (
 	ViewFirewall
 )
 
+// Icons for menu items - using Unicode/emoji that render well in terminals
+// Nerd Fonts alternatives in comments for users with patched fonts
+const (
+	// Category icons
+	IconCompute = "⚙️" // Nerd Font: 󰒋 (nf-md-server)
+	IconStorage = "📦"  // Nerd Font: 󰋊 (nf-md-database)
+	IconNetwork = "🌐"  // Nerd Font: 󰛳 (nf-md-network)
+
+	// Leaf item icons
+	IconVM       = "🖥️" // Nerd Font: 󰍹 (nf-md-monitor)
+	IconDisk     = "💾"  // Nerd Font: 󰋊 (nf-md-harddisk)
+	IconBucket   = "🪣"  // Nerd Font: 󰆼 (nf-md-bucket)
+	IconVPC      = "🔗"  // Nerd Font: 󰌘 (nf-md-lan)
+	IconFirewall = "🛡️" // Nerd Font: 󰒃 (nf-md-shield)
+)
+
 // MenuItem represents a single menu entry
 type MenuItem struct {
 	ID       string       // Unique identifier (e.g., "compute", "vm-instances")
 	Label    string       // Full text display (e.g., "VM instances")
-	Icon     string       // Icon for collapsed mode
+	Icon     string       // Icon for display
 	Type     MenuItemType // Category or Leaf
 	ViewType ViewType     // Target view for leaf items
 	Children []MenuItem   // Child items for categories
@@ -36,30 +52,30 @@ func DefaultMenu() []MenuItem {
 		{
 			ID:    "compute",
 			Label: "Compute Engine",
-			Icon:  "",
+			Icon:  IconCompute,
 			Type:  MenuItemCategory,
 			Children: []MenuItem{
-				{ID: "vm-instances", Label: "VM instances", Icon: "", Type: MenuItemLeaf, ViewType: ViewInstances},
-				{ID: "disks", Label: "Disks", Icon: "", Type: MenuItemLeaf, ViewType: ViewDisks},
+				{ID: "vm-instances", Label: "VM instances", Icon: IconVM, Type: MenuItemLeaf, ViewType: ViewInstances},
+				{ID: "disks", Label: "Disks", Icon: IconDisk, Type: MenuItemLeaf, ViewType: ViewDisks},
 			},
 		},
 		{
 			ID:    "storage",
 			Label: "Cloud Storage",
-			Icon:  "",
+			Icon:  IconStorage,
 			Type:  MenuItemCategory,
 			Children: []MenuItem{
-				{ID: "buckets", Label: "Buckets", Icon: "", Type: MenuItemLeaf, ViewType: ViewBuckets},
+				{ID: "buckets", Label: "Buckets", Icon: IconBucket, Type: MenuItemLeaf, ViewType: ViewBuckets},
 			},
 		},
 		{
 			ID:    "networking",
 			Label: "VPC Network",
-			Icon:  "",
+			Icon:  IconNetwork,
 			Type:  MenuItemCategory,
 			Children: []MenuItem{
-				{ID: "networks", Label: "VPC networks", Icon: "", Type: MenuItemLeaf, ViewType: ViewNetworks},
-				{ID: "firewall", Label: "Firewall", Icon: "", Type: MenuItemLeaf, ViewType: ViewFirewall},
+				{ID: "networks", Label: "VPC networks", Icon: IconVPC, Type: MenuItemLeaf, ViewType: ViewNetworks},
+				{ID: "firewall", Label: "Firewall", Icon: IconFirewall, Type: MenuItemLeaf, ViewType: ViewFirewall},
 			},
 		},
 	}
