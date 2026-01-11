@@ -17,6 +17,7 @@ type ViewType int
 const (
 	ViewProjects ViewType = iota
 	ViewInstances
+	ViewInstanceDetails
 	ViewBuckets
 	ViewLogs
 )
@@ -31,12 +32,14 @@ type App struct {
 	height    int
 
 	// Current view state
-	currentView   ViewType
-	projectView   *views.ProjectsView
-	instancesView *views.InstancesView
+	currentView         ViewType
+	projectView         *views.ProjectsView
+	instancesView       *views.InstancesView
+	instanceDetailsView *views.InstanceDetailsView
 
 	// Selected context
-	selectedProject *gcp.Project
+	selectedProject  *gcp.Project
+	selectedInstance *gcp.Instance
 
 	// UI state
 	showHelp bool
@@ -94,7 +97,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		// Handle back navigation first (before view-specific handlers)
 		if key.Matches(msg, a.keys.Back) {
-			if a.currentView != ViewProjects {
+			switch a.currentView {
+			case ViewInstanceDetails:
+				// Go back to instances list
+				a.currentView = ViewInstances
+				a.instanceDetailsView = nil
+				a.selectedInstance = nil
+				return a, nil
+			case ViewInstances:
+				// Go back to projects
 				a.currentView = ViewProjects
 				a.instancesView = nil
 				return a, nil
@@ -118,6 +129,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.instancesView != nil {
 			a.instancesView.SetSize(msg.Width, msg.Height-4)
 		}
+		if a.instanceDetailsView != nil {
+			a.instanceDetailsView.SetSize(msg.Width, msg.Height-4)
+		}
 		return a, nil
 
 	case ErrorMsg:
@@ -132,6 +146,21 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.instancesView = views.NewInstancesView(project.ID)
 		a.instancesView.SetSize(a.width, a.height-4)
 		return a, a.instancesView.Init()
+
+	case views.InstanceSelectedMsg:
+		// Navigate to instance details view
+		inst := msg.Instance
+		a.selectedInstance = &inst
+		a.currentView = ViewInstanceDetails
+		// Pass compute client from instances view to avoid re-initialization
+		a.instanceDetailsView = views.NewInstanceDetailsView(
+			a.selectedProject.ID,
+			inst.Zone,
+			inst.Name,
+			a.instancesView.GetComputeClient(),
+		)
+		a.instanceDetailsView.SetSize(a.width, a.height-4)
+		return a, a.instanceDetailsView.Init()
 
 	case InitialProjectLoadedMsg:
 		// Initial project loaded successfully, go directly to instances view
@@ -157,6 +186,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.instancesView != nil {
 			cmd = a.instancesView.Update(msg)
 		}
+	case ViewInstanceDetails:
+		if a.instanceDetailsView != nil {
+			cmd = a.instanceDetailsView.Update(msg)
+		}
 	}
 
 	return a, cmd
@@ -172,8 +205,11 @@ func (a *App) View() string {
 	header := a.styles.Title.Render("☁ gcon")
 	if a.selectedProject != nil {
 		header += a.styles.Muted.Render(" • " + a.selectedProject.ID)
-		if a.currentView == ViewInstances {
+		if a.currentView == ViewInstances || a.currentView == ViewInstanceDetails {
 			header += a.styles.Muted.Render(" • Compute Engine")
+		}
+		if a.currentView == ViewInstanceDetails && a.selectedInstance != nil {
+			header += a.styles.Muted.Render(" • " + a.selectedInstance.Name)
 		}
 	}
 
@@ -185,6 +221,10 @@ func (a *App) View() string {
 	case ViewInstances:
 		if a.instancesView != nil {
 			content = a.instancesView.View()
+		}
+	case ViewInstanceDetails:
+		if a.instanceDetailsView != nil {
+			content = a.instanceDetailsView.View()
 		}
 	default:
 		content = "View not implemented"
