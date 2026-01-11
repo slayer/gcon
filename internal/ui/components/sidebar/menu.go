@@ -20,20 +20,20 @@ const (
 	ViewFirewall
 )
 
-// Icons for menu items - using simple Unicode symbols for consistent width
-// These are single-width characters that align properly in terminals
+// Icons for menu items - using simple Unicode box/geometric symbols
+// All from the same Unicode block for consistent single-width rendering
 const (
-	// Category icons
-	IconCompute = "⚡" // Compute Engine
-	IconStorage = "◧" // Cloud Storage
-	IconNetwork = "◈" // VPC Network
+	// Category icons (hollow shapes)
+	IconCompute = "□" // Compute Engine
+	IconStorage = "○" // Cloud Storage
+	IconNetwork = "◇" // VPC Network
 
-	// Leaf item icons
-	IconVM       = "▣" // VM instances
-	IconDisk     = "◉" // Disks
-	IconBucket   = "◪" // Buckets
-	IconVPC      = "◇" // VPC networks
-	IconFirewall = "◆" // Firewall
+	// Leaf item icons (filled shapes)
+	IconVM       = "■" // VM instances
+	IconDisk     = "●" // Disks
+	IconBucket   = "▪" // Buckets
+	IconVPC      = "◆" // VPC networks
+	IconFirewall = "▲" // Firewall
 )
 
 // MenuItem represents a single menu entry
