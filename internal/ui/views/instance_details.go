@@ -269,7 +269,7 @@ func (v *InstanceDetailsView) View() string {
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
 	scrollStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#4285F4"))
 	scrollInfo := scrollStyle.Render(fmt.Sprintf("%.0f%%", v.viewport.ScrollPercent()*100))
-	help := helpStyle.Render("\n  ↑/↓ scroll • s start • x stop • R reset • r refresh • esc back") + " " + scrollInfo
+	help := helpStyle.Render("\n  ↑/↓: scroll • s: start • x: stop • R: reset • r: refresh • esc: back") + " " + scrollInfo
 
 	return header + v.viewport.View() + help
 }
