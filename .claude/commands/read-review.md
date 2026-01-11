@@ -18,6 +18,7 @@ Fetch review comments from the current branch's PR and address any issues.
 6. After addressing all comments:
    - Commit the fixes with a descriptive message
    - Push to update the PR
+7. Resolve the comments in the PR if possible
 
 ## Output Format
 
