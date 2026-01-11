@@ -5,8 +5,8 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/vlad/gcptui/internal/gcp"
-	"github.com/vlad/gcptui/internal/ui/views"
+	"github.com/slayer/gcon/internal/gcp"
+	"github.com/slayer/gcon/internal/ui/views"
 )
 
 // ViewType represents different screens in the application
@@ -125,7 +125,7 @@ func (a *App) View() string {
 	}
 
 	// Header with breadcrumb navigation
-	header := a.styles.Title.Render("☁ GCP TUI")
+	header := a.styles.Title.Render("☁ gcon")
 	if a.selectedProject != nil {
 		header += a.styles.Muted.Render(" • " + a.selectedProject.ID)
 		if a.currentView == ViewInstances {

@@ -1,6 +1,6 @@
 package ui
 
-import "github.com/vlad/gcptui/internal/gcp"
+import "github.com/slayer/gcon/internal/gcp"
 
 // Message types for async operations
 

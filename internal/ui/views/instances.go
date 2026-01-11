@@ -9,7 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/vlad/gcptui/internal/gcp"
+	"github.com/slayer/gcon/internal/gcp"
 )
 
 // instanceItem implements list.Item for VM instances

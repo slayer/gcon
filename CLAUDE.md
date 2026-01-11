@@ -1,4 +1,4 @@
-# GCP TUI - Terminal UI for Google Cloud Platform
+# gcon - Terminal UI for Google Cloud Platform
 
 ## Project Overview
 
@@ -17,112 +17,95 @@ A terminal-based user interface for managing Google Cloud Platform resources, bu
 ```
 .
 ├── cmd/
-│   └── gcptui/           # Main entry point
+│   └── gcon/              # Main entry point
 │       └── main.go
 ├── internal/
-│   ├── gcp/              # GCP API clients & abstractions
-│   │   ├── client.go     # Base client with auth
-│   │   ├── projects.go   # Project management
-│   │   ├── compute.go    # Compute Engine
-│   │   ├── storage.go    # Cloud Storage
-│   │   └── logging.go    # Cloud Logging
+│   ├── gcp/                 # GCP API clients & abstractions
+│   │   ├── client.go        # Base client with auth (Cloud Resource Manager)
+│   │   ├── projects.go      # Project listing
+│   │   └── compute.go       # Compute Engine (instances start/stop/reset)
 │   ├── ui/
-│   │   ├── app.go        # Main application model
-│   │   ├── keys.go       # Key bindings
-│   │   ├── styles.go     # Lip Gloss styles
-│   │   ├── views/        # Screen components
-│   │   │   ├── projects.go
-│   │   │   ├── instances.go
-│   │   │   ├── buckets.go
-│   │   │   └── logs.go
-│   │   └── components/   # Reusable UI widgets
-│   │       ├── list.go
-│   │       ├── table.go
-│   │       ├── spinner.go
-│   │       └── help.go
-│   ├── config/           # Configuration management
-│   │   └── config.go
-│   └── cache/            # Local caching layer
-│       └── cache.go
+│   │   ├── app.go           # Main application model & view routing
+│   │   ├── keys.go          # Global key bindings
+│   │   ├── styles.go        # Lip Gloss styles (GCP color palette)
+│   │   ├── messages.go      # Shared message types
+│   │   ├── views/           # Screen components
+│   │   │   ├── projects.go  # Project selector view
+│   │   │   └── instances.go # Compute Engine instances view
+│   │   └── components/      # Reusable UI widgets
+│   │       ├── spinner.go   # Loading spinner
+│   │       └── statusbar.go # Status bar widget
+│   ├── config/              # Configuration management (planned)
+│   └── cache/               # Local caching layer (planned)
 ├── go.mod
 ├── go.sum
 ├── Makefile
-└── README.md
+└── CLAUDE.md
 ```
 
 ## Architecture Notes
 
 ### Bubble Tea Model Pattern
 
-Every view implements the Bubble Tea model interface:
+Views implement a simplified interface (not full tea.Model to allow parent control):
 
 ```go
-type Model interface {
+type View interface {
     Init() tea.Cmd
-    Update(tea.Msg) (tea.Model, tea.Cmd)
+    Update(tea.Msg) tea.Cmd  // Returns cmd, parent handles model
     View() string
+    SetSize(width, height int)
 }
 ```
 
-### Message Types
+### Message Flow
 
-Define custom messages for async operations:
-
-```go
-// GCP API response messages
-type ProjectsLoadedMsg struct { Projects []string }
-type InstancesLoadedMsg struct { Instances []*compute.Instance }
-type ErrorMsg struct { Err error }
-```
+1. Views emit messages (e.g., `ProjectSelectedMsg`)
+2. App's Update() catches cross-view messages and handles navigation
+3. View-specific messages stay within the view
 
 ### Async API Calls
 
 Use tea.Cmd for non-blocking GCP API calls:
 
 ```go
-func fetchProjects(client *gcp.Client) tea.Cmd {
+func (v *InstancesView) loadInstances() tea.Cmd {
     return func() tea.Msg {
-        projects, err := client.ListProjects(context.Background())
+        instances, err := v.computeClient.ListInstances(ctx, v.projectID)
         if err != nil {
-            return ErrorMsg{Err: err}
+            return instancesErrorMsg{err: err}
         }
-        return ProjectsLoadedMsg{Projects: projects}
+        return instancesLoadedMsg{instances: instances}
     }
 }
 ```
 
-## Key Dependencies
+### Navigation Pattern
 
-```go
-// go.mod essentials
-require (
-    github.com/charmbracelet/bubbletea v1.2.4
-    github.com/charmbracelet/lipgloss v1.0.0
-    github.com/charmbracelet/bubbles v0.20.0  // Pre-built components
-    cloud.google.com/go/compute v1.x.x
-    cloud.google.com/go/storage v1.x.x
-    cloud.google.com/go/logging v1.x.x
-    google.golang.org/api v0.x.x
-)
-```
+- App holds `currentView` enum and view instances
+- `esc` key returns to previous view (handled in App.Update)
+- Selecting items emits messages that trigger view switches
 
 ## Development Commands
 
 ```bash
 # Run the application
-go run ./cmd/gcptui
+make run
 
 # Build binary
-go build -o gcptui ./cmd/gcptui
+make build
+
+# Run with race detector
+make dev
+
+# Build for all platforms
+make build-all
 
 # Run tests
-go test ./...
+make test
 
 # Lint
-golangci-lint run
-
-# Update dependencies
-go mod tidy
+make lint
 ```
 
 ## GCP Authentication
@@ -133,6 +116,10 @@ The app uses Application Default Credentials (ADC). Users authenticate via:
 gcloud auth application-default login
 ```
 
+Required scopes:
+- `cloudresourcemanager.readonly` - List projects
+- `compute` - Manage Compute Engine instances
+
 ## Code Style Guidelines
 
 - Use descriptive variable names, avoid single letters except in loops
@@ -140,40 +127,58 @@ gcloud auth application-default login
 - Add comments explaining WHY, not WHAT
 - Handle errors explicitly, don't ignore them
 - Use context.Context for cancellation in GCP API calls
+- Export message types that need to cross package boundaries
 
 ## UI/UX Guidelines
 
 - Show loading spinners during API calls
-- Cache frequently accessed data (projects list, etc.)
 - Provide keyboard shortcuts for all actions
-- Display errors in a non-blocking way
-- Use consistent color scheme via Lip Gloss styles
+- Display errors inline with retry option
+- Use consistent color scheme via Lip Gloss styles (GCP colors)
+- Status indicators: 🟢 running, 🔴 stopped, 🟡 transitioning
 
-## Key Bindings Convention
+## Key Bindings
+
+### Global
 
 | Key | Action |
 |-----|--------|
 | `q`, `Ctrl+C` | Quit |
 | `?` | Toggle help |
-| `Enter` | Select/Confirm |
-| `Esc` | Go back/Cancel |
+| `Esc` | Go back |
 | `j/k` or `↓/↑` | Navigate list |
 | `r` | Refresh current view |
 | `/` | Search/Filter |
-| `Tab` | Switch panels |
+| `Enter` | Select/Confirm |
 
-## Initial MVP Features
+### Instances View
 
-1. [ ] Project selector
-2. [ ] Compute Engine instances list (start/stop/SSH)
-3. [ ] Cloud Storage buckets browser
-4. [ ] Cloud Logging viewer with filters
-5. [ ] Resource search across project
+| Key | Action |
+|-----|--------|
+| `s` | Start stopped instance |
+| `x` | Stop running instance |
+| `R` | Reset (hard reboot) |
 
-## Future Features
+## Implemented Features
 
-- GKE cluster management
-- Cloud Run services
-- Cloud Functions
-- IAM management
-- Cost overview
+- [x] Project selector with search/filter
+- [x] Compute Engine instances list
+- [x] Instance actions (start/stop/reset)
+- [x] View navigation (projects → instances → back)
+- [x] Loading states with spinners
+- [x] Error handling with retry
+
+## Planned Features
+
+- [ ] Cloud Storage buckets browser
+- [ ] Cloud Logging viewer with filters
+- [ ] SSH to instance (via gcloud)
+- [ ] Instance details panel
+- [ ] Resource caching
+- [ ] GKE cluster management
+- [ ] Cloud Run services
+- [ ] IAM management
+
+## Claude Instructions
+
+- Use GitHub MCP if available for GitHub related tasks

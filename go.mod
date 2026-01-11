@@ -1,4 +1,4 @@
-module github.com/vlad/gcptui
+module github.com/slayer/gcon
 
 go 1.22
 
