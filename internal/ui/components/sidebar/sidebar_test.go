@@ -1,0 +1,245 @@
+package sidebar
+
+import (
+	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/stretchr/testify/assert"
+)
+
+func TestNew(t *testing.T) {
+	s := New()
+
+	assert.NotNil(t, s)
+	assert.Len(t, s.menu, 3, "should have 3 top-level categories")
+	assert.Len(t, s.currentItems, 3, "currentItems should start with root menu")
+	assert.Empty(t, s.path, "path should be empty initially")
+	assert.Equal(t, 0, s.cursor, "cursor should start at 0")
+	assert.False(t, s.collapsed, "should not be collapsed initially")
+	assert.False(t, s.focused, "should not be focused initially")
+}
+
+func TestMoveUpDown(t *testing.T) {
+	s := New()
+	s.SetFocused(true)
+
+	// Initial position
+	assert.Equal(t, 0, s.cursor)
+
+	// Move down
+	s.Update(tea.KeyMsg{Type: tea.KeyDown})
+	assert.Equal(t, 1, s.cursor)
+
+	s.Update(tea.KeyMsg{Type: tea.KeyDown})
+	assert.Equal(t, 2, s.cursor)
+
+	// Can't go past last item
+	s.Update(tea.KeyMsg{Type: tea.KeyDown})
+	assert.Equal(t, 2, s.cursor)
+
+	// Move up
+	s.Update(tea.KeyMsg{Type: tea.KeyUp})
+	assert.Equal(t, 1, s.cursor)
+
+	// Move to top
+	s.Update(tea.KeyMsg{Type: tea.KeyUp})
+	assert.Equal(t, 0, s.cursor)
+
+	// Can't go past first item
+	s.Update(tea.KeyMsg{Type: tea.KeyUp})
+	assert.Equal(t, 0, s.cursor)
+}
+
+func TestDrillDown(t *testing.T) {
+	s := New()
+	s.SetFocused(true)
+
+	// Select "Compute Engine" (category at index 0)
+	cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	// Should drill down, no navigation message for categories
+	assert.Nil(t, cmd)
+	assert.Equal(t, []string{"compute"}, s.path)
+	assert.Len(t, s.currentItems, 2, "Compute Engine has 2 children")
+	assert.Equal(t, 0, s.cursor, "cursor should reset to 0")
+}
+
+func TestGoBack(t *testing.T) {
+	s := New()
+	s.SetFocused(true)
+
+	// Drill into Compute Engine
+	s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	assert.Len(t, s.path, 1)
+
+	// Go back
+	s.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	assert.Empty(t, s.path)
+	assert.Len(t, s.currentItems, 3, "should be back at root menu")
+}
+
+func TestSelectLeafItem(t *testing.T) {
+	s := New()
+	s.SetFocused(true)
+
+	// Drill into Compute Engine
+	s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	// Select "VM instances" (leaf at index 0)
+	cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	// Should emit NavigateMsg
+	assert.NotNil(t, cmd)
+	msg := cmd()
+	navMsg, ok := msg.(NavigateMsg)
+	assert.True(t, ok, "should be NavigateMsg")
+	assert.Equal(t, ViewInstances, navMsg.ViewType)
+	assert.Equal(t, "vm-instances", navMsg.ItemID)
+}
+
+func TestToggleCollapsed(t *testing.T) {
+	s := New()
+
+	assert.False(t, s.IsCollapsed())
+	assert.Equal(t, ExpandedWidth, s.Width())
+
+	s.Toggle()
+	assert.True(t, s.IsCollapsed())
+	assert.Equal(t, CollapsedWidth, s.Width())
+
+	s.Toggle()
+	assert.False(t, s.IsCollapsed())
+	assert.Equal(t, ExpandedWidth, s.Width())
+}
+
+func TestUnfocusedIgnoresKeys(t *testing.T) {
+	s := New()
+	// Not focused
+
+	initialCursor := s.cursor
+	s.Update(tea.KeyMsg{Type: tea.KeyDown})
+	assert.Equal(t, initialCursor, s.cursor, "should not move when unfocused")
+}
+
+func TestSetActiveView(t *testing.T) {
+	s := New()
+	s.SetActiveView(ViewBuckets)
+
+	assert.Equal(t, ViewBuckets, s.activeView)
+}
+
+func TestGetCurrentCategory(t *testing.T) {
+	s := New()
+
+	// At root
+	assert.Empty(t, s.GetCurrentCategory())
+
+	// Drill into Compute Engine
+	s.SetFocused(true)
+	s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	assert.Equal(t, "Compute Engine", s.GetCurrentCategory())
+}
+
+func TestViewRendersWithoutPanic(t *testing.T) {
+	s := New()
+	s.SetSize(20)
+
+	// Should not panic
+	output := s.View()
+	assert.NotEmpty(t, output)
+
+	// Toggle collapsed and render again
+	s.Toggle()
+	output = s.View()
+	assert.NotEmpty(t, output)
+}
+
+func TestDefaultMenu(t *testing.T) {
+	menu := DefaultMenu()
+
+	assert.Len(t, menu, 3)
+
+	// Check Compute Engine
+	compute := menu[0]
+	assert.Equal(t, "compute", compute.ID)
+	assert.Equal(t, "Compute Engine", compute.Label)
+	assert.Equal(t, MenuItemCategory, compute.Type)
+	assert.Len(t, compute.Children, 2)
+
+	// Check VM instances under Compute Engine
+	vm := compute.Children[0]
+	assert.Equal(t, "vm-instances", vm.ID)
+	assert.Equal(t, MenuItemLeaf, vm.Type)
+	assert.Equal(t, ViewInstances, vm.ViewType)
+}
+
+func TestNumberShortcuts(t *testing.T) {
+	s := New()
+	s.SetFocused(true)
+
+	// Press "1" to select first item (Compute Engine) and drill down
+	cmd := s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'1'}})
+
+	// Should drill down into Compute Engine
+	assert.Nil(t, cmd, "categories don't emit navigation")
+	assert.Equal(t, []string{"compute"}, s.path)
+	assert.Len(t, s.currentItems, 2)
+
+	// Press "1" again to select VM instances
+	cmd = s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'1'}})
+
+	// Should emit NavigateMsg
+	assert.NotNil(t, cmd)
+	msg := cmd()
+	navMsg, ok := msg.(NavigateMsg)
+	assert.True(t, ok)
+	assert.Equal(t, ViewInstances, navMsg.ViewType)
+}
+
+func TestNumberShortcutOutOfRange(t *testing.T) {
+	s := New()
+	s.SetFocused(true)
+
+	// Press "9" which is out of range (only 3 items)
+	initialCursor := s.cursor
+	s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'9'}})
+
+	// Should not change cursor or crash
+	assert.Equal(t, initialCursor, s.cursor)
+}
+
+func TestViewWithFocusedAndUnfocused(t *testing.T) {
+	s := New()
+	s.SetSize(20)
+
+	// Render unfocused
+	s.SetFocused(false)
+	outputUnfocused := s.View()
+	assert.NotEmpty(t, outputUnfocused)
+
+	// Render focused
+	s.SetFocused(true)
+	outputFocused := s.View()
+	assert.NotEmpty(t, outputFocused)
+
+	// They should be different (focused has brighter colors)
+	// Can't easily test visual differences, but at least ensure no crash
+}
+
+func TestRenderHeader(t *testing.T) {
+	s := New()
+	s.SetSize(20)
+
+	// At root, header should show "☰ Menu"
+	output := s.View()
+	assert.Contains(t, output, IconHamburger)
+
+	// Drill into Compute Engine
+	s.SetFocused(true)
+	s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	// Header should now show category name
+	output = s.View()
+	assert.Contains(t, output, "Compute Engine")
+}
