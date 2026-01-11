@@ -261,24 +261,26 @@ func (s *Sidebar) renderItem(item MenuItem, index int, styles Styles) string {
 			label = item.Icon
 		}
 	} else {
-		// Build full label with cursor, icon, text, and shortcut
-		cursor := "  " // No cursor
+		// Build full label with consistent spacing:
+		// [cursor 2ch] [active 2ch] [icon 2ch] [label] [shortcut]
+		cursor := "  " // 2 chars: no cursor
 		if isSelected {
-			cursor = IconCursor + " "
+			cursor = IconCursor + " " // 2 chars: cursor + space
 		}
 
-		activeIndicator := "  " // No indicator
+		active := "  " // 2 chars: no active indicator
 		if isActive {
-			activeIndicator = IconActive + " "
+			active = IconActive + " " // 2 chars: dot + space
 		}
+
+		icon := item.Icon + " " // icon + space
 
 		if item.Type == MenuItemCategory {
-			// Category: cursor + icon + label + expand arrow
-			label = fmt.Sprintf("%s%s %s %s", cursor, item.Icon, item.Label, IconExpand)
+			// Category: cursor + icon + label + expand arrow (no active indicator)
+			label = fmt.Sprintf("%s%s%s %s", cursor, icon, item.Label, IconExpand)
 		} else {
-			// Leaf: cursor + active indicator + icon + label + shortcut
-			label = fmt.Sprintf("%s%s%s %s", cursor, activeIndicator, item.Icon, item.Label)
-			// Add shortcut hint (right-aligned would be nice but keep it simple)
+			// Leaf: cursor + active + icon + label + shortcut
+			label = fmt.Sprintf("%s%s%s%s", cursor, active, icon, item.Label)
 			if shortcut != "" && s.focused {
 				label += " " + shortcut
 			}

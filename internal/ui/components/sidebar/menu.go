@@ -20,20 +20,20 @@ const (
 	ViewFirewall
 )
 
-// Icons for menu items - using Unicode/emoji that render well in terminals
-// Nerd Fonts alternatives in comments for users with patched fonts
+// Icons for menu items - using simple Unicode symbols for consistent width
+// These are single-width characters that align properly in terminals
 const (
 	// Category icons
-	IconCompute = "⚙️" // Nerd Font: 󰒋 (nf-md-server)
-	IconStorage = "📦"  // Nerd Font: 󰋊 (nf-md-database)
-	IconNetwork = "🌐"  // Nerd Font: 󰛳 (nf-md-network)
+	IconCompute = "⚡" // Compute Engine
+	IconStorage = "◧" // Cloud Storage
+	IconNetwork = "◈" // VPC Network
 
 	// Leaf item icons
-	IconVM       = "🖥️" // Nerd Font: 󰍹 (nf-md-monitor)
-	IconDisk     = "💾"  // Nerd Font: 󰋊 (nf-md-harddisk)
-	IconBucket   = "🪣"  // Nerd Font: 󰆼 (nf-md-bucket)
-	IconVPC      = "🔗"  // Nerd Font: 󰌘 (nf-md-lan)
-	IconFirewall = "🛡️" // Nerd Font: 󰒃 (nf-md-shield)
+	IconVM       = "▣" // VM instances
+	IconDisk     = "◉" // Disks
+	IconBucket   = "◪" // Buckets
+	IconVPC      = "◇" // VPC networks
+	IconFirewall = "◆" // Firewall
 )
 
 // MenuItem represents a single menu entry
