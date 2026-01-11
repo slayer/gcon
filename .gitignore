@@ -3,5 +3,5 @@
 /bin/
 /gcon
 
-# Claude Code
-.claude
+# Claude Code (keep commands, ignore local settings)
+.claude/settings.local.json
