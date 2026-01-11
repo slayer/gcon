@@ -326,7 +326,7 @@ func (v *InstanceDetailsView) renderContent() string {
 	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Name", d.Name))
 	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Instance ID", strconv.FormatUint(d.ID, 10)))
 	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Description", defaultIfEmpty(d.Description, "None")))
-	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Status", d.Status))
+	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Status", fmt.Sprintf("%s %s", getStatusIcon(d.Status), d.Status)))
 	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Zone", d.Zone))
 	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Created", formatTimestamp(d.CreatedAt)))
 	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Deletion protection", formatBool(d.DeletionProtection)))
