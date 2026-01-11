@@ -460,12 +460,7 @@ func (v *InstanceDetailsView) renderContent() string {
 		b.WriteString(sectionStyle.Render("Custom Metadata"))
 		b.WriteString("\n")
 		for k, val := range d.Metadata {
-			// Truncate long values
-			displayVal := val
-			if len(displayVal) > 50 {
-				displayVal = displayVal[:47] + "..."
-			}
-			b.WriteString(fmt.Sprintf("  %s: %s\n", k, displayVal))
+			b.WriteString(fmt.Sprintf("  %s: %s\n", k, truncate(val, 50)))
 		}
 	}
 
