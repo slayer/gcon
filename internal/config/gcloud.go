@@ -12,6 +12,8 @@ type GcloudConfig struct {
 	ActiveConfig string
 	Project      string
 	Account      string
+	Zone         string
+	Region       string
 }
 
 // LoadGcloudConfig reads the default project from gcloud configuration.
@@ -25,9 +27,14 @@ func LoadGcloudConfig() (*GcloudConfig, error) {
 	}
 
 	// Determine active configuration name
-	activeConfig, err := getActiveConfig(configDir)
-	if err != nil {
-		return nil, err
+	// Priority: CLOUDSDK_ACTIVE_CONFIG_NAME env → properties file → "default"
+	activeConfig := os.Getenv("CLOUDSDK_ACTIVE_CONFIG_NAME")
+	if activeConfig == "" {
+		var err error
+		activeConfig, err = getActiveConfig(configDir)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if activeConfig == "" {
 		activeConfig = "default"
@@ -50,6 +57,12 @@ func LoadGcloudConfig() (*GcloudConfig, error) {
 	if core, ok := configData["core"]; ok {
 		config.Project = core["project"]
 		config.Account = core["account"]
+	}
+
+	// Zone and region are in [compute] section
+	if compute, ok := configData["compute"]; ok {
+		config.Zone = compute["zone"]
+		config.Region = compute["region"]
 	}
 
 	return config, nil
