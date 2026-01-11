@@ -4,18 +4,19 @@ import "github.com/charmbracelet/bubbles/key"
 
 // KeyMap defines all application key bindings
 type KeyMap struct {
-	Up       key.Binding
-	Down     key.Binding
-	Left     key.Binding
-	Right    key.Binding
-	Select   key.Binding
-	Back     key.Binding
-	Quit     key.Binding
-	Help     key.Binding
-	Refresh  key.Binding
-	Search   key.Binding
-	Tab      key.Binding
-	ShiftTab key.Binding
+	Up            key.Binding
+	Down          key.Binding
+	Left          key.Binding
+	Right         key.Binding
+	Select        key.Binding
+	Back          key.Binding
+	Quit          key.Binding
+	Help          key.Binding
+	Refresh       key.Binding
+	Search        key.Binding
+	Tab           key.Binding
+	ShiftTab      key.Binding
+	ToggleSidebar key.Binding
 }
 
 // DefaultKeyMap returns the default key bindings
@@ -69,6 +70,10 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("shift+tab"),
 			key.WithHelp("shift+tab", "prev panel"),
 		),
+		ToggleSidebar: key.NewBinding(
+			key.WithKeys("["),
+			key.WithHelp("[", "toggle sidebar"),
+		),
 	}
 }
 
@@ -83,6 +88,6 @@ func (k KeyMap) FullHelp() [][]key.Binding {
 		{k.Up, k.Down, k.Left, k.Right},
 		{k.Select, k.Back, k.Refresh},
 		{k.Search, k.Tab, k.ShiftTab},
-		{k.Help, k.Quit},
+		{k.ToggleSidebar, k.Help, k.Quit},
 	}
 }

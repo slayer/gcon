@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
+	"github.com/slayer/gcon/internal/ui/components/sidebar"
 	"github.com/slayer/gcon/internal/ui/views"
 )
 
@@ -18,8 +19,19 @@ const (
 	ViewProjects ViewType = iota
 	ViewInstances
 	ViewInstanceDetails
+	ViewDisks
 	ViewBuckets
+	ViewNetworks
+	ViewFirewall
 	ViewLogs
+)
+
+// FocusedPanel indicates which panel has keyboard focus
+type FocusedPanel int
+
+const (
+	FocusContent FocusedPanel = iota
+	FocusSidebar
 )
 
 // App is the main application model
@@ -47,6 +59,10 @@ type App struct {
 
 	// Initial project from config/flag (skip project selector if set)
 	initialProjectID string
+
+	// Sidebar navigation (active after project selection)
+	sidebar      *sidebar.Sidebar
+	focusedPanel FocusedPanel
 }
 
 // AppOptions configures the application
@@ -65,6 +81,8 @@ func NewApp(client *gcp.Client, opts AppOptions) *App {
 		currentView:      ViewProjects,
 		projectView:      views.NewProjectsView(client),
 		initialProjectID: opts.InitialProjectID,
+		sidebar:          sidebar.New(),
+		focusedPanel:     FocusContent,
 	}
 }
 
@@ -91,23 +109,37 @@ func (a *App) loadInitialProject() tea.Cmd {
 	}
 }
 
+// sidebarActive returns true if sidebar should be shown
+func (a *App) sidebarActive() bool {
+	return a.selectedProject != nil && a.currentView != ViewProjects
+}
+
 // Update implements tea.Model
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		// Handle back navigation first (before view-specific handlers)
 		if key.Matches(msg, a.keys.Back) {
+			// If sidebar is focused and drilled down, go back in sidebar
+			if a.focusedPanel == FocusSidebar && len(a.sidebar.GetPath()) > 0 {
+				a.sidebar.Update(msg)
+				return a, nil
+			}
+
 			switch a.currentView {
 			case ViewInstanceDetails:
 				// Go back to instances list
 				a.currentView = ViewInstances
 				a.instanceDetailsView = nil
 				a.selectedInstance = nil
+				a.updateSidebarActiveView()
 				return a, nil
-			case ViewInstances:
-				// Go back to projects
+			case ViewInstances, ViewDisks, ViewBuckets, ViewNetworks, ViewFirewall:
+				// Go back to projects, clear sidebar state
 				a.currentView = ViewProjects
 				a.instancesView = nil
+				a.selectedProject = nil
+				a.focusedPanel = FocusContent
 				return a, nil
 			}
 		}
@@ -119,19 +151,38 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, a.keys.Help):
 			a.showHelp = !a.showHelp
 			return a, nil
+		case key.Matches(msg, a.keys.Tab):
+			// Switch focus between sidebar and content
+			if a.sidebarActive() {
+				a.toggleFocus()
+			}
+			return a, nil
+		case key.Matches(msg, a.keys.ShiftTab):
+			// Same as Tab for now (toggle)
+			if a.sidebarActive() {
+				a.toggleFocus()
+			}
+			return a, nil
+		case key.Matches(msg, a.keys.ToggleSidebar):
+			// Toggle sidebar collapsed/expanded
+			if a.sidebarActive() {
+				a.sidebar.Toggle()
+				a.updateViewSizes()
+			}
+			return a, nil
+		}
+
+		// Route to sidebar if focused
+		if a.sidebarActive() && a.focusedPanel == FocusSidebar {
+			cmd := a.sidebar.Update(msg)
+			return a, cmd
 		}
 
 	case tea.WindowSizeMsg:
 		a.width = msg.Width
 		a.height = msg.Height
 		a.help.Width = msg.Width
-		a.projectView.SetSize(msg.Width, msg.Height-4)
-		if a.instancesView != nil {
-			a.instancesView.SetSize(msg.Width, msg.Height-4)
-		}
-		if a.instanceDetailsView != nil {
-			a.instanceDetailsView.SetSize(msg.Width, msg.Height-4)
-		}
+		a.updateViewSizes()
 		return a, nil
 
 	case ErrorMsg:
@@ -141,10 +192,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case views.ProjectSelectedMsg:
 		project := msg.Project
 		a.selectedProject = &project
-		// Navigate to instances view
+		// Navigate to instances view with sidebar
 		a.currentView = ViewInstances
 		a.instancesView = views.NewInstancesView(project.ID)
-		a.instancesView.SetSize(a.width, a.height-4)
+		a.focusedPanel = FocusContent
+		a.updateSidebarActiveView()
+		a.updateViewSizes()
 		return a, a.instancesView.Init()
 
 	case views.InstanceSelectedMsg:
@@ -159,7 +212,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			inst.Name,
 			a.instancesView.GetComputeClient(),
 		)
-		a.instanceDetailsView.SetSize(a.width, a.height-4)
+		a.updateSidebarActiveView()
+		a.updateViewSizes()
 		return a, a.instanceDetailsView.Init()
 
 	case InitialProjectLoadedMsg:
@@ -167,7 +221,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.selectedProject = &msg.Project
 		a.currentView = ViewInstances
 		a.instancesView = views.NewInstancesView(msg.Project.ID)
-		a.instancesView.SetSize(a.width, a.height-4)
+		a.focusedPanel = FocusContent
+		a.updateSidebarActiveView()
+		a.updateViewSizes()
 		return a, a.instancesView.Init()
 
 	case InitialProjectErrorMsg:
@@ -175,24 +231,113 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.err = msg.Err
 		a.initialProjectID = ""
 		return a, a.projectView.Init()
+
+	case sidebar.NavigateMsg:
+		// Handle sidebar navigation
+		return a, a.handleSidebarNavigation(msg)
 	}
 
-	// Delegate to current view
+	// Delegate to current view (only if content is focused)
 	var cmd tea.Cmd
-	switch a.currentView {
-	case ViewProjects:
-		cmd = a.projectView.Update(msg)
-	case ViewInstances:
-		if a.instancesView != nil {
-			cmd = a.instancesView.Update(msg)
-		}
-	case ViewInstanceDetails:
-		if a.instanceDetailsView != nil {
-			cmd = a.instanceDetailsView.Update(msg)
+	if a.focusedPanel == FocusContent || !a.sidebarActive() {
+		switch a.currentView {
+		case ViewProjects:
+			cmd = a.projectView.Update(msg)
+		case ViewInstances:
+			if a.instancesView != nil {
+				cmd = a.instancesView.Update(msg)
+			}
+		case ViewInstanceDetails:
+			if a.instanceDetailsView != nil {
+				cmd = a.instanceDetailsView.Update(msg)
+			}
 		}
 	}
 
 	return a, cmd
+}
+
+// toggleFocus switches focus between sidebar and content
+func (a *App) toggleFocus() {
+	if a.focusedPanel == FocusContent {
+		a.focusedPanel = FocusSidebar
+		a.sidebar.SetFocused(true)
+	} else {
+		a.focusedPanel = FocusContent
+		a.sidebar.SetFocused(false)
+	}
+}
+
+// updateViewSizes recalculates sizes for all views
+func (a *App) updateViewSizes() {
+	contentWidth := a.width
+	contentHeight := a.height - 4 // Account for header and footer
+
+	// Subtract sidebar width when active
+	if a.sidebarActive() {
+		contentWidth -= a.sidebar.Width()
+		a.sidebar.SetSize(contentHeight)
+	}
+
+	a.projectView.SetSize(a.width, contentHeight)
+	if a.instancesView != nil {
+		a.instancesView.SetSize(contentWidth, contentHeight)
+	}
+	if a.instanceDetailsView != nil {
+		a.instanceDetailsView.SetSize(contentWidth, contentHeight)
+	}
+}
+
+// updateSidebarActiveView sets the active view highlight in sidebar
+func (a *App) updateSidebarActiveView() {
+	switch a.currentView {
+	case ViewInstances, ViewInstanceDetails:
+		a.sidebar.SetActiveView(sidebar.ViewInstances)
+	case ViewDisks:
+		a.sidebar.SetActiveView(sidebar.ViewDisks)
+	case ViewBuckets:
+		a.sidebar.SetActiveView(sidebar.ViewBuckets)
+	case ViewNetworks:
+		a.sidebar.SetActiveView(sidebar.ViewNetworks)
+	case ViewFirewall:
+		a.sidebar.SetActiveView(sidebar.ViewFirewall)
+	}
+}
+
+// handleSidebarNavigation processes sidebar navigation messages
+func (a *App) handleSidebarNavigation(msg sidebar.NavigateMsg) tea.Cmd {
+	// Map sidebar ViewType to app ViewType and navigate
+	switch msg.ViewType {
+	case sidebar.ViewInstances:
+		if a.currentView != ViewInstances && a.currentView != ViewInstanceDetails {
+			a.currentView = ViewInstances
+			a.instanceDetailsView = nil
+			a.selectedInstance = nil
+			if a.instancesView == nil {
+				a.instancesView = views.NewInstancesView(a.selectedProject.ID)
+				a.updateViewSizes()
+				return a.instancesView.Init()
+			}
+		}
+	case sidebar.ViewDisks:
+		a.currentView = ViewDisks
+		// Placeholder - view not implemented yet
+	case sidebar.ViewBuckets:
+		a.currentView = ViewBuckets
+		// Placeholder - view not implemented yet
+	case sidebar.ViewNetworks:
+		a.currentView = ViewNetworks
+		// Placeholder - view not implemented yet
+	case sidebar.ViewFirewall:
+		a.currentView = ViewFirewall
+		// Placeholder - view not implemented yet
+	}
+
+	a.updateSidebarActiveView()
+	// Switch focus back to content after navigation
+	a.focusedPanel = FocusContent
+	a.sidebar.SetFocused(false)
+	return nil
 }
 
 // View implements tea.Model
@@ -202,32 +347,14 @@ func (a *App) View() string {
 	}
 
 	// Header with breadcrumb navigation
-	header := a.styles.Title.Render("☁ gcon")
-	if a.selectedProject != nil {
-		header += a.styles.Muted.Render(" • " + a.selectedProject.ID)
-		if a.currentView == ViewInstances || a.currentView == ViewInstanceDetails {
-			header += a.styles.Muted.Render(" • Compute Engine")
-		}
-		if a.currentView == ViewInstanceDetails && a.selectedInstance != nil {
-			header += a.styles.Muted.Render(" • " + a.selectedInstance.Name)
-		}
-	}
+	header := a.renderHeader()
 
-	// Main content based on current view
+	// Main content area (with or without sidebar)
 	var content string
-	switch a.currentView {
-	case ViewProjects:
-		content = a.projectView.View()
-	case ViewInstances:
-		if a.instancesView != nil {
-			content = a.instancesView.View()
-		}
-	case ViewInstanceDetails:
-		if a.instanceDetailsView != nil {
-			content = a.instanceDetailsView.View()
-		}
-	default:
-		content = "View not implemented"
+	if a.sidebarActive() {
+		content = a.renderWithSidebar()
+	} else {
+		content = a.renderCurrentView()
 	}
 
 	// Error display
@@ -236,16 +363,7 @@ func (a *App) View() string {
 	}
 
 	// Help footer
-	var footer string
-	if a.showHelp {
-		footer = a.help.View(a.keys)
-	} else {
-		helpText := "? help • q quit"
-		if a.currentView != ViewProjects {
-			helpText = "esc back • " + helpText
-		}
-		footer = a.styles.Help.Render(helpText)
-	}
+	footer := a.renderFooter()
 
 	// Compose final layout
 	return lipgloss.JoinVertical(
@@ -254,4 +372,90 @@ func (a *App) View() string {
 		content,
 		footer,
 	)
+}
+
+// renderHeader creates the header with breadcrumb
+func (a *App) renderHeader() string {
+	header := a.styles.Title.Render("☁ gcon")
+	if a.selectedProject != nil {
+		header += a.styles.Muted.Render(" • " + a.selectedProject.ID)
+
+		// Show current category from sidebar if drilled down
+		if category := a.sidebar.GetCurrentCategory(); category != "" {
+			header += a.styles.Muted.Render(" • " + category)
+		} else {
+			// Show category based on current view
+			switch a.currentView {
+			case ViewInstances, ViewInstanceDetails, ViewDisks:
+				header += a.styles.Muted.Render(" • Compute Engine")
+			case ViewBuckets:
+				header += a.styles.Muted.Render(" • Cloud Storage")
+			case ViewNetworks, ViewFirewall:
+				header += a.styles.Muted.Render(" • VPC Network")
+			}
+		}
+
+		if a.currentView == ViewInstanceDetails && a.selectedInstance != nil {
+			header += a.styles.Muted.Render(" • " + a.selectedInstance.Name)
+		}
+	}
+	return header
+}
+
+// renderWithSidebar creates the two-panel layout
+func (a *App) renderWithSidebar() string {
+	sidebarView := a.sidebar.View()
+	contentView := a.renderCurrentView()
+
+	return lipgloss.JoinHorizontal(
+		lipgloss.Top,
+		sidebarView,
+		contentView,
+	)
+}
+
+// renderCurrentView renders the content area based on current view
+func (a *App) renderCurrentView() string {
+	switch a.currentView {
+	case ViewProjects:
+		return a.projectView.View()
+	case ViewInstances:
+		if a.instancesView != nil {
+			return a.instancesView.View()
+		}
+	case ViewInstanceDetails:
+		if a.instanceDetailsView != nil {
+			return a.instanceDetailsView.View()
+		}
+	case ViewDisks:
+		return a.renderPlaceholder("Disks")
+	case ViewBuckets:
+		return a.renderPlaceholder("Buckets")
+	case ViewNetworks:
+		return a.renderPlaceholder("VPC Networks")
+	case ViewFirewall:
+		return a.renderPlaceholder("Firewall Rules")
+	}
+	return "View not implemented"
+}
+
+// renderPlaceholder renders a placeholder for unimplemented views
+func (a *App) renderPlaceholder(name string) string {
+	return a.styles.Muted.Render("\n  " + name + " view - not implemented yet\n\n  Use sidebar to navigate to VM instances.")
+}
+
+// renderFooter creates the help footer
+func (a *App) renderFooter() string {
+	if a.showHelp {
+		return a.help.View(a.keys)
+	}
+
+	helpText := "? help • q quit"
+	if a.currentView != ViewProjects {
+		helpText = "esc back • " + helpText
+	}
+	if a.sidebarActive() {
+		helpText = "tab focus • [ sidebar • " + helpText
+	}
+	return a.styles.Help.Render(helpText)
 }
