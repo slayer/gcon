@@ -1,3 +1,7 @@
 
-gcon
+# Binary output
+/bin/
+/gcon
+
+# Claude Code
 .claude
