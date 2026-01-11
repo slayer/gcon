@@ -8,7 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/vlad/gcptui/internal/gcp"
+	"github.com/slayer/gcon/internal/gcp"
 )
 
 // projectItem implements list.Item for the bubbles list component
