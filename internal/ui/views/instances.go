@@ -63,10 +63,10 @@ type InstancesView struct {
 
 // instanceKeyMap defines instance-specific key bindings
 type instanceKeyMap struct {
-	Start  key.Binding
-	Stop   key.Binding
-	Reset  key.Binding
-	SSH    key.Binding
+	Start   key.Binding
+	Stop    key.Binding
+	Reset   key.Binding
+	SSH     key.Binding
 	Refresh key.Binding
 }
 

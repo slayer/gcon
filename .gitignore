@@ -1,3 +1,7 @@
 
-gcon
-.claude
+# Binary output
+/bin/
+/gcon
+
+# Claude Code (keep commands, ignore local settings)
+.claude/settings.local.json

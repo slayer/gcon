@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"context"
+
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -39,23 +41,51 @@ type App struct {
 	// UI state
 	showHelp bool
 	err      error
+
+	// Initial project from config/flag (skip project selector if set)
+	initialProjectID string
+}
+
+// AppOptions configures the application
+type AppOptions struct {
+	// InitialProjectID skips project selector and goes directly to this project
+	InitialProjectID string
 }
 
 // NewApp creates a new application instance
-func NewApp(client *gcp.Client) *App {
+func NewApp(client *gcp.Client, opts AppOptions) *App {
 	return &App{
-		gcpClient:   client,
-		styles:      DefaultStyles(),
-		keys:        DefaultKeyMap(),
-		help:        help.New(),
-		currentView: ViewProjects,
-		projectView: views.NewProjectsView(client),
+		gcpClient:        client,
+		styles:           DefaultStyles(),
+		keys:             DefaultKeyMap(),
+		help:             help.New(),
+		currentView:      ViewProjects,
+		projectView:      views.NewProjectsView(client),
+		initialProjectID: opts.InitialProjectID,
 	}
 }
 
 // Init implements tea.Model
 func (a *App) Init() tea.Cmd {
+	// If initial project is set, load it directly instead of showing selector
+	if a.initialProjectID != "" {
+		return a.loadInitialProject()
+	}
 	return a.projectView.Init()
+}
+
+// loadInitialProject fetches project details and switches to instances view
+func (a *App) loadInitialProject() tea.Cmd {
+	return func() tea.Msg {
+		project, err := a.gcpClient.GetProject(context.Background(), a.initialProjectID)
+		if err != nil {
+			return InitialProjectErrorMsg{
+				Err:       err,
+				ProjectID: a.initialProjectID,
+			}
+		}
+		return InitialProjectLoadedMsg{Project: *project}
+	}
 }
 
 // Update implements tea.Model
@@ -102,6 +132,20 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.instancesView = views.NewInstancesView(project.ID)
 		a.instancesView.SetSize(a.width, a.height-4)
 		return a, a.instancesView.Init()
+
+	case InitialProjectLoadedMsg:
+		// Initial project loaded successfully, go directly to instances view
+		a.selectedProject = &msg.Project
+		a.currentView = ViewInstances
+		a.instancesView = views.NewInstancesView(msg.Project.ID)
+		a.instancesView.SetSize(a.width, a.height-4)
+		return a, a.instancesView.Init()
+
+	case InitialProjectErrorMsg:
+		// Failed to load initial project, fall back to selector with error displayed
+		a.err = msg.Err
+		a.initialProjectID = ""
+		return a, a.projectView.Init()
 	}
 
 	// Delegate to current view
