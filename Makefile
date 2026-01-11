@@ -1,4 +1,7 @@
-.PHONY: build run test lint clean deps tidy
+.PHONY: build run test lint clean deps tidy install-lint
+
+# golangci-lint version
+GOLANGCI_LINT_VERSION := v2.1.6
 
 # Binary name
 BINARY_NAME=gcon
@@ -43,6 +46,10 @@ test-coverage:
 	$(GOTEST) -v -coverprofile=coverage.out ./...
 	$(GOCMD) tool cover -html=coverage.out -o coverage.html
 
+# Install golangci-lint
+install-lint:
+	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+
 # Run linter (requires golangci-lint)
 lint:
 	golangci-lint run ./...
@@ -78,6 +85,7 @@ help:
 	@echo "  build        - Build the binary"
 	@echo "  run          - Run the application"
 	@echo "  test         - Run tests"
+	@echo "  install-lint - Install golangci-lint"
 	@echo "  lint         - Run linter"
 	@echo "  clean        - Clean build artifacts"
 	@echo "  deps         - Download dependencies"

@@ -108,6 +108,9 @@ make build-all
 # Run tests
 make test
 
+# Install linter (golangci-lint v2.1.6)
+make install-lint
+
 # Lint
 make lint
 ```

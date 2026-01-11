@@ -84,7 +84,7 @@ account = user@example.com
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tmpFile := createTempFile(t, tt.content)
-			defer os.Remove(tmpFile)
+			defer func() { _ = os.Remove(tmpFile) }()
 
 			result, err := parseConfigFile(tmpFile)
 			require.NoError(t, err)
