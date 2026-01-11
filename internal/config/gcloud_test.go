@@ -178,6 +178,7 @@ project = default-project
 	t.Run("returns nil when config file does not exist", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		t.Setenv("CLOUDSDK_CONFIG", tmpDir)
+		t.Setenv("CLOUDSDK_ACTIVE_CONFIG_NAME", "")
 
 		// Create configurations directory but no config files
 		require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "configurations"), 0755))
@@ -185,6 +186,64 @@ project = default-project
 		config, err := LoadGcloudConfig()
 		require.NoError(t, err)
 		assert.Nil(t, config)
+	})
+
+	t.Run("CLOUDSDK_ACTIVE_CONFIG_NAME overrides properties file", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		t.Setenv("CLOUDSDK_CONFIG", tmpDir)
+		t.Setenv("CLOUDSDK_ACTIVE_CONFIG_NAME", "staging")
+
+		// Create properties file indicating different active config
+		propertiesContent := `[core]
+config = prod
+`
+		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "properties"), []byte(propertiesContent), 0644))
+
+		// Create configurations directory with both configs
+		configDir := filepath.Join(tmpDir, "configurations")
+		require.NoError(t, os.MkdirAll(configDir, 0755))
+
+		require.NoError(t, os.WriteFile(
+			filepath.Join(configDir, "config_prod"),
+			[]byte("[core]\nproject = prod-project\n"),
+			0644,
+		))
+		require.NoError(t, os.WriteFile(
+			filepath.Join(configDir, "config_staging"),
+			[]byte("[core]\nproject = staging-project\n"),
+			0644,
+		))
+
+		config, err := LoadGcloudConfig()
+		require.NoError(t, err)
+		require.NotNil(t, config)
+		// Should use staging (from env) not prod (from properties)
+		assert.Equal(t, "staging", config.ActiveConfig)
+		assert.Equal(t, "staging-project", config.Project)
+	})
+
+	t.Run("loads zone and region from compute section", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		t.Setenv("CLOUDSDK_CONFIG", tmpDir)
+		t.Setenv("CLOUDSDK_ACTIVE_CONFIG_NAME", "")
+
+		configDir := filepath.Join(tmpDir, "configurations")
+		require.NoError(t, os.MkdirAll(configDir, 0755))
+
+		configContent := `[core]
+project = my-project
+
+[compute]
+zone = us-central1-a
+region = us-central1
+`
+		require.NoError(t, os.WriteFile(filepath.Join(configDir, "config_default"), []byte(configContent), 0644))
+
+		config, err := LoadGcloudConfig()
+		require.NoError(t, err)
+		require.NotNil(t, config)
+		assert.Equal(t, "us-central1-a", config.Zone)
+		assert.Equal(t, "us-central1", config.Region)
 	})
 }
 
