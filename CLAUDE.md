@@ -200,6 +200,7 @@ Use `go fmt` to format your code before committing.
 
 When implementing any code edits - run corresponding tests frequently to catch breaking changes at earliest.
 Always run full test suite before making decision that some step is done and moving over to the next step.
+Run linter before committing code changes.
 
 ### _IMPORTANT NOTICE #5_ Branches and Commit messages
 
