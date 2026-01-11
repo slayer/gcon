@@ -6,11 +6,11 @@ import (
 
 // StatusBar displays contextual information at the bottom of the screen
 type StatusBar struct {
-	width   int
-	style   lipgloss.Style
-	left    string
-	center  string
-	right   string
+	width  int
+	style  lipgloss.Style
+	left   string
+	center string
+	right  string
 }
 
 // NewStatusBar creates a new status bar
