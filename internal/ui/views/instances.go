@@ -63,6 +63,7 @@ type InstancesView struct {
 
 // instanceKeyMap defines instance-specific key bindings
 type instanceKeyMap struct {
+	Enter   key.Binding
 	Start   key.Binding
 	Stop    key.Binding
 	Reset   key.Binding
@@ -72,6 +73,10 @@ type instanceKeyMap struct {
 
 func defaultInstanceKeyMap() instanceKeyMap {
 	return instanceKeyMap{
+		Enter: key.NewBinding(
+			key.WithKeys("enter"),
+			key.WithHelp("enter", "details"),
+		),
 		Start: key.NewBinding(
 			key.WithKeys("s"),
 			key.WithHelp("s", "start"),
@@ -229,12 +234,20 @@ func (v *InstancesView) Update(msg tea.Msg) tea.Cmd {
 		return nil
 
 	case tea.KeyMsg:
-		// Don't handle keys during action
-		if v.actionLoading {
+		// Don't handle keys during action or loading
+		if v.actionLoading || v.loading {
 			return nil
 		}
 
 		switch {
+		case key.Matches(msg, v.keys.Enter):
+			// Navigate to instance details on Enter
+			if item, ok := v.list.SelectedItem().(instanceItem); ok {
+				return func() tea.Msg {
+					return InstanceSelectedMsg{Instance: item.instance}
+				}
+			}
+
 		case key.Matches(msg, v.keys.Refresh):
 			v.loading = true
 			v.err = nil
@@ -327,7 +340,7 @@ func (v *InstancesView) View() string {
 
 	// Help text for actions
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
-	help := helpStyle.Render("\n  s: start • x: stop • R: reset • r: refresh • esc: back")
+	help := helpStyle.Render("\n  enter: details • s: start • x: stop • R: reset • r: refresh • esc: back")
 
 	return header + v.list.View() + help
 }
@@ -345,4 +358,9 @@ func (v *InstancesView) SelectedInstance() *gcp.Instance {
 		return &item.instance
 	}
 	return nil
+}
+
+// GetComputeClient returns the compute client for reuse in detail views
+func (v *InstancesView) GetComputeClient() *gcp.ComputeClient {
+	return v.computeClient
 }

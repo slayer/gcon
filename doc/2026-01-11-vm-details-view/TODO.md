@@ -266,11 +266,11 @@ Test `instanceDetailsFromAPI()` with mock compute.Instance data:
 
 ## Progress Tracking
 
-- [ ] Phase 1.1: Create InstanceDetails struct
-- [ ] Phase 1.2: Implement GetInstanceDetails method
-- [ ] Phase 2.1: Create instance_details.go view
-- [ ] Phase 2.2: Define message types
-- [ ] Phase 3.1-3.5: Wire up navigation
-- [ ] Phase 4: Implement rendering helpers
-- [ ] Phase 5: Add tests
-- [ ] Final: Manual testing and polish
+- [x] Phase 1.1: Create InstanceDetails struct
+- [x] Phase 1.2: Implement GetInstanceDetails method
+- [x] Phase 2.1: Create instance_details.go view
+- [x] Phase 2.2: Define message types
+- [x] Phase 3.1-3.5: Wire up navigation
+- [x] Phase 4: Implement rendering helpers
+- [x] Phase 5: Add tests
+- [x] Final: Manual testing and polish
