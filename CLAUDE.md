@@ -11,6 +11,10 @@ A terminal-based user interface for managing Google Cloud Platform resources, bu
 - **Styling**: [Lip Gloss](https://github.com/charmbracelet/lipgloss)
 - **GCP SDK**: `cloud.google.com/go` + `google.golang.org/api`
 - **Auth**: Application Default Credentials (ADC)
+- **Testing**: Go's built-in testing package
+  - Mocking with interfaces and test implementations
+  - use `testify` for assertions
+  - use table-driven tests if applicable
 
 ## Project Structure
 
@@ -159,6 +163,63 @@ Required scopes:
 | `x` | Stop running instance |
 | `R` | Reset (hard reboot) |
 
+
+## _IMPORTANT NOTICES_
+
+### _IMPORTANT NOTICE #1_ Workflow
+
+- use current date in format `YYYY-mm-dd` for `{task_id}`, like `2025-12-11`
+- Before starting any task, check if similar task is already in progress or completed to avoid duplication.
+- For every new task, create a new branch named `{task_id}-<short_description>`
+- On every task, create a `doc/{task_id}-{short description}/TODO.md` file. (see branch naming conventions below)
+  - For subtasks, create a `doc/{task_id}-{short description}/TODO_<subtask_name>.md` file.
+- Use this file to outline the task, including:
+  - Task description
+  - Implementation plan
+  - Any specific requirements or constraints
+- Break down the task into smaller, manageable steps.
+- Add to it the task description, and plan the implementation.
+- Use this TODO file to track your progress and document decisions.
+- Periodically mark completed tasks as done in the TODO file.
+- After completing the task, create/update file `doc/{task_id}-{short description}/Documentation.md` with:
+  - Summary of changes made
+  - Any relevant technical details
+  - Instructions for testing or deployment if applicable
+  - Mermaid diagrams if necessary to illustrate complex workflows or architectures.
+- Create minimal but comprehensive tests to cover new features or bug fixes.
+- Once the task is complete, create a Pull Request (PR) to merge your changes back
+
+### _IMPORTANT NOTICE #3_ Code formatting
+
+Use `go fmt` to format your code before committing.
+
+### _IMPORTANT NOTICE #4_ Run tests frequently
+
+When implementing any code edits - run corresponding tests frequently to catch breaking changes at earliest.
+Always run full test suite before making decision that some step is done and moving over to the next step.
+
+### _IMPORTANT NOTICE #5_ Branches and Commit messages
+
+When working on a task, create a new branch named `{task_id}-<short_description>`. Description should be concise and reflect the task's purpose, and less than 32 characters long.
+For example, `2025-12-11-project-selection`.
+
+When committing code changes, use clear and descriptive commit messages. Follow the format:
+```
+{task_id}: <short description of changes>
+```
+
+### _IMPORTANT NOTICE #6_ Subagents
+
+Spin up multiple subagents for each task to ensure parallel development. Each subagent should work on a specific aspect of the task, such as implementation, testing, or documentation. This will help speed up the development process and ensure that all aspects of the task are covered.
+
+### Git and Merge Requests
+
+- Use Git for version control.
+- Project hosted on GitHub.
+- Create Pull Requests for code reviews before merging changes to the main branch.
+- Use descriptive titles and descriptions for Pull Requests to facilitate the review process.
+- Use GitHub MCP if available for GitHub related tasks.
+
 ## Implemented Features
 
 - [x] Project selector with search/filter
@@ -179,6 +240,3 @@ Required scopes:
 - [ ] Cloud Run services
 - [ ] IAM management
 
-## Claude Instructions
-
-- Use GitHub MCP if available for GitHub related tasks

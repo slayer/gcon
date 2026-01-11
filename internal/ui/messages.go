@@ -28,3 +28,14 @@ type LoadingMsg struct {
 
 // RefreshMsg triggers a refresh of the current view
 type RefreshMsg struct{}
+
+// InitialProjectLoadedMsg is sent when the initial project (from config/flag) is loaded
+type InitialProjectLoadedMsg struct {
+	Project gcp.Project
+}
+
+// InitialProjectErrorMsg is sent when loading initial project fails
+type InitialProjectErrorMsg struct {
+	Err       error
+	ProjectID string // The project ID that failed to load
+}
