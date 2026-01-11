@@ -20,6 +20,92 @@ type Instance struct {
 	CreatedAt   string
 }
 
+// InstanceDetails contains comprehensive VM instance information
+type InstanceDetails struct {
+	// Basic Information
+	Name               string
+	ID                 uint64
+	Description        string
+	Status             string
+	Zone               string
+	CreatedAt          string
+	DeletionProtection bool
+	Labels             map[string]string
+	Tags               []string
+
+	// Machine Configuration
+	MachineType    string
+	MachineTypeURI string // Full URI for parsing vCPUs/memory from custom types
+	CpuPlatform    string
+	MinCpuPlatform string
+	DisplayDevice  bool
+	GPUs           []GPU
+
+	// Networking
+	CanIPForward      bool
+	NetworkInterfaces []NetworkInterfaceInfo
+
+	// Storage
+	Disks []DiskInfo
+
+	// Security
+	ShieldedVM     ShieldedVMConfig
+	ServiceAccount string
+	Scopes         []string
+
+	// Availability Policies
+	Scheduling SchedulingInfo
+
+	// Metadata
+	Metadata map[string]string
+}
+
+// GPU represents an attached accelerator
+type GPU struct {
+	Type  string
+	Count int64
+}
+
+// NetworkInterfaceInfo contains network interface details
+type NetworkInterfaceInfo struct {
+	Name       string
+	Network    string
+	Subnetwork string
+	NicType    string
+	InternalIP string
+	ExternalIP string
+	StackType  string
+	Tier       string
+}
+
+// DiskInfo contains attached disk details
+type DiskInfo struct {
+	Name       string
+	SizeGB     int64
+	Type       string
+	Mode       string
+	Boot       bool
+	AutoDelete bool
+	DeviceName string
+	Source     string
+}
+
+// ShieldedVMConfig contains Shielded VM settings
+type ShieldedVMConfig struct {
+	SecureBoot          bool
+	VTPM                bool
+	IntegrityMonitoring bool
+}
+
+// SchedulingInfo contains availability policy settings
+type SchedulingInfo struct {
+	ProvisioningModel         string
+	Preemptible               bool
+	OnHostMaintenance         string
+	AutomaticRestart          bool
+	InstanceTerminationAction string
+}
+
 // ComputeClient handles Compute Engine operations
 type ComputeClient struct {
 	service *compute.Service
@@ -115,6 +201,140 @@ func (c *ComputeClient) GetInstance(ctx context.Context, projectID, zone, instan
 
 	result := instanceFromAPI(inst, zone)
 	return &result, nil
+}
+
+// GetInstanceDetails returns comprehensive details for a specific instance
+func (c *ComputeClient) GetInstanceDetails(ctx context.Context, projectID, zone, instanceName string) (*InstanceDetails, error) {
+	inst, err := c.service.Instances.Get(projectID, zone, instanceName).Context(ctx).Do()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get instance details %s: %w", instanceName, err)
+	}
+
+	return instanceDetailsFromAPI(inst, zone), nil
+}
+
+// instanceDetailsFromAPI converts full API instance to InstanceDetails struct
+func instanceDetailsFromAPI(inst *compute.Instance, zone string) *InstanceDetails {
+	details := &InstanceDetails{
+		Name:               inst.Name,
+		ID:                 inst.Id,
+		Description:        inst.Description,
+		Status:             inst.Status,
+		Zone:               extractName(zone),
+		CreatedAt:          inst.CreationTimestamp,
+		DeletionProtection: inst.DeletionProtection,
+		Labels:             inst.Labels,
+		MachineType:        extractName(inst.MachineType),
+		MachineTypeURI:     inst.MachineType,
+		CpuPlatform:        inst.CpuPlatform,
+		MinCpuPlatform:     inst.MinCpuPlatform,
+		CanIPForward:       inst.CanIpForward,
+	}
+
+	// Tags
+	if inst.Tags != nil {
+		details.Tags = inst.Tags.Items
+	}
+
+	// Display device
+	if inst.DisplayDevice != nil {
+		details.DisplayDevice = inst.DisplayDevice.EnableDisplay
+	}
+
+	// GPUs
+	for _, acc := range inst.GuestAccelerators {
+		details.GPUs = append(details.GPUs, GPU{
+			Type:  extractName(acc.AcceleratorType),
+			Count: acc.AcceleratorCount,
+		})
+	}
+
+	// Network interfaces
+	for _, nic := range inst.NetworkInterfaces {
+		ni := NetworkInterfaceInfo{
+			Name:       nic.Name,
+			Network:    extractName(nic.Network),
+			Subnetwork: extractName(nic.Subnetwork),
+			NicType:    nic.NicType,
+			InternalIP: nic.NetworkIP,
+			StackType:  nic.StackType,
+		}
+		// External IP from access configs
+		if len(nic.AccessConfigs) > 0 {
+			ni.ExternalIP = nic.AccessConfigs[0].NatIP
+			ni.Tier = nic.AccessConfigs[0].NetworkTier
+		}
+		details.NetworkInterfaces = append(details.NetworkInterfaces, ni)
+	}
+
+	// Disks
+	for _, disk := range inst.Disks {
+		d := DiskInfo{
+			Name:       extractName(disk.Source),
+			SizeGB:     disk.DiskSizeGb,
+			Mode:       disk.Mode,
+			Boot:       disk.Boot,
+			AutoDelete: disk.AutoDelete,
+			DeviceName: disk.DeviceName,
+			Source:     disk.Source,
+		}
+		// Extract disk type from source URL or interface
+		if disk.Interface != "" {
+			d.Type = disk.Interface
+		}
+		details.Disks = append(details.Disks, d)
+	}
+
+	// Shielded VM config
+	if inst.ShieldedInstanceConfig != nil {
+		details.ShieldedVM = ShieldedVMConfig{
+			SecureBoot:          inst.ShieldedInstanceConfig.EnableSecureBoot,
+			VTPM:                inst.ShieldedInstanceConfig.EnableVtpm,
+			IntegrityMonitoring: inst.ShieldedInstanceConfig.EnableIntegrityMonitoring,
+		}
+	}
+
+	// Service account
+	if len(inst.ServiceAccounts) > 0 {
+		details.ServiceAccount = inst.ServiceAccounts[0].Email
+		details.Scopes = inst.ServiceAccounts[0].Scopes
+	}
+
+	// Scheduling
+	if inst.Scheduling != nil {
+		details.Scheduling = SchedulingInfo{
+			ProvisioningModel:         inst.Scheduling.ProvisioningModel,
+			Preemptible:               inst.Scheduling.Preemptible,
+			OnHostMaintenance:         inst.Scheduling.OnHostMaintenance,
+			InstanceTerminationAction: inst.Scheduling.InstanceTerminationAction,
+		}
+		if inst.Scheduling.AutomaticRestart != nil {
+			details.Scheduling.AutomaticRestart = *inst.Scheduling.AutomaticRestart
+		}
+	}
+
+	// Metadata
+	if inst.Metadata != nil && len(inst.Metadata.Items) > 0 {
+		details.Metadata = make(map[string]string)
+		for _, item := range inst.Metadata.Items {
+			if item.Value != nil {
+				details.Metadata[item.Key] = *item.Value
+			} else {
+				details.Metadata[item.Key] = ""
+			}
+		}
+	}
+
+	return details
+}
+
+// extractName extracts the last component from a GCP resource path
+func extractName(path string) string {
+	if path == "" {
+		return ""
+	}
+	parts := strings.Split(path, "/")
+	return parts[len(parts)-1]
 }
 
 // instanceFromAPI converts API instance to our simplified struct
