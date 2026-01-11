@@ -19,7 +19,7 @@ type instanceItem struct {
 
 func (i instanceItem) Title() string {
 	// Show status indicator with color
-	statusIcon := "●"
+	var statusIcon string
 	switch i.instance.Status {
 	case "RUNNING":
 		statusIcon = "🟢"

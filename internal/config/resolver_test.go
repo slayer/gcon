@@ -272,7 +272,7 @@ func TestNoColor(t *testing.T) {
 	})
 
 	t.Run("returns false when NO_COLOR is unset", func(t *testing.T) {
-		os.Unsetenv("NO_COLOR")
+		_ = os.Unsetenv("NO_COLOR")
 		assert.False(t, NoColor())
 	})
 }

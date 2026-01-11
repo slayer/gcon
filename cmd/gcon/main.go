@@ -21,14 +21,20 @@ func init() {
 func main() {
 	flag.Parse()
 
+	if err := run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	// Initialize GCP client using Application Default Credentials
 	gcpClient, err := gcp.NewClient()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to initialize GCP client: %v\n", err)
 		fmt.Fprintln(os.Stderr, "Make sure you're authenticated: gcloud auth application-default login")
-		os.Exit(1)
+		return fmt.Errorf("failed to initialize GCP client: %w", err)
 	}
-	defer gcpClient.Close()
+	defer func() { _ = gcpClient.Close() }()
 
 	// Resolve project from flag/env/gcloud config
 	projectID := config.ResolveProject(projectFlag)
@@ -40,7 +46,7 @@ func main() {
 	p := tea.NewProgram(app, tea.WithAltScreen())
 
 	if _, err := p.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error running application: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("running application: %w", err)
 	}
+	return nil
 }
