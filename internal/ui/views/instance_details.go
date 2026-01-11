@@ -365,7 +365,7 @@ func (v *InstanceDetailsView) renderContent() string {
 	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Machine Type", d.MachineType))
 	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "CPU Platform", defaultIfEmpty(d.CpuPlatform, "—")))
 	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Min CPU Platform", defaultIfEmpty(d.MinCpuPlatform, "None")))
-	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Display Device", formatEnabled(d.DisplayDevice)))
+	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Display Device", formatBool(d.DisplayDevice)))
 
 	// GPUs
 	if len(d.GPUs) > 0 {
@@ -507,13 +507,6 @@ func formatBool(b bool) string {
 	return "Disabled"
 }
 
-func formatEnabled(b bool) string {
-	if b {
-		return "Enabled"
-	}
-	return "Disabled"
-}
-
 func formatOnOff(b bool) string {
 	if b {
 		return "On"
@@ -542,6 +535,9 @@ func defaultIfEmpty(s, def string) string {
 func truncate(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
+	}
+	if maxLen <= 3 {
+		return s[:maxLen]
 	}
 	return s[:maxLen-3] + "..."
 }

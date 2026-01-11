@@ -66,11 +66,6 @@ func TestFormatBool(t *testing.T) {
 	assert.Equal(t, "Disabled", formatBool(false))
 }
 
-func TestFormatEnabled(t *testing.T) {
-	assert.Equal(t, "Enabled", formatEnabled(true))
-	assert.Equal(t, "Disabled", formatEnabled(false))
-}
-
 func TestFormatOnOff(t *testing.T) {
 	assert.Equal(t, "On", formatOnOff(true))
 	assert.Equal(t, "Off", formatOnOff(false))
@@ -130,6 +125,18 @@ func TestTruncate(t *testing.T) {
 			input:    "",
 			maxLen:   10,
 			expected: "",
+		},
+		{
+			name:     "maxLen less than 3",
+			input:    "hello world",
+			maxLen:   2,
+			expected: "he",
+		},
+		{
+			name:     "maxLen equals 3",
+			input:    "hello world",
+			maxLen:   3,
+			expected: "hel",
 		},
 	}
 
