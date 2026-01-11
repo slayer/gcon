@@ -239,7 +239,10 @@ func (v *InstanceDetailsView) View() string {
 	}
 
 	if v.actionLoading {
-		return fmt.Sprintf("\n  %s %s\n\n%s", v.spinner.View(), v.actionMsg, v.viewport.View())
+		if v.ready {
+			return fmt.Sprintf("\n  %s %s\n\n%s", v.spinner.View(), v.actionMsg, v.viewport.View())
+		}
+		return fmt.Sprintf("\n  %s %s\n", v.spinner.View(), v.actionMsg)
 	}
 
 	if v.err != nil {
