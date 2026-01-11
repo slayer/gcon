@@ -39,9 +39,3 @@ type InitialProjectErrorMsg struct {
 	Err       error
 	ProjectID string // The project ID that failed to load
 }
-
-// SidebarNavigateMsg is sent when a sidebar menu item is selected
-type SidebarNavigateMsg struct {
-	ViewType ViewType // Target view to navigate to
-	ItemID   string   // Menu item identifier
-}

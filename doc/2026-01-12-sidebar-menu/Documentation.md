@@ -124,8 +124,8 @@ The sidebar uses GCP-inspired colors:
 - Primary (Google Blue): `#4285F4` - selected items, focused border
 - Muted (Gray): `#9AA0A6` - normal text, borders
 
-Collapsed width: 6 chars (icon + padding)
-Expanded width: 24 chars
+Collapsed width: 4 chars (icon + padding)
+Expanded width: 26 chars
 
 ## Testing
 

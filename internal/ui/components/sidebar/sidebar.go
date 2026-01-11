@@ -17,16 +17,12 @@ const (
 
 // Visual characters for better UI
 const (
-	IconHamburger     = "☰" // Hamburger menu icon
-	IconBack          = "◀" // Back arrow
-	IconExpand        = "▸" // Expand/drill-down indicator
-	IconCursor        = "▶" // Selection cursor
-	IconActive        = "●" // Active item indicator
-	IconInactive      = "○" // Inactive item (optional)
-	DividerChar       = "─" // Horizontal divider
-	VerticalBar       = "│" // Vertical separator
-	CornerTopRight    = "┐"
-	CornerBottomRight = "┘"
+	IconHamburger = "☰" // Hamburger menu icon
+	IconBack      = "◀" // Back arrow
+	IconExpand    = "▸" // Expand/drill-down indicator
+	IconCursor    = "▶" // Selection cursor
+	IconActive    = "●" // Active item indicator
+	DividerChar   = "─" // Horizontal divider
 )
 
 // KeyMap defines sidebar-specific key bindings

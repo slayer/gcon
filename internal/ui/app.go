@@ -306,6 +306,8 @@ func (a *App) updateSidebarActiveView() {
 
 // handleSidebarNavigation processes sidebar navigation messages
 func (a *App) handleSidebarNavigation(msg sidebar.NavigateMsg) tea.Cmd {
+	var cmd tea.Cmd
+
 	// Map sidebar ViewType to app ViewType and navigate
 	switch msg.ViewType {
 	case sidebar.ViewInstances:
@@ -316,7 +318,7 @@ func (a *App) handleSidebarNavigation(msg sidebar.NavigateMsg) tea.Cmd {
 			if a.instancesView == nil {
 				a.instancesView = views.NewInstancesView(a.selectedProject.ID)
 				a.updateViewSizes()
-				return a.instancesView.Init()
+				cmd = a.instancesView.Init()
 			}
 		}
 	case sidebar.ViewDisks:
@@ -337,7 +339,7 @@ func (a *App) handleSidebarNavigation(msg sidebar.NavigateMsg) tea.Cmd {
 	// Switch focus back to content after navigation
 	a.focusedPanel = FocusContent
 	a.sidebar.SetFocused(false)
-	return nil
+	return cmd
 }
 
 // View implements tea.Model
