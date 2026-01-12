@@ -18,9 +18,8 @@ Added the ability to delete single files or entire folders from GCS buckets with
 
 ### Modified Files
 
-1. **`internal/gcp/storage.go`** - Added delete methods:
+1. **`internal/gcp/storage.go`** - Added delete method:
    - `DeleteObject(ctx, bucketName, objectName)` - Delete single object
-   - `DeleteObjects(ctx, bucketName, objectNames, progress)` - Delete multiple objects with progress
 
 2. **`internal/ui/views/objects.go`** - Added delete functionality:
    - Key binding: `D` (shift+d) for delete
@@ -117,6 +116,7 @@ go test ./internal/ui/views/... -v -run TestObjectsViewDelete
 - [ ] Delete key ignored during download/upload/delete
 - [ ] Verify list refreshes after successful deletion
 - [ ] Test error display on delete failure
+- [ ] Empty folder shows "folder is empty, nothing to delete" message
 
 ## Key Bindings Reference
 

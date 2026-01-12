@@ -16,13 +16,16 @@ Add ability to delete single files or entire folders from GCS buckets with manda
 
 - [x] Create feature branch
 - [x] Create confirmation dialog component (`internal/ui/components/confirm/`)
-- [x] Add `DeleteObject` and `DeleteObjects` methods to storage client
+- [x] Add `DeleteObject` method to storage client
 - [x] Update ObjectsView with delete state, key binding, message handlers
 - [x] Add overlay rendering for confirmation and progress
 - [x] Write unit tests
 - [x] Update CLAUDE.md key bindings
 - [x] Run linter and tests
 - [x] Create Documentation.md
+- [x] Address PR review comments:
+  - [x] Remove unused `DeleteObjects` method
+  - [x] Handle empty folder case gracefully
 
 ## Files to Create/Modify
 

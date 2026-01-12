@@ -454,6 +454,12 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 			v.pendingDelete = nil
 			return nil
 		}
+		// Handle empty folder case - nothing to delete
+		if len(msg.files) == 0 {
+			v.err = fmt.Errorf("folder is empty, nothing to delete")
+			v.pendingDelete = nil
+			return nil
+		}
 		v.pendingDeleteFiles = msg.files
 		// Show confirmation dialog
 		v.showDeleteConfirm = true
