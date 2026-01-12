@@ -30,10 +30,7 @@ func Cloud() string {
 	if asciiMode {
 		return "#"
 	}
-	// "☁" Cloud - 1-char wide
-	// return "◈" // Diamond with dot - 1-char wide
-	// return "#"
-	return "☁"
+	return "#"
 }
 
 // Sidebar symbols
@@ -72,40 +69,33 @@ func Active() string {
 	return "●"
 }
 
-// Status symbols for instances
-// Using 1-char wide Unicode circles with colors instead of 2-wide emoji circles
+// Status symbols for instances using 1-char wide colored Unicode circles
 func StatusRunning() string {
 	if asciiMode {
 		return colorGreen.Render("[OK]")
 	}
-	// return colorGreen.Render("●")
-	return "🟢"
+	return colorGreen.Render("●")
 }
 
 func StatusStopped() string {
 	if asciiMode {
 		return colorRed.Render("[--]")
 	}
-	return "🔴"
-	// return colorRed.Render("●")
+	return colorRed.Render("●")
 }
 
 func StatusTransitioning() string {
 	if asciiMode {
 		return colorYellow.Render("[..]")
 	}
-	// return colorYellow.Render("●")
-	// return colorYellow.Render("○")
-	return "🟡"
+	return colorYellow.Render("○")
 }
 
 func StatusUnknown() string {
 	if asciiMode {
 		return colorGray.Render("[??]")
 	}
-	// return colorGray.Render("○")
-	// return colorGray.Render("◌")
-	return "⚪"
+	return colorGray.Render("◌")
 }
 
 // GetStatusSymbol returns the appropriate status symbol for an instance status.

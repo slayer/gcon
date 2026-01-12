@@ -10,7 +10,8 @@ import (
 	"github.com/slayer/gcon/internal/ui/symbols"
 )
 
-// Width constants (content area, border adds 1 more)
+// Width constants for content area only. The actual rendered width
+// is +1 for the right border (added by Width() method).
 const (
 	ExpandedWidth  = 26 // Content width for full sidebar
 	CollapsedWidth = 4  // Content width for icon-only sidebar
@@ -189,7 +190,7 @@ func (s *Sidebar) View() string {
 		width = CollapsedWidth
 	}
 
-	// Use both Height (to pad) and MaxHeight (to truncate) for consistent output
+	// Height pads short content, MaxHeight truncates tall content
 	container := styles.Container.
 		Width(width).
 		Height(s.height).

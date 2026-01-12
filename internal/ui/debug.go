@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -16,7 +17,8 @@ func init() {
 	if os.Getenv("GCON_DEBUG") != "" {
 		debugEnabled = true
 		var err error
-		debugFile, err = os.Create("/tmp/gcon-debug.log")
+		debugPath := filepath.Join(os.TempDir(), "gcon-debug.log")
+		debugFile, err = os.Create(debugPath)
 		if err != nil {
 			// Silently disable debug if we can't create the file
 			debugEnabled = false

@@ -614,10 +614,12 @@ func (a *App) renderWithSidebar() string {
 
 	// Debug: show width breakdown after join
 	resultLines := strings.Split(result, "\n")
+	expectedWidth := a.layout.ContentWidth()
 	for i, line := range resultLines[:min(10, len(resultLines))] {
 		lw := lipgloss.Width(line)
 		tw := TerminalWidth(line)
-		if lw != 106 || tw > 108 { // Only show unexpected widths
+		// Only log lines where width differs from expected layout width
+		if lw != expectedWidth || tw > a.width {
 			debugLog("  result line %d: lipgloss=%d, terminal=%d, emojis=%d", i, lw, tw, countWideEmojis(line))
 		}
 	}

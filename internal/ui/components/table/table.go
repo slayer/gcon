@@ -2,6 +2,7 @@
 package table
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -326,40 +327,11 @@ func (m Model) statusText() string {
 	}
 
 	if visible != total {
-		return lipgloss.NewStyle().Render(
-			strings.Join([]string{
-				string(rune('0' + visible)),
-				"/",
-				string(rune('0' + total)),
-				" items",
-			}, ""),
-		)
+		return strconv.Itoa(visible) + "/" + strconv.Itoa(total) + " items"
 	}
 
 	if total == 1 {
 		return "1 item"
 	}
-	return lipgloss.NewStyle().Render(
-		strings.Join([]string{
-			intToStr(total),
-			" items",
-		}, ""),
-	)
-}
-
-// intToStr converts int to string without fmt import overhead
-func intToStr(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	if n < 0 {
-		return "-" + intToStr(-n)
-	}
-
-	digits := make([]byte, 0, 10)
-	for n > 0 {
-		digits = append([]byte{byte('0' + n%10)}, digits...)
-		n /= 10
-	}
-	return string(digits)
+	return strconv.Itoa(total) + " items"
 }

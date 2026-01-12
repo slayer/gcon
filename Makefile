@@ -33,9 +33,8 @@ tidy:
 build: tidy
 	$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/gcon
 
-# Run the application
+# Run the application (uses compiled binary for consistency)
 run: build
-	#$(GORUN) ./cmd/gcon
 	./bin/gcon
 
 debug-run: build
