@@ -31,7 +31,7 @@ func (c *Client) ListProjects(ctx context.Context) ([]Project, error) {
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, WrapListError(err, "projects", "")
 	}
 
 	return projects, nil
@@ -41,7 +41,7 @@ func (c *Client) ListProjects(ctx context.Context) ([]Project, error) {
 func (c *Client) GetProject(ctx context.Context, projectID string) (*Project, error) {
 	p, err := c.crmService.Projects.Get(projectID).Context(ctx).Do()
 	if err != nil {
-		return nil, err
+		return nil, WrapGetError(err, "project", projectID)
 	}
 
 	return &Project{

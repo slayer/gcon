@@ -141,7 +141,7 @@ func (c *ComputeClient) ListInstances(ctx context.Context, projectID string) ([]
 		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to list instances: %w", err)
+		return nil, WrapListError(err, "instances", projectID)
 	}
 
 	return instances, nil
@@ -159,7 +159,7 @@ func (c *ComputeClient) ListInstancesInZone(ctx context.Context, projectID, zone
 		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to list instances in zone %s: %w", zone, err)
+		return nil, WrapListError(err, "instances", zone)
 	}
 
 	return instances, nil
@@ -169,7 +169,7 @@ func (c *ComputeClient) ListInstancesInZone(ctx context.Context, projectID, zone
 func (c *ComputeClient) StartInstance(ctx context.Context, projectID, zone, instanceName string) error {
 	_, err := c.service.Instances.Start(projectID, zone, instanceName).Context(ctx).Do()
 	if err != nil {
-		return fmt.Errorf("failed to start instance %s: %w", instanceName, err)
+		return WrapActionError(err, "start instance", instanceName)
 	}
 	return nil
 }
@@ -178,7 +178,7 @@ func (c *ComputeClient) StartInstance(ctx context.Context, projectID, zone, inst
 func (c *ComputeClient) StopInstance(ctx context.Context, projectID, zone, instanceName string) error {
 	_, err := c.service.Instances.Stop(projectID, zone, instanceName).Context(ctx).Do()
 	if err != nil {
-		return fmt.Errorf("failed to stop instance %s: %w", instanceName, err)
+		return WrapActionError(err, "stop instance", instanceName)
 	}
 	return nil
 }
@@ -187,7 +187,7 @@ func (c *ComputeClient) StopInstance(ctx context.Context, projectID, zone, insta
 func (c *ComputeClient) ResetInstance(ctx context.Context, projectID, zone, instanceName string) error {
 	_, err := c.service.Instances.Reset(projectID, zone, instanceName).Context(ctx).Do()
 	if err != nil {
-		return fmt.Errorf("failed to reset instance %s: %w", instanceName, err)
+		return WrapActionError(err, "reset instance", instanceName)
 	}
 	return nil
 }
@@ -196,7 +196,7 @@ func (c *ComputeClient) ResetInstance(ctx context.Context, projectID, zone, inst
 func (c *ComputeClient) GetInstance(ctx context.Context, projectID, zone, instanceName string) (*Instance, error) {
 	inst, err := c.service.Instances.Get(projectID, zone, instanceName).Context(ctx).Do()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get instance %s: %w", instanceName, err)
+		return nil, WrapGetError(err, "instance", instanceName)
 	}
 
 	result := instanceFromAPI(inst, zone)
@@ -207,7 +207,7 @@ func (c *ComputeClient) GetInstance(ctx context.Context, projectID, zone, instan
 func (c *ComputeClient) GetInstanceDetails(ctx context.Context, projectID, zone, instanceName string) (*InstanceDetails, error) {
 	inst, err := c.service.Instances.Get(projectID, zone, instanceName).Context(ctx).Do()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get instance details %s: %w", instanceName, err)
+		return nil, WrapGetError(err, "instance details", instanceName)
 	}
 
 	return instanceDetailsFromAPI(inst, zone), nil
