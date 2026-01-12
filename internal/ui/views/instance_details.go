@@ -13,7 +13,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
-	"github.com/slayer/gcon/internal/ui/components"
 )
 
 // InstanceSelectedMsg is sent when an instance is selected from the list
@@ -236,27 +235,23 @@ func (v *InstanceDetailsView) resetInstance() tea.Cmd {
 // View renders the instance details view
 func (v *InstanceDetailsView) View() string {
 	if v.loading {
-		return fmt.Sprintf("\n  %s Loading instance details...\n", v.spinner.View())
+		return v.renderLoading("Loading instance details...")
 	}
 
 	if v.actionLoading {
-		if v.ready {
-			return fmt.Sprintf("\n  %s %s\n\n%s", v.spinner.View(), v.actionMsg, v.viewport.View())
-		}
-		return fmt.Sprintf("\n  %s %s\n", v.spinner.View(), v.actionMsg)
+		return v.renderLoading(v.actionMsg)
 	}
 
 	if v.err != nil {
-		return "\n" + components.RenderError(v.err) + "\n" +
-			components.HintStyle.Render("  Press 'esc' to go back")
+		return v.renderLoading(fmt.Sprintf("Error: %v\n  Press 'esc' to go back", v.err))
 	}
 
 	if v.details == nil {
-		return "\n  No instance details available.\n  Press 'esc' to go back."
+		return v.renderLoading("No instance details available.\n  Press 'esc' to go back.")
 	}
 
 	if !v.ready {
-		return "\n  Initializing view...\n"
+		return v.renderLoading("Initializing view...")
 	}
 
 	// Show action result if any
@@ -548,4 +543,21 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// renderLoading renders a loading message that fills the view height
+func (v *InstanceDetailsView) renderLoading(msg string) string {
+	content := fmt.Sprintf("\n  %s %s\n", v.spinner.View(), msg)
+
+	// Sidebar outputs height-1 newlines (lipgloss Height renders n lines = n-1 newlines)
+	// Content must match for proper horizontal join
+	targetNewlines := v.height - 1
+	if targetNewlines < 10 {
+		targetNewlines = 10
+	}
+	currentNewlines := strings.Count(content, "\n")
+	for i := currentNewlines; i < targetNewlines; i++ {
+		content += "\n"
+	}
+	return content
 }

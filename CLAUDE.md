@@ -144,6 +144,57 @@ Required scopes:
 - Use consistent color scheme via Lip Gloss styles (GCP colors)
 - Status indicators: 🟢 running, 🔴 stopped, 🟡 transitioning
 
+## Bubble Tea Rendering Guidelines
+
+### lipgloss Height() and Newline Counting
+**Critical**: `lipgloss.Height(n)` renders n lines, which equals **n-1 newlines**.
+
+When using `lipgloss.JoinHorizontal()` (e.g., sidebar + content), both sides must have the **same newline count** or the layout breaks and causes visual glitches like headers disappearing.
+
+```go
+// Sidebar uses lipgloss Height(n) which outputs n-1 newlines
+container := styles.Container.Width(width).Height(s.height)
+return container.Render(content)  // outputs height-1 newlines
+
+// Content MUST match sidebar's newline count
+func (v *View) renderLoading(msg string) string {
+    content := fmt.Sprintf("\n  %s %s\n", v.spinner.View(), msg)
+    // Match sidebar: height-1 newlines (NOT height!)
+    targetNewlines := v.height - 1
+    if targetNewlines < 10 {
+        targetNewlines = 10
+    }
+    currentNewlines := strings.Count(content, "\n")
+    for i := currentNewlines; i < targetNewlines; i++ {
+        content += "\n"
+    }
+    return content
+}
+```
+
+### Testing Render Heights
+Always add tests to verify sidebar and content output the same newline count:
+
+```go
+func TestRenderingHeightConsistency(t *testing.T) {
+    // Setup app with sidebar active
+    sidebarView := app.sidebar.View()
+    contentView := app.renderCurrentView()
+
+    sidebarNewlines := strings.Count(sidebarView, "\n")
+    contentNewlines := strings.Count(contentView, "\n")
+
+    assert.Equal(t, sidebarNewlines, contentNewlines,
+        "Sidebar and content must have same newline count")
+}
+```
+
+### Avoid tea.ClearScreen
+**Never use `tea.ClearScreen`** - it clears the entire terminal including app header/chrome, not just the content area. Instead, ensure consistent rendering heights.
+
+### Hide Duplicate UI Elements
+When using bubbles/list component, hide its built-in title with `l.SetShowTitle(false)` if the app header already shows context. This prevents duplicate titles.
+
 ## Key Bindings
 
 ### Global

@@ -1,6 +1,7 @@
 package sidebar
 
 import (
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -242,4 +243,32 @@ func TestRenderHeader(t *testing.T) {
 	// Header should now show category name
 	output = s.View()
 	assert.Contains(t, output, "Compute Engine")
+}
+
+func TestSidebar_ViewHeightConsistency(t *testing.T) {
+	// lipgloss Height(n) renders n lines which equals n-1 newlines
+	tests := []struct {
+		height           int
+		expectedNewlines int
+	}{
+		{20, 19},
+		{30, 29},
+		{36, 35},
+		{40, 39},
+	}
+
+	for _, tt := range tests {
+		t.Run("", func(t *testing.T) {
+			s := New()
+			s.SetSize(tt.height)
+
+			view := s.View()
+			newlines := strings.Count(view, "\n")
+
+			t.Logf("Height set: %d, Actual newlines: %d", tt.height, newlines)
+
+			assert.Equal(t, tt.expectedNewlines, newlines,
+				"Sidebar with height %d should output %d newlines (height-1)", tt.height, tt.expectedNewlines)
+		})
+	}
 }
