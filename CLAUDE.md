@@ -144,6 +144,46 @@ Required scopes:
 - Use consistent color scheme via Lip Gloss styles (GCP colors)
 - Status indicators: 🟢 running, 🔴 stopped, 🟡 transitioning
 
+## Bubble Tea Rendering Guidelines
+
+### Consistent View Heights
+Views must output the **same number of lines** in all states (loading, loaded, error, empty).
+If heights differ between states, the terminal will scroll and cause visual glitches like headers disappearing.
+
+```go
+// BAD: Loading outputs different height than loaded view
+func (v *View) View() string {
+    if v.loading {
+        return "\n  Loading...\n"  // 2 lines
+    }
+    return v.list.View() + help    // 30+ lines
+}
+
+// GOOD: Pad loading to match loaded view height
+func (v *View) View() string {
+    if v.loading {
+        return v.renderLoading("Loading...")
+    }
+    return v.list.View() + help
+}
+
+func (v *View) renderLoading(msg string) string {
+    content := fmt.Sprintf("\n  %s %s\n", v.spinner.View(), msg)
+    // Match loaded view height: list (height-4) + help (2 lines) = height-2
+    targetHeight := v.height - 2
+    for i := strings.Count(content, "\n"); i < targetHeight; i++ {
+        content += "\n"
+    }
+    return content
+}
+```
+
+### Avoid tea.ClearScreen
+**Never use `tea.ClearScreen`** - it clears the entire terminal including app header/chrome, not just the content area. Instead, ensure consistent rendering heights.
+
+### Hide Duplicate UI Elements
+When using bubbles/list component, hide its built-in title with `l.SetShowTitle(false)` if the app header already shows context. This prevents duplicate titles.
+
 ## Key Bindings
 
 ### Global
