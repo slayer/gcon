@@ -532,17 +532,17 @@ func (v *ObjectsView) View() string {
 	}
 
 	if len(v.objects) == 0 {
+		// When file picker is shown, render it directly (not as overlay)
+		// since empty bucket content is too short for proper overlay
+		if v.showFilePicker && v.filePicker != nil {
+			return v.renderCenteredFilePicker()
+		}
+
 		msg := "This bucket is empty."
 		if v.currentPrefix != "" {
 			msg = "This folder is empty."
 		}
-		content := fmt.Sprintf("\n  %s\n  Press 'u' to upload files, 'esc' to go back.", msg)
-
-		// Still need to overlay file picker if shown
-		if v.showFilePicker && v.filePicker != nil {
-			content = v.overlayFilePicker(content)
-		}
-		return content
+		return fmt.Sprintf("\n  %s\n  Press 'u' to upload files, 'esc' to go back.", msg)
 	}
 
 	// Build pagination info
@@ -875,6 +875,39 @@ func (v *ObjectsView) waitForUploadProgress() tea.Cmd {
 		}
 		return uploadProgressMsg{update: update}
 	}
+}
+
+// renderCenteredFilePicker renders the file picker centered on screen
+// Used when there's no meaningful background content (e.g., empty bucket)
+func (v *ObjectsView) renderCenteredFilePicker() string {
+	pickerView := v.filePicker.View()
+	pickerLines := strings.Split(pickerView, "\n")
+
+	// Calculate vertical padding to center
+	topPad := (v.height - len(pickerLines)) / 2
+	if topPad < 0 {
+		topPad = 0
+	}
+
+	var result strings.Builder
+	// Add top padding
+	for i := 0; i < topPad; i++ {
+		result.WriteString("\n")
+	}
+
+	// Add centered picker lines
+	for _, pLine := range pickerLines {
+		pWidth := lipgloss.Width(pLine)
+		leftPad := (v.width - pWidth) / 2
+		if leftPad < 0 {
+			leftPad = 0
+		}
+		result.WriteString(strings.Repeat(" ", leftPad))
+		result.WriteString(pLine)
+		result.WriteString("\n")
+	}
+
+	return result.String()
 }
 
 // overlayFilePicker renders the file picker centered over the content
