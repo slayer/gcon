@@ -14,6 +14,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
+	"github.com/slayer/gcon/internal/ui/components/confirm"
 	"github.com/slayer/gcon/internal/ui/components/filepicker"
 	"github.com/slayer/gcon/internal/ui/components/progress"
 )
@@ -86,6 +87,15 @@ type ObjectsView struct {
 	uploadProgress *progress.Progress
 	uploadFiles    []string // Local file paths to upload
 	uploadChan     chan progress.ProgressUpdate
+
+	// Delete state
+	pendingDelete      *gcp.StorageObject  // Object pending delete confirmation
+	pendingDeleteFiles []gcp.StorageObject // Files to delete (resolved for folders)
+	showDeleteConfirm  bool
+	deleteConfirm      *confirm.ConfirmDialog
+	deleting           bool
+	deleteProgress     *progress.Progress
+	deleteChan         chan deleteProgressUpdate
 }
 
 // objectKeyMap defines object-specific key bindings
@@ -96,6 +106,7 @@ type objectKeyMap struct {
 	PrevPage key.Binding
 	Download key.Binding
 	Upload   key.Binding
+	Delete   key.Binding
 }
 
 func defaultObjectKeyMap() objectKeyMap {
@@ -123,6 +134,10 @@ func defaultObjectKeyMap() objectKeyMap {
 		Upload: key.NewBinding(
 			key.WithKeys("u"),
 			key.WithHelp("u", "upload"),
+		),
+		Delete: key.NewBinding(
+			key.WithKeys("D"),
+			key.WithHelp("D", "delete"),
 		),
 	}
 }
@@ -166,6 +181,7 @@ func NewObjectsView(bucketName string, storageClient *gcp.StorageClient) *Object
 		pageTokenHistory: make([]string, 0),
 		downloadProgress: progress.New(),
 		uploadProgress:   progress.New(),
+		deleteProgress:   progress.New(),
 	}
 }
 
@@ -236,6 +252,41 @@ type uploadProgressMsg struct {
 
 type uploadCompleteMsg struct {
 	err error
+}
+
+// Delete-related messages
+type deleteRequestMsg struct {
+	object gcp.StorageObject
+}
+
+type deleteFilesResolvedMsg struct {
+	files []gcp.StorageObject
+	err   error
+}
+
+type deleteStartMsg struct {
+	files []gcp.StorageObject
+}
+
+type deleteProgressUpdate struct {
+	deletedCount int
+	totalCount   int
+	currentFile  string
+	done         bool
+	err          error
+	failedObject string
+}
+
+type deleteProgressMsg struct {
+	deletedCount int
+	totalCount   int
+	currentFile  string
+}
+
+type deleteCompleteMsg struct {
+	err          error
+	deletedCount int
+	failedObject string
 }
 
 // Update handles messages for the objects view
@@ -386,15 +437,117 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 		}
 		return nil
 
+	case deleteRequestMsg:
+		// Store pending delete and resolve files if folder
+		obj := msg.object
+		v.pendingDelete = &obj
+		if msg.object.IsFolder {
+			return v.resolveDeleteFiles(msg.object)
+		}
+		return func() tea.Msg {
+			return deleteFilesResolvedMsg{files: []gcp.StorageObject{msg.object}}
+		}
+
+	case deleteFilesResolvedMsg:
+		if msg.err != nil {
+			v.err = msg.err
+			v.pendingDelete = nil
+			return nil
+		}
+		// Handle empty folder case - nothing to delete
+		if len(msg.files) == 0 {
+			v.err = fmt.Errorf("folder is empty, nothing to delete")
+			v.pendingDelete = nil
+			return nil
+		}
+		v.pendingDeleteFiles = msg.files
+		// Show confirmation dialog
+		v.showDeleteConfirm = true
+		v.deleteConfirm = v.createDeleteConfirmDialog(msg.files)
+		return nil
+
+	case confirm.ConfirmMsg:
+		if v.showDeleteConfirm {
+			v.showDeleteConfirm = false
+			v.deleteConfirm = nil
+			files := v.pendingDeleteFiles
+			return func() tea.Msg {
+				return deleteStartMsg{files: files}
+			}
+		}
+		return nil
+
+	case confirm.CancelMsg:
+		if v.showDeleteConfirm {
+			v.showDeleteConfirm = false
+			v.deleteConfirm = nil
+			v.pendingDelete = nil
+			v.pendingDeleteFiles = nil
+		}
+		return nil
+
+	case deleteStartMsg:
+		v.deleting = true
+		if len(msg.files) > 0 {
+			v.deleteProgress.SetProgress(
+				"Deleting",
+				msg.files[0].DisplayName,
+				1,
+				len(msg.files),
+				0,
+				int64(len(msg.files)),
+			)
+			v.deleteProgress.SetSize(v.width)
+		}
+		return v.startDelete()
+
+	case deleteProgressMsg:
+		v.deleteProgress.SetProgress(
+			"Deleting",
+			msg.currentFile,
+			msg.deletedCount+1,
+			msg.totalCount,
+			int64(msg.deletedCount),
+			int64(msg.totalCount),
+		)
+		return v.waitForDeleteProgress()
+
+	case deleteCompleteMsg:
+		v.deleting = false
+		v.pendingDelete = nil
+		v.pendingDeleteFiles = nil
+		if v.deleteChan != nil {
+			close(v.deleteChan)
+			v.deleteChan = nil
+		}
+		if msg.err != nil {
+			if msg.deletedCount > 0 {
+				v.err = fmt.Errorf("deleted %d files, failed on %s: %w", msg.deletedCount, msg.failedObject, msg.err)
+			} else {
+				v.err = msg.err
+			}
+		} else {
+			// Refresh list after successful deletion
+			v.loading = true
+			return tea.Batch(v.spinner.Tick, v.loadObjects(""))
+		}
+		return nil
+
 	case tea.KeyMsg:
+		// If delete confirmation is shown, delegate to it
+		if v.showDeleteConfirm && v.deleteConfirm != nil {
+			cmd := v.deleteConfirm.Update(msg)
+			return cmd
+		}
+
 		// If file picker is shown, delegate to it
 		if v.showFilePicker && v.filePicker != nil {
 			cmd := v.filePicker.Update(msg)
 			return cmd
 		}
 
-		// Don't handle keys during loading, downloading, or uploading
-		if v.loading || v.downloading || v.uploading {
+		// Don't handle keys during loading, downloading, uploading, or deleting
+		if v.loading || v.downloading || v.uploading || v.deleting {
 			return nil
 		}
 
@@ -417,6 +570,12 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 		}
 
 		switch {
+		case key.Matches(msg, v.keys.Delete):
+			// Delete selected file or folder
+			if item, ok := v.list.SelectedItem().(objectItem); ok {
+				return v.prepareDelete(item.object)
+			}
+
 		case key.Matches(msg, v.keys.Download):
 			// Download selected file or folder
 			if item, ok := v.list.SelectedItem().(objectItem); ok {
@@ -544,7 +703,7 @@ func (v *ObjectsView) View() string {
 	status := statusStyle.Render(fmt.Sprintf("  %d items%s", len(v.objects), pageInfo))
 
 	// Help text for actions
-	help := statusStyle.Render("\n  enter: open • d: download • u: upload • n/p: next/prev page • r: refresh • /: filter • esc: back")
+	help := statusStyle.Render("\n  enter: open • d: download • u: upload • D: delete • n/p: next/prev page • r: refresh • /: filter • esc: back")
 
 	content := v.list.View() + "\n" + status + help
 
@@ -561,6 +720,16 @@ func (v *ObjectsView) View() string {
 	// Overlay progress bar during upload
 	if v.uploading {
 		content = v.overlayUploadProgress(content)
+	}
+
+	// Overlay delete confirmation dialog
+	if v.showDeleteConfirm && v.deleteConfirm != nil {
+		content = v.overlayDeleteConfirm(content)
+	}
+
+	// Overlay progress bar during delete
+	if v.deleting {
+		content = v.overlayDeleteProgress(content)
 	}
 
 	return content
@@ -1011,6 +1180,194 @@ func (v *ObjectsView) overlayFilePicker(content string) string {
 func (v *ObjectsView) overlayUploadProgress(content string) string {
 	lines := strings.Split(content, "\n")
 	progressView := v.uploadProgress.View()
+	progressLines := strings.Split(progressView, "\n")
+
+	startRow := (len(lines) - len(progressLines)) / 2
+	if startRow < 0 {
+		startRow = 0
+	}
+
+	for i, pLine := range progressLines {
+		row := startRow + i
+		if row >= len(lines) {
+			break
+		}
+
+		pWidth := lipgloss.Width(pLine)
+		leftPad := (v.width - pWidth) / 2
+		if leftPad < 0 {
+			leftPad = 0
+		}
+
+		lines[row] = strings.Repeat(" ", leftPad) + pLine
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// prepareDelete initiates the delete flow
+func (v *ObjectsView) prepareDelete(obj gcp.StorageObject) tea.Cmd {
+	return func() tea.Msg {
+		return deleteRequestMsg{object: obj}
+	}
+}
+
+// resolveDeleteFiles lists all files under a folder prefix
+func (v *ObjectsView) resolveDeleteFiles(folder gcp.StorageObject) tea.Cmd {
+	return func() tea.Msg {
+		objects, err := v.storageClient.ListAllObjects(
+			context.Background(),
+			v.bucketName,
+			folder.Name,
+		)
+		if err != nil {
+			return deleteFilesResolvedMsg{err: err}
+		}
+		return deleteFilesResolvedMsg{files: objects}
+	}
+}
+
+// createDeleteConfirmDialog creates the confirmation dialog for deletion
+func (v *ObjectsView) createDeleteConfirmDialog(files []gcp.StorageObject) *confirm.ConfirmDialog {
+	var title, message string
+	var details []string
+
+	if len(files) == 1 {
+		title = "Delete File"
+		message = fmt.Sprintf("Are you sure you want to delete '%s'?", files[0].DisplayName)
+	} else {
+		title = "Delete Folder"
+		message = fmt.Sprintf("Are you sure you want to delete %d files?", len(files))
+		// Show first few files as details
+		maxDetails := 5
+		for i, f := range files {
+			if i >= maxDetails {
+				details = append(details, fmt.Sprintf("... and %d more", len(files)-maxDetails))
+				break
+			}
+			details = append(details, f.DisplayName)
+		}
+	}
+
+	dialog := confirm.New(title, message, details)
+	dialog.SetSize(v.width-20, 15)
+	return dialog
+}
+
+// startDelete begins the deletion process in a background goroutine
+func (v *ObjectsView) startDelete() tea.Cmd {
+	files := v.pendingDeleteFiles
+	if len(files) == 0 {
+		return func() tea.Msg {
+			return deleteCompleteMsg{}
+		}
+	}
+
+	v.deleteChan = make(chan deleteProgressUpdate, 10)
+
+	go func() {
+		for i, file := range files {
+			// Send progress before each delete (non-blocking)
+			select {
+			case v.deleteChan <- deleteProgressUpdate{
+				deletedCount: i,
+				totalCount:   len(files),
+				currentFile:  file.DisplayName,
+			}:
+			default:
+			}
+
+			err := v.storageClient.DeleteObject(
+				context.Background(),
+				v.bucketName,
+				file.Name,
+			)
+			if err != nil {
+				// Send error completion
+				select {
+				case v.deleteChan <- deleteProgressUpdate{
+					done:         true,
+					err:          err,
+					deletedCount: i,
+					failedObject: file.DisplayName,
+				}:
+				default:
+				}
+				return
+			}
+		}
+
+		// Send completion signal
+		select {
+		case v.deleteChan <- deleteProgressUpdate{
+			done:         true,
+			deletedCount: len(files),
+		}:
+		default:
+		}
+	}()
+
+	return v.waitForDeleteProgress()
+}
+
+// waitForDeleteProgress waits for delete progress updates from the goroutine
+func (v *ObjectsView) waitForDeleteProgress() tea.Cmd {
+	return func() tea.Msg {
+		if v.deleteChan == nil {
+			return deleteCompleteMsg{}
+		}
+		update, ok := <-v.deleteChan
+		if !ok {
+			return deleteCompleteMsg{}
+		}
+		if update.done {
+			return deleteCompleteMsg{
+				err:          update.err,
+				deletedCount: update.deletedCount,
+				failedObject: update.failedObject,
+			}
+		}
+		return deleteProgressMsg{
+			deletedCount: update.deletedCount,
+			totalCount:   update.totalCount,
+			currentFile:  update.currentFile,
+		}
+	}
+}
+
+// overlayDeleteConfirm renders the delete confirmation dialog centered over the content
+func (v *ObjectsView) overlayDeleteConfirm(content string) string {
+	lines := strings.Split(content, "\n")
+	dialogView := v.deleteConfirm.View()
+	dialogLines := strings.Split(dialogView, "\n")
+
+	startRow := (len(lines) - len(dialogLines)) / 2
+	if startRow < 0 {
+		startRow = 0
+	}
+
+	for i, dLine := range dialogLines {
+		row := startRow + i
+		if row >= len(lines) {
+			break
+		}
+
+		dWidth := lipgloss.Width(dLine)
+		leftPad := (v.width - dWidth) / 2
+		if leftPad < 0 {
+			leftPad = 0
+		}
+
+		lines[row] = strings.Repeat(" ", leftPad) + dLine
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// overlayDeleteProgress renders the delete progress bar centered over the content
+func (v *ObjectsView) overlayDeleteProgress(content string) string {
+	lines := strings.Split(content, "\n")
+	progressView := v.deleteProgress.View()
 	progressLines := strings.Split(progressView, "\n")
 
 	startRow := (len(lines) - len(progressLines)) / 2
