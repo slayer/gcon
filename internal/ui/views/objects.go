@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	pathpkg "path"
 	"path/filepath"
 	"strings"
 
@@ -796,7 +797,8 @@ func (v *ObjectsView) startUpload() tea.Cmd {
 						if relErr != nil {
 							return fmt.Errorf("failed to compute relative path for %s: %w", filePath, relErr)
 						}
-						remotePath := v.currentPrefix + relPath
+						// Use path.Join for GCS object names (forward slashes)
+						remotePath := pathpkg.Join(v.currentPrefix, filepath.ToSlash(relPath))
 						uploadFiles = append(uploadFiles, uploadFile{
 							localPath:  filePath,
 							remotePath: remotePath,
@@ -810,8 +812,8 @@ func (v *ObjectsView) startUpload() tea.Cmd {
 					return uploadCompleteMsg{err: fmt.Errorf("failed to walk directory %s: %w", path, err)}
 				}
 			} else {
-				// Single file - upload to current prefix
-				remotePath := v.currentPrefix + info.Name()
+				// Single file - upload to current prefix using path.Join for correct GCS paths
+				remotePath := pathpkg.Join(v.currentPrefix, info.Name())
 				uploadFiles = append(uploadFiles, uploadFile{
 					localPath:  path,
 					remotePath: remotePath,
