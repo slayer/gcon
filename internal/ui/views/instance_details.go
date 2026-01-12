@@ -549,13 +549,14 @@ func min(a, b int) int {
 func (v *InstanceDetailsView) renderLoading(msg string) string {
 	content := fmt.Sprintf("\n  %s %s\n", v.spinner.View(), msg)
 
-	// Must match sidebar height exactly (v.height) for proper horizontal join
-	targetHeight := v.height
-	if targetHeight < 10 {
-		targetHeight = 10
+	// Sidebar outputs height-1 newlines (lipgloss Height renders n lines = n-1 newlines)
+	// Content must match for proper horizontal join
+	targetNewlines := v.height - 1
+	if targetNewlines < 10 {
+		targetNewlines = 10
 	}
-	lines := strings.Count(content, "\n")
-	for i := lines; i < targetHeight; i++ {
+	currentNewlines := strings.Count(content, "\n")
+	for i := currentNewlines; i < targetNewlines; i++ {
 		content += "\n"
 	}
 	return content
