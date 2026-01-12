@@ -590,10 +590,10 @@ func (v *ObjectsView) IsFilePickerShown() bool {
 // renderLoading renders a loading message that fills the view height
 func (v *ObjectsView) renderLoading(msg string) string {
 	content := fmt.Sprintf("\n  %s %s\n", v.spinner.View(), msg)
-	// Pad with empty lines to fill the view height (min 20 for initial load before SetSize)
-	targetHeight := v.height
-	if targetHeight < 20 {
-		targetHeight = 20
+	// Match loaded view height: list (height-6) + status/help (4 lines) = height-2
+	targetHeight := v.height - 2
+	if targetHeight < 10 {
+		targetHeight = 10
 	}
 	lines := strings.Count(content, "\n")
 	for i := lines; i < targetHeight; i++ {

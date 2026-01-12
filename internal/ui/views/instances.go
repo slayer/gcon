@@ -366,10 +366,10 @@ func (v *InstancesView) GetComputeClient() *gcp.ComputeClient {
 // to prevent rendering artifacts when transitioning to loaded state
 func (v *InstancesView) renderLoading(msg string) string {
 	content := fmt.Sprintf("\n  %s %s\n", v.spinner.View(), msg)
-	// Pad with empty lines to fill the view height (min 20 for initial load before SetSize)
-	targetHeight := v.height
-	if targetHeight < 20 {
-		targetHeight = 20
+	// Match loaded view height: list (height-4) + help (2 lines) = height-2
+	targetHeight := v.height - 2
+	if targetHeight < 10 {
+		targetHeight = 10
 	}
 	lines := strings.Count(content, "\n")
 	for i := lines; i < targetHeight; i++ {
