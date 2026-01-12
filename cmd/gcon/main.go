@@ -22,6 +22,7 @@ func init() {
 	flag.StringVar(&projectFlag, "p", "", "GCP project ID (shorthand)")
 	flag.StringVar(&projectFlag, "project", "", "GCP project ID")
 	flag.BoolVar(&noEmojisFlag, "no-emojis", false, "Use Unicode symbols instead of emojis (e.g., colored ● instead of 🟢)")
+	flag.BoolVar(&noEmojisFlag, "unicode", false, "Use Unicode symbols instead of emojis (alias for --no-emojis)")
 	flag.BoolVar(&asciiFlag, "ascii", false, "Use ASCII-only characters (no Unicode or emojis)")
 }
 
