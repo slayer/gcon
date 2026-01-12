@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
@@ -458,12 +459,12 @@ func (a *App) View() string {
 		content += "\n" + a.styles.Error.Render("Error: "+a.err.Error())
 	}
 
-	// Use lipgloss.Place to position content within fixed dimensions
-	// This is more reliable across terminals than Height+MaxHeight truncation
-	// which can fragment ANSI escape codes
-	styledHeader := lipgloss.Place(a.width, headerHeight, lipgloss.Left, lipgloss.Top, header)
-	styledContent := lipgloss.Place(a.width, contentHeight, lipgloss.Left, lipgloss.Top, content)
-	styledFooter := lipgloss.Place(a.width, footerHeight, lipgloss.Left, lipgloss.Top, a.renderFooter())
+	// Use lipgloss.Place for positioning, then truncate at line boundaries.
+	// Line-based truncation is ANSI-safe since escape sequences don't span lines.
+	// This avoids the fragmentation issues that MaxHeight() causes in native terminals.
+	styledHeader := truncateToHeight(lipgloss.Place(a.width, headerHeight, lipgloss.Left, lipgloss.Top, header), headerHeight)
+	styledContent := truncateToHeight(lipgloss.Place(a.width, contentHeight, lipgloss.Left, lipgloss.Top, content), contentHeight)
+	styledFooter := truncateToHeight(lipgloss.Place(a.width, footerHeight, lipgloss.Left, lipgloss.Top, a.renderFooter()), footerHeight)
 
 	// Compose final layout with guaranteed heights
 	return lipgloss.JoinVertical(
@@ -579,4 +580,20 @@ func (a *App) renderFooter() string {
 		helpText = "tab focus • [ sidebar • " + helpText
 	}
 	return a.styles.Help.Render(helpText)
+}
+
+// truncateToHeight truncates content to exactly maxLines by splitting on newlines.
+// This is ANSI-safe because escape sequences don't span line boundaries.
+func truncateToHeight(content string, maxLines int) string {
+	if maxLines <= 0 {
+		return ""
+	}
+
+	lines := strings.Split(content, "\n")
+	if len(lines) <= maxLines {
+		return content
+	}
+
+	// Take only the first maxLines lines
+	return strings.Join(lines[:maxLines], "\n")
 }
