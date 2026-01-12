@@ -35,6 +35,9 @@ type fileItem struct {
 	entry FileEntry
 }
 
+// Style for muted file size text
+var sizeStyle = lipgloss.NewStyle().Foreground(mutedTextColor)
+
 func (i fileItem) Title() string {
 	// Checkbox: [ ] or [x]
 	check := "[ ] "
@@ -56,7 +59,9 @@ func (i fileItem) Title() string {
 	if i.entry.IsDir {
 		return fmt.Sprintf("%s%s %s", check, icon, i.entry.Name)
 	}
-	return fmt.Sprintf("%s%s %s (%s)", check, icon, i.entry.Name, gcp.FormatSize(i.entry.Size))
+	// File size in gray
+	sizeText := sizeStyle.Render(fmt.Sprintf("(%s)", gcp.FormatSize(i.entry.Size)))
+	return fmt.Sprintf("%s%s %s %s", check, icon, i.entry.Name, sizeText)
 }
 
 func (i fileItem) Description() string {
@@ -87,6 +92,7 @@ type FilePicker struct {
 type filePickerKeyMap struct {
 	Enter       key.Binding
 	Back        key.Binding
+	Left        key.Binding // Left arrow - go up when on first item
 	Toggle      key.Binding
 	SelectAll   key.Binding
 	DeselectAll key.Binding
@@ -103,6 +109,10 @@ func defaultFilePickerKeyMap() filePickerKeyMap {
 		Back: key.NewBinding(
 			key.WithKeys("backspace", "h"),
 			key.WithHelp("backspace", "go up"),
+		),
+		Left: key.NewBinding(
+			key.WithKeys("left"),
+			key.WithHelp("←", "go up"),
 		),
 		Toggle: key.NewBinding(
 			key.WithKeys(" "),
@@ -298,6 +308,14 @@ func (fp *FilePicker) Update(msg tea.Msg) tea.Cmd {
 		case key.Matches(msg, fp.keys.Back):
 			// Go up to parent directory, remembering current folder name
 			if fp.currentPath != "/" {
+				currentFolderName := filepath.Base(fp.currentPath)
+				fp.currentPath = filepath.Dir(fp.currentPath)
+				return fp.loadDirectory(currentFolderName)
+			}
+
+		case key.Matches(msg, fp.keys.Left):
+			// Left arrow goes up only when cursor is on first item
+			if fp.list.Index() == 0 && fp.currentPath != "/" {
 				currentFolderName := filepath.Base(fp.currentPath)
 				fp.currentPath = filepath.Dir(fp.currentPath)
 				return fp.loadDirectory(currentFolderName)
