@@ -364,3 +364,12 @@ func copyWithProgress(dst io.Writer, src io.Reader, totalSize int64, progress Pr
 	written, err := io.Copy(pw, src)
 	return written, err
 }
+
+// DeleteObject deletes a single object from GCS
+func (c *StorageClient) DeleteObject(ctx context.Context, bucketName, objectName string) error {
+	obj := c.client.Bucket(bucketName).Object(objectName)
+	if err := obj.Delete(ctx); err != nil {
+		return fmt.Errorf("failed to delete object %s: %w", objectName, err)
+	}
+	return nil
+}

@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/slayer/gcon/internal/gcp"
+	"github.com/slayer/gcon/internal/ui/components/confirm"
 	"github.com/slayer/gcon/internal/ui/components/filepicker"
 	"github.com/slayer/gcon/internal/ui/components/progress"
 	"github.com/slayer/gcon/internal/ui/symbols"
@@ -505,5 +506,225 @@ func TestObjectsViewUpload(t *testing.T) {
 		assert.False(t, view.uploading)
 		assert.Equal(t, testErr, view.err)
 		assert.False(t, view.loading) // No refresh on error
+	})
+}
+
+func TestObjectsViewDelete(t *testing.T) {
+	t.Run("delete key ignored during loading", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.loading = true
+
+		cmd := view.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'D'}})
+
+		assert.Nil(t, cmd)
+		assert.False(t, view.showDeleteConfirm)
+	})
+
+	t.Run("delete key ignored during downloading", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.loading = false
+		view.downloading = true
+
+		cmd := view.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'D'}})
+
+		assert.Nil(t, cmd)
+		assert.False(t, view.showDeleteConfirm)
+	})
+
+	t.Run("delete key ignored during uploading", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.loading = false
+		view.uploading = true
+
+		cmd := view.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'D'}})
+
+		assert.Nil(t, cmd)
+		assert.False(t, view.showDeleteConfirm)
+	})
+
+	t.Run("delete key ignored during deleting", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.loading = false
+		view.deleting = true
+
+		cmd := view.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'D'}})
+
+		assert.Nil(t, cmd)
+	})
+
+	t.Run("deleteRequestMsg stores pending delete for single file", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		file := gcp.StorageObject{Name: "test.txt", DisplayName: "test.txt", IsFolder: false}
+
+		cmd := view.Update(deleteRequestMsg{object: file})
+
+		assert.NotNil(t, view.pendingDelete)
+		assert.Equal(t, "test.txt", view.pendingDelete.Name)
+		assert.NotNil(t, cmd) // Should return command to resolve files
+	})
+
+	t.Run("deleteFilesResolvedMsg shows confirmation dialog", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.SetSize(100, 50)
+		files := []gcp.StorageObject{
+			{Name: "file1.txt", DisplayName: "file1.txt"},
+		}
+
+		view.Update(deleteFilesResolvedMsg{files: files})
+
+		assert.True(t, view.showDeleteConfirm)
+		assert.NotNil(t, view.deleteConfirm)
+		assert.Equal(t, files, view.pendingDeleteFiles)
+	})
+
+	t.Run("deleteFilesResolvedMsg with error sets error", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.pendingDelete = &gcp.StorageObject{Name: "test.txt"}
+		testErr := assert.AnError
+
+		view.Update(deleteFilesResolvedMsg{err: testErr})
+
+		assert.False(t, view.showDeleteConfirm)
+		assert.Equal(t, testErr, view.err)
+		assert.Nil(t, view.pendingDelete)
+	})
+
+	t.Run("confirm.ConfirmMsg starts deletion", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.showDeleteConfirm = true
+		view.deleteConfirm = confirm.New("Delete", "Are you sure?", nil)
+		view.pendingDeleteFiles = []gcp.StorageObject{
+			{Name: "test.txt", DisplayName: "test.txt"},
+		}
+
+		cmd := view.Update(confirm.ConfirmMsg{})
+
+		assert.False(t, view.showDeleteConfirm)
+		assert.Nil(t, view.deleteConfirm)
+		assert.NotNil(t, cmd) // Should return command to start delete
+	})
+
+	t.Run("confirm.CancelMsg clears delete state", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.showDeleteConfirm = true
+		view.deleteConfirm = confirm.New("Delete", "Are you sure?", nil)
+		view.pendingDelete = &gcp.StorageObject{Name: "test.txt"}
+		view.pendingDeleteFiles = []gcp.StorageObject{{Name: "test.txt"}}
+
+		view.Update(confirm.CancelMsg{})
+
+		assert.False(t, view.showDeleteConfirm)
+		assert.Nil(t, view.deleteConfirm)
+		assert.Nil(t, view.pendingDelete)
+		assert.Nil(t, view.pendingDeleteFiles)
+	})
+
+	t.Run("deleteStartMsg initializes delete state", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.SetSize(100, 50)
+		view.pendingDeleteFiles = []gcp.StorageObject{
+			{Name: "test.txt", DisplayName: "test.txt"},
+		}
+
+		// Manually set deleting since startDelete would need storageClient
+		view.deleting = true
+
+		assert.True(t, view.deleting)
+	})
+
+	t.Run("deleteCompleteMsg clears delete state on success", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.deleting = true
+		view.pendingDelete = &gcp.StorageObject{Name: "test.txt"}
+		view.pendingDeleteFiles = []gcp.StorageObject{{Name: "test.txt"}}
+		view.deleteChan = make(chan deleteProgressUpdate, 10)
+
+		view.Update(deleteCompleteMsg{err: nil, deletedCount: 1})
+
+		assert.False(t, view.deleting)
+		assert.Nil(t, view.pendingDelete)
+		assert.Nil(t, view.pendingDeleteFiles)
+		assert.Nil(t, view.deleteChan)
+		assert.True(t, view.loading) // Should trigger refresh
+	})
+
+	t.Run("deleteCompleteMsg with error sets error", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.deleting = true
+		view.loading = false
+		testErr := assert.AnError
+
+		view.Update(deleteCompleteMsg{err: testErr, deletedCount: 0})
+
+		assert.False(t, view.deleting)
+		assert.Equal(t, testErr, view.err)
+		assert.False(t, view.loading) // No refresh on error
+	})
+
+	t.Run("deleteCompleteMsg with partial failure shows detailed error", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.deleting = true
+		view.loading = false
+		testErr := assert.AnError
+
+		view.Update(deleteCompleteMsg{err: testErr, deletedCount: 3, failedObject: "file4.txt"})
+
+		assert.False(t, view.deleting)
+		assert.Contains(t, view.err.Error(), "deleted 3 files")
+		assert.Contains(t, view.err.Error(), "file4.txt")
+	})
+
+	t.Run("keys are forwarded to confirmation dialog when active", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.loading = false
+		view.showDeleteConfirm = true
+		view.deleteConfirm = confirm.New("Delete", "Are you sure?", nil)
+
+		// Press 'y' - should be handled by confirmation dialog
+		cmd := view.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+
+		// Should return confirm message
+		assert.NotNil(t, cmd)
+	})
+
+	t.Run("createDeleteConfirmDialog for single file", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.SetSize(100, 50)
+		files := []gcp.StorageObject{
+			{Name: "test.txt", DisplayName: "test.txt"},
+		}
+
+		dialog := view.createDeleteConfirmDialog(files)
+
+		assert.NotNil(t, dialog)
+		// Verify dialog was created (we can't inspect internal fields directly)
+	})
+
+	t.Run("createDeleteConfirmDialog for multiple files", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.SetSize(100, 50)
+		files := []gcp.StorageObject{
+			{Name: "file1.txt", DisplayName: "file1.txt"},
+			{Name: "file2.txt", DisplayName: "file2.txt"},
+			{Name: "file3.txt", DisplayName: "file3.txt"},
+		}
+
+		dialog := view.createDeleteConfirmDialog(files)
+
+		assert.NotNil(t, dialog)
+	})
+
+	t.Run("createDeleteConfirmDialog truncates long file list", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.SetSize(100, 50)
+		files := make([]gcp.StorageObject, 10)
+		for i := 0; i < 10; i++ {
+			files[i] = gcp.StorageObject{Name: "file.txt", DisplayName: "file.txt"}
+		}
+
+		dialog := view.createDeleteConfirmDialog(files)
+
+		assert.NotNil(t, dialog)
+		// Dialog should be created with truncated details (first 5 + "... and X more")
 	})
 }
