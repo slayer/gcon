@@ -21,9 +21,10 @@ func TerminalWidth(s string) int {
 // to avoid line wrapping due to emoji width miscalculation.
 // Pass the terminal width and the string that will be rendered.
 //
-// For multi-line content, this finds the line with the most miscounted emojis
-// and reduces width by that amount. This ensures all lines will fit when
-// lipgloss.Place() pads each line to this width.
+// lipgloss.Place() pads ALL lines to the target width. So if any line has
+// emojis that terminals render wider than lipgloss measures, those lines
+// will overflow. We must reduce width by the max emoji count on any line
+// to ensure the worst-case line still fits.
 func SafeWidth(terminalWidth int, content string) int {
 	maxExtra := maxLineEmojiCount(content)
 	safe := terminalWidth - maxExtra
@@ -98,9 +99,14 @@ func isWideEmoji(r rune) bool {
 	// Symbols that lipgloss counts as 1 but terminals render as 2
 	switch r {
 	case '☁', // Cloud (header) - U+2601
-		'☰',           // Hamburger menu (sidebar) - U+2630
-		'◀', '▶', '▸', // Arrows (sidebar navigation) - U+25C0, U+25B6, U+25B8
-		'●': // Active indicator (sidebar) - U+25CF
+		'☰', // Hamburger menu (sidebar) - U+2630
+
+		// Arrows (sidebar navigation)
+		'◀', '▶', '▸',
+
+		// Geometric shapes used as icons in sidebar
+		'□', '○', '◇', // Category icons (hollow)
+		'■', '●', '▪', '◆', '▲': // Leaf icons (filled)
 		return true
 	}
 

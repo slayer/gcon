@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"context"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/help"
@@ -106,17 +105,18 @@ func (a *App) Init() tea.Cmd {
 	return a.projectView.Init()
 }
 
-// loadInitialProject fetches project details and switches to instances view
+// loadInitialProject switches directly to instances view using the configured project ID.
+// We skip project validation to avoid requiring cloudresourcemanager permissions -
+// any errors will surface when loading instances instead.
 func (a *App) loadInitialProject() tea.Cmd {
 	return func() tea.Msg {
-		project, err := a.gcpClient.GetProject(context.Background(), a.initialProjectID)
-		if err != nil {
-			return InitialProjectErrorMsg{
-				Err:       err,
-				ProjectID: a.initialProjectID,
-			}
+		// Use project ID directly without validation
+		return InitialProjectLoadedMsg{
+			Project: gcp.Project{
+				ID:   a.initialProjectID,
+				Name: a.initialProjectID,
+			},
 		}
-		return InitialProjectLoadedMsg{Project: *project}
 	}
 }
 
@@ -482,19 +482,19 @@ func (a *App) View() string {
 	// by the emoji count in each component to compensate.
 	footer := a.renderFooter()
 
-	// Each component gets its own safe width calculation
-	headerSafeWidth := SafeWidth(a.width, header)
-	contentSafeWidth := SafeWidth(a.width, content)
-	footerSafeWidth := SafeWidth(a.width, footer)
+	// Calculate safe width for the component with the most emojis.
+	// JoinVertical pads all components to match the widest one, so we must
+	// use a single safe width based on the worst-case emoji count.
+	// This ensures lines with emojis don't overflow after JoinVertical padding.
+	allContent := header + "\n" + content + "\n" + footer
+	safeWidth := SafeWidth(a.width, allContent)
 
-	placedHeader := lipgloss.Place(headerSafeWidth, headerHeight, lipgloss.Left, lipgloss.Top, header)
-	placedContent := lipgloss.Place(contentSafeWidth, contentHeight, lipgloss.Left, lipgloss.Top, content)
-	placedFooter := lipgloss.Place(footerSafeWidth, footerHeight, lipgloss.Left, lipgloss.Top, footer)
+	placedHeader := lipgloss.Place(safeWidth, headerHeight, lipgloss.Left, lipgloss.Top, header)
+	placedContent := lipgloss.Place(safeWidth, contentHeight, lipgloss.Left, lipgloss.Top, content)
+	placedFooter := lipgloss.Place(safeWidth, footerHeight, lipgloss.Left, lipgloss.Top, footer)
 
-	debugLog("SafeWidths: header=%d, content=%d, footer=%d (terminal=%d)",
-		headerSafeWidth, contentSafeWidth, footerSafeWidth, a.width)
-	debugLog("EmojiCounts: header=%d, content=%d, footer=%d",
-		countWideEmojis(header), countWideEmojis(content), countWideEmojis(footer))
+	debugLog("SafeWidth: %d (terminal=%d), maxEmojis=%d",
+		safeWidth, a.width, maxLineEmojiCount(allContent))
 	debugLogView("Placed header", placedHeader)
 	debugLogView("Placed content", placedContent)
 	debugLogView("Placed footer", placedFooter)
@@ -517,8 +517,15 @@ func (a *App) View() string {
 	for i, line := range resultLines {
 		w := lipgloss.Width(line)
 		tw := TerminalWidth(line)
+		emojiCount := countWideEmojis(line)
 		if tw > a.width {
-			debugLog("! Line %d exceeds width: lipgloss=%d, terminal=%d > %d", i, w, tw, a.width)
+			debugLog("! Line %d exceeds width: lipgloss=%d, terminal=%d > %d, emojis=%d", i, w, tw, a.width, emojiCount)
+			// Show first 80 chars of raw line content for debugging
+			preview := line
+			if len(preview) > 80 {
+				preview = preview[:80] + "..."
+			}
+			debugLog("  content: %q", preview)
 		}
 	}
 	debugLog("")
@@ -568,15 +575,35 @@ func (a *App) renderWithSidebar() string {
 	sidebarView := a.sidebar.View()
 	contentView := a.renderCurrentView()
 
-	// Calculate safe width accounting for emojis in sidebar and content.
-	// Use SafeWidth to automatically detect emojis and reduce width accordingly.
-	combined := sidebarView + contentView
-	mainWidth := SafeWidth(a.layout.ContentWidth(), combined)
-	mainStyle := lipgloss.NewStyle().Width(mainWidth)
+	// Calculate safe width accounting for emojis in BOTH sidebar and content.
+	// JoinHorizontal combines lines side-by-side, so emojis from both views
+	// end up on the same terminal line. We need to account for the maximum
+	// combined emoji count on any single line.
+	sidebarMaxEmojis := maxLineEmojiCount(sidebarView)
+	contentMaxEmojis := maxLineEmojiCount(contentView)
+	totalMaxEmojis := sidebarMaxEmojis + contentMaxEmojis
+
+	// Debug: show emoji count per sidebar line
+	sidebarLines := strings.Split(sidebarView, "\n")
+	for i, line := range sidebarLines {
+		ec := countWideEmojis(line)
+		if ec > 0 {
+			debugLog("  sidebar line %d: %d emojis, width=%d", i, ec, lipgloss.Width(line))
+		}
+	}
+
+	mainWidth := a.layout.ContentWidth() - totalMaxEmojis
+	if mainWidth < 10 {
+		mainWidth = 10
+	}
+	// Use MaxWidth to constrain content that may be wider than available space.
+	// Width() sets minimum width, MaxWidth() sets maximum and truncates/wraps.
+	mainStyle := lipgloss.NewStyle().Width(mainWidth).MaxWidth(mainWidth)
 	styledContent := mainStyle.Render(contentView)
 
-	debugLog("renderWithSidebar: sidebar=%d, contentWidth=%d, mainWidth=%d",
-		lipgloss.Width(sidebarView), a.layout.ContentWidth(), mainWidth)
+	debugLog("renderWithSidebar: sidebar=%d, contentWidth=%d, mainWidth=%d, emojis=%d+%d",
+		lipgloss.Width(sidebarView), a.layout.ContentWidth(), mainWidth,
+		sidebarMaxEmojis, contentMaxEmojis)
 
 	// Join horizontally - parent View() will enforce overall height
 	result := lipgloss.JoinHorizontal(
@@ -584,6 +611,16 @@ func (a *App) renderWithSidebar() string {
 		sidebarView,
 		styledContent,
 	)
+
+	// Debug: show width breakdown after join
+	resultLines := strings.Split(result, "\n")
+	for i, line := range resultLines[:min(10, len(resultLines))] {
+		lw := lipgloss.Width(line)
+		tw := TerminalWidth(line)
+		if lw != 106 || tw > 108 { // Only show unexpected widths
+			debugLog("  result line %d: lipgloss=%d, terminal=%d, emojis=%d", i, lw, tw, countWideEmojis(line))
+		}
+	}
 	debugLog("renderWithSidebar: result maxLineWidth=%d", MaxLineWidth(result))
 	return result
 }

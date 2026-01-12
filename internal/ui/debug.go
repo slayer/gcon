@@ -37,13 +37,13 @@ func debugLogView(name string, content string) {
 		return
 	}
 	lines := strings.Split(content, "\n")
-	debugLog("%s: height=%d (lipgloss=%d), lines=%d",
-		name, len(lines), lipgloss.Height(content), len(lines))
+	debugLog("%s: height=%d (lipgloss=%d), lines=%d, width=%d",
+		name, len(lines), lipgloss.Height(content), len(lines), lipgloss.Width(content))
 	if len(lines) > 0 {
-		debugLog("  first: %q", truncStr(lines[0], 50))
+		debugLog("  first (w=%d): %q", lipgloss.Width(lines[0]), truncStr(lines[0], 50))
 	}
 	if len(lines) > 1 {
-		debugLog("  last: %q", truncStr(lines[len(lines)-1], 50))
+		debugLog("  last (w=%d): %q", lipgloss.Width(lines[len(lines)-1]), truncStr(lines[len(lines)-1], 50))
 	}
 }
 
