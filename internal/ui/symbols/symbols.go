@@ -69,33 +69,33 @@ func Active() string {
 	return "●"
 }
 
-// Status symbols for instances using 1-char wide colored Unicode circles
+// Status symbols for instances using colored emoji circles
 func StatusRunning() string {
 	if asciiMode {
 		return colorGreen.Render("[OK]")
 	}
-	return colorGreen.Render("●")
+	return "🟢"
 }
 
 func StatusStopped() string {
 	if asciiMode {
 		return colorRed.Render("[--]")
 	}
-	return colorRed.Render("●")
+	return "🔴"
 }
 
 func StatusTransitioning() string {
 	if asciiMode {
 		return colorYellow.Render("[..]")
 	}
-	return colorYellow.Render("○")
+	return "🟡"
 }
 
 func StatusUnknown() string {
 	if asciiMode {
 		return colorGray.Render("[??]")
 	}
-	return colorGray.Render("◌")
+	return "⚪"
 }
 
 // GetStatusSymbol returns the appropriate status symbol for an instance status.
