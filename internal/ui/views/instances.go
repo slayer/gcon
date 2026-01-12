@@ -72,8 +72,8 @@ func defaultInstanceKeyMap() instanceKeyMap {
 // Table column definitions
 func instanceColumns() []btable.Column {
 	return []btable.Column{
+		{Title: "", Width: 2}, // Status icon only
 		{Title: "Name", Width: 25},
-		{Title: "Status", Width: 12},
 		{Title: "Zone", Width: 20},
 		{Title: "Internal IP", Width: 15},
 		{Title: "External IP", Width: 15},
@@ -171,8 +171,8 @@ func instanceToRow(inst gcp.Instance) table.Row {
 
 	return table.Row{
 		Data: []string{
+			statusIcon(inst.Status), // Icon only in first column
 			inst.Name,
-			statusIcon(inst.Status) + " " + inst.Status,
 			inst.Zone,
 			inst.InternalIP,
 			externalIP,
