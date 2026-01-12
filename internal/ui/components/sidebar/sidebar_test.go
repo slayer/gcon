@@ -103,15 +103,15 @@ func TestToggleCollapsed(t *testing.T) {
 	s := New()
 
 	assert.False(t, s.IsCollapsed())
-	assert.Equal(t, ExpandedWidth, s.Width())
+	assert.Equal(t, ExpandedWidth+1, s.Width()) // Width includes border
 
 	s.Toggle()
 	assert.True(t, s.IsCollapsed())
-	assert.Equal(t, CollapsedWidth, s.Width())
+	assert.Equal(t, CollapsedWidth+1, s.Width()) // Width includes border
 
 	s.Toggle()
 	assert.False(t, s.IsCollapsed())
-	assert.Equal(t, ExpandedWidth, s.Width())
+	assert.Equal(t, ExpandedWidth+1, s.Width()) // Width includes border
 }
 
 func TestUnfocusedIgnoresKeys(t *testing.T) {

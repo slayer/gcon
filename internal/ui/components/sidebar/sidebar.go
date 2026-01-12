@@ -10,10 +10,10 @@ import (
 	"github.com/slayer/gcon/internal/ui/symbols"
 )
 
-// Width constants
+// Width constants (content area, border adds 1 more)
 const (
-	ExpandedWidth  = 26 // Full sidebar width with text
-	CollapsedWidth = 4  // Icon-only width (hamburger + padding)
+	ExpandedWidth  = 26 // Content width for full sidebar
+	CollapsedWidth = 4  // Content width for icon-only sidebar
 )
 
 // KeyMap defines sidebar-specific key bindings
@@ -383,12 +383,13 @@ func (s *Sidebar) IsCollapsed() bool {
 	return s.collapsed
 }
 
-// Width returns the current sidebar width
+// Width returns the current sidebar width including the border
 func (s *Sidebar) Width() int {
+	// Add 1 for the right border that the container style adds
 	if s.collapsed {
-		return CollapsedWidth
+		return CollapsedWidth + 1
 	}
-	return ExpandedWidth
+	return ExpandedWidth + 1
 }
 
 // SetActiveView sets the currently active view for highlighting

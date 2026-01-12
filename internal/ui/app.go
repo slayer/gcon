@@ -514,7 +514,7 @@ func (a *App) View() string {
 		w := lipgloss.Width(line)
 		tw := TerminalWidth(line)
 		if tw > a.width {
-			debugLog("⚠️ Line %d exceeds width: lipgloss=%d, terminal=%d > %d", i, w, tw, a.width)
+			debugLog("! Line %d exceeds width: lipgloss=%d, terminal=%d > %d", i, w, tw, a.width)
 		}
 	}
 	debugLog("")
@@ -571,12 +571,17 @@ func (a *App) renderWithSidebar() string {
 	mainStyle := lipgloss.NewStyle().Width(mainWidth)
 	styledContent := mainStyle.Render(contentView)
 
+	debugLog("renderWithSidebar: sidebar=%d, contentWidth=%d, mainWidth=%d",
+		lipgloss.Width(sidebarView), a.layout.ContentWidth(), mainWidth)
+
 	// Join horizontally - parent View() will enforce overall height
-	return lipgloss.JoinHorizontal(
+	result := lipgloss.JoinHorizontal(
 		lipgloss.Top,
 		sidebarView,
 		styledContent,
 	)
+	debugLog("renderWithSidebar: result maxLineWidth=%d", MaxLineWidth(result))
+	return result
 }
 
 // renderCurrentView renders the content area based on current view
