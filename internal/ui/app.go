@@ -156,6 +156,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Go back to projects, clear sidebar state
 				a.currentView = ViewProjects
 				a.instancesView = nil
+				// Close storage client before discarding bucketsView
+				if a.bucketsView != nil {
+					_ = a.bucketsView.Close()
+				}
 				a.bucketsView = nil
 				a.selectedProject = nil
 				a.focusedPanel = FocusContent
