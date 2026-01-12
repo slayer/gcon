@@ -592,6 +592,20 @@ func (v *ObjectsView) GetBucketName() string {
 	return v.bucketName
 }
 
+// IsFilePickerShown returns true if the file picker is currently shown
+func (v *ObjectsView) IsFilePickerShown() bool {
+	return v.showFilePicker
+}
+
+// ObjectsLoadedMsgForTest creates an objectsLoadedMsg for testing
+func ObjectsLoadedMsgForTest(objects []gcp.StorageObject, nextToken string, hasMore bool) objectsLoadedMsg {
+	return objectsLoadedMsg{
+		objects:   objects,
+		nextToken: nextToken,
+		hasMore:   hasMore,
+	}
+}
+
 // prepareDownload initiates download for a file or folder
 func (v *ObjectsView) prepareDownload(obj gcp.StorageObject) tea.Cmd {
 	return func() tea.Msg {

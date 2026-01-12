@@ -293,6 +293,19 @@ func TestObjectsViewFilePicker(t *testing.T) {
 		assert.NotNil(t, view.filePicker)
 	})
 
+	t.Run("pressing u opens file picker in empty bucket", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.loading = false
+		view.objects = []gcp.StorageObject{} // Empty bucket
+		view.SetSize(100, 50)
+
+		// Press 'u' to open upload file picker
+		view.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'u'}})
+
+		assert.True(t, view.showFilePicker, "file picker should open in empty bucket")
+		assert.NotNil(t, view.filePicker, "file picker should be created")
+	})
+
 	t.Run("file picker receives forwarded messages", func(t *testing.T) {
 		view := NewObjectsView("test-bucket", nil)
 		view.loading = false
