@@ -248,7 +248,7 @@ func (v *InstanceDetailsView) View() string {
 
 	if v.err != nil {
 		return "\n" + components.RenderError(v.err) + "\n" +
-			lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6")).Italic(true).Render("  Press 'esc' to go back")
+			components.HintStyle.Render("  Press 'esc' to go back")
 	}
 
 	if v.details == nil {

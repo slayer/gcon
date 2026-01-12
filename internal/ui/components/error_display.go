@@ -1,7 +1,9 @@
 package components
 
 import (
+	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
@@ -15,7 +17,8 @@ var (
 	errorContextStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#DADCE0"))
 
-	hintStyle = lipgloss.NewStyle().
+	// HintStyle is exported for consistent hint styling across views
+	HintStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#9AA0A6")).
 			Italic(true)
 )
@@ -27,11 +30,12 @@ func RenderError(err error) string {
 	}
 
 	// Check if it's our wrapped GCP error with rich context
-	gcpErr, ok := err.(*gcp.GCPError)
-	if !ok {
+	// Use errors.As to support wrapped error chains
+	var gcpErr *gcp.GCPError
+	if !errors.As(err, &gcpErr) {
 		// Fallback for non-GCP errors
 		return errorTitleStyle.Render("  Error: "+err.Error()) +
-			"\n\n" + hintStyle.Render("  Press 'r' to retry")
+			"\n\n" + HintStyle.Render("  Press 'r' to retry")
 	}
 
 	var result string
@@ -50,9 +54,13 @@ func RenderError(err error) string {
 		result += "\n" + errorContextStyle.Render(ctx)
 	}
 
-	// Actionable hint
-	result += "\n\n" + hintStyle.Render("  "+gcpErr.Hint)
-	result += "\n" + hintStyle.Render("  Press 'r' to retry")
+	// Actionable hint - strip retry instruction if present since we add it below
+	hint := gcpErr.Hint
+	if idx := strings.Index(strings.ToLower(hint), "(press 'r'"); idx != -1 {
+		hint = strings.TrimSpace(hint[:idx])
+	}
+	result += "\n\n" + HintStyle.Render("  "+hint)
+	result += "\n" + HintStyle.Render("  Press 'r' to retry")
 
 	return result
 }
