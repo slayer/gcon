@@ -13,7 +13,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
-	"github.com/slayer/gcon/internal/ui/components"
 )
 
 // InstanceSelectedMsg is sent when an instance is selected from the list
@@ -236,27 +235,23 @@ func (v *InstanceDetailsView) resetInstance() tea.Cmd {
 // View renders the instance details view
 func (v *InstanceDetailsView) View() string {
 	if v.loading {
-		return fmt.Sprintf("\n  %s Loading instance details...\n", v.spinner.View())
+		return v.renderLoading("Loading instance details...")
 	}
 
 	if v.actionLoading {
-		if v.ready {
-			return fmt.Sprintf("\n  %s %s\n\n%s", v.spinner.View(), v.actionMsg, v.viewport.View())
-		}
-		return fmt.Sprintf("\n  %s %s\n", v.spinner.View(), v.actionMsg)
+		return v.renderLoading(v.actionMsg)
 	}
 
 	if v.err != nil {
-		return "\n" + components.RenderError(v.err) + "\n" +
-			components.HintStyle.Render("  Press 'esc' to go back")
+		return v.renderLoading(fmt.Sprintf("Error: %v\n  Press 'esc' to go back", v.err))
 	}
 
 	if v.details == nil {
-		return "\n  No instance details available.\n  Press 'esc' to go back."
+		return v.renderLoading("No instance details available.\n  Press 'esc' to go back.")
 	}
 
 	if !v.ready {
-		return "\n  Initializing view...\n"
+		return v.renderLoading("Initializing view...")
 	}
 
 	// Show action result if any
@@ -548,4 +543,19 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// renderLoading renders a loading message that fills the view height
+func (v *InstanceDetailsView) renderLoading(msg string) string {
+	content := fmt.Sprintf("\n  %s %s\n", v.spinner.View(), msg)
+	// Match loaded view height: viewport (height-4) + help (2 lines) = height-2
+	targetHeight := v.height - 2
+	if targetHeight < 10 {
+		targetHeight = 10
+	}
+	lines := strings.Count(content, "\n")
+	for i := lines; i < targetHeight; i++ {
+		content += "\n"
+	}
+	return content
 }
