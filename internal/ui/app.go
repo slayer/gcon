@@ -62,8 +62,9 @@ type App struct {
 	selectedBucket   *gcp.Bucket
 
 	// UI state
-	showHelp bool
-	err      error
+	showHelp              bool
+	err                   error
+	loadingInitialProject bool // True while loading project from config/flag
 
 	// Initial project from config/flag (skip project selector if set)
 	initialProjectID string
@@ -99,6 +100,7 @@ func NewApp(client *gcp.Client, opts AppOptions) *App {
 func (a *App) Init() tea.Cmd {
 	// If initial project is set, load it directly instead of showing selector
 	if a.initialProjectID != "" {
+		a.loadingInitialProject = true
 		return a.loadInitialProject()
 	}
 	return a.projectView.Init()
@@ -250,6 +252,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case InitialProjectLoadedMsg:
 		// Initial project loaded successfully, go directly to instances view
+		a.loadingInitialProject = false
 		a.selectedProject = &msg.Project
 		a.currentView = ViewInstances
 		a.instancesView = views.NewInstancesView(msg.Project.ID)
@@ -260,6 +263,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case InitialProjectErrorMsg:
 		// Failed to load initial project, fall back to selector with error displayed
+		a.loadingInitialProject = false
 		a.err = msg.Err
 		a.initialProjectID = ""
 		return a, a.projectView.Init()
@@ -586,6 +590,11 @@ func (a *App) renderWithSidebar() string {
 
 // renderCurrentView renders the content area based on current view
 func (a *App) renderCurrentView() string {
+	// Show loading message while fetching initial project from config
+	if a.loadingInitialProject {
+		return "Loading project " + a.initialProjectID + "..."
+	}
+
 	switch a.currentView {
 	case ViewProjects:
 		return a.projectView.View()

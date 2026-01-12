@@ -2,7 +2,17 @@
 // Use SetASCIIMode(true) to replace emojis with plain ASCII characters.
 package symbols
 
+import "github.com/charmbracelet/lipgloss"
+
 var asciiMode bool
+
+// Colors for status indicators (GCP-inspired palette)
+var (
+	colorGreen  = lipgloss.NewStyle().Foreground(lipgloss.Color("#34A853"))
+	colorRed    = lipgloss.NewStyle().Foreground(lipgloss.Color("#EA4335"))
+	colorYellow = lipgloss.NewStyle().Foreground(lipgloss.Color("#FBBC04"))
+	colorGray   = lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
+)
 
 // SetASCIIMode enables or disables ASCII-only mode.
 // When enabled, all symbols return ASCII alternatives instead of Unicode/emojis.
@@ -20,7 +30,9 @@ func Cloud() string {
 	if asciiMode {
 		return "#"
 	}
-	return "☁"
+	// "☁" Cloud - 1-char wide
+	// return "◈" // Diamond with dot - 1-char wide
+	return "#"
 }
 
 // Sidebar symbols
@@ -60,32 +72,34 @@ func Active() string {
 }
 
 // Status symbols for instances
+// Using 1-char wide Unicode circles with colors instead of 2-wide emoji circles
 func StatusRunning() string {
 	if asciiMode {
-		return "[OK]"
+		return colorGreen.Render("[OK]")
 	}
-	return "🟢"
+	// return "🟢"
+	return colorGreen.Render("●")
 }
 
 func StatusStopped() string {
 	if asciiMode {
-		return "[--]"
+		return colorRed.Render("[--]")
 	}
-	return "🔴"
+	return colorRed.Render("●")
 }
 
 func StatusTransitioning() string {
 	if asciiMode {
-		return "[..]"
+		return colorYellow.Render("[..]")
 	}
-	return "🟡"
+	return colorYellow.Render("○")
 }
 
 func StatusUnknown() string {
 	if asciiMode {
-		return "[??]"
+		return colorGray.Render("[??]")
 	}
-	return "⚪"
+	return colorGray.Render("◌")
 }
 
 // GetStatusSymbol returns the appropriate status symbol for an instance status.

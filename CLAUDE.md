@@ -142,7 +142,7 @@ Required scopes:
 - Provide keyboard shortcuts for all actions
 - Display errors inline with retry option
 - Use consistent color scheme via Lip Gloss styles (GCP colors)
-- Status indicators: 🟢 running, 🔴 stopped, 🟡 transitioning
+- Status indicators: ● green (running), ● red (stopped), ○ yellow (transitioning)
 
 ## Bubble Tea Rendering Guidelines
 
@@ -194,6 +194,42 @@ func TestRenderingHeightConsistency(t *testing.T) {
 
 ### Hide Duplicate UI Elements
 When using bubbles/list component, hide its built-in title with `l.SetShowTitle(false)` if the app header already shows context. This prevents duplicate titles.
+
+### Unicode Symbol Width Issues
+**Critical**: `lipgloss.Width()` miscounts certain Unicode symbols as 1-wide when terminals render them as 2-wide. Affected symbols include: ☁, ☰, ▶, ▸, ◀, ●
+
+**Solutions**:
+1. Use `SafeWidth(terminalWidth, content)` helper to reduce width by emoji count per line
+2. Prefer 1-char Unicode symbols with lipgloss colors over emoji circles:
+   - Instead of 🟢 🔴 🟡 → use ● with `lipgloss.Color("#34A853")` etc.
+3. Centralize symbols in `internal/ui/symbols` package with ASCII fallback support (`--ascii` flag)
+
+```go
+// symbols/symbols.go - colored 1-char status indicators
+var colorGreen = lipgloss.NewStyle().Foreground(lipgloss.Color("#34A853"))
+
+func StatusRunning() string {
+    if asciiMode {
+        return colorGreen.Render("[OK]")
+    }
+    return colorGreen.Render("●")  // 1-char wide, colored
+}
+```
+
+### Component Width Reporting
+When components have borders, the `Width()` method must include border width in the reported value:
+
+```go
+func (s *Sidebar) Width() int {
+    // Add 1 for the right border that the container style adds
+    if s.collapsed {
+        return CollapsedWidth + 1
+    }
+    return ExpandedWidth + 1
+}
+```
+
+Layout calculations depend on accurate width reporting. If a component reports width=26 but renders as 27 (due to border), content will overflow by 1 character.
 
 ## Key Bindings
 
