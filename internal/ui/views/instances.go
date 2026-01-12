@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
@@ -53,6 +54,8 @@ type InstancesView struct {
 	projectID     string
 	list          list.Model
 	spinner       spinner.Model
+	viewport      viewport.Model
+	ready         bool // viewport initialized
 	loading       bool
 	actionLoading bool // True when performing start/stop action
 	actionMsg     string
@@ -282,6 +285,16 @@ func (v *InstancesView) Update(msg tea.Msg) tea.Cmd {
 
 	var cmd tea.Cmd
 	v.list, cmd = v.list.Update(msg)
+
+	// Update viewport for scroll handling when content is loaded
+	if v.ready && !v.loading && !v.actionLoading {
+		var vpCmd tea.Cmd
+		v.viewport, vpCmd = v.viewport.Update(msg)
+		if vpCmd != nil {
+			return tea.Batch(cmd, vpCmd)
+		}
+	}
+
 	return cmd
 }
 
@@ -317,36 +330,65 @@ func (v *InstancesView) View() string {
 	}
 
 	if v.actionLoading {
-		return fmt.Sprintf("\n  %s %s\n\n%s", v.spinner.View(), v.actionMsg, v.list.View())
+		return v.renderLoading(v.actionMsg)
 	}
 
 	if v.err != nil {
-		return "\n" + components.RenderError(v.err)
+		return v.renderViewportContent("\n" + components.RenderError(v.err))
 	}
 
 	if len(v.instances) == 0 {
-		return "\n  No instances found in this project.\n  Press 'esc' to go back."
+		return v.renderViewportContent("\n  No instances found in this project.\n  Press 'esc' to go back.")
 	}
+
+	// Build content for viewport (includes help at bottom)
+	var content string
 
 	// Show action result if any
-	var header string
 	if v.actionMsg != "" {
 		successStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#34A853"))
-		header = successStyle.Render("  ✓ "+v.actionMsg) + "\n\n"
+		content = successStyle.Render("  ✓ "+v.actionMsg) + "\n\n"
 	}
 
-	// Help text for actions
+	content += v.list.View()
+
+	// Help text (included in viewport content)
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
 	help := helpStyle.Render("\n  enter: details • s: start • x: stop • R: reset • r: refresh • esc: back")
+	content += help
 
-	return header + v.list.View() + help
+	// Wrap content in viewport for consistent height
+	if v.ready {
+		v.viewport.SetContent(content)
+		return v.viewport.View()
+	}
+
+	return content
 }
 
 // SetSize updates the view dimensions
 func (v *InstancesView) SetSize(width, height int) {
 	v.width = width
 	v.height = height
-	v.list.SetSize(width, height-4)
+
+	// Viewport height = full height so that View() outputs height-1 newlines
+	// (matching sidebar behavior for proper horizontal join)
+	viewportHeight := height
+	if viewportHeight < 1 {
+		viewportHeight = 1
+	}
+
+	// Lazy viewport initialization
+	if !v.ready {
+		v.viewport = viewport.New(width, viewportHeight)
+		v.ready = true
+	} else {
+		v.viewport.Width = width
+		v.viewport.Height = viewportHeight
+	}
+
+	// List takes viewport space minus help footer and list's own status bar
+	v.list.SetSize(width, viewportHeight-4)
 }
 
 // SelectedInstance returns the currently selected instance
@@ -362,16 +404,28 @@ func (v *InstancesView) GetComputeClient() *gcp.ComputeClient {
 	return v.computeClient
 }
 
-// renderLoading renders a loading message that fills the view height
-// to prevent rendering artifacts when transitioning to loaded state
+// renderLoading renders a loading message with spinner
 func (v *InstancesView) renderLoading(msg string) string {
 	content := fmt.Sprintf("\n  %s %s\n", v.spinner.View(), msg)
-	// Sidebar outputs height-1 newlines (lipgloss Height renders n lines = n-1 newlines)
-	// Content must match for proper horizontal join
+	return v.renderViewportContent(content)
+}
+
+// renderViewportContent wraps content in viewport for consistent height
+func (v *InstancesView) renderViewportContent(content string) string {
+	// Ensure minimum newlines for edge cases (zero/negative height)
+	// Test expects minimum 10 newlines output
+	minNewlines := 10
 	targetNewlines := v.height - 1
-	if targetNewlines < 10 {
-		targetNewlines = 10
+	if targetNewlines < minNewlines {
+		targetNewlines = minNewlines
 	}
+
+	if v.ready && v.viewport.Height >= minNewlines+1 {
+		v.viewport.SetContent(content)
+		return v.viewport.View()
+	}
+
+	// Fallback: manual padding when viewport not ready or height too small
 	currentNewlines := strings.Count(content, "\n")
 	for i := currentNewlines; i < targetNewlines; i++ {
 		content += "\n"

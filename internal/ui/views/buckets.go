@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
@@ -37,6 +38,8 @@ type BucketsView struct {
 	projectID     string
 	list          list.Model
 	spinner       spinner.Model
+	viewport      viewport.Model
+	ready         bool // viewport initialized
 	loading       bool
 	err           error
 	width         int
@@ -202,6 +205,16 @@ func (v *BucketsView) Update(msg tea.Msg) tea.Cmd {
 
 	var cmd tea.Cmd
 	v.list, cmd = v.list.Update(msg)
+
+	// Update viewport for scroll handling when content is loaded
+	if v.ready && !v.loading {
+		var vpCmd tea.Cmd
+		v.viewport, vpCmd = v.viewport.Update(msg)
+		if vpCmd != nil {
+			return tea.Batch(cmd, vpCmd)
+		}
+	}
+
 	return cmd
 }
 
@@ -217,25 +230,53 @@ func (v *BucketsView) View() string {
 
 	if v.err != nil {
 		errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#EA4335"))
-		return errStyle.Render(fmt.Sprintf("\n  Error: %v\n\n  Press 'r' to retry", v.err))
+		return v.renderViewportContent(errStyle.Render(fmt.Sprintf("\n  Error: %v\n\n  Press 'r' to retry", v.err)))
 	}
 
 	if len(v.buckets) == 0 {
-		return "\n  No buckets found in this project.\n  Press 'esc' to go back."
+		return v.renderViewportContent("\n  No buckets found in this project.\n  Press 'esc' to go back.")
 	}
 
-	// Help text for actions
+	// Build content for viewport (includes help at bottom)
+	content := v.list.View()
+
+	// Help text (included in viewport content)
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
 	help := helpStyle.Render("\n  enter: browse • r: refresh • /: filter • esc: back")
+	content += help
 
-	return v.list.View() + help
+	// Wrap content in viewport for consistent height
+	if v.ready {
+		v.viewport.SetContent(content)
+		return v.viewport.View()
+	}
+
+	return content
 }
 
 // SetSize updates the view dimensions
 func (v *BucketsView) SetSize(width, height int) {
 	v.width = width
 	v.height = height
-	v.list.SetSize(width, height-4)
+
+	// Viewport height = full height so that View() outputs height-1 newlines
+	// (matching sidebar behavior for proper horizontal join)
+	viewportHeight := height
+	if viewportHeight < 1 {
+		viewportHeight = 1
+	}
+
+	// Lazy viewport initialization
+	if !v.ready {
+		v.viewport = viewport.New(width, viewportHeight)
+		v.ready = true
+	} else {
+		v.viewport.Width = width
+		v.viewport.Height = viewportHeight
+	}
+
+	// List takes viewport space minus help footer and list's own status bar
+	v.list.SetSize(width, viewportHeight-4)
 }
 
 // GetStorageClient returns the storage client for reuse in objects view
@@ -251,15 +292,27 @@ func (v *BucketsView) Close() error {
 	return nil
 }
 
-// renderLoading renders a loading message that fills the view height
+// renderLoading renders a loading message with spinner
 func (v *BucketsView) renderLoading(msg string) string {
 	content := fmt.Sprintf("\n  %s %s\n", v.spinner.View(), msg)
-	// Sidebar outputs height-1 newlines (lipgloss Height renders n lines = n-1 newlines)
-	// Content must match for proper horizontal join
+	return v.renderViewportContent(content)
+}
+
+// renderViewportContent wraps content in viewport for consistent height
+func (v *BucketsView) renderViewportContent(content string) string {
+	// Ensure minimum newlines for edge cases (zero/negative height)
+	minNewlines := 10
 	targetNewlines := v.height - 1
-	if targetNewlines < 10 {
-		targetNewlines = 10
+	if targetNewlines < minNewlines {
+		targetNewlines = minNewlines
 	}
+
+	if v.ready && v.viewport.Height >= minNewlines+1 {
+		v.viewport.SetContent(content)
+		return v.viewport.View()
+	}
+
+	// Fallback: manual padding when viewport not ready or height too small
 	currentNewlines := strings.Count(content, "\n")
 	for i := currentNewlines; i < targetNewlines; i++ {
 		content += "\n"

@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
@@ -58,6 +59,8 @@ type ObjectsView struct {
 	prefixStack   []string // Navigation history for back functionality
 	list          list.Model
 	spinner       spinner.Model
+	viewport      viewport.Model
+	ready         bool // viewport initialized
 	loading       bool
 	err           error
 	width         int
@@ -634,6 +637,16 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 
 	var cmd tea.Cmd
 	v.list, cmd = v.list.Update(msg)
+
+	// Update viewport for scroll handling when content is loaded
+	if v.ready && !v.loading && !v.downloading && !v.uploading && !v.deleting {
+		var vpCmd tea.Cmd
+		v.viewport, vpCmd = v.viewport.Update(msg)
+		if vpCmd != nil {
+			return tea.Batch(cmd, vpCmd)
+		}
+	}
+
 	return cmd
 }
 
@@ -672,7 +685,7 @@ func (v *ObjectsView) View() string {
 
 	if v.err != nil {
 		errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#EA4335"))
-		return errStyle.Render(fmt.Sprintf("\n  Error: %v\n\n  Press 'r' to retry", v.err))
+		return v.renderViewportContent(errStyle.Render(fmt.Sprintf("\n  Error: %v\n\n  Press 'r' to retry", v.err)))
 	}
 
 	if len(v.objects) == 0 {
@@ -686,7 +699,7 @@ func (v *ObjectsView) View() string {
 		if v.currentPrefix != "" {
 			msg = "This folder is empty."
 		}
-		return fmt.Sprintf("\n  %s\n  Press 'u' to upload files, 'esc' to go back.", msg)
+		return v.renderViewportContent(fmt.Sprintf("\n  %s\n  Press 'u' to upload files, 'esc' to go back.", msg))
 	}
 
 	// Build pagination info
@@ -705,29 +718,32 @@ func (v *ObjectsView) View() string {
 	// Help text for actions
 	help := statusStyle.Render("\n  enter: open • d: download • u: upload • D: delete • n/p: next/prev page • r: refresh • /: filter • esc: back")
 
+	// Build content (list + status + help)
 	content := v.list.View() + "\n" + status + help
 
-	// Overlay file picker when shown
+	// Wrap content in viewport for consistent height
+	if v.ready {
+		v.viewport.SetContent(content)
+		content = v.viewport.View()
+	}
+
+	// Apply overlays AFTER viewport (they render on top)
 	if v.showFilePicker && v.filePicker != nil {
 		content = v.overlayFilePicker(content)
 	}
 
-	// Overlay progress bar during download
 	if v.downloading {
 		content = v.overlayProgress(content)
 	}
 
-	// Overlay progress bar during upload
 	if v.uploading {
 		content = v.overlayUploadProgress(content)
 	}
 
-	// Overlay delete confirmation dialog
 	if v.showDeleteConfirm && v.deleteConfirm != nil {
 		content = v.overlayDeleteConfirm(content)
 	}
 
-	// Overlay progress bar during delete
 	if v.deleting {
 		content = v.overlayDeleteProgress(content)
 	}
@@ -739,7 +755,25 @@ func (v *ObjectsView) View() string {
 func (v *ObjectsView) SetSize(width, height int) {
 	v.width = width
 	v.height = height
-	v.list.SetSize(width, height-6) // Extra space for status and help
+
+	// Viewport height = full height so that View() outputs height-1 newlines
+	// (matching sidebar behavior for proper horizontal join)
+	viewportHeight := height
+	if viewportHeight < 1 {
+		viewportHeight = 1
+	}
+
+	// Lazy viewport initialization
+	if !v.ready {
+		v.viewport = viewport.New(width, viewportHeight)
+		v.ready = true
+	} else {
+		v.viewport.Width = width
+		v.viewport.Height = viewportHeight
+	}
+
+	// List takes viewport space minus status, help, and list's own status bar
+	v.list.SetSize(width, viewportHeight-6)
 }
 
 // GetCurrentPath returns the current folder path being browsed
@@ -757,15 +791,27 @@ func (v *ObjectsView) IsFilePickerShown() bool {
 	return v.showFilePicker
 }
 
-// renderLoading renders a loading message that fills the view height
+// renderLoading renders a loading message with spinner
 func (v *ObjectsView) renderLoading(msg string) string {
 	content := fmt.Sprintf("\n  %s %s\n", v.spinner.View(), msg)
-	// Sidebar outputs height-1 newlines (lipgloss Height renders n lines = n-1 newlines)
-	// Content must match for proper horizontal join
+	return v.renderViewportContent(content)
+}
+
+// renderViewportContent wraps content in viewport for consistent height
+func (v *ObjectsView) renderViewportContent(content string) string {
+	// Ensure minimum newlines for edge cases (zero/negative height)
+	minNewlines := 10
 	targetNewlines := v.height - 1
-	if targetNewlines < 10 {
-		targetNewlines = 10
+	if targetNewlines < minNewlines {
+		targetNewlines = minNewlines
 	}
+
+	if v.ready && v.viewport.Height >= minNewlines+1 {
+		v.viewport.SetContent(content)
+		return v.viewport.View()
+	}
+
+	// Fallback: manual padding when viewport not ready or height too small
 	currentNewlines := strings.Count(content, "\n")
 	for i := currentNewlines; i < targetNewlines; i++ {
 		content += "\n"
