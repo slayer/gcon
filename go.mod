@@ -1,9 +1,10 @@
 module github.com/slayer/gcon
 
-go 1.24.0
+go 1.24.5
 
 require (
 	cloud.google.com/go/storage v1.59.0
+	github.com/bevicted/teatile v1.3.0
 	github.com/charmbracelet/bubbles v0.20.0
 	github.com/charmbracelet/bubbletea v1.2.4
 	github.com/charmbracelet/lipgloss v1.0.0

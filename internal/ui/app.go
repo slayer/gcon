@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components/sidebar"
+	"github.com/slayer/gcon/internal/ui/layout"
 	"github.com/slayer/gcon/internal/ui/views"
 )
 
@@ -43,6 +44,7 @@ type App struct {
 	help      help.Model
 	width     int
 	height    int
+	layout    *layout.Layout // Tile-based layout manager
 
 	// Current view state
 	currentView         ViewType
@@ -82,6 +84,7 @@ func NewApp(client *gcp.Client, opts AppOptions) *App {
 		styles:           DefaultStyles(),
 		keys:             DefaultKeyMap(),
 		help:             help.New(),
+		layout:           layout.New(),
 		currentView:      ViewProjects,
 		projectView:      views.NewProjectsView(client),
 		initialProjectID: opts.InitialProjectID,
@@ -207,6 +210,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.width = msg.Width
 		a.height = msg.Height
 		a.help.Width = msg.Width
+		// Update layout with new terminal dimensions
+		a.layout.SetSize(msg.Width, msg.Height)
 		a.updateViewSizes()
 		return a, nil
 
@@ -325,18 +330,29 @@ func (a *App) toggleFocus() {
 	}
 }
 
-// updateViewSizes recalculates sizes for all views
+// updateViewSizes recalculates sizes for all views using the layout manager
 func (a *App) updateViewSizes() {
-	contentWidth := a.width
-	contentHeight := a.height - 4 // Account for header and footer
-
-	// Subtract sidebar width when active
+	// Update layout with sidebar state
 	if a.sidebarActive() {
-		contentWidth -= a.sidebar.Width()
+		a.layout.SetSidebarWidth(a.sidebar.Width())
+		a.layout.SetSidebarActive(true)
+	} else {
+		a.layout.SetSidebarActive(false)
+	}
+
+	// Get dimensions from layout - layout handles all calculations
+	contentWidth := a.layout.ContentWidth()
+	contentHeight := a.layout.ContentHeight()
+
+	// Sidebar uses content height directly
+	if a.sidebarActive() {
 		a.sidebar.SetSize(contentHeight)
 	}
 
+	// Projects view uses full width (no sidebar)
 	a.projectView.SetSize(a.width, contentHeight)
+
+	// Other views use content area (respecting sidebar)
 	if a.instancesView != nil {
 		a.instancesView.SetSize(contentWidth, contentHeight)
 	}
@@ -424,6 +440,15 @@ func (a *App) View() string {
 		return header + "\n\n  Loading..."
 	}
 
+	// Get dimensions from layout for consistent rendering
+	_, headerHeight := a.layout.HeaderSize()
+	contentHeight := a.layout.ContentHeight()
+	_, footerHeight := a.layout.FooterSize()
+
+	// Apply fixed height to header using Height+MaxHeight to both pad and truncate
+	headerStyle := lipgloss.NewStyle().Width(a.width).Height(headerHeight).MaxHeight(headerHeight)
+	styledHeader := headerStyle.Render(header)
+
 	// Main content area (with or without sidebar)
 	var content string
 	if a.sidebarActive() {
@@ -437,15 +462,22 @@ func (a *App) View() string {
 		content += "\n" + a.styles.Error.Render("Error: "+a.err.Error())
 	}
 
+	// Apply fixed height to content using Height+MaxHeight
+	// Height pads short content, MaxHeight truncates long content
+	contentStyle := lipgloss.NewStyle().Width(a.width).Height(contentHeight).MaxHeight(contentHeight)
+	styledContent := contentStyle.Render(content)
+
 	// Help footer
 	footer := a.renderFooter()
+	footerStyle := lipgloss.NewStyle().Width(a.width).Height(footerHeight).MaxHeight(footerHeight)
+	styledFooter := footerStyle.Render(footer)
 
-	// Compose final layout
+	// Compose final layout with guaranteed heights
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
-		header,
-		content,
-		footer,
+		styledHeader,
+		styledContent,
+		styledFooter,
 	)
 }
 
@@ -485,15 +517,27 @@ func (a *App) renderHeader() string {
 	return header
 }
 
-// renderWithSidebar creates the two-panel layout
+// renderWithSidebar creates the two-panel layout with guaranteed matching heights
 func (a *App) renderWithSidebar() string {
 	sidebarView := a.sidebar.View()
 	contentView := a.renderCurrentView()
 
+	// Get dimensions from layout
+	sidebarWidth := a.sidebar.Width()
+	mainWidth := a.layout.ContentWidth()
+
+	// Apply fixed width to each component (height will be enforced by parent)
+	sidebarStyle := lipgloss.NewStyle().Width(sidebarWidth)
+	mainStyle := lipgloss.NewStyle().Width(mainWidth)
+
+	styledSidebar := sidebarStyle.Render(sidebarView)
+	styledContent := mainStyle.Render(contentView)
+
+	// Join horizontally - parent View() will enforce overall height
 	return lipgloss.JoinHorizontal(
 		lipgloss.Top,
-		sidebarView,
-		contentView,
+		styledSidebar,
+		styledContent,
 	)
 }
 
