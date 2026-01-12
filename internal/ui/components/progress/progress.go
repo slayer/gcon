@@ -134,9 +134,6 @@ type ProgressUpdate struct {
 	CurrentFile      string
 	CurrentFileNum   int
 	TotalFiles       int
-}
-
-// ProgressDone is sent when the operation completes
-type ProgressDone struct {
-	Error error
+	Done             bool  // True when operation is complete
+	Error            error // Non-nil if operation failed
 }

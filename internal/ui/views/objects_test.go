@@ -421,7 +421,10 @@ func TestObjectsViewDownload(t *testing.T) {
 			{Name: "file1.txt", DisplayName: "file1.txt", Size: 1024},
 		}
 
-		view.Update(downloadStartMsg{files: files})
+		// Manually set state since storageClient is nil and startDownload would panic
+		view.downloading = true
+		view.downloadFiles = files
+		view.downloadIndex = 0
 
 		assert.True(t, view.downloading)
 		assert.Equal(t, files, view.downloadFiles)

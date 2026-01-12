@@ -636,29 +636,34 @@ func (v *ObjectsView) prepareDownload(obj gcp.StorageObject) tea.Cmd {
 	}
 }
 
-// startDownload begins the actual download process
+// startDownload begins the actual download process in a background goroutine
 func (v *ObjectsView) startDownload() tea.Cmd {
-	return func() tea.Msg {
-		files := v.downloadFiles
-		if len(files) == 0 {
+	files := v.downloadFiles
+	if len(files) == 0 {
+		return func() tea.Msg {
 			return downloadCompleteMsg{err: nil}
 		}
+	}
 
-		// Get current working directory for downloads
-		cwd, err := os.Getwd()
-		if err != nil {
+	// Get current working directory for downloads
+	cwd, err := os.Getwd()
+	if err != nil {
+		return func() tea.Msg {
 			return downloadCompleteMsg{err: fmt.Errorf("failed to get working directory: %w", err)}
 		}
+	}
 
-		// Create channel here (inside goroutine) to avoid leak on early error above
-		v.downloadChan = make(chan progress.ProgressUpdate, 10)
+	// Create channel for progress updates
+	v.downloadChan = make(chan progress.ProgressUpdate, 10)
 
-		// Calculate total size
-		var totalSize int64
-		for _, f := range files {
-			totalSize += f.Size
-		}
+	// Calculate total size
+	var totalSize int64
+	for _, f := range files {
+		totalSize += f.Size
+	}
 
+	// Run download in background goroutine
+	go func() {
 		var bytesDownloaded int64
 
 		for i, file := range files {
@@ -669,13 +674,16 @@ func (v *ObjectsView) startDownload() tea.Cmd {
 				localPath = filepath.Join(cwd, file.Name)
 			}
 
-			// Send progress update before starting this file
-			v.downloadChan <- progress.ProgressUpdate{
+			// Send progress update before starting this file (non-blocking)
+			select {
+			case v.downloadChan <- progress.ProgressUpdate{
 				BytesTransferred: bytesDownloaded,
 				TotalBytes:       totalSize,
 				CurrentFile:      file.DisplayName,
 				CurrentFileNum:   i + 1,
 				TotalFiles:       len(files),
+			}:
+			default:
 			}
 
 			// Download with progress callback
@@ -685,35 +693,58 @@ func (v *ObjectsView) startDownload() tea.Cmd {
 				file.Name,
 				localPath,
 				func(transferred, total int64) {
-					v.downloadChan <- progress.ProgressUpdate{
+					// Non-blocking send to avoid deadlock if channel is full
+					select {
+					case v.downloadChan <- progress.ProgressUpdate{
 						BytesTransferred: bytesDownloaded + transferred,
 						TotalBytes:       totalSize,
 						CurrentFile:      file.DisplayName,
 						CurrentFileNum:   i + 1,
 						TotalFiles:       len(files),
+					}:
+					default:
 					}
 				},
 			)
 			if err != nil {
-				return downloadCompleteMsg{err: fmt.Errorf("failed to download %s: %w", file.DisplayName, err)}
+				// Send error completion
+				select {
+				case v.downloadChan <- progress.ProgressUpdate{
+					Done:  true,
+					Error: fmt.Errorf("failed to download %s: %w", file.DisplayName, err),
+				}:
+				default:
+				}
+				return
 			}
 
 			bytesDownloaded += file.Size
 		}
 
-		return downloadCompleteMsg{err: nil}
-	}
+		// Send completion signal
+		select {
+		case v.downloadChan <- progress.ProgressUpdate{Done: true}:
+		default:
+		}
+	}()
+
+	// Immediately start polling for progress updates
+	return v.waitForProgress()
 }
 
 // waitForProgress waits for the next progress update from the download goroutine
 func (v *ObjectsView) waitForProgress() tea.Cmd {
 	return func() tea.Msg {
 		if v.downloadChan == nil {
-			return nil
+			return downloadCompleteMsg{err: nil}
 		}
 		update, ok := <-v.downloadChan
 		if !ok {
-			return nil
+			return downloadCompleteMsg{err: nil}
+		}
+		// Check if download is complete
+		if update.Done {
+			return downloadCompleteMsg{err: update.Error}
 		}
 		return downloadProgressMsg{update: update}
 	}
@@ -763,79 +794,89 @@ func (v *ObjectsView) overlayProgress(content string) string {
 	return strings.Join(lines, "\n")
 }
 
-// startUpload begins the actual upload process
+// startUpload begins the actual upload process in a background goroutine
 func (v *ObjectsView) startUpload() tea.Cmd {
-	return func() tea.Msg {
-		files := v.uploadFiles
-		if len(files) == 0 {
+	files := v.uploadFiles
+	if len(files) == 0 {
+		return func() tea.Msg {
 			return uploadCompleteMsg{err: nil}
 		}
+	}
 
-		// Calculate total size and collect file info
-		type uploadFile struct {
-			localPath  string
-			remotePath string
-			size       int64
-		}
-		var uploadFiles []uploadFile
-		var totalSize int64
+	// Calculate total size and collect file info before starting goroutine
+	type uploadFile struct {
+		localPath  string
+		remotePath string
+		size       int64
+	}
+	var filesToUpload []uploadFile
+	var totalSize int64
 
-		for _, path := range files {
-			info, err := os.Stat(path)
-			if err != nil {
+	for _, path := range files {
+		info, err := os.Stat(path)
+		if err != nil {
+			return func() tea.Msg {
 				return uploadCompleteMsg{err: fmt.Errorf("failed to stat %s: %w", path, err)}
 			}
-
-			if info.IsDir() {
-				// Walk directory and collect all files
-				err := filepath.Walk(path, func(filePath string, fi os.FileInfo, err error) error {
-					if err != nil {
-						return err
-					}
-					if !fi.IsDir() {
-						relPath, relErr := filepath.Rel(filepath.Dir(path), filePath)
-						if relErr != nil {
-							return fmt.Errorf("failed to compute relative path for %s: %w", filePath, relErr)
-						}
-						// Use path.Join for GCS object names (forward slashes)
-						remotePath := pathpkg.Join(v.currentPrefix, filepath.ToSlash(relPath))
-						uploadFiles = append(uploadFiles, uploadFile{
-							localPath:  filePath,
-							remotePath: remotePath,
-							size:       fi.Size(),
-						})
-						totalSize += fi.Size()
-					}
-					return nil
-				})
-				if err != nil {
-					return uploadCompleteMsg{err: fmt.Errorf("failed to walk directory %s: %w", path, err)}
-				}
-			} else {
-				// Single file - upload to current prefix using path.Join for correct GCS paths
-				remotePath := pathpkg.Join(v.currentPrefix, info.Name())
-				uploadFiles = append(uploadFiles, uploadFile{
-					localPath:  path,
-					remotePath: remotePath,
-					size:       info.Size(),
-				})
-				totalSize += info.Size()
-			}
 		}
 
-		// Create channel here (inside goroutine) to avoid leak on early error above
-		v.uploadChan = make(chan progress.ProgressUpdate, 10)
+		if info.IsDir() {
+			// Walk directory and collect all files
+			err := filepath.Walk(path, func(filePath string, fi os.FileInfo, err error) error {
+				if err != nil {
+					return err
+				}
+				if !fi.IsDir() {
+					relPath, relErr := filepath.Rel(filepath.Dir(path), filePath)
+					if relErr != nil {
+						return fmt.Errorf("failed to compute relative path for %s: %w", filePath, relErr)
+					}
+					// Use path.Join for GCS object names (forward slashes)
+					remotePath := pathpkg.Join(v.currentPrefix, filepath.ToSlash(relPath))
+					filesToUpload = append(filesToUpload, uploadFile{
+						localPath:  filePath,
+						remotePath: remotePath,
+						size:       fi.Size(),
+					})
+					totalSize += fi.Size()
+				}
+				return nil
+			})
+			if err != nil {
+				return func() tea.Msg {
+					return uploadCompleteMsg{err: fmt.Errorf("failed to walk directory %s: %w", path, err)}
+				}
+			}
+		} else {
+			// Single file - upload to current prefix using path.Join for correct GCS paths
+			remotePath := pathpkg.Join(v.currentPrefix, info.Name())
+			filesToUpload = append(filesToUpload, uploadFile{
+				localPath:  path,
+				remotePath: remotePath,
+				size:       info.Size(),
+			})
+			totalSize += info.Size()
+		}
+	}
 
+	// Create channel for progress updates
+	v.uploadChan = make(chan progress.ProgressUpdate, 10)
+
+	// Run upload in background goroutine
+	go func() {
 		var bytesUploaded int64
 
-		for i, file := range uploadFiles {
-			// Send progress update before starting this file
-			v.uploadChan <- progress.ProgressUpdate{
+		for i, file := range filesToUpload {
+			// Send progress update before starting this file (non-blocking)
+			select {
+			case v.uploadChan <- progress.ProgressUpdate{
 				BytesTransferred: bytesUploaded,
 				TotalBytes:       totalSize,
 				CurrentFile:      filepath.Base(file.localPath),
 				CurrentFileNum:   i + 1,
-				TotalFiles:       len(uploadFiles),
+				TotalFiles:       len(filesToUpload),
+			}:
+			default:
 			}
 
 			// Upload with progress callback
@@ -845,35 +886,58 @@ func (v *ObjectsView) startUpload() tea.Cmd {
 				file.remotePath,
 				file.localPath,
 				func(transferred, total int64) {
-					v.uploadChan <- progress.ProgressUpdate{
+					// Non-blocking send to avoid deadlock if channel is full
+					select {
+					case v.uploadChan <- progress.ProgressUpdate{
 						BytesTransferred: bytesUploaded + transferred,
 						TotalBytes:       totalSize,
 						CurrentFile:      filepath.Base(file.localPath),
 						CurrentFileNum:   i + 1,
-						TotalFiles:       len(uploadFiles),
+						TotalFiles:       len(filesToUpload),
+					}:
+					default:
 					}
 				},
 			)
 			if err != nil {
-				return uploadCompleteMsg{err: fmt.Errorf("failed to upload %s: %w", filepath.Base(file.localPath), err)}
+				// Send error completion
+				select {
+				case v.uploadChan <- progress.ProgressUpdate{
+					Done:  true,
+					Error: fmt.Errorf("failed to upload %s: %w", filepath.Base(file.localPath), err),
+				}:
+				default:
+				}
+				return
 			}
 
 			bytesUploaded += file.size
 		}
 
-		return uploadCompleteMsg{err: nil}
-	}
+		// Send completion signal
+		select {
+		case v.uploadChan <- progress.ProgressUpdate{Done: true}:
+		default:
+		}
+	}()
+
+	// Immediately start polling for progress updates
+	return v.waitForUploadProgress()
 }
 
 // waitForUploadProgress waits for the next progress update from the upload goroutine
 func (v *ObjectsView) waitForUploadProgress() tea.Cmd {
 	return func() tea.Msg {
 		if v.uploadChan == nil {
-			return nil
+			return uploadCompleteMsg{err: nil}
 		}
 		update, ok := <-v.uploadChan
 		if !ok {
-			return nil
+			return uploadCompleteMsg{err: nil}
+		}
+		// Check if upload is complete
+		if update.Done {
+			return uploadCompleteMsg{err: update.Error}
 		}
 		return uploadProgressMsg{update: update}
 	}

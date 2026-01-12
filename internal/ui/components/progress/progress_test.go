@@ -107,14 +107,16 @@ func TestProgressUpdate(t *testing.T) {
 	assert.Equal(t, 3, update.TotalFiles)
 }
 
-func TestProgressDone(t *testing.T) {
-	t.Run("with error", func(t *testing.T) {
-		done := ProgressDone{Error: assert.AnError}
-		assert.Error(t, done.Error)
+func TestProgressUpdate_DoneAndError(t *testing.T) {
+	t.Run("with done and error", func(t *testing.T) {
+		update := ProgressUpdate{Done: true, Error: assert.AnError}
+		assert.True(t, update.Done)
+		assert.Error(t, update.Error)
 	})
 
-	t.Run("without error", func(t *testing.T) {
-		done := ProgressDone{Error: nil}
-		assert.NoError(t, done.Error)
+	t.Run("with done without error", func(t *testing.T) {
+		update := ProgressUpdate{Done: true, Error: nil}
+		assert.True(t, update.Done)
+		assert.NoError(t, update.Error)
 	})
 }
