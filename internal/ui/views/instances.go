@@ -3,6 +3,7 @@ package views
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
@@ -203,13 +204,13 @@ func (v *InstancesView) Update(msg tea.Msg) tea.Cmd {
 			items[i] = instanceItem{instance: inst}
 		}
 		v.list.SetItems(items)
-		return tea.ClearScreen
+		return nil
 
 	case instancesErrorMsg:
 		v.loading = false
 		v.actionLoading = false
 		v.err = msg.err
-		return tea.ClearScreen
+		return nil
 
 	case instanceActionMsg:
 		v.actionLoading = false
@@ -308,11 +309,11 @@ func (v *InstancesView) resetInstance(inst gcp.Instance) tea.Cmd {
 // View renders the instances view
 func (v *InstancesView) View() string {
 	if v.loading && v.computeClient == nil {
-		return fmt.Sprintf("\n  %s Initializing Compute Engine client...\n", v.spinner.View())
+		return v.renderLoading("Initializing Compute Engine client...")
 	}
 
 	if v.loading {
-		return fmt.Sprintf("\n  %s Loading instances...\n", v.spinner.View())
+		return v.renderLoading("Loading instances...")
 	}
 
 	if v.actionLoading {
@@ -359,4 +360,16 @@ func (v *InstancesView) SelectedInstance() *gcp.Instance {
 // GetComputeClient returns the compute client for reuse in detail views
 func (v *InstancesView) GetComputeClient() *gcp.ComputeClient {
 	return v.computeClient
+}
+
+// renderLoading renders a loading message that fills the view height
+// to prevent rendering artifacts when transitioning to loaded state
+func (v *InstancesView) renderLoading(msg string) string {
+	content := fmt.Sprintf("\n  %s %s\n", v.spinner.View(), msg)
+	// Pad with empty lines to fill the view height
+	lines := strings.Count(content, "\n")
+	for i := lines; i < v.height; i++ {
+		content += "\n"
+	}
+	return content
 }

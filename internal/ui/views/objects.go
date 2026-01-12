@@ -252,12 +252,12 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 			items[i] = objectItem{object: obj}
 		}
 		v.list.SetItems(items)
-		return tea.ClearScreen
+		return nil
 
 	case objectsErrorMsg:
 		v.loading = false
 		v.err = msg.err
-		return tea.ClearScreen
+		return nil
 
 	case spinner.TickMsg:
 		if v.loading {
@@ -507,7 +507,7 @@ func (v *ObjectsView) View() string {
 		if v.currentPrefix != "" {
 			loadingMsg = fmt.Sprintf("Loading %s...", v.currentPrefix)
 		}
-		return fmt.Sprintf("\n  %s %s\n", v.spinner.View(), loadingMsg)
+		return v.renderLoading(loadingMsg)
 	}
 
 	if v.err != nil {
@@ -585,6 +585,16 @@ func (v *ObjectsView) GetBucketName() string {
 // IsFilePickerShown returns true if the file picker is currently shown
 func (v *ObjectsView) IsFilePickerShown() bool {
 	return v.showFilePicker
+}
+
+// renderLoading renders a loading message that fills the view height
+func (v *ObjectsView) renderLoading(msg string) string {
+	content := fmt.Sprintf("\n  %s %s\n", v.spinner.View(), msg)
+	lines := strings.Count(content, "\n")
+	for i := lines; i < v.height; i++ {
+		content += "\n"
+	}
+	return content
 }
 
 // ObjectsLoadedMsgForTest creates an objectsLoadedMsg for testing

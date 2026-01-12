@@ -3,6 +3,7 @@ package views
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
@@ -162,12 +163,12 @@ func (v *BucketsView) Update(msg tea.Msg) tea.Cmd {
 			items[i] = bucketItem{bucket: bucket}
 		}
 		v.list.SetItems(items)
-		return tea.ClearScreen
+		return nil
 
 	case bucketsErrorMsg:
 		v.loading = false
 		v.err = msg.err
-		return tea.ClearScreen
+		return nil
 
 	case spinner.TickMsg:
 		if v.loading {
@@ -207,11 +208,11 @@ func (v *BucketsView) Update(msg tea.Msg) tea.Cmd {
 // View renders the buckets view
 func (v *BucketsView) View() string {
 	if v.loading && v.storageClient == nil {
-		return fmt.Sprintf("\n  %s Initializing Cloud Storage client...\n", v.spinner.View())
+		return v.renderLoading("Initializing Cloud Storage client...")
 	}
 
 	if v.loading {
-		return fmt.Sprintf("\n  %s Loading buckets...\n", v.spinner.View())
+		return v.renderLoading("Loading buckets...")
 	}
 
 	if v.err != nil {
@@ -248,4 +249,14 @@ func (v *BucketsView) Close() error {
 		return v.storageClient.Close()
 	}
 	return nil
+}
+
+// renderLoading renders a loading message that fills the view height
+func (v *BucketsView) renderLoading(msg string) string {
+	content := fmt.Sprintf("\n  %s %s\n", v.spinner.View(), msg)
+	lines := strings.Count(content, "\n")
+	for i := lines; i < v.height; i++ {
+		content += "\n"
+	}
+	return content
 }
