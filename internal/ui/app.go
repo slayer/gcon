@@ -156,6 +156,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Go back to projects, clear sidebar state
 				a.currentView = ViewProjects
 				a.instancesView = nil
+				// Close storage client before discarding bucketsView
+				if a.bucketsView != nil {
+					_ = a.bucketsView.Close()
+				}
 				a.bucketsView = nil
 				a.selectedProject = nil
 				a.focusedPanel = FocusContent
@@ -166,6 +170,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Global key handlers
 		switch {
 		case key.Matches(msg, a.keys.Quit):
+			// Clean up resources before quitting
+			a.cleanup()
 			return a, tea.Quit
 		case key.Matches(msg, a.keys.Help):
 			a.showHelp = !a.showHelp
@@ -257,10 +263,17 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case views.BucketSelectedMsg:
 		// Navigate to objects view within the selected bucket
+		if a.bucketsView == nil {
+			return a, nil
+		}
+		storageClient := a.bucketsView.GetStorageClient()
+		if storageClient == nil {
+			return a, nil
+		}
 		bucket := msg.Bucket
 		a.selectedBucket = &bucket
 		a.currentView = ViewObjects
-		a.objectsView = views.NewObjectsView(bucket.Name, a.bucketsView.GetStorageClient())
+		a.objectsView = views.NewObjectsView(bucket.Name, storageClient)
 		a.updateSidebarActiveView()
 		a.updateViewSizes()
 		return a, a.objectsView.Init()
@@ -292,6 +305,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return a, cmd
+}
+
+// cleanup releases resources held by views
+func (a *App) cleanup() {
+	if a.bucketsView != nil {
+		_ = a.bucketsView.Close() // Best-effort cleanup on exit
+	}
 }
 
 // toggleFocus switches focus between sidebar and content

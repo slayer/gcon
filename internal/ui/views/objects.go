@@ -63,12 +63,13 @@ type ObjectsView struct {
 	objects       []gcp.StorageObject
 	keys          objectKeyMap
 
-	// Pagination state
-	currentPage    int
-	pageToken      string   // Token for next page
-	prevPageTokens []string // Stack of previous page tokens
-	hasMore        bool
-	totalLoaded    int // Total objects loaded across pages
+	// Pagination state (using master's improved token handling)
+	currentPage      int
+	nextPageToken    string   // Token for loading next page
+	currentPageToken string   // Token used to load current page (empty for first page)
+	pageTokenHistory []string // History of page tokens used (for back navigation)
+	hasMore          bool
+	totalLoaded      int // Total objects loaded across pages
 
 	// Download state
 	downloading      bool
@@ -165,7 +166,7 @@ func NewObjectsView(bucketName string, storageClient *gcp.StorageClient) *Object
 		loading:          true,
 		keys:             defaultObjectKeyMap(),
 		currentPage:      1,
-		prevPageTokens:   make([]string, 0),
+		pageTokenHistory: make([]string, 0),
 		downloadProgress: progress.New(),
 		uploadProgress:   progress.New(),
 	}
@@ -246,7 +247,7 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 	case objectsLoadedMsg:
 		v.loading = false
 		v.objects = msg.objects
-		v.pageToken = msg.nextToken
+		v.nextPageToken = msg.nextToken
 		v.hasMore = msg.hasMore
 		v.totalLoaded = len(msg.objects)
 
@@ -437,27 +438,21 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 			return tea.Batch(v.spinner.Tick, v.loadObjects(""))
 
 		case key.Matches(msg, v.keys.NextPage):
-			if v.hasMore && v.pageToken != "" {
-				// Save empty token for first page to allow navigating back
-				if v.currentPage == 1 {
-					v.prevPageTokens = append(v.prevPageTokens, "")
-				}
-				v.prevPageTokens = append(v.prevPageTokens, v.pageToken)
+			if v.hasMore && v.nextPageToken != "" {
+				// Save current page token to history before navigating forward
+				v.pageTokenHistory = append(v.pageTokenHistory, v.currentPageToken)
+				v.currentPageToken = v.nextPageToken
 				v.currentPage++
 				v.loading = true
-				return tea.Batch(v.spinner.Tick, v.loadObjects(v.pageToken))
+				return tea.Batch(v.spinner.Tick, v.loadObjects(v.currentPageToken))
 			}
 
 		case key.Matches(msg, v.keys.PrevPage):
-			if v.currentPage > 1 && len(v.prevPageTokens) > 0 {
-				// Pop the token that got us to current page
-				v.prevPageTokens = v.prevPageTokens[:len(v.prevPageTokens)-1]
-				// Get the previous page token
-				prevToken := ""
-				if len(v.prevPageTokens) > 0 {
-					prevToken = v.prevPageTokens[len(v.prevPageTokens)-1]
-					v.prevPageTokens = v.prevPageTokens[:len(v.prevPageTokens)-1]
-				}
+			if v.currentPage > 1 && len(v.pageTokenHistory) > 0 {
+				// Pop previous page token from history
+				prevToken := v.pageTokenHistory[len(v.pageTokenHistory)-1]
+				v.pageTokenHistory = v.pageTokenHistory[:len(v.pageTokenHistory)-1]
+				v.currentPageToken = prevToken
 				v.currentPage--
 				v.loading = true
 				return tea.Batch(v.spinner.Tick, v.loadObjects(prevToken))
@@ -487,8 +482,9 @@ func (v *ObjectsView) HandleBack() (handled bool, cmd tea.Cmd) {
 // resetPagination resets pagination state
 func (v *ObjectsView) resetPagination() {
 	v.currentPage = 1
-	v.pageToken = ""
-	v.prevPageTokens = make([]string, 0)
+	v.nextPageToken = ""
+	v.currentPageToken = ""
+	v.pageTokenHistory = make([]string, 0)
 	v.hasMore = false
 }
 
