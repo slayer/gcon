@@ -6,6 +6,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/slayer/gcon/internal/gcp"
+	"github.com/slayer/gcon/internal/ui/components/filepicker"
+	"github.com/slayer/gcon/internal/ui/components/progress"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -275,5 +277,216 @@ func TestObjectsViewPagination(t *testing.T) {
 		assert.Equal(t, 1, view.currentPage)
 		assert.Equal(t, "", view.currentPageToken)
 		assert.Empty(t, view.pageTokenHistory)
+	})
+}
+
+func TestObjectsViewFilePicker(t *testing.T) {
+	t.Run("pressing u opens file picker", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.loading = false
+		view.SetSize(100, 50)
+
+		// Press 'u' to open upload file picker
+		view.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'u'}})
+
+		assert.True(t, view.showFilePicker)
+		assert.NotNil(t, view.filePicker)
+	})
+
+	t.Run("file picker receives forwarded messages", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.loading = false
+		view.SetSize(100, 50)
+
+		// Open file picker
+		view.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'u'}})
+		assert.True(t, view.showFilePicker)
+
+		// Simulate a custom message type that should be forwarded to file picker
+		// The file picker's internal filePickerLoadedMsg would be forwarded via default case
+		type customMsg struct{}
+		view.Update(customMsg{})
+
+		// File picker should still be active (message was forwarded, not causing error)
+		assert.True(t, view.showFilePicker)
+	})
+
+	t.Run("FilePickerConfirmMsg closes picker and starts upload", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.loading = false
+		view.showFilePicker = true
+		view.SetSize(100, 50)
+
+		// Send confirm message with selected files
+		cmd := view.Update(filepicker.FilePickerConfirmMsg{
+			SelectedPaths: []string{"/tmp/test.txt"},
+		})
+
+		assert.False(t, view.showFilePicker)
+		assert.Nil(t, view.filePicker)
+		assert.NotNil(t, cmd) // Should return a command to start upload
+	})
+
+	t.Run("FilePickerConfirmMsg with no files does not start upload", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.loading = false
+		view.showFilePicker = true
+
+		// Send confirm with no files
+		cmd := view.Update(filepicker.FilePickerConfirmMsg{
+			SelectedPaths: []string{},
+		})
+
+		assert.False(t, view.showFilePicker)
+		assert.Nil(t, cmd) // No command since no files selected
+	})
+
+	t.Run("FilePickerCancelMsg closes picker", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.loading = false
+		view.showFilePicker = true
+
+		view.Update(filepicker.FilePickerCancelMsg{})
+
+		assert.False(t, view.showFilePicker)
+		assert.Nil(t, view.filePicker)
+	})
+
+	t.Run("keys are forwarded to file picker when active", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.loading = false
+		view.SetSize(100, 50)
+
+		// Open file picker
+		view.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'u'}})
+
+		// Press escape - should be handled by file picker, not objects view
+		cmd := view.Update(tea.KeyMsg{Type: tea.KeyEsc})
+
+		// The file picker handles esc and returns FilePickerCancelMsg
+		assert.NotNil(t, cmd)
+	})
+
+	t.Run("upload key ignored during loading", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.loading = true // View is loading
+
+		view.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'u'}})
+
+		assert.False(t, view.showFilePicker)
+		assert.Nil(t, view.filePicker)
+	})
+
+	t.Run("upload key ignored during download", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.loading = false
+		view.downloading = true
+
+		view.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'u'}})
+
+		assert.False(t, view.showFilePicker)
+	})
+
+	t.Run("upload key ignored during upload", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.loading = false
+		view.uploading = true
+
+		view.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'u'}})
+
+		assert.False(t, view.showFilePicker)
+	})
+}
+
+func TestObjectsViewDownload(t *testing.T) {
+	t.Run("downloadStartMsg initializes download state", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.loading = false
+		view.SetSize(100, 50)
+
+		files := []gcp.StorageObject{
+			{Name: "file1.txt", DisplayName: "file1.txt", Size: 1024},
+		}
+
+		view.Update(downloadStartMsg{files: files})
+
+		assert.True(t, view.downloading)
+		assert.Equal(t, files, view.downloadFiles)
+		assert.Equal(t, 0, view.downloadIndex)
+	})
+
+	t.Run("downloadCompleteMsg clears download state", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.downloading = true
+		view.downloadFiles = []gcp.StorageObject{{Name: "test.txt"}}
+		view.downloadChan = make(chan progress.ProgressUpdate, 10)
+
+		view.Update(downloadCompleteMsg{err: nil})
+
+		assert.False(t, view.downloading)
+		assert.Nil(t, view.downloadFiles)
+		assert.Nil(t, view.downloadChan)
+	})
+
+	t.Run("downloadCompleteMsg with error sets error", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.downloading = true
+		testErr := assert.AnError
+
+		view.Update(downloadCompleteMsg{err: testErr})
+
+		assert.False(t, view.downloading)
+		assert.Equal(t, testErr, view.err)
+	})
+
+	t.Run("download key ignored during loading", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.loading = true
+
+		cmd := view.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+
+		assert.Nil(t, cmd)
+	})
+}
+
+func TestObjectsViewUpload(t *testing.T) {
+	t.Run("uploadStartMsg initializes upload state", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.loading = false
+		view.SetSize(100, 50)
+
+		// Note: uploadStartMsg requires actual files to exist for os.Stat
+		// This test verifies the state change
+		view.Update(uploadStartMsg{files: []string{"/nonexistent/file.txt"}})
+
+		assert.True(t, view.uploading)
+	})
+
+	t.Run("uploadCompleteMsg clears upload state", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.uploading = true
+		view.uploadFiles = []string{"/tmp/test.txt"}
+		view.uploadChan = make(chan progress.ProgressUpdate, 10)
+
+		view.Update(uploadCompleteMsg{err: nil})
+
+		assert.False(t, view.uploading)
+		assert.Nil(t, view.uploadFiles)
+		assert.Nil(t, view.uploadChan)
+		// Should trigger refresh (loading = true)
+		assert.True(t, view.loading)
+	})
+
+	t.Run("uploadCompleteMsg with error sets error without refresh", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.uploading = true
+		view.loading = false
+		testErr := assert.AnError
+
+		view.Update(uploadCompleteMsg{err: testErr})
+
+		assert.False(t, view.uploading)
+		assert.Equal(t, testErr, view.err)
+		assert.False(t, view.loading) // No refresh on error
 	})
 }
