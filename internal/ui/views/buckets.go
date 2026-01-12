@@ -3,6 +3,7 @@ package views
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -218,11 +219,11 @@ func (v *BucketsView) findBucketByName(name string) *gcp.Bucket {
 // View renders the buckets view
 func (v *BucketsView) View() string {
 	if v.loading && v.storageClient == nil {
-		return fmt.Sprintf("\n  %s Initializing Cloud Storage client...\n", v.spinner.View())
+		return v.renderLoading("Initializing Cloud Storage client...")
 	}
 
 	if v.loading {
-		return fmt.Sprintf("\n  %s Loading buckets...\n", v.spinner.View())
+		return v.renderLoading("Loading buckets...")
 	}
 
 	if v.err != nil {
@@ -259,4 +260,20 @@ func (v *BucketsView) Close() error {
 		return v.storageClient.Close()
 	}
 	return nil
+}
+
+// renderLoading renders a loading message that fills the view height
+func (v *BucketsView) renderLoading(msg string) string {
+	content := fmt.Sprintf("\n  %s %s\n", v.spinner.View(), msg)
+	// Sidebar outputs height-1 newlines (lipgloss Height renders n lines = n-1 newlines)
+	// Content must match for proper horizontal join
+	targetNewlines := v.height - 1
+	if targetNewlines < 10 {
+		targetNewlines = 10
+	}
+	currentNewlines := strings.Count(content, "\n")
+	for i := currentNewlines; i < targetNewlines; i++ {
+		content += "\n"
+	}
+	return content
 }

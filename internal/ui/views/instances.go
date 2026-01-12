@@ -3,6 +3,7 @@ package views
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -331,11 +332,11 @@ func (v *InstancesView) resetInstance(inst gcp.Instance) tea.Cmd {
 // View renders the instances view
 func (v *InstancesView) View() string {
 	if v.loading && v.computeClient == nil {
-		return fmt.Sprintf("\n  %s Initializing Compute Engine client...\n", v.spinner.View())
+		return v.renderLoading("Initializing Compute Engine client...")
 	}
 
 	if v.loading {
-		return fmt.Sprintf("\n  %s Loading instances...\n", v.spinner.View())
+		return v.renderLoading("Loading instances...")
 	}
 
 	if v.actionLoading {
@@ -382,4 +383,21 @@ func (v *InstancesView) SelectedInstance() *gcp.Instance {
 // GetComputeClient returns the compute client for reuse in detail views
 func (v *InstancesView) GetComputeClient() *gcp.ComputeClient {
 	return v.computeClient
+}
+
+// renderLoading renders a loading message that fills the view height
+// to prevent rendering artifacts when transitioning to loaded state
+func (v *InstancesView) renderLoading(msg string) string {
+	content := fmt.Sprintf("\n  %s %s\n", v.spinner.View(), msg)
+	// Sidebar outputs height-1 newlines (lipgloss Height renders n lines = n-1 newlines)
+	// Content must match for proper horizontal join
+	targetNewlines := v.height - 1
+	if targetNewlines < 10 {
+		targetNewlines = 10
+	}
+	currentNewlines := strings.Count(content, "\n")
+	for i := currentNewlines; i < targetNewlines; i++ {
+		content += "\n"
+	}
+	return content
 }
