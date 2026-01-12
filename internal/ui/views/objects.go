@@ -536,7 +536,13 @@ func (v *ObjectsView) View() string {
 		if v.currentPrefix != "" {
 			msg = "This folder is empty."
 		}
-		return fmt.Sprintf("\n  %s\n  Press 'u' to upload files, 'esc' to go back.", msg)
+		content := fmt.Sprintf("\n  %s\n  Press 'u' to upload files, 'esc' to go back.", msg)
+
+		// Still need to overlay file picker if shown
+		if v.showFilePicker && v.filePicker != nil {
+			content = v.overlayFilePicker(content)
+		}
+		return content
 	}
 
 	// Build pagination info
