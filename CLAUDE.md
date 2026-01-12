@@ -146,35 +146,46 @@ Required scopes:
 
 ## Bubble Tea Rendering Guidelines
 
-### Consistent View Heights
-Views must output the **same number of lines** in all states (loading, loaded, error, empty).
-If heights differ between states, the terminal will scroll and cause visual glitches like headers disappearing.
+### lipgloss Height() and Newline Counting
+**Critical**: `lipgloss.Height(n)` renders n lines, which equals **n-1 newlines**.
+
+When using `lipgloss.JoinHorizontal()` (e.g., sidebar + content), both sides must have the **same newline count** or the layout breaks and causes visual glitches like headers disappearing.
 
 ```go
-// BAD: Loading outputs different height than loaded view
-func (v *View) View() string {
-    if v.loading {
-        return "\n  Loading...\n"  // 2 lines
-    }
-    return v.list.View() + help    // 30+ lines
-}
+// Sidebar uses lipgloss Height(n) which outputs n-1 newlines
+container := styles.Container.Width(width).Height(s.height)
+return container.Render(content)  // outputs height-1 newlines
 
-// GOOD: Pad loading to match loaded view height
-func (v *View) View() string {
-    if v.loading {
-        return v.renderLoading("Loading...")
-    }
-    return v.list.View() + help
-}
-
+// Content MUST match sidebar's newline count
 func (v *View) renderLoading(msg string) string {
     content := fmt.Sprintf("\n  %s %s\n", v.spinner.View(), msg)
-    // Match loaded view height: list (height-4) + help (2 lines) = height-2
-    targetHeight := v.height - 2
-    for i := strings.Count(content, "\n"); i < targetHeight; i++ {
+    // Match sidebar: height-1 newlines (NOT height!)
+    targetNewlines := v.height - 1
+    if targetNewlines < 10 {
+        targetNewlines = 10
+    }
+    currentNewlines := strings.Count(content, "\n")
+    for i := currentNewlines; i < targetNewlines; i++ {
         content += "\n"
     }
     return content
+}
+```
+
+### Testing Render Heights
+Always add tests to verify sidebar and content output the same newline count:
+
+```go
+func TestRenderingHeightConsistency(t *testing.T) {
+    // Setup app with sidebar active
+    sidebarView := app.sidebar.View()
+    contentView := app.renderCurrentView()
+
+    sidebarNewlines := strings.Count(sidebarView, "\n")
+    contentNewlines := strings.Count(contentView, "\n")
+
+    assert.Equal(t, sidebarNewlines, contentNewlines,
+        "Sidebar and content must have same newline count")
 }
 ```
 
