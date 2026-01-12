@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
+	"github.com/slayer/gcon/internal/ui/components"
 )
 
 // projectItem implements list.Item for the bubbles list component
@@ -156,9 +157,7 @@ func (v *ProjectsView) View() string {
 	}
 
 	if v.err != nil {
-		return lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#EA4335")).
-			Render(fmt.Sprintf("\n  Error: %v\n\n  Press 'r' to retry", v.err))
+		return "\n" + components.RenderError(v.err)
 	}
 
 	if len(v.projects) == 0 {

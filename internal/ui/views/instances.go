@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
+	"github.com/slayer/gcon/internal/ui/components"
 )
 
 // instanceItem implements list.Item for VM instances
@@ -323,8 +324,7 @@ func (v *InstancesView) View() string {
 	}
 
 	if v.err != nil {
-		errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#EA4335"))
-		return errStyle.Render(fmt.Sprintf("\n  Error: %v\n\n  Press 'r' to retry", v.err))
+		return "\n" + components.RenderError(v.err)
 	}
 
 	if len(v.instances) == 0 {
