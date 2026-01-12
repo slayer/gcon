@@ -268,17 +268,18 @@ func (c *StorageClient) UploadObject(ctx context.Context, bucketName, objectName
 	}
 	totalSize := stat.Size()
 
-	// Create writer - note: no defer Close(), we call it explicitly at the end
-	// to get proper error handling for the upload finalization
+	// Create writer
 	writer := c.client.Bucket(bucketName).Object(objectName).NewWriter(ctx)
 
 	// Copy with progress reporting (copyWithProgress handles final progress update internally)
 	if progress != nil {
 		if _, err := copyWithProgress(writer, file, totalSize, progress); err != nil {
+			_ = writer.Close() // Best-effort close to avoid resource leak
 			return fmt.Errorf("failed to upload: %w", err)
 		}
 	} else {
 		if _, err := io.Copy(writer, file); err != nil {
+			_ = writer.Close() // Best-effort close to avoid resource leak
 			return fmt.Errorf("failed to upload: %w", err)
 		}
 	}

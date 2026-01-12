@@ -140,7 +140,12 @@ func defaultFilePickerKeyMap() filePickerKeyMap {
 // New creates a new file picker starting at the given path
 func New(startPath string, multiSelect bool) *FilePicker {
 	if startPath == "" {
-		startPath, _ = os.Getwd()
+		if wd, err := os.Getwd(); err == nil {
+			startPath = wd
+		} else {
+			// Fallback if working directory cannot be determined
+			startPath = "."
+		}
 	}
 
 	delegate := list.NewDefaultDelegate()
@@ -206,11 +211,13 @@ func (fp *FilePicker) readDirectory(path string) ([]FileEntry, error) {
 
 	var entries []FileEntry
 
-	// Add parent directory entry if not at root
-	if path != "/" {
+	// Add parent directory entry if not at filesystem root
+	// Use cross-platform check: at root, filepath.Dir(path) equals path
+	parentPath := filepath.Dir(path)
+	if parentPath != path {
 		entries = append(entries, FileEntry{
 			Name:  "..",
-			Path:  filepath.Dir(path),
+			Path:  parentPath,
 			IsDir: true,
 		})
 	}
@@ -307,17 +314,19 @@ func (fp *FilePicker) Update(msg tea.Msg) tea.Cmd {
 
 		case key.Matches(msg, fp.keys.Back):
 			// Go up to parent directory, remembering current folder name
-			if fp.currentPath != "/" {
+			// Cross-platform root check: at root, filepath.Dir equals currentPath
+			if parentDir := filepath.Dir(fp.currentPath); parentDir != fp.currentPath {
 				currentFolderName := filepath.Base(fp.currentPath)
-				fp.currentPath = filepath.Dir(fp.currentPath)
+				fp.currentPath = parentDir
 				return fp.loadDirectory(currentFolderName)
 			}
 
 		case key.Matches(msg, fp.keys.Left):
 			// Left arrow goes up only when on first page of the list
-			if fp.list.Paginator.Page == 0 && fp.currentPath != "/" {
+			// Cross-platform root check: at root, filepath.Dir equals currentPath
+			if parentDir := filepath.Dir(fp.currentPath); fp.list.Paginator.Page == 0 && parentDir != fp.currentPath {
 				currentFolderName := filepath.Base(fp.currentPath)
-				fp.currentPath = filepath.Dir(fp.currentPath)
+				fp.currentPath = parentDir
 				return fp.loadDirectory(currentFolderName)
 			}
 

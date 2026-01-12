@@ -762,7 +762,10 @@ func (v *ObjectsView) startUpload() tea.Cmd {
 						return err
 					}
 					if !fi.IsDir() {
-						relPath, _ := filepath.Rel(filepath.Dir(path), filePath)
+						relPath, relErr := filepath.Rel(filepath.Dir(path), filePath)
+						if relErr != nil {
+							return fmt.Errorf("failed to compute relative path for %s: %w", filePath, relErr)
+						}
 						remotePath := v.currentPrefix + relPath
 						uploadFiles = append(uploadFiles, uploadFile{
 							localPath:  filePath,
