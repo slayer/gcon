@@ -68,8 +68,8 @@ func DefaultStyles() Styles {
 			Foreground(ColorWarning),
 
 		Help: lipgloss.NewStyle().
-			Foreground(ColorMuted).
-			MarginTop(1),
+			Foreground(ColorMuted),
+		// Note: MarginTop removed - layout handles spacing via fixed tile heights
 
 		StatusBar: lipgloss.NewStyle().
 			Background(ColorBgLight).

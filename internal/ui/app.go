@@ -445,10 +445,6 @@ func (a *App) View() string {
 	contentHeight := a.layout.ContentHeight()
 	_, footerHeight := a.layout.FooterSize()
 
-	// Apply fixed height to header using Height+MaxHeight to both pad and truncate
-	headerStyle := lipgloss.NewStyle().Width(a.width).Height(headerHeight).MaxHeight(headerHeight)
-	styledHeader := headerStyle.Render(header)
-
 	// Main content area (with or without sidebar)
 	var content string
 	if a.sidebarActive() {
@@ -462,15 +458,12 @@ func (a *App) View() string {
 		content += "\n" + a.styles.Error.Render("Error: "+a.err.Error())
 	}
 
-	// Apply fixed height to content using Height+MaxHeight
-	// Height pads short content, MaxHeight truncates long content
-	contentStyle := lipgloss.NewStyle().Width(a.width).Height(contentHeight).MaxHeight(contentHeight)
-	styledContent := contentStyle.Render(content)
-
-	// Help footer
-	footer := a.renderFooter()
-	footerStyle := lipgloss.NewStyle().Width(a.width).Height(footerHeight).MaxHeight(footerHeight)
-	styledFooter := footerStyle.Render(footer)
+	// Use lipgloss.Place to position content within fixed dimensions
+	// This is more reliable across terminals than Height+MaxHeight truncation
+	// which can fragment ANSI escape codes
+	styledHeader := lipgloss.Place(a.width, headerHeight, lipgloss.Left, lipgloss.Top, header)
+	styledContent := lipgloss.Place(a.width, contentHeight, lipgloss.Left, lipgloss.Top, content)
+	styledFooter := lipgloss.Place(a.width, footerHeight, lipgloss.Left, lipgloss.Top, a.renderFooter())
 
 	// Compose final layout with guaranteed heights
 	return lipgloss.JoinVertical(
