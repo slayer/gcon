@@ -127,7 +127,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// If sidebar is focused and drilled down, go back in sidebar
 			if a.focusedPanel == FocusSidebar && len(a.sidebar.GetPath()) > 0 {
 				a.sidebar.Update(msg)
-				return a, nil
+				return a, tea.ClearScreen
 			}
 
 			switch a.currentView {
@@ -137,13 +137,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.instanceDetailsView = nil
 				a.selectedInstance = nil
 				a.updateSidebarActiveView()
-				return a, nil
+				return a, tea.ClearScreen
 			case ViewObjects:
 				// Check if we can go up a folder, otherwise go back to buckets
 				if a.objectsView != nil {
 					handled, cmd := a.objectsView.HandleBack()
 					if handled {
-						return a, cmd
+						return a, tea.Batch(cmd, tea.ClearScreen)
 					}
 				}
 				// Go back to buckets list
@@ -151,7 +151,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.objectsView = nil
 				a.selectedBucket = nil
 				a.updateSidebarActiveView()
-				return a, nil
+				return a, tea.ClearScreen
 			case ViewInstances, ViewDisks, ViewBuckets, ViewNetworks, ViewFirewall:
 				// Go back to projects, clear sidebar state
 				a.currentView = ViewProjects
@@ -163,7 +163,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.bucketsView = nil
 				a.selectedProject = nil
 				a.focusedPanel = FocusContent
-				return a, nil
+				return a, tea.ClearScreen
 			}
 		}
 
@@ -180,12 +180,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Switch focus between sidebar and content
 			if a.sidebarActive() {
 				a.toggleFocus()
+				return a, tea.ClearScreen
 			}
 			return a, nil
 		case key.Matches(msg, a.keys.ShiftTab):
 			// Same as Tab for now (toggle)
 			if a.sidebarActive() {
 				a.toggleFocus()
+				return a, tea.ClearScreen
 			}
 			return a, nil
 		case key.Matches(msg, a.keys.ToggleSidebar):
@@ -193,6 +195,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.sidebarActive() {
 				a.sidebar.Toggle()
 				a.updateViewSizes()
+				return a, tea.ClearScreen
 			}
 			return a, nil
 		}
@@ -223,7 +226,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.focusedPanel = FocusContent
 		a.updateSidebarActiveView()
 		a.updateViewSizes()
-		return a, a.instancesView.Init()
+		return a, tea.Batch(a.instancesView.Init(), tea.ClearScreen)
 
 	case views.InstanceSelectedMsg:
 		// Navigate to instance details view
@@ -239,7 +242,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		)
 		a.updateSidebarActiveView()
 		a.updateViewSizes()
-		return a, a.instanceDetailsView.Init()
+		return a, tea.Batch(a.instanceDetailsView.Init(), tea.ClearScreen)
 
 	case InitialProjectLoadedMsg:
 		// Initial project loaded successfully, go directly to instances view
@@ -249,7 +252,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.focusedPanel = FocusContent
 		a.updateSidebarActiveView()
 		a.updateViewSizes()
-		return a, a.instancesView.Init()
+		return a, tea.Batch(a.instancesView.Init(), tea.ClearScreen)
 
 	case InitialProjectErrorMsg:
 		// Failed to load initial project, fall back to selector with error displayed
@@ -276,7 +279,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.objectsView = views.NewObjectsView(bucket.Name, storageClient)
 		a.updateSidebarActiveView()
 		a.updateViewSizes()
-		return a, a.objectsView.Init()
+		return a, tea.Batch(a.objectsView.Init(), tea.ClearScreen)
 	}
 
 	// Delegate to current view (only if content is focused)
@@ -410,7 +413,12 @@ func (a *App) handleSidebarNavigation(msg sidebar.NavigateMsg) tea.Cmd {
 	// Switch focus back to content after navigation
 	a.focusedPanel = FocusContent
 	a.sidebar.SetFocused(false)
-	return cmd
+
+	// Clear screen to prevent rendering artifacts when switching views
+	if cmd != nil {
+		return tea.Batch(cmd, tea.ClearScreen)
+	}
+	return tea.ClearScreen
 }
 
 // View implements tea.Model
