@@ -5,52 +5,20 @@ import (
 	"fmt"
 
 	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
+	btable "github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components"
+	"github.com/slayer/gcon/internal/ui/components/table"
 )
 
-// instanceItem implements list.Item for VM instances
-type instanceItem struct {
-	instance gcp.Instance
-}
-
-func (i instanceItem) Title() string {
-	// Show status indicator with color
-	var statusIcon string
-	switch i.instance.Status {
-	case "RUNNING":
-		statusIcon = "🟢"
-	case "TERMINATED", "STOPPED":
-		statusIcon = "🔴"
-	case "STAGING", "PROVISIONING", "STOPPING", "SUSPENDING":
-		statusIcon = "🟡"
-	default:
-		statusIcon = "⚪"
-	}
-	return fmt.Sprintf("%s %s", statusIcon, i.instance.Name)
-}
-
-func (i instanceItem) Description() string {
-	ip := i.instance.InternalIP
-	if i.instance.ExternalIP != "" {
-		ip = fmt.Sprintf("%s (ext: %s)", i.instance.InternalIP, i.instance.ExternalIP)
-	}
-	return fmt.Sprintf("%s • %s • %s", i.instance.Zone, i.instance.MachineType, ip)
-}
-
-func (i instanceItem) FilterValue() string {
-	return i.instance.Name + " " + i.instance.Zone + " " + i.instance.Status
-}
-
-// InstancesView displays and manages Compute Engine instances
+// InstancesView displays and manages Compute Engine instances in a table format
 type InstancesView struct {
 	computeClient *gcp.ComputeClient
 	projectID     string
-	list          list.Model
+	table         table.Model
 	spinner       spinner.Model
 	loading       bool
 	actionLoading bool // True when performing start/stop action
@@ -101,31 +69,22 @@ func defaultInstanceKeyMap() instanceKeyMap {
 	}
 }
 
-// NewInstancesView creates a new instances view
-func NewInstancesView(projectID string) *InstancesView {
-	delegate := list.NewDefaultDelegate()
-	delegate.Styles.SelectedTitle = delegate.Styles.SelectedTitle.
-		Foreground(lipgloss.Color("#FFFFFF")).
-		Background(lipgloss.Color("#4285F4")).
-		Bold(true)
-	delegate.Styles.SelectedDesc = delegate.Styles.SelectedDesc.
-		Foreground(lipgloss.Color("#CCCCCC")).
-		Background(lipgloss.Color("#4285F4"))
-
-	l := list.New([]list.Item{}, delegate, 0, 0)
-	l.Title = fmt.Sprintf("Compute Engine Instances • %s", projectID)
-	l.SetShowStatusBar(true)
-	l.SetFilteringEnabled(true)
-	l.Styles.Title = lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("#4285F4")).
-		Padding(0, 1)
-
-	// Add additional help keys
-	l.AdditionalShortHelpKeys = func() []key.Binding {
-		km := defaultInstanceKeyMap()
-		return []key.Binding{km.Start, km.Stop, km.Refresh}
+// Table column definitions
+func instanceColumns() []btable.Column {
+	return []btable.Column{
+		{Title: "Name", Width: 25},
+		{Title: "Status", Width: 12},
+		{Title: "Zone", Width: 20},
+		{Title: "Internal IP", Width: 15},
+		{Title: "External IP", Width: 15},
+		{Title: "Machine Type", Width: 15},
 	}
+}
+
+// NewInstancesView creates a new instances view with table display
+func NewInstancesView(projectID string) *InstancesView {
+	title := fmt.Sprintf("Compute Engine Instances - %s", projectID)
+	t := table.New(instanceColumns(), title)
 
 	s := spinner.New()
 	s.Spinner = spinner.Dot
@@ -133,7 +92,7 @@ func NewInstancesView(projectID string) *InstancesView {
 
 	return &InstancesView{
 		projectID: projectID,
-		list:      l,
+		table:     t,
 		spinner:   s,
 		loading:   true,
 		keys:      defaultInstanceKeyMap(),
@@ -189,6 +148,41 @@ type instanceActionMsg struct {
 	err      error
 }
 
+// statusIcon returns an emoji indicator for instance status
+func statusIcon(status string) string {
+	switch status {
+	case "RUNNING":
+		return "🟢"
+	case "TERMINATED", "STOPPED":
+		return "🔴"
+	case "STAGING", "PROVISIONING", "STOPPING", "SUSPENDING":
+		return "🟡"
+	default:
+		return "⚪"
+	}
+}
+
+// instanceToRow converts a GCP instance to a table row
+func instanceToRow(inst gcp.Instance) table.Row {
+	externalIP := inst.ExternalIP
+	if externalIP == "" {
+		externalIP = "-"
+	}
+
+	return table.Row{
+		Data: []string{
+			inst.Name,
+			statusIcon(inst.Status) + " " + inst.Status,
+			inst.Zone,
+			inst.InternalIP,
+			externalIP,
+			inst.MachineType,
+		},
+		FilterValue: inst.Name + " " + inst.Zone + " " + inst.Status + " " + inst.MachineType,
+		ID:          inst.Name,
+	}
+}
+
 // Update handles messages for the instances view
 func (v *InstancesView) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
@@ -202,11 +196,12 @@ func (v *InstancesView) Update(msg tea.Msg) tea.Cmd {
 		v.actionMsg = ""
 		v.instances = msg.instances
 
-		items := make([]list.Item, len(msg.instances))
+		// Convert instances to table rows
+		rows := make([]table.Row, len(msg.instances))
 		for i, inst := range msg.instances {
-			items[i] = instanceItem{instance: inst}
+			rows[i] = instanceToRow(inst)
 		}
-		v.list.SetItems(items)
+		v.table.SetRows(rows)
 		return nil
 
 	case instancesErrorMsg:
@@ -235,17 +230,27 @@ func (v *InstancesView) Update(msg tea.Msg) tea.Cmd {
 		return nil
 
 	case tea.KeyMsg:
-		// Don't handle keys during action or loading
+		// Don't handle custom keys during filtering, action, or loading
 		if v.actionLoading || v.loading {
 			return nil
+		}
+
+		// Let table handle filtering mode
+		if v.table.IsFiltering() {
+			var cmd tea.Cmd
+			v.table, cmd = v.table.Update(msg)
+			return cmd
 		}
 
 		switch {
 		case key.Matches(msg, v.keys.Enter):
 			// Navigate to instance details on Enter
-			if item, ok := v.list.SelectedItem().(instanceItem); ok {
-				return func() tea.Msg {
-					return InstanceSelectedMsg{Instance: item.instance}
+			if row := v.table.SelectedRow(); row != nil {
+				inst := v.findInstanceByName(row.ID)
+				if inst != nil {
+					return func() tea.Msg {
+						return InstanceSelectedMsg{Instance: *inst}
+					}
 				}
 			}
 
@@ -255,37 +260,51 @@ func (v *InstancesView) Update(msg tea.Msg) tea.Cmd {
 			return tea.Batch(v.spinner.Tick, v.loadInstances())
 
 		case key.Matches(msg, v.keys.Start):
-			if item, ok := v.list.SelectedItem().(instanceItem); ok {
-				if item.instance.IsStopped() {
+			if row := v.table.SelectedRow(); row != nil {
+				inst := v.findInstanceByName(row.ID)
+				if inst != nil && inst.IsStopped() {
 					v.actionLoading = true
-					v.actionMsg = fmt.Sprintf("Starting %s...", item.instance.Name)
-					return tea.Batch(v.spinner.Tick, v.startInstance(item.instance))
+					v.actionMsg = fmt.Sprintf("Starting %s...", inst.Name)
+					return tea.Batch(v.spinner.Tick, v.startInstance(*inst))
 				}
 			}
 
 		case key.Matches(msg, v.keys.Stop):
-			if item, ok := v.list.SelectedItem().(instanceItem); ok {
-				if item.instance.IsRunning() {
+			if row := v.table.SelectedRow(); row != nil {
+				inst := v.findInstanceByName(row.ID)
+				if inst != nil && inst.IsRunning() {
 					v.actionLoading = true
-					v.actionMsg = fmt.Sprintf("Stopping %s...", item.instance.Name)
-					return tea.Batch(v.spinner.Tick, v.stopInstance(item.instance))
+					v.actionMsg = fmt.Sprintf("Stopping %s...", inst.Name)
+					return tea.Batch(v.spinner.Tick, v.stopInstance(*inst))
 				}
 			}
 
 		case key.Matches(msg, v.keys.Reset):
-			if item, ok := v.list.SelectedItem().(instanceItem); ok {
-				if item.instance.IsRunning() {
+			if row := v.table.SelectedRow(); row != nil {
+				inst := v.findInstanceByName(row.ID)
+				if inst != nil && inst.IsRunning() {
 					v.actionLoading = true
-					v.actionMsg = fmt.Sprintf("Resetting %s...", item.instance.Name)
-					return tea.Batch(v.spinner.Tick, v.resetInstance(item.instance))
+					v.actionMsg = fmt.Sprintf("Resetting %s...", inst.Name)
+					return tea.Batch(v.spinner.Tick, v.resetInstance(*inst))
 				}
 			}
 		}
 	}
 
+	// Update table for navigation
 	var cmd tea.Cmd
-	v.list, cmd = v.list.Update(msg)
+	v.table, cmd = v.table.Update(msg)
 	return cmd
+}
+
+// findInstanceByName looks up an instance by name
+func (v *InstancesView) findInstanceByName(name string) *gcp.Instance {
+	for _, inst := range v.instances {
+		if inst.Name == name {
+			return &inst
+		}
+	}
+	return nil
 }
 
 func (v *InstancesView) startInstance(inst gcp.Instance) tea.Cmd {
@@ -320,7 +339,7 @@ func (v *InstancesView) View() string {
 	}
 
 	if v.actionLoading {
-		return fmt.Sprintf("\n  %s %s\n\n%s", v.spinner.View(), v.actionMsg, v.list.View())
+		return fmt.Sprintf("\n  %s %s\n\n%s", v.spinner.View(), v.actionMsg, v.table.View())
 	}
 
 	if v.err != nil {
@@ -340,22 +359,22 @@ func (v *InstancesView) View() string {
 
 	// Help text for actions
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
-	help := helpStyle.Render("\n  enter: details • s: start • x: stop • R: reset • r: refresh • esc: back")
+	help := helpStyle.Render("\n  enter: details • s: start • x: stop • R: reset • /: filter • r: refresh • esc: back")
 
-	return header + v.list.View() + help
+	return header + v.table.View() + help
 }
 
 // SetSize updates the view dimensions
 func (v *InstancesView) SetSize(width, height int) {
 	v.width = width
 	v.height = height
-	v.list.SetSize(width, height-4)
+	v.table.SetSize(width, height-6) // Reserve space for header and help
 }
 
 // SelectedInstance returns the currently selected instance
 func (v *InstancesView) SelectedInstance() *gcp.Instance {
-	if item, ok := v.list.SelectedItem().(instanceItem); ok {
-		return &item.instance
+	if row := v.table.SelectedRow(); row != nil {
+		return v.findInstanceByName(row.ID)
 	}
 	return nil
 }

@@ -6,67 +6,15 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
+	btable "github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
+	"github.com/slayer/gcon/internal/ui/components/table"
 )
 
 const defaultPageSize = 100
-
-// objectItem implements list.Item for GCS objects
-type objectItem struct {
-	object gcp.StorageObject
-}
-
-func (i objectItem) Title() string {
-	if i.object.IsFolder {
-		return fmt.Sprintf("📁 %s/", i.object.DisplayName)
-	}
-	return fmt.Sprintf("📄 %s", i.object.DisplayName)
-}
-
-func (i objectItem) Description() string {
-	if i.object.IsFolder {
-		return "— • Folder"
-	}
-	size := gcp.FormatSize(i.object.Size)
-	contentType := i.object.ContentType
-	if contentType == "" {
-		contentType = "unknown"
-	}
-	updated := i.object.Updated.Format("2006-01-02")
-	return fmt.Sprintf("%s • %s • %s", size, contentType, updated)
-}
-
-func (i objectItem) FilterValue() string {
-	return i.object.DisplayName + " " + i.object.ContentType
-}
-
-// ObjectsView displays and manages objects within a bucket
-type ObjectsView struct {
-	storageClient *gcp.StorageClient
-	bucketName    string
-	currentPrefix string   // Current folder path (e.g., "folder1/folder2/")
-	prefixStack   []string // Navigation history for back functionality
-	list          list.Model
-	spinner       spinner.Model
-	loading       bool
-	err           error
-	width         int
-	height        int
-	objects       []gcp.StorageObject
-	keys          objectKeyMap
-
-	// Pagination state
-	currentPage      int
-	nextPageToken    string   // Token for loading next page
-	currentPageToken string   // Token used to load current page (empty for first page)
-	pageTokenHistory []string // History of page tokens used (for back navigation)
-	hasMore          bool
-	totalLoaded      int // Total objects loaded across pages
-}
 
 // objectKeyMap defines object-specific key bindings
 type objectKeyMap struct {
@@ -97,31 +45,44 @@ func defaultObjectKeyMap() objectKeyMap {
 	}
 }
 
-// NewObjectsView creates a new objects view
-func NewObjectsView(bucketName string, storageClient *gcp.StorageClient) *ObjectsView {
-	delegate := list.NewDefaultDelegate()
-	delegate.Styles.SelectedTitle = delegate.Styles.SelectedTitle.
-		Foreground(lipgloss.Color("#FFFFFF")).
-		Background(lipgloss.Color("#4285F4")).
-		Bold(true)
-	delegate.Styles.SelectedDesc = delegate.Styles.SelectedDesc.
-		Foreground(lipgloss.Color("#CCCCCC")).
-		Background(lipgloss.Color("#4285F4"))
-
-	l := list.New([]list.Item{}, delegate, 0, 0)
-	l.Title = fmt.Sprintf("📦 %s", bucketName)
-	l.SetShowStatusBar(true)
-	l.SetFilteringEnabled(true)
-	l.Styles.Title = lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("#4285F4")).
-		Padding(0, 1)
-
-	// Add help keys
-	l.AdditionalShortHelpKeys = func() []key.Binding {
-		km := defaultObjectKeyMap()
-		return []key.Binding{km.Enter, km.Refresh, km.NextPage, km.PrevPage}
+// Table column definitions for objects
+func objectColumns() []btable.Column {
+	return []btable.Column{
+		{Title: "Name", Width: 40},
+		{Title: "Size", Width: 12},
+		{Title: "Content Type", Width: 20},
+		{Title: "Modified", Width: 12},
 	}
+}
+
+// ObjectsView displays and manages objects within a bucket using a table format
+type ObjectsView struct {
+	storageClient *gcp.StorageClient
+	bucketName    string
+	currentPrefix string   // Current folder path (e.g., "folder1/folder2/")
+	prefixStack   []string // Navigation history for back functionality
+	table         table.Model
+	spinner       spinner.Model
+	loading       bool
+	err           error
+	width         int
+	height        int
+	objects       []gcp.StorageObject
+	keys          objectKeyMap
+
+	// Pagination state
+	currentPage      int
+	nextPageToken    string   // Token for loading next page
+	currentPageToken string   // Token used to load current page (empty for first page)
+	pageTokenHistory []string // History of page tokens used (for back navigation)
+	hasMore          bool
+	totalLoaded      int // Total objects loaded across pages
+}
+
+// NewObjectsView creates a new objects view with table display
+func NewObjectsView(bucketName string, storageClient *gcp.StorageClient) *ObjectsView {
+	title := fmt.Sprintf("Bucket: %s", bucketName)
+	t := table.New(objectColumns(), title)
 
 	s := spinner.New()
 	s.Spinner = spinner.Dot
@@ -132,7 +93,7 @@ func NewObjectsView(bucketName string, storageClient *gcp.StorageClient) *Object
 		bucketName:       bucketName,
 		currentPrefix:    "",
 		prefixStack:      make([]string, 0),
-		list:             l,
+		table:            t,
 		spinner:          s,
 		loading:          true,
 		keys:             defaultObjectKeyMap(),
@@ -184,6 +145,32 @@ type objectsErrorMsg struct {
 // ObjectsBackMsg signals to return to buckets view (exported for app.go)
 type ObjectsBackMsg struct{}
 
+// objectToRow converts a GCS object to a table row
+func objectToRow(obj gcp.StorageObject) table.Row {
+	var name, size, contentType, modified string
+
+	if obj.IsFolder {
+		name = "📁 " + obj.DisplayName + "/"
+		size = "-"
+		contentType = "Folder"
+		modified = "-"
+	} else {
+		name = "📄 " + obj.DisplayName
+		size = gcp.FormatSize(obj.Size)
+		contentType = obj.ContentType
+		if contentType == "" {
+			contentType = "unknown"
+		}
+		modified = obj.Updated.Format("2006-01-02")
+	}
+
+	return table.Row{
+		Data:        []string{name, size, contentType, modified},
+		FilterValue: obj.DisplayName + " " + contentType,
+		ID:          obj.Name, // Full path name for lookup
+	}
+}
+
 // Update handles messages for the objects view
 func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
@@ -194,12 +181,12 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 		v.hasMore = msg.hasMore
 		v.totalLoaded = len(msg.objects)
 
-		items := make([]list.Item, len(msg.objects))
+		// Convert to table rows
+		rows := make([]table.Row, len(msg.objects))
 		for i, obj := range msg.objects {
-			items[i] = objectItem{object: obj}
+			rows[i] = objectToRow(obj)
 		}
-		v.list.SetItems(items)
-		v.updateTitle()
+		v.table.SetRows(rows)
 		return nil
 
 	case objectsErrorMsg:
@@ -221,14 +208,22 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 			return nil
 		}
 
+		// Let table handle filtering mode
+		if v.table.IsFiltering() {
+			var cmd tea.Cmd
+			v.table, cmd = v.table.Update(msg)
+			return cmd
+		}
+
 		switch {
 		case key.Matches(msg, v.keys.Enter):
 			// Navigate into folder on Enter
-			if item, ok := v.list.SelectedItem().(objectItem); ok {
-				if item.object.IsFolder {
+			if row := v.table.SelectedRow(); row != nil {
+				obj := v.findObjectByName(row.ID)
+				if obj != nil && obj.IsFolder {
 					// Push current prefix to stack and navigate into folder
 					v.prefixStack = append(v.prefixStack, v.currentPrefix)
-					v.currentPrefix = item.object.Name
+					v.currentPrefix = obj.Name
 					v.resetPagination()
 					v.loading = true
 					return tea.Batch(v.spinner.Tick, v.loadObjects(""))
@@ -266,8 +261,18 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 	}
 
 	var cmd tea.Cmd
-	v.list, cmd = v.list.Update(msg)
+	v.table, cmd = v.table.Update(msg)
 	return cmd
+}
+
+// findObjectByName looks up an object by its full name
+func (v *ObjectsView) findObjectByName(name string) *gcp.StorageObject {
+	for _, obj := range v.objects {
+		if obj.Name == name {
+			return &obj
+		}
+	}
+	return nil
 }
 
 // HandleBack handles ESC key - returns true if handled internally (went up a folder)
@@ -293,15 +298,15 @@ func (v *ObjectsView) resetPagination() {
 	v.hasMore = false
 }
 
-// updateTitle updates the list title with current path
-func (v *ObjectsView) updateTitle() {
-	title := fmt.Sprintf("📦 %s", v.bucketName)
+// buildTitle builds the title showing current path
+func (v *ObjectsView) buildTitle() string {
+	title := fmt.Sprintf("Bucket: %s", v.bucketName)
 	if v.currentPrefix != "" {
 		// Show path in title
 		path := strings.TrimSuffix(v.currentPrefix, "/")
-		title = fmt.Sprintf("📦 %s / %s", v.bucketName, path)
+		title = fmt.Sprintf("Bucket: %s / %s", v.bucketName, path)
 	}
-	v.list.Title = title
+	return title
 }
 
 // View renders the objects view
@@ -341,16 +346,22 @@ func (v *ObjectsView) View() string {
 	status := statusStyle.Render(fmt.Sprintf("  %d items%s", len(v.objects), pageInfo))
 
 	// Help text for actions
-	help := statusStyle.Render("\n  enter: open • n/p: next/prev page • r: refresh • /: filter • esc: back")
+	help := statusStyle.Render("\n  enter: open • n/p: next/prev page • /: filter • r: refresh • esc: back")
 
-	return v.list.View() + "\n" + status + help
+	// Build title with current path
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("#4285F4")).
+		MarginBottom(1)
+
+	return titleStyle.Render(v.buildTitle()) + "\n" + v.table.View() + "\n" + status + help
 }
 
 // SetSize updates the view dimensions
 func (v *ObjectsView) SetSize(width, height int) {
 	v.width = width
 	v.height = height
-	v.list.SetSize(width, height-6) // Extra space for status and help
+	v.table.SetSize(width, height-8) // Extra space for title, status and help
 }
 
 // GetCurrentPath returns the current folder path being browsed

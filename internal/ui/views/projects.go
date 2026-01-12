@@ -4,57 +4,60 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
+	btable "github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components"
+	"github.com/slayer/gcon/internal/ui/components/table"
 )
 
-// projectItem implements list.Item for the bubbles list component
-type projectItem struct {
-	project gcp.Project
+// projectKeyMap defines project-specific key bindings
+type projectKeyMap struct {
+	Enter   key.Binding
+	Refresh key.Binding
 }
 
-func (i projectItem) Title() string { return i.project.Name }
-func (i projectItem) Description() string {
-	return fmt.Sprintf("ID: %s • State: %s", i.project.ID, i.project.State)
+func defaultProjectKeyMap() projectKeyMap {
+	return projectKeyMap{
+		Enter: key.NewBinding(
+			key.WithKeys("enter"),
+			key.WithHelp("enter", "select"),
+		),
+		Refresh: key.NewBinding(
+			key.WithKeys("r"),
+			key.WithHelp("r", "refresh"),
+		),
+	}
 }
-func (i projectItem) FilterValue() string { return i.project.Name + " " + i.project.ID }
 
-// ProjectsView displays and manages the list of GCP projects
+// Table column definitions for projects
+func projectColumns() []btable.Column {
+	return []btable.Column{
+		{Title: "Name", Width: 35},
+		{Title: "Project ID", Width: 35},
+		{Title: "State", Width: 15},
+	}
+}
+
+// ProjectsView displays and manages the list of GCP projects in a table format
 type ProjectsView struct {
 	client   *gcp.Client
-	list     list.Model
+	table    table.Model
 	spinner  spinner.Model
 	loading  bool
 	err      error
 	width    int
 	height   int
 	projects []gcp.Project
+	keys     projectKeyMap
 }
 
-// NewProjectsView creates a new projects view
+// NewProjectsView creates a new projects view with table display
 func NewProjectsView(client *gcp.Client) *ProjectsView {
-	// Configure the list delegate for custom styling
-	delegate := list.NewDefaultDelegate()
-	delegate.Styles.SelectedTitle = delegate.Styles.SelectedTitle.
-		Foreground(lipgloss.Color("#FFFFFF")).
-		Background(lipgloss.Color("#4285F4")).
-		Bold(true)
-	delegate.Styles.SelectedDesc = delegate.Styles.SelectedDesc.
-		Foreground(lipgloss.Color("#CCCCCC")).
-		Background(lipgloss.Color("#4285F4"))
-
-	l := list.New([]list.Item{}, delegate, 0, 0)
-	l.Title = "Select Project"
-	l.SetShowStatusBar(true)
-	l.SetFilteringEnabled(true)
-	l.Styles.Title = lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("#4285F4")).
-		Padding(0, 1)
+	t := table.New(projectColumns(), "Select Project")
 
 	s := spinner.New()
 	s.Spinner = spinner.Dot
@@ -62,9 +65,10 @@ func NewProjectsView(client *gcp.Client) *ProjectsView {
 
 	return &ProjectsView{
 		client:  client,
-		list:    l,
+		table:   t,
 		spinner: s,
 		loading: true,
+		keys:    defaultProjectKeyMap(),
 	}
 }
 
@@ -96,6 +100,31 @@ type projectsErrorMsg struct {
 	err error
 }
 
+// stateIcon returns an icon for project state
+func stateIcon(state string) string {
+	switch state {
+	case "ACTIVE":
+		return "🟢"
+	case "DELETE_REQUESTED", "DELETE_IN_PROGRESS":
+		return "🔴"
+	default:
+		return "⚪"
+	}
+}
+
+// projectToRow converts a GCP project to a table row
+func projectToRow(p gcp.Project) table.Row {
+	return table.Row{
+		Data: []string{
+			p.Name,
+			p.ID,
+			stateIcon(p.State) + " " + p.State,
+		},
+		FilterValue: p.Name + " " + p.ID + " " + p.State,
+		ID:          p.ID,
+	}
+}
+
 // Update handles messages for the projects view
 func (v *ProjectsView) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
@@ -103,12 +132,12 @@ func (v *ProjectsView) Update(msg tea.Msg) tea.Cmd {
 		v.loading = false
 		v.projects = msg.projects
 
-		// Convert to list items
-		items := make([]list.Item, len(msg.projects))
+		// Convert to table rows
+		rows := make([]table.Row, len(msg.projects))
 		for i, p := range msg.projects {
-			items[i] = projectItem{project: p}
+			rows[i] = projectToRow(p)
 		}
-		v.list.SetItems(items)
+		v.table.SetRows(rows)
 		return nil
 
 	case projectsErrorMsg:
@@ -125,24 +154,49 @@ func (v *ProjectsView) Update(msg tea.Msg) tea.Cmd {
 		return nil
 
 	case tea.KeyMsg:
-		if msg.String() == "r" {
+		if v.loading {
+			return nil
+		}
+
+		// Let table handle filtering mode
+		if v.table.IsFiltering() {
+			var cmd tea.Cmd
+			v.table, cmd = v.table.Update(msg)
+			return cmd
+		}
+
+		switch {
+		case key.Matches(msg, v.keys.Refresh):
 			v.loading = true
 			v.err = nil
 			return tea.Batch(v.spinner.Tick, v.loadProjects())
-		}
-		if msg.String() == "enter" {
-			if item, ok := v.list.SelectedItem().(projectItem); ok {
-				return func() tea.Msg {
-					return ProjectSelectedMsg{Project: item.project}
+
+		case key.Matches(msg, v.keys.Enter):
+			if row := v.table.SelectedRow(); row != nil {
+				proj := v.findProjectByID(row.ID)
+				if proj != nil {
+					return func() tea.Msg {
+						return ProjectSelectedMsg{Project: *proj}
+					}
 				}
 			}
 		}
 	}
 
-	// Delegate to list component
+	// Delegate to table component
 	var cmd tea.Cmd
-	v.list, cmd = v.list.Update(msg)
+	v.table, cmd = v.table.Update(msg)
 	return cmd
+}
+
+// findProjectByID looks up a project by ID
+func (v *ProjectsView) findProjectByID(id string) *gcp.Project {
+	for _, p := range v.projects {
+		if p.ID == id {
+			return &p
+		}
+	}
+	return nil
 }
 
 // ProjectSelectedMsg is emitted when a project is selected
@@ -164,20 +218,24 @@ func (v *ProjectsView) View() string {
 		return "\n  No projects found.\n  Make sure you have access to GCP projects."
 	}
 
-	return v.list.View()
+	// Help text
+	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
+	help := helpStyle.Render("\n  enter: select • /: filter • r: refresh • q: quit")
+
+	return v.table.View() + help
 }
 
 // SetSize updates the view dimensions
 func (v *ProjectsView) SetSize(width, height int) {
 	v.width = width
 	v.height = height
-	v.list.SetSize(width, height)
+	v.table.SetSize(width, height-4) // Reserve space for help
 }
 
 // SelectedProject returns the currently selected project
 func (v *ProjectsView) SelectedProject() *gcp.Project {
-	if item, ok := v.list.SelectedItem().(projectItem); ok {
-		return &item.project
+	if row := v.table.SelectedRow(); row != nil {
+		return v.findProjectByID(row.ID)
 	}
 	return nil
 }
