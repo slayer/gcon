@@ -56,10 +56,11 @@ func TestFileEntry(t *testing.T) {
 
 		assert.Contains(t, item.Title(), "docs")
 		assert.Contains(t, item.Title(), "📁")
-		assert.Equal(t, "Folder", item.Description())
+		assert.Contains(t, item.Title(), "[ ]") // Checkbox for unselected
+		assert.Equal(t, "", item.Description()) // Single-line display, no description
 	})
 
-	t.Run("selected entry shows checkmark", func(t *testing.T) {
+	t.Run("selected entry shows checkbox checked", func(t *testing.T) {
 		entry := FileEntry{
 			Name:     "selected.txt",
 			Path:     "/path/to/selected.txt",
@@ -68,7 +69,20 @@ func TestFileEntry(t *testing.T) {
 
 		item := fileItem{entry: entry}
 
-		assert.Contains(t, item.Title(), "✓")
+		assert.Contains(t, item.Title(), "[x]") // Checked checkbox
+	})
+
+	t.Run("parent directory entry has no checkbox", func(t *testing.T) {
+		entry := FileEntry{
+			Name:  "..",
+			Path:  "/path/to",
+			IsDir: true,
+		}
+
+		item := fileItem{entry: entry}
+
+		assert.NotContains(t, item.Title(), "[")   // No checkbox
+		assert.NotContains(t, item.Title(), "[x]") // No checkbox
 	})
 }
 
@@ -395,6 +409,85 @@ func TestFilePickerUpdate(t *testing.T) {
 		confirmMsg, ok := msg.(FilePickerConfirmMsg)
 		assert.True(t, ok)
 		assert.Contains(t, confirmMsg.SelectedPaths, filePath)
+	})
+
+	t.Run("Navigate up selects previous folder", func(t *testing.T) {
+		tempDir := t.TempDir()
+		subDir := filepath.Join(tempDir, "mysubdir")
+		require.NoError(t, os.Mkdir(subDir, 0755))
+
+		// Start in subdir
+		fp := New(subDir, true)
+
+		// Navigate up using backspace
+		cmd := fp.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+
+		assert.NotNil(t, cmd)
+		assert.Equal(t, tempDir, fp.currentPath)
+
+		// Execute the returned command to get the loadedMsg
+		msg := cmd()
+		loadedMsg, ok := msg.(filePickerLoadedMsg)
+		assert.True(t, ok)
+
+		// The selectTarget should be "mysubdir"
+		assert.Equal(t, "mysubdir", loadedMsg.selectTarget)
+	})
+
+	t.Run("Navigate up via .. entry selects previous folder", func(t *testing.T) {
+		tempDir := t.TempDir()
+		subDir := filepath.Join(tempDir, "anothersubdir")
+		require.NoError(t, os.Mkdir(subDir, 0755))
+
+		// Start in subdir
+		fp := New(subDir, true)
+
+		// Load directory first
+		entries, _ := fp.readDirectory(subDir)
+		fp.Update(filePickerLoadedMsg{entries: entries})
+
+		// Select ".." entry
+		for i, item := range fp.list.Items() {
+			if fi, ok := item.(fileItem); ok && fi.entry.Name == ".." {
+				fp.list.Select(i)
+				break
+			}
+		}
+
+		// Press enter on ".."
+		cmd := fp.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+		assert.NotNil(t, cmd)
+		assert.Equal(t, tempDir, fp.currentPath)
+
+		// Execute the returned command to get the loadedMsg
+		msg := cmd()
+		loadedMsg, ok := msg.(filePickerLoadedMsg)
+		assert.True(t, ok)
+
+		// The selectTarget should be "anothersubdir"
+		assert.Equal(t, "anothersubdir", loadedMsg.selectTarget)
+	})
+
+	t.Run("filePickerLoadedMsg with selectTarget selects correct entry", func(t *testing.T) {
+		tempDir := t.TempDir()
+		require.NoError(t, os.Mkdir(filepath.Join(tempDir, "aaa"), 0755))
+		require.NoError(t, os.Mkdir(filepath.Join(tempDir, "bbb"), 0755))
+		require.NoError(t, os.Mkdir(filepath.Join(tempDir, "ccc"), 0755))
+
+		fp := New(tempDir, true)
+
+		// Load directory with selectTarget = "bbb"
+		entries, _ := fp.readDirectory(tempDir)
+		fp.Update(filePickerLoadedMsg{entries: entries, selectTarget: "bbb"})
+
+		// Check that "bbb" is selected in the list
+		selectedItem := fp.list.SelectedItem()
+		assert.NotNil(t, selectedItem)
+
+		fi, ok := selectedItem.(fileItem)
+		assert.True(t, ok)
+		assert.Equal(t, "bbb", fi.entry.Name)
 	})
 }
 

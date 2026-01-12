@@ -36,22 +36,32 @@ type fileItem struct {
 }
 
 func (i fileItem) Title() string {
-	prefix := "📄 "
-	if i.entry.IsDir {
-		prefix = "📁 "
-	}
-	check := "  "
+	// Checkbox: [ ] or [x]
+	check := "[ ] "
 	if i.entry.Selected {
-		check = "✓ "
+		check = "[x] "
 	}
-	return check + prefix + i.entry.Name
+	// ".." doesn't get a checkbox
+	if i.entry.Name == ".." {
+		check = "    "
+	}
+
+	// Icon and name
+	icon := "📄"
+	if i.entry.IsDir {
+		icon = "📁"
+	}
+
+	// Format: "[x] 📄 filename.txt (1.5 KB)" or "[x] 📁 foldername"
+	if i.entry.IsDir {
+		return fmt.Sprintf("%s%s %s", check, icon, i.entry.Name)
+	}
+	return fmt.Sprintf("%s%s %s (%s)", check, icon, i.entry.Name, gcp.FormatSize(i.entry.Size))
 }
 
 func (i fileItem) Description() string {
-	if i.entry.IsDir {
-		return "Folder"
-	}
-	return gcp.FormatSize(i.entry.Size)
+	// Empty description for single-line display
+	return ""
 }
 
 func (i fileItem) FilterValue() string {
@@ -124,13 +134,14 @@ func New(startPath string, multiSelect bool) *FilePicker {
 	}
 
 	delegate := list.NewDefaultDelegate()
+	// Single-line display: no description, compact spacing
+	delegate.ShowDescription = false
+	delegate.SetHeight(1)
+	delegate.SetSpacing(0)
 	delegate.Styles.SelectedTitle = delegate.Styles.SelectedTitle.
 		Foreground(lipgloss.Color("#FFFFFF")).
 		Background(selectedBg).
 		Bold(true)
-	delegate.Styles.SelectedDesc = delegate.Styles.SelectedDesc.
-		Foreground(lipgloss.Color("#CCCCCC")).
-		Background(selectedBg)
 
 	l := list.New([]list.Item{}, delegate, 0, 0)
 	l.Title = "Select Files to Upload"
@@ -161,17 +172,18 @@ func New(startPath string, multiSelect bool) *FilePicker {
 
 // Init initializes the file picker and loads the initial directory
 func (fp *FilePicker) Init() tea.Cmd {
-	return fp.loadDirectory()
+	return fp.loadDirectory("")
 }
 
 // loadDirectory loads the contents of the current directory
-func (fp *FilePicker) loadDirectory() tea.Cmd {
+// selectTarget is the name of an entry to select after loading (used when navigating up)
+func (fp *FilePicker) loadDirectory(selectTarget string) tea.Cmd {
 	return func() tea.Msg {
 		entries, err := fp.readDirectory(fp.currentPath)
 		if err != nil {
 			return filePickerErrorMsg{err: err}
 		}
-		return filePickerLoadedMsg{entries: entries}
+		return filePickerLoadedMsg{entries: entries, selectTarget: selectTarget}
 	}
 }
 
@@ -237,7 +249,8 @@ func (fp *FilePicker) readDirectory(path string) ([]FileEntry, error) {
 
 // Message types
 type filePickerLoadedMsg struct {
-	entries []FileEntry
+	entries      []FileEntry
+	selectTarget string // Name of entry to select after loading (for "go up" navigation)
 }
 
 type filePickerErrorMsg struct {
@@ -258,6 +271,16 @@ func (fp *FilePicker) Update(msg tea.Msg) tea.Cmd {
 	case filePickerLoadedMsg:
 		fp.entries = msg.entries
 		fp.updateListItems()
+
+		// Select target entry if specified (used when navigating up to highlight previous folder)
+		if msg.selectTarget != "" {
+			for i, entry := range fp.entries {
+				if entry.Name == msg.selectTarget {
+					fp.list.Select(i)
+					break
+				}
+			}
+		}
 		return nil
 
 	case filePickerErrorMsg:
@@ -273,10 +296,11 @@ func (fp *FilePicker) Update(msg tea.Msg) tea.Cmd {
 			}
 
 		case key.Matches(msg, fp.keys.Back):
-			// Go up to parent directory
+			// Go up to parent directory, remembering current folder name
 			if fp.currentPath != "/" {
+				currentFolderName := filepath.Base(fp.currentPath)
 				fp.currentPath = filepath.Dir(fp.currentPath)
-				return fp.loadDirectory()
+				return fp.loadDirectory(currentFolderName)
 			}
 
 		case key.Matches(msg, fp.keys.Toggle):
@@ -311,9 +335,15 @@ func (fp *FilePicker) Update(msg tea.Msg) tea.Cmd {
 		case key.Matches(msg, fp.keys.Enter):
 			if item, ok := fp.list.SelectedItem().(fileItem); ok {
 				if item.entry.IsDir {
+					// Handle ".." specially - navigate up with target selection
+					if item.entry.Name == ".." {
+						currentFolderName := filepath.Base(fp.currentPath)
+						fp.currentPath = item.entry.Path
+						return fp.loadDirectory(currentFolderName)
+					}
 					// Navigate into directory
 					fp.currentPath = item.entry.Path
-					return fp.loadDirectory()
+					return fp.loadDirectory("")
 				}
 				// For files: if multi-select and nothing selected, select this file
 				// If selections exist or single-select mode, confirm
