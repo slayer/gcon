@@ -72,7 +72,7 @@ func defaultInstanceKeyMap() instanceKeyMap {
 // Table column definitions
 func instanceColumns() []btable.Column {
 	return []btable.Column{
-		{Title: "", Width: 3},
+		{Title: "Status", Width: 3},
 		{Title: "Name", Width: 25},
 		{Title: "Zone", Width: 20},
 		{Title: "Internal IP", Width: 15},
