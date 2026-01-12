@@ -254,8 +254,8 @@ func (v *BucketsView) Close() error {
 // renderLoading renders a loading message that fills the view height
 func (v *BucketsView) renderLoading(msg string) string {
 	content := fmt.Sprintf("\n  %s %s\n", v.spinner.View(), msg)
-	// Match loaded view height: list (height-4) + help (2 lines) = height-2
-	targetHeight := v.height - 2
+	// Must match sidebar height exactly (v.height) for proper horizontal join
+	targetHeight := v.height
 	if targetHeight < 10 {
 		targetHeight = 10
 	}

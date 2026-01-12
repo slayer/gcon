@@ -549,16 +549,8 @@ func min(a, b int) int {
 func (v *InstanceDetailsView) renderLoading(msg string) string {
 	content := fmt.Sprintf("\n  %s %s\n", v.spinner.View(), msg)
 
-	// If viewport is ready, use its actual height for consistency
-	// Otherwise use height - 2 (viewport height-4 + help 2 lines)
-	var targetHeight int
-	if v.ready {
-		// Viewport outputs exactly its configured height
-		targetHeight = v.viewport.Height + 2 // viewport + help lines
-	} else {
-		targetHeight = v.height - 2
-	}
-
+	// Must match sidebar height exactly (v.height) for proper horizontal join
+	targetHeight := v.height
 	if targetHeight < 10 {
 		targetHeight = 10
 	}
