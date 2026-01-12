@@ -519,24 +519,19 @@ func (a *App) renderHeader() string {
 
 // renderWithSidebar creates the two-panel layout with guaranteed matching heights
 func (a *App) renderWithSidebar() string {
+	// Sidebar already has its own styling (border, width, height) applied internally
 	sidebarView := a.sidebar.View()
 	contentView := a.renderCurrentView()
 
-	// Get dimensions from layout
-	sidebarWidth := a.sidebar.Width()
+	// Only apply width to main content - sidebar manages its own dimensions
 	mainWidth := a.layout.ContentWidth()
-
-	// Apply fixed width to each component (height will be enforced by parent)
-	sidebarStyle := lipgloss.NewStyle().Width(sidebarWidth)
 	mainStyle := lipgloss.NewStyle().Width(mainWidth)
-
-	styledSidebar := sidebarStyle.Render(sidebarView)
 	styledContent := mainStyle.Render(contentView)
 
 	// Join horizontally - parent View() will enforce overall height
 	return lipgloss.JoinHorizontal(
 		lipgloss.Top,
-		styledSidebar,
+		sidebarView,
 		styledContent,
 	)
 }
