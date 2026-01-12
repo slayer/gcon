@@ -3,6 +3,8 @@ package views
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -11,6 +13,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
+	"github.com/slayer/gcon/internal/ui/components/filepicker"
+	"github.com/slayer/gcon/internal/ui/components/progress"
 )
 
 const defaultPageSize = 100
@@ -65,6 +69,21 @@ type ObjectsView struct {
 	prevPageTokens []string // Stack of previous page tokens
 	hasMore        bool
 	totalLoaded    int // Total objects loaded across pages
+
+	// Download state
+	downloading      bool
+	downloadProgress *progress.Progress
+	downloadFiles    []gcp.StorageObject // Files being downloaded (for folder downloads)
+	downloadIndex    int                 // Current file index in multi-file download
+	downloadChan     chan progress.ProgressUpdate
+
+	// Upload state
+	showFilePicker bool
+	filePicker     *filepicker.FilePicker
+	uploading      bool
+	uploadProgress *progress.Progress
+	uploadFiles    []string // Local file paths to upload
+	uploadChan     chan progress.ProgressUpdate
 }
 
 // objectKeyMap defines object-specific key bindings
@@ -73,6 +92,8 @@ type objectKeyMap struct {
 	Refresh  key.Binding
 	NextPage key.Binding
 	PrevPage key.Binding
+	Download key.Binding
+	Upload   key.Binding
 }
 
 func defaultObjectKeyMap() objectKeyMap {
@@ -92,6 +113,14 @@ func defaultObjectKeyMap() objectKeyMap {
 		PrevPage: key.NewBinding(
 			key.WithKeys("p"),
 			key.WithHelp("p", "prev page"),
+		),
+		Download: key.NewBinding(
+			key.WithKeys("d"),
+			key.WithHelp("d", "download"),
+		),
+		Upload: key.NewBinding(
+			key.WithKeys("u"),
+			key.WithHelp("u", "upload"),
 		),
 	}
 }
@@ -119,7 +148,7 @@ func NewObjectsView(bucketName string, storageClient *gcp.StorageClient) *Object
 	// Add help keys
 	l.AdditionalShortHelpKeys = func() []key.Binding {
 		km := defaultObjectKeyMap()
-		return []key.Binding{km.Enter, km.Refresh, km.NextPage, km.PrevPage}
+		return []key.Binding{km.Enter, km.Download, km.Upload, km.Refresh, km.NextPage, km.PrevPage}
 	}
 
 	s := spinner.New()
@@ -127,16 +156,18 @@ func NewObjectsView(bucketName string, storageClient *gcp.StorageClient) *Object
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#4285F4"))
 
 	return &ObjectsView{
-		storageClient:  storageClient,
-		bucketName:     bucketName,
-		currentPrefix:  "",
-		prefixStack:    make([]string, 0),
-		list:           l,
-		spinner:        s,
-		loading:        true,
-		keys:           defaultObjectKeyMap(),
-		currentPage:    1,
-		prevPageTokens: make([]string, 0),
+		storageClient:    storageClient,
+		bucketName:       bucketName,
+		currentPrefix:    "",
+		prefixStack:      make([]string, 0),
+		list:             l,
+		spinner:          s,
+		loading:          true,
+		keys:             defaultObjectKeyMap(),
+		currentPage:      1,
+		prevPageTokens:   make([]string, 0),
+		downloadProgress: progress.New(),
+		uploadProgress:   progress.New(),
 	}
 }
 
@@ -183,6 +214,32 @@ type objectsErrorMsg struct {
 // ObjectsBackMsg signals to return to buckets view (exported for app.go)
 type ObjectsBackMsg struct{}
 
+// Download-related messages
+type downloadStartMsg struct {
+	files []gcp.StorageObject // Files to download (single file or folder contents)
+}
+
+type downloadProgressMsg struct {
+	update progress.ProgressUpdate
+}
+
+type downloadCompleteMsg struct {
+	err error
+}
+
+// Upload-related messages
+type uploadStartMsg struct {
+	files []string // Local file paths to upload
+}
+
+type uploadProgressMsg struct {
+	update progress.ProgressUpdate
+}
+
+type uploadCompleteMsg struct {
+	err error
+}
+
 // Update handles messages for the objects view
 func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
@@ -214,13 +271,151 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 		}
 		return nil
 
+	case downloadStartMsg:
+		v.downloading = true
+		v.downloadFiles = msg.files
+		v.downloadIndex = 0
+		v.downloadChan = make(chan progress.ProgressUpdate, 10)
+
+		// Calculate total size for progress
+		var totalSize int64
+		for _, f := range msg.files {
+			totalSize += f.Size
+		}
+
+		v.downloadProgress.SetProgress(
+			"Downloading",
+			msg.files[0].DisplayName,
+			1,
+			len(msg.files),
+			0,
+			totalSize,
+		)
+		v.downloadProgress.SetSize(v.width)
+
+		return v.startDownload()
+
+	case downloadProgressMsg:
+		v.downloadProgress.SetProgress(
+			"Downloading",
+			msg.update.CurrentFile,
+			msg.update.CurrentFileNum,
+			msg.update.TotalFiles,
+			msg.update.BytesTransferred,
+			msg.update.TotalBytes,
+		)
+		return v.waitForProgress()
+
+	case downloadCompleteMsg:
+		v.downloading = false
+		v.downloadFiles = nil
+		v.downloadIndex = 0
+		if v.downloadChan != nil {
+			close(v.downloadChan)
+			v.downloadChan = nil
+		}
+		if msg.err != nil {
+			v.err = msg.err
+		}
+		return nil
+
+	case filepicker.FilePickerConfirmMsg:
+		// User confirmed file selection - start upload
+		v.showFilePicker = false
+		v.filePicker = nil
+		if len(msg.SelectedPaths) > 0 {
+			return func() tea.Msg {
+				return uploadStartMsg{files: msg.SelectedPaths}
+			}
+		}
+		return nil
+
+	case filepicker.FilePickerCancelMsg:
+		// User cancelled file picker
+		v.showFilePicker = false
+		v.filePicker = nil
+		return nil
+
+	case uploadStartMsg:
+		v.uploading = true
+		v.uploadFiles = msg.files
+		v.uploadChan = make(chan progress.ProgressUpdate, 10)
+
+		// Calculate total size
+		var totalSize int64
+		for _, path := range msg.files {
+			info, err := os.Stat(path)
+			if err == nil && !info.IsDir() {
+				totalSize += info.Size()
+			}
+		}
+
+		v.uploadProgress.SetProgress(
+			"Uploading",
+			filepath.Base(msg.files[0]),
+			1,
+			len(msg.files),
+			0,
+			totalSize,
+		)
+		v.uploadProgress.SetSize(v.width)
+
+		return v.startUpload()
+
+	case uploadProgressMsg:
+		v.uploadProgress.SetProgress(
+			"Uploading",
+			msg.update.CurrentFile,
+			msg.update.CurrentFileNum,
+			msg.update.TotalFiles,
+			msg.update.BytesTransferred,
+			msg.update.TotalBytes,
+		)
+		return v.waitForUploadProgress()
+
+	case uploadCompleteMsg:
+		v.uploading = false
+		v.uploadFiles = nil
+		if v.uploadChan != nil {
+			close(v.uploadChan)
+			v.uploadChan = nil
+		}
+		if msg.err != nil {
+			v.err = msg.err
+		} else {
+			// Refresh the list after successful upload
+			v.loading = true
+			return tea.Batch(v.spinner.Tick, v.loadObjects(""))
+		}
+		return nil
+
 	case tea.KeyMsg:
-		// Don't handle keys during loading
-		if v.loading {
+		// If file picker is shown, delegate to it
+		if v.showFilePicker && v.filePicker != nil {
+			cmd := v.filePicker.Update(msg)
+			return cmd
+		}
+
+		// Don't handle keys during loading, downloading, or uploading
+		if v.loading || v.downloading || v.uploading {
 			return nil
 		}
 
 		switch {
+		case key.Matches(msg, v.keys.Upload):
+			// Open file picker for upload
+			cwd, _ := os.Getwd()
+			v.filePicker = filepicker.New(cwd, true)
+			v.filePicker.SetSize(v.width-10, v.height-10)
+			v.showFilePicker = true
+			return v.filePicker.Init()
+
+		case key.Matches(msg, v.keys.Download):
+			// Download selected file or folder
+			if item, ok := v.list.SelectedItem().(objectItem); ok {
+				return v.prepareDownload(item.object)
+			}
+
 		case key.Matches(msg, v.keys.Enter):
 			// Navigate into folder on Enter
 			if item, ok := v.list.SelectedItem().(objectItem); ok {
@@ -345,9 +540,26 @@ func (v *ObjectsView) View() string {
 	status := statusStyle.Render(fmt.Sprintf("  %d items%s", len(v.objects), pageInfo))
 
 	// Help text for actions
-	help := statusStyle.Render("\n  enter: open • n/p: next/prev page • r: refresh • /: filter • esc: back")
+	help := statusStyle.Render("\n  enter: open • d: download • u: upload • n/p: next/prev page • r: refresh • /: filter • esc: back")
 
-	return v.list.View() + "\n" + status + help
+	content := v.list.View() + "\n" + status + help
+
+	// Overlay file picker when shown
+	if v.showFilePicker && v.filePicker != nil {
+		content = v.overlayFilePicker(content)
+	}
+
+	// Overlay progress bar during download
+	if v.downloading {
+		content = v.overlayProgress(content)
+	}
+
+	// Overlay progress bar during upload
+	if v.uploading {
+		content = v.overlayUploadProgress(content)
+	}
+
+	return content
 }
 
 // SetSize updates the view dimensions
@@ -365,4 +577,320 @@ func (v *ObjectsView) GetCurrentPath() string {
 // GetBucketName returns the bucket name
 func (v *ObjectsView) GetBucketName() string {
 	return v.bucketName
+}
+
+// prepareDownload initiates download for a file or folder
+func (v *ObjectsView) prepareDownload(obj gcp.StorageObject) tea.Cmd {
+	return func() tea.Msg {
+		if obj.IsFolder {
+			// For folders, list all objects recursively
+			objects, err := v.storageClient.ListAllObjects(
+				context.Background(),
+				v.bucketName,
+				obj.Name,
+			)
+			if err != nil {
+				return downloadCompleteMsg{err: err}
+			}
+			if len(objects) == 0 {
+				return downloadCompleteMsg{err: fmt.Errorf("folder is empty")}
+			}
+			return downloadStartMsg{files: objects}
+		}
+		// Single file download
+		return downloadStartMsg{files: []gcp.StorageObject{obj}}
+	}
+}
+
+// startDownload begins the actual download process
+func (v *ObjectsView) startDownload() tea.Cmd {
+	return func() tea.Msg {
+		files := v.downloadFiles
+		if len(files) == 0 {
+			return downloadCompleteMsg{err: nil}
+		}
+
+		// Get current working directory for downloads
+		cwd, err := os.Getwd()
+		if err != nil {
+			return downloadCompleteMsg{err: fmt.Errorf("failed to get working directory: %w", err)}
+		}
+
+		// Calculate total size
+		var totalSize int64
+		for _, f := range files {
+			totalSize += f.Size
+		}
+
+		var bytesDownloaded int64
+
+		for i, file := range files {
+			// Determine local path - preserve folder structure for multi-file downloads
+			localPath := filepath.Join(cwd, file.DisplayName)
+			if len(files) > 1 {
+				// For folder downloads, preserve relative path structure
+				localPath = filepath.Join(cwd, file.Name)
+			}
+
+			// Send progress update before starting this file
+			v.downloadChan <- progress.ProgressUpdate{
+				BytesTransferred: bytesDownloaded,
+				TotalBytes:       totalSize,
+				CurrentFile:      file.DisplayName,
+				CurrentFileNum:   i + 1,
+				TotalFiles:       len(files),
+			}
+
+			// Download with progress callback
+			err := v.storageClient.DownloadObject(
+				context.Background(),
+				v.bucketName,
+				file.Name,
+				localPath,
+				func(transferred, total int64) {
+					v.downloadChan <- progress.ProgressUpdate{
+						BytesTransferred: bytesDownloaded + transferred,
+						TotalBytes:       totalSize,
+						CurrentFile:      file.DisplayName,
+						CurrentFileNum:   i + 1,
+						TotalFiles:       len(files),
+					}
+				},
+			)
+			if err != nil {
+				return downloadCompleteMsg{err: fmt.Errorf("failed to download %s: %w", file.DisplayName, err)}
+			}
+
+			bytesDownloaded += file.Size
+		}
+
+		return downloadCompleteMsg{err: nil}
+	}
+}
+
+// waitForProgress waits for the next progress update from the download goroutine
+func (v *ObjectsView) waitForProgress() tea.Cmd {
+	return func() tea.Msg {
+		if v.downloadChan == nil {
+			return nil
+		}
+		update, ok := <-v.downloadChan
+		if !ok {
+			return nil
+		}
+		return downloadProgressMsg{update: update}
+	}
+}
+
+// overlayProgress renders the progress bar centered over the content
+func (v *ObjectsView) overlayProgress(content string) string {
+	// Split content into lines
+	lines := strings.Split(content, "\n")
+
+	// Get progress bar content
+	progressView := v.downloadProgress.View()
+	progressLines := strings.Split(progressView, "\n")
+
+	// Calculate vertical position (center)
+	startRow := (len(lines) - len(progressLines)) / 2
+	if startRow < 0 {
+		startRow = 0
+	}
+
+	// Calculate horizontal position (center) for each progress line
+	for i, pLine := range progressLines {
+		row := startRow + i
+		if row >= len(lines) {
+			break
+		}
+
+		// Get visible width of progress line (accounting for ANSI codes)
+		pWidth := lipgloss.Width(pLine)
+		contentWidth := lipgloss.Width(lines[row])
+
+		// Calculate padding to center the progress bar
+		leftPad := (v.width - pWidth) / 2
+		if leftPad < 0 {
+			leftPad = 0
+		}
+
+		// Build the new line with progress centered
+		if contentWidth > 0 && leftPad > 0 {
+			// Create padded progress line
+			lines[row] = strings.Repeat(" ", leftPad) + pLine
+		} else {
+			lines[row] = pLine
+		}
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// startUpload begins the actual upload process
+func (v *ObjectsView) startUpload() tea.Cmd {
+	return func() tea.Msg {
+		files := v.uploadFiles
+		if len(files) == 0 {
+			return uploadCompleteMsg{err: nil}
+		}
+
+		// Calculate total size and collect file info
+		type uploadFile struct {
+			localPath  string
+			remotePath string
+			size       int64
+		}
+		var uploadFiles []uploadFile
+		var totalSize int64
+
+		for _, path := range files {
+			info, err := os.Stat(path)
+			if err != nil {
+				return uploadCompleteMsg{err: fmt.Errorf("failed to stat %s: %w", path, err)}
+			}
+
+			if info.IsDir() {
+				// Walk directory and collect all files
+				err := filepath.Walk(path, func(filePath string, fi os.FileInfo, err error) error {
+					if err != nil {
+						return err
+					}
+					if !fi.IsDir() {
+						relPath, _ := filepath.Rel(filepath.Dir(path), filePath)
+						remotePath := v.currentPrefix + relPath
+						uploadFiles = append(uploadFiles, uploadFile{
+							localPath:  filePath,
+							remotePath: remotePath,
+							size:       fi.Size(),
+						})
+						totalSize += fi.Size()
+					}
+					return nil
+				})
+				if err != nil {
+					return uploadCompleteMsg{err: fmt.Errorf("failed to walk directory %s: %w", path, err)}
+				}
+			} else {
+				// Single file - upload to current prefix
+				remotePath := v.currentPrefix + info.Name()
+				uploadFiles = append(uploadFiles, uploadFile{
+					localPath:  path,
+					remotePath: remotePath,
+					size:       info.Size(),
+				})
+				totalSize += info.Size()
+			}
+		}
+
+		var bytesUploaded int64
+
+		for i, file := range uploadFiles {
+			// Send progress update before starting this file
+			v.uploadChan <- progress.ProgressUpdate{
+				BytesTransferred: bytesUploaded,
+				TotalBytes:       totalSize,
+				CurrentFile:      filepath.Base(file.localPath),
+				CurrentFileNum:   i + 1,
+				TotalFiles:       len(uploadFiles),
+			}
+
+			// Upload with progress callback
+			err := v.storageClient.UploadObject(
+				context.Background(),
+				v.bucketName,
+				file.remotePath,
+				file.localPath,
+				func(transferred, total int64) {
+					v.uploadChan <- progress.ProgressUpdate{
+						BytesTransferred: bytesUploaded + transferred,
+						TotalBytes:       totalSize,
+						CurrentFile:      filepath.Base(file.localPath),
+						CurrentFileNum:   i + 1,
+						TotalFiles:       len(uploadFiles),
+					}
+				},
+			)
+			if err != nil {
+				return uploadCompleteMsg{err: fmt.Errorf("failed to upload %s: %w", filepath.Base(file.localPath), err)}
+			}
+
+			bytesUploaded += file.size
+		}
+
+		return uploadCompleteMsg{err: nil}
+	}
+}
+
+// waitForUploadProgress waits for the next progress update from the upload goroutine
+func (v *ObjectsView) waitForUploadProgress() tea.Cmd {
+	return func() tea.Msg {
+		if v.uploadChan == nil {
+			return nil
+		}
+		update, ok := <-v.uploadChan
+		if !ok {
+			return nil
+		}
+		return uploadProgressMsg{update: update}
+	}
+}
+
+// overlayFilePicker renders the file picker centered over the content
+func (v *ObjectsView) overlayFilePicker(content string) string {
+	lines := strings.Split(content, "\n")
+	pickerView := v.filePicker.View()
+	pickerLines := strings.Split(pickerView, "\n")
+
+	// Calculate vertical position (center)
+	startRow := (len(lines) - len(pickerLines)) / 2
+	if startRow < 0 {
+		startRow = 0
+	}
+
+	// Overlay file picker lines
+	for i, pLine := range pickerLines {
+		row := startRow + i
+		if row >= len(lines) {
+			break
+		}
+
+		pWidth := lipgloss.Width(pLine)
+		leftPad := (v.width - pWidth) / 2
+		if leftPad < 0 {
+			leftPad = 0
+		}
+
+		lines[row] = strings.Repeat(" ", leftPad) + pLine
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// overlayUploadProgress renders the upload progress bar centered over the content
+func (v *ObjectsView) overlayUploadProgress(content string) string {
+	lines := strings.Split(content, "\n")
+	progressView := v.uploadProgress.View()
+	progressLines := strings.Split(progressView, "\n")
+
+	startRow := (len(lines) - len(progressLines)) / 2
+	if startRow < 0 {
+		startRow = 0
+	}
+
+	for i, pLine := range progressLines {
+		row := startRow + i
+		if row >= len(lines) {
+			break
+		}
+
+		pWidth := lipgloss.Width(pLine)
+		leftPad := (v.width - pWidth) / 2
+		if leftPad < 0 {
+			leftPad = 0
+		}
+
+		lines[row] = strings.Repeat(" ", leftPad) + pLine
+	}
+
+	return strings.Join(lines, "\n")
 }

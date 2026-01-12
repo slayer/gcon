@@ -3,13 +3,19 @@ package gcp
 import (
 	"context"
 	"fmt"
+	"io"
+	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"cloud.google.com/go/storage"
 	"google.golang.org/api/iterator"
 )
+
+// ProgressFunc is a callback for reporting transfer progress
+type ProgressFunc func(bytesTransferred, totalBytes int64)
 
 // Bucket represents a GCS bucket with simplified metadata
 type Bucket struct {
@@ -197,4 +203,175 @@ func FormatSize(bytes int64) string {
 	default:
 		return fmt.Sprintf("%d B", bytes)
 	}
+}
+
+// GetObjectSize returns the size of an object in bytes
+func (c *StorageClient) GetObjectSize(ctx context.Context, bucketName, objectName string) (int64, error) {
+	attrs, err := c.client.Bucket(bucketName).Object(objectName).Attrs(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get object attributes: %w", err)
+	}
+	return attrs.Size, nil
+}
+
+// DownloadObject downloads an object from GCS to a local file
+func (c *StorageClient) DownloadObject(ctx context.Context, bucketName, objectName, localPath string, progress ProgressFunc) error {
+	// Get object attributes to know total size
+	attrs, err := c.client.Bucket(bucketName).Object(objectName).Attrs(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get object attributes: %w", err)
+	}
+	totalSize := attrs.Size
+
+	// Create the reader
+	reader, err := c.client.Bucket(bucketName).Object(objectName).NewReader(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to create reader: %w", err)
+	}
+	defer func() { _ = reader.Close() }()
+
+	// Ensure parent directory exists
+	if dir := filepath.Dir(localPath); dir != "." {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("failed to create directory: %w", err)
+		}
+	}
+
+	// Create local file
+	file, err := os.Create(localPath)
+	if err != nil {
+		return fmt.Errorf("failed to create local file: %w", err)
+	}
+	defer func() { _ = file.Close() }()
+
+	// Copy with progress reporting
+	if progress != nil {
+		written, err := copyWithProgress(file, reader, totalSize, progress)
+		if err != nil {
+			return fmt.Errorf("failed to download: %w", err)
+		}
+		// Final progress update
+		progress(written, totalSize)
+	} else {
+		if _, err := io.Copy(file, reader); err != nil {
+			return fmt.Errorf("failed to download: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// UploadObject uploads a local file to GCS
+func (c *StorageClient) UploadObject(ctx context.Context, bucketName, objectName, localPath string, progress ProgressFunc) error {
+	// Open local file
+	file, err := os.Open(localPath)
+	if err != nil {
+		return fmt.Errorf("failed to open local file: %w", err)
+	}
+	defer func() { _ = file.Close() }()
+
+	// Get file size for progress reporting
+	stat, err := file.Stat()
+	if err != nil {
+		return fmt.Errorf("failed to stat file: %w", err)
+	}
+	totalSize := stat.Size()
+
+	// Create writer - note: no defer Close(), we call it explicitly at the end
+	// to get proper error handling for the upload finalization
+	writer := c.client.Bucket(bucketName).Object(objectName).NewWriter(ctx)
+
+	// Copy with progress reporting
+	if progress != nil {
+		written, err := copyWithProgress(writer, file, totalSize, progress)
+		if err != nil {
+			return fmt.Errorf("failed to upload: %w", err)
+		}
+		// Final progress update
+		progress(written, totalSize)
+	} else {
+		if _, err := io.Copy(writer, file); err != nil {
+			return fmt.Errorf("failed to upload: %w", err)
+		}
+	}
+
+	// Close the writer to finalize the upload
+	if err := writer.Close(); err != nil {
+		return fmt.Errorf("failed to finalize upload: %w", err)
+	}
+
+	return nil
+}
+
+// ListAllObjects returns all objects under a prefix (for recursive download)
+func (c *StorageClient) ListAllObjects(ctx context.Context, bucketName, prefix string) ([]StorageObject, error) {
+	var objects []StorageObject
+
+	bucket := c.client.Bucket(bucketName)
+	query := &storage.Query{
+		Prefix: prefix,
+		// No delimiter = get all objects recursively
+	}
+
+	it := bucket.Objects(ctx, query)
+	for {
+		attrs, err := it.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to list objects: %w", err)
+		}
+
+		// Skip "folder" markers (objects ending with /)
+		if strings.HasSuffix(attrs.Name, "/") {
+			continue
+		}
+
+		objects = append(objects, objectFromAttrs(attrs, prefix))
+	}
+
+	return objects, nil
+}
+
+// progressWriter wraps an io.Writer to report progress
+type progressWriter struct {
+	writer      io.Writer
+	totalSize   int64
+	written     int64
+	progress    ProgressFunc
+	lastReport  int64
+	reportEvery int64 // Report every N bytes
+}
+
+func (pw *progressWriter) Write(p []byte) (int, error) {
+	n, err := pw.writer.Write(p)
+	pw.written += int64(n)
+
+	// Report progress periodically to avoid too many updates
+	if pw.progress != nil && (pw.written-pw.lastReport >= pw.reportEvery || pw.written >= pw.totalSize) {
+		pw.progress(pw.written, pw.totalSize)
+		pw.lastReport = pw.written
+	}
+
+	return n, err
+}
+
+// copyWithProgress copies from src to dst with progress reporting
+func copyWithProgress(dst io.Writer, src io.Reader, totalSize int64, progress ProgressFunc) (int64, error) {
+	// Report every 1% or 64KB, whichever is larger
+	reportEvery := totalSize / 100
+	if reportEvery < 64*1024 {
+		reportEvery = 64 * 1024
+	}
+
+	pw := &progressWriter{
+		writer:      dst,
+		totalSize:   totalSize,
+		progress:    progress,
+		reportEvery: reportEvery,
+	}
+
+	written, err := io.Copy(pw, src)
+	return written, err
 }
