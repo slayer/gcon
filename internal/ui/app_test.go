@@ -3,8 +3,10 @@ package ui
 import (
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components/sidebar"
+	"github.com/slayer/gcon/internal/ui/views"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -207,6 +209,27 @@ func TestHandleSidebarNavigationNoChangeWhenAlreadyOnView(t *testing.T) {
 
 	// Should stay on instances
 	assert.Equal(t, ViewInstances, app.currentView)
+}
+
+func TestUploadKeyRoutedToObjectsView(t *testing.T) {
+	app := createTestApp()
+	simulateProjectSelection(app)
+
+	// Setup: viewing empty bucket with objects view
+	app.currentView = ViewObjects
+	app.objectsView = views.NewObjectsView("test-bucket", nil)
+	app.objectsView.SetSize(100, 40)
+	// Simulate loaded empty bucket
+	app.objectsView.Update(views.ObjectsLoadedMsgForTest([]gcp.StorageObject{}, "", false))
+
+	// Focus should be on content
+	assert.Equal(t, FocusContent, app.focusedPanel)
+
+	// Press 'u' for upload
+	app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'u'}})
+
+	// File picker should be shown in objects view
+	assert.True(t, app.objectsView.IsFilePickerShown(), "file picker should open when 'u' is pressed in empty bucket")
 }
 
 // ViewType.String helper for test names

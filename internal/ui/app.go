@@ -410,17 +410,19 @@ func (a *App) handleSidebarNavigation(msg sidebar.NavigateMsg) tea.Cmd {
 	// Switch focus back to content after navigation
 	a.focusedPanel = FocusContent
 	a.sidebar.SetFocused(false)
+
 	return cmd
 }
 
 // View implements tea.Model
 func (a *App) View() string {
-	if a.width == 0 {
-		return "Loading..."
-	}
-
-	// Header with breadcrumb navigation
+	// Header with breadcrumb navigation (always show, even before window size is known)
 	header := a.renderHeader()
+
+	if a.width == 0 {
+		// Before window size is known, show header with loading message
+		return header + "\n\n  Loading..."
+	}
 
 	// Main content area (with or without sidebar)
 	var content string

@@ -2,6 +2,7 @@
 # Binary output
 /bin/
 /gcon
+/tmp/
 
 # Claude Code (keep commands, ignore local settings)
 .claude/settings.local.json
