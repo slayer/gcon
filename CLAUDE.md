@@ -217,6 +217,17 @@ When using bubbles/list component, hide its built-in title with `l.SetShowTitle(
 | `x` | Stop running instance |
 | `R` | Reset (hard reboot) |
 
+### Objects View (GCS Browser)
+
+| Key | Action |
+|-----|--------|
+| `Enter` | Open folder |
+| `d` | Download file/folder |
+| `u` | Upload files |
+| `D` | Delete file/folder (with confirmation) |
+| `n` | Next page |
+| `p` | Previous page |
+
 
 ## _IMPORTANT NOTICES_
 
