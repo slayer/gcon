@@ -314,8 +314,8 @@ func (fp *FilePicker) Update(msg tea.Msg) tea.Cmd {
 			}
 
 		case key.Matches(msg, fp.keys.Left):
-			// Left arrow goes up only when cursor is on first item
-			if fp.list.Index() == 0 && fp.currentPath != "/" {
+			// Left arrow goes up only when on first page of the list
+			if fp.list.Paginator.Page == 0 && fp.currentPath != "/" {
 				currentFolderName := filepath.Base(fp.currentPath)
 				fp.currentPath = filepath.Dir(fp.currentPath)
 				return fp.loadDirectory(currentFolderName)

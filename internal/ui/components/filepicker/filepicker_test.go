@@ -281,7 +281,7 @@ func TestFilePickerUpdate(t *testing.T) {
 		assert.Equal(t, tempDir, fp.currentPath)
 	})
 
-	t.Run("Left arrow on first item navigates to parent directory", func(t *testing.T) {
+	t.Run("Left arrow on first page navigates to parent directory", func(t *testing.T) {
 		tempDir := t.TempDir()
 		subDir := filepath.Join(tempDir, "subdir")
 		require.NoError(t, os.Mkdir(subDir, 0755))
@@ -292,37 +292,14 @@ func TestFilePickerUpdate(t *testing.T) {
 		entries, _ := fp.readDirectory(subDir)
 		fp.Update(filePickerLoadedMsg{entries: entries})
 
-		// List should be at index 0 (first item)
-		assert.Equal(t, 0, fp.list.Index())
+		// Should be on first page (page 0)
+		assert.Equal(t, 0, fp.list.Paginator.Page)
 
-		// Left arrow should navigate up
+		// Left arrow should navigate up when on first page
 		cmd := fp.Update(tea.KeyMsg{Type: tea.KeyLeft})
 
 		assert.NotNil(t, cmd)
 		assert.Equal(t, tempDir, fp.currentPath)
-	})
-
-	t.Run("Left arrow on non-first item does not navigate", func(t *testing.T) {
-		tempDir := t.TempDir()
-		require.NoError(t, os.WriteFile(filepath.Join(tempDir, "file.txt"), []byte("test"), 0644))
-
-		fp := New(tempDir, true)
-
-		// Load directory
-		entries, _ := fp.readDirectory(tempDir)
-		fp.Update(filePickerLoadedMsg{entries: entries})
-
-		// Move to second item
-		fp.list.Select(1)
-		assert.Equal(t, 1, fp.list.Index())
-
-		originalPath := fp.currentPath
-
-		// Left arrow should NOT navigate up when not on first item
-		cmd := fp.Update(tea.KeyMsg{Type: tea.KeyLeft})
-
-		assert.Nil(t, cmd)
-		assert.Equal(t, originalPath, fp.currentPath)
 	})
 
 	t.Run("Space toggles selection in multi-select mode", func(t *testing.T) {
