@@ -458,6 +458,13 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 				return tea.Batch(v.spinner.Tick, v.loadObjects(prevToken))
 			}
 		}
+
+	default:
+		// Forward other messages to file picker when active (for async directory loading)
+		if v.showFilePicker && v.filePicker != nil {
+			cmd := v.filePicker.Update(msg)
+			return cmd
+		}
 	}
 
 	var cmd tea.Cmd
