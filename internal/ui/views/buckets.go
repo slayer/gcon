@@ -75,13 +75,9 @@ func NewBucketsView(projectID string) *BucketsView {
 		Background(lipgloss.Color("#4285F4"))
 
 	l := list.New([]list.Item{}, delegate, 0, 0)
-	l.Title = fmt.Sprintf("Cloud Storage Buckets • %s", projectID)
+	l.SetShowTitle(false) // Title shown in app header instead
 	l.SetShowStatusBar(true)
 	l.SetFilteringEnabled(true)
-	l.Styles.Title = lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("#4285F4")).
-		Padding(0, 1)
 
 	// Add help keys
 	l.AdditionalShortHelpKeys = func() []key.Binding {
@@ -166,12 +162,12 @@ func (v *BucketsView) Update(msg tea.Msg) tea.Cmd {
 			items[i] = bucketItem{bucket: bucket}
 		}
 		v.list.SetItems(items)
-		return nil
+		return tea.ClearScreen
 
 	case bucketsErrorMsg:
 		v.loading = false
 		v.err = msg.err
-		return nil
+		return tea.ClearScreen
 
 	case spinner.TickMsg:
 		if v.loading {

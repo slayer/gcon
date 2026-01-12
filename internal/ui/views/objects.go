@@ -138,13 +138,9 @@ func NewObjectsView(bucketName string, storageClient *gcp.StorageClient) *Object
 		Background(lipgloss.Color("#4285F4"))
 
 	l := list.New([]list.Item{}, delegate, 0, 0)
-	l.Title = fmt.Sprintf("📦 %s", bucketName)
+	l.SetShowTitle(false) // Title shown in app header instead
 	l.SetShowStatusBar(true)
 	l.SetFilteringEnabled(true)
-	l.Styles.Title = lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("#4285F4")).
-		Padding(0, 1)
 
 	// Add help keys
 	l.AdditionalShortHelpKeys = func() []key.Binding {
@@ -256,13 +252,12 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 			items[i] = objectItem{object: obj}
 		}
 		v.list.SetItems(items)
-		v.updateTitle()
-		return nil
+		return tea.ClearScreen
 
 	case objectsErrorMsg:
 		v.loading = false
 		v.err = msg.err
-		return nil
+		return tea.ClearScreen
 
 	case spinner.TickMsg:
 		if v.loading {
@@ -503,17 +498,6 @@ func (v *ObjectsView) resetPagination() {
 	v.currentPageToken = ""
 	v.pageTokenHistory = make([]string, 0)
 	v.hasMore = false
-}
-
-// updateTitle updates the list title with current path
-func (v *ObjectsView) updateTitle() {
-	title := fmt.Sprintf("📦 %s", v.bucketName)
-	if v.currentPrefix != "" {
-		// Show path in title
-		path := strings.TrimSuffix(v.currentPrefix, "/")
-		title = fmt.Sprintf("📦 %s / %s", v.bucketName, path)
-	}
-	v.list.Title = title
 }
 
 // View renders the objects view
