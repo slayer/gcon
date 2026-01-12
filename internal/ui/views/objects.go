@@ -402,15 +402,25 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 			return nil
 		}
 
-		switch {
-		case key.Matches(msg, v.keys.Upload):
+		// If list is filtering, let it handle all keys except our shortcuts
+		// Check upload key first since it should work even in empty buckets
+		if key.Matches(msg, v.keys.Upload) {
 			// Open file picker for upload
 			cwd, _ := os.Getwd()
 			v.filePicker = filepicker.New(cwd, true)
 			v.filePicker.SetSize(v.width-10, v.height-10)
 			v.showFilePicker = true
 			return v.filePicker.Init()
+		}
 
+		// If list is in filtering mode, delegate to list
+		if v.list.FilterState() == list.Filtering {
+			var cmd tea.Cmd
+			v.list, cmd = v.list.Update(msg)
+			return cmd
+		}
+
+		switch {
 		case key.Matches(msg, v.keys.Download):
 			// Download selected file or folder
 			if item, ok := v.list.SelectedItem().(objectItem); ok {
