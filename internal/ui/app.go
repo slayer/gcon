@@ -21,6 +21,7 @@ const (
 	ViewInstanceDetails
 	ViewDisks
 	ViewBuckets
+	ViewObjects // Browsing objects within a bucket
 	ViewNetworks
 	ViewFirewall
 	ViewLogs
@@ -48,10 +49,13 @@ type App struct {
 	projectView         *views.ProjectsView
 	instancesView       *views.InstancesView
 	instanceDetailsView *views.InstanceDetailsView
+	bucketsView         *views.BucketsView
+	objectsView         *views.ObjectsView
 
 	// Selected context
 	selectedProject  *gcp.Project
 	selectedInstance *gcp.Instance
+	selectedBucket   *gcp.Bucket
 
 	// UI state
 	showHelp bool
@@ -134,10 +138,29 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.selectedInstance = nil
 				a.updateSidebarActiveView()
 				return a, nil
+			case ViewObjects:
+				// Check if we can go up a folder, otherwise go back to buckets
+				if a.objectsView != nil {
+					handled, cmd := a.objectsView.HandleBack()
+					if handled {
+						return a, cmd
+					}
+				}
+				// Go back to buckets list
+				a.currentView = ViewBuckets
+				a.objectsView = nil
+				a.selectedBucket = nil
+				a.updateSidebarActiveView()
+				return a, nil
 			case ViewInstances, ViewDisks, ViewBuckets, ViewNetworks, ViewFirewall:
 				// Go back to projects, clear sidebar state
 				a.currentView = ViewProjects
 				a.instancesView = nil
+				// Close storage client before discarding bucketsView
+				if a.bucketsView != nil {
+					_ = a.bucketsView.Close()
+				}
+				a.bucketsView = nil
 				a.selectedProject = nil
 				a.focusedPanel = FocusContent
 				return a, nil
@@ -147,6 +170,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Global key handlers
 		switch {
 		case key.Matches(msg, a.keys.Quit):
+			// Clean up resources before quitting
+			a.cleanup()
 			return a, tea.Quit
 		case key.Matches(msg, a.keys.Help):
 			a.showHelp = !a.showHelp
@@ -235,6 +260,23 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case sidebar.NavigateMsg:
 		// Handle sidebar navigation
 		return a, a.handleSidebarNavigation(msg)
+
+	case views.BucketSelectedMsg:
+		// Navigate to objects view within the selected bucket
+		if a.bucketsView == nil {
+			return a, nil
+		}
+		storageClient := a.bucketsView.GetStorageClient()
+		if storageClient == nil {
+			return a, nil
+		}
+		bucket := msg.Bucket
+		a.selectedBucket = &bucket
+		a.currentView = ViewObjects
+		a.objectsView = views.NewObjectsView(bucket.Name, storageClient)
+		a.updateSidebarActiveView()
+		a.updateViewSizes()
+		return a, a.objectsView.Init()
 	}
 
 	// Delegate to current view (only if content is focused)
@@ -251,10 +293,25 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.instanceDetailsView != nil {
 				cmd = a.instanceDetailsView.Update(msg)
 			}
+		case ViewBuckets:
+			if a.bucketsView != nil {
+				cmd = a.bucketsView.Update(msg)
+			}
+		case ViewObjects:
+			if a.objectsView != nil {
+				cmd = a.objectsView.Update(msg)
+			}
 		}
 	}
 
 	return a, cmd
+}
+
+// cleanup releases resources held by views
+func (a *App) cleanup() {
+	if a.bucketsView != nil {
+		_ = a.bucketsView.Close() // Best-effort cleanup on exit
+	}
 }
 
 // toggleFocus switches focus between sidebar and content
@@ -286,6 +343,12 @@ func (a *App) updateViewSizes() {
 	if a.instanceDetailsView != nil {
 		a.instanceDetailsView.SetSize(contentWidth, contentHeight)
 	}
+	if a.bucketsView != nil {
+		a.bucketsView.SetSize(contentWidth, contentHeight)
+	}
+	if a.objectsView != nil {
+		a.objectsView.SetSize(contentWidth, contentHeight)
+	}
 }
 
 // updateSidebarActiveView sets the active view highlight in sidebar
@@ -295,7 +358,7 @@ func (a *App) updateSidebarActiveView() {
 		a.sidebar.SetActiveView(sidebar.ViewInstances)
 	case ViewDisks:
 		a.sidebar.SetActiveView(sidebar.ViewDisks)
-	case ViewBuckets:
+	case ViewBuckets, ViewObjects:
 		a.sidebar.SetActiveView(sidebar.ViewBuckets)
 	case ViewNetworks:
 		a.sidebar.SetActiveView(sidebar.ViewNetworks)
@@ -325,8 +388,16 @@ func (a *App) handleSidebarNavigation(msg sidebar.NavigateMsg) tea.Cmd {
 		a.currentView = ViewDisks
 		// Placeholder - view not implemented yet
 	case sidebar.ViewBuckets:
-		a.currentView = ViewBuckets
-		// Placeholder - view not implemented yet
+		if a.currentView != ViewBuckets && a.currentView != ViewObjects {
+			a.currentView = ViewBuckets
+			a.objectsView = nil
+			a.selectedBucket = nil
+			if a.bucketsView == nil {
+				a.bucketsView = views.NewBucketsView(a.selectedProject.ID)
+				a.updateViewSizes()
+				cmd = a.bucketsView.Init()
+			}
+		}
 	case sidebar.ViewNetworks:
 		a.currentView = ViewNetworks
 		// Placeholder - view not implemented yet
@@ -390,7 +461,7 @@ func (a *App) renderHeader() string {
 			switch a.currentView {
 			case ViewInstances, ViewInstanceDetails, ViewDisks:
 				header += a.styles.Muted.Render(" • Compute Engine")
-			case ViewBuckets:
+			case ViewBuckets, ViewObjects:
 				header += a.styles.Muted.Render(" • Cloud Storage")
 			case ViewNetworks, ViewFirewall:
 				header += a.styles.Muted.Render(" • VPC Network")
@@ -399,6 +470,14 @@ func (a *App) renderHeader() string {
 
 		if a.currentView == ViewInstanceDetails && a.selectedInstance != nil {
 			header += a.styles.Muted.Render(" • " + a.selectedInstance.Name)
+		}
+
+		// Show bucket name and path when browsing objects
+		if a.currentView == ViewObjects && a.objectsView != nil {
+			header += a.styles.Muted.Render(" • " + a.objectsView.GetBucketName())
+			if path := a.objectsView.GetCurrentPath(); path != "" {
+				header += a.styles.Muted.Render(" / " + path)
+			}
 		}
 	}
 	return header
@@ -432,7 +511,13 @@ func (a *App) renderCurrentView() string {
 	case ViewDisks:
 		return a.renderPlaceholder("Disks")
 	case ViewBuckets:
-		return a.renderPlaceholder("Buckets")
+		if a.bucketsView != nil {
+			return a.bucketsView.View()
+		}
+	case ViewObjects:
+		if a.objectsView != nil {
+			return a.objectsView.View()
+		}
 	case ViewNetworks:
 		return a.renderPlaceholder("VPC Networks")
 	case ViewFirewall:
