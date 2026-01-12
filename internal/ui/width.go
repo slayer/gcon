@@ -89,14 +89,16 @@ func countWideEmojis(s string) int {
 // Note: lipgloss already counts colored circle emojis (🟢, 🔴, 🟡, ⚪) as 2-wide,
 // so we only need to handle symbols it miscounts.
 //
-// When ASCII mode is enabled, no emojis are used so this always returns false.
+// In ASCII mode, no special symbols are used so this always returns false.
+// In Unicode mode (--no-emojis), we still use Unicode symbols that need adjustment.
 func isWideEmoji(r rune) bool {
-	// In ASCII mode, all emojis are replaced with ASCII chars, no width adjustment needed
+	// In ASCII mode, all symbols are replaced with ASCII chars, no width adjustment needed
 	if symbols.IsASCIIMode() {
 		return false
 	}
 
-	// Symbols that lipgloss counts as 1 but terminals render as 2
+	// Symbols that lipgloss counts as 1 but terminals render as 2.
+	// These apply to both Emoji and Unicode modes since both use these symbols.
 	switch r {
 	case '☁', // Cloud (header) - U+2601
 		'☰', // Hamburger menu (sidebar) - U+2630
@@ -104,9 +106,9 @@ func isWideEmoji(r rune) bool {
 		// Arrows (sidebar navigation)
 		'◀', '▶', '▸',
 
-		// Geometric shapes used as icons in sidebar
+		// Geometric shapes used as icons
 		'□', '○', '◇', // Category icons (hollow)
-		'■', '●', '▪', '◆', '▲': // Leaf icons (filled)
+		'■', '●', '▪', '◆', '▲', '◌': // Status and leaf icons
 		return true
 	}
 
