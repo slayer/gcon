@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components"
+	"github.com/slayer/gcon/internal/ui/symbols"
 )
 
 // instanceItem implements list.Item for VM instances
@@ -19,18 +20,7 @@ type instanceItem struct {
 }
 
 func (i instanceItem) Title() string {
-	// Show status indicator with color
-	var statusIcon string
-	switch i.instance.Status {
-	case "RUNNING":
-		statusIcon = "🟢"
-	case "TERMINATED", "STOPPED":
-		statusIcon = "🔴"
-	case "STAGING", "PROVISIONING", "STOPPING", "SUSPENDING":
-		statusIcon = "🟡"
-	default:
-		statusIcon = "⚪"
-	}
+	statusIcon := symbols.GetStatusSymbol(i.instance.Status)
 	return fmt.Sprintf("%s %s", statusIcon, i.instance.Name)
 }
 

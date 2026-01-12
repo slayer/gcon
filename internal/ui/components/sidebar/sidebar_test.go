@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/slayer/gcon/internal/ui/symbols"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -234,7 +235,7 @@ func TestRenderHeader(t *testing.T) {
 
 	// At root, header should show "☰ Menu"
 	output := s.View()
-	assert.Contains(t, output, IconHamburger)
+	assert.Contains(t, output, symbols.Hamburger())
 
 	// Drill into Compute Engine
 	s.SetFocused(true)

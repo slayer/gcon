@@ -2,6 +2,7 @@ package ui
 
 import (
 	"github.com/charmbracelet/lipgloss"
+	"github.com/slayer/gcon/internal/ui/symbols"
 )
 
 // TerminalWidth calculates the actual terminal width of a string,
@@ -56,11 +57,18 @@ func countWideEmojis(s string) int {
 //
 // Note: lipgloss already counts colored circle emojis (🟢, 🔴, 🟡, ⚪) as 2-wide,
 // so we only need to handle symbols it miscounts.
+//
+// When ASCII mode is enabled, no emojis are used so this always returns false.
 func isWideEmoji(r rune) bool {
+	// In ASCII mode, all emojis are replaced with ASCII chars, no width adjustment needed
+	if symbols.IsASCIIMode() {
+		return false
+	}
+
 	// Symbols that lipgloss counts as 1 but terminals render as 2
 	switch r {
 	case '☁', // Cloud (header) - U+2601
-		'☰',         // Hamburger menu (sidebar) - U+2630
+		'☰',           // Hamburger menu (sidebar) - U+2630
 		'◀', '▶', '▸', // Arrows (sidebar navigation) - U+25C0, U+25B6, U+25B8
 		'●': // Active indicator (sidebar) - U+25CF
 		return true

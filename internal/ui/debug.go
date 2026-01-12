@@ -28,8 +28,8 @@ func debugLog(format string, args ...interface{}) {
 	if !debugEnabled || debugFile == nil {
 		return
 	}
-	fmt.Fprintf(debugFile, format+"\n", args...)
-	debugFile.Sync()
+	_, _ = fmt.Fprintf(debugFile, format+"\n", args...)
+	_ = debugFile.Sync()
 }
 
 func debugLogView(name string, content string) {

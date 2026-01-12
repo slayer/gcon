@@ -34,8 +34,12 @@ build: tidy
 	$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/gcon
 
 # Run the application
-run:
-	$(GORUN) ./cmd/gcon
+run: build
+	#$(GORUN) ./cmd/gcon
+	./bin/gcon
+
+debug-run: build
+	GCON_DEBUG=1 ./bin/gcon
 
 # Run tests
 test:

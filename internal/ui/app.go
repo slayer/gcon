@@ -11,6 +11,7 @@ import (
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components/sidebar"
 	"github.com/slayer/gcon/internal/ui/layout"
+	"github.com/slayer/gcon/internal/ui/symbols"
 	"github.com/slayer/gcon/internal/ui/views"
 )
 
@@ -514,7 +515,7 @@ func (a *App) View() string {
 
 // renderHeader creates the header with breadcrumb
 func (a *App) renderHeader() string {
-	header := a.styles.Title.Render("☁ gcon")
+	header := a.styles.Title.Render(symbols.Cloud() + " gcon")
 	if a.selectedProject != nil {
 		header += a.styles.Muted.Render(" • " + a.selectedProject.ID)
 

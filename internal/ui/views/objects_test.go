@@ -8,6 +8,7 @@ import (
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components/filepicker"
 	"github.com/slayer/gcon/internal/ui/components/progress"
+	"github.com/slayer/gcon/internal/ui/symbols"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -22,7 +23,7 @@ func TestObjectItem(t *testing.T) {
 		item := objectItem{object: obj}
 
 		assert.Contains(t, item.Title(), "folder1")
-		assert.Contains(t, item.Title(), "📁")
+		assert.Contains(t, item.Title(), symbols.Folder())
 		assert.Contains(t, item.Description(), "Folder")
 	})
 
@@ -39,7 +40,7 @@ func TestObjectItem(t *testing.T) {
 		item := objectItem{object: obj}
 
 		assert.Contains(t, item.Title(), "document.pdf")
-		assert.Contains(t, item.Title(), "📄")
+		assert.Contains(t, item.Title(), symbols.File())
 
 		desc := item.Description()
 		assert.Contains(t, desc, "1.5 MB")

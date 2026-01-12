@@ -9,13 +9,19 @@ import (
 	"github.com/slayer/gcon/internal/config"
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui"
+	"github.com/slayer/gcon/internal/ui/symbols"
 )
 
-var projectFlag string
+var (
+	projectFlag  string
+	noEmojisFlag bool
+)
 
 func init() {
 	flag.StringVar(&projectFlag, "p", "", "GCP project ID (shorthand)")
 	flag.StringVar(&projectFlag, "project", "", "GCP project ID")
+	flag.BoolVar(&noEmojisFlag, "no-emojis", false, "Use ASCII characters instead of emojis")
+	flag.BoolVar(&noEmojisFlag, "ascii", false, "Use ASCII characters instead of emojis (alias)")
 }
 
 func main() {
@@ -28,6 +34,11 @@ func main() {
 }
 
 func run() error {
+	// Enable ASCII mode if requested (disables emojis)
+	if noEmojisFlag {
+		symbols.SetASCIIMode(true)
+	}
+
 	// Initialize GCP client using Application Default Credentials
 	gcpClient, err := gcp.NewClient()
 	if err != nil {

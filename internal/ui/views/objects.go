@@ -16,6 +16,7 @@ import (
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components/filepicker"
 	"github.com/slayer/gcon/internal/ui/components/progress"
+	"github.com/slayer/gcon/internal/ui/symbols"
 )
 
 const defaultPageSize = 100
@@ -27,9 +28,9 @@ type objectItem struct {
 
 func (i objectItem) Title() string {
 	if i.object.IsFolder {
-		return fmt.Sprintf("📁 %s/", i.object.DisplayName)
+		return fmt.Sprintf("%s %s/", symbols.Folder(), i.object.DisplayName)
 	}
-	return fmt.Sprintf("📄 %s", i.object.DisplayName)
+	return fmt.Sprintf("%s %s", symbols.File(), i.object.DisplayName)
 }
 
 func (i objectItem) Description() string {

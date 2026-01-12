@@ -7,22 +7,13 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/slayer/gcon/internal/ui/symbols"
 )
 
 // Width constants
 const (
 	ExpandedWidth  = 26 // Full sidebar width with text
 	CollapsedWidth = 4  // Icon-only width (hamburger + padding)
-)
-
-// Visual characters for better UI
-const (
-	IconHamburger = "☰" // Hamburger menu icon
-	IconBack      = "◀" // Back arrow
-	IconExpand    = "▸" // Expand/drill-down indicator
-	IconCursor    = "▶" // Selection cursor
-	IconActive    = "●" // Active item indicator
-	DividerChar   = "─" // Horizontal divider
 )
 
 // KeyMap defines sidebar-specific key bindings
@@ -176,9 +167,9 @@ func (s *Sidebar) View() string {
 
 	// Show "< Back" when drilled down
 	if len(s.path) > 0 {
-		backLabel := fmt.Sprintf(" %s Back", IconBack)
+		backLabel := fmt.Sprintf(" %s Back", symbols.Back())
 		if s.collapsed {
-			backLabel = IconBack
+			backLabel = symbols.Back()
 		}
 		lines = append(lines, styles.BackItem.Render(backLabel))
 		lines = append(lines, "") // Empty line separator
@@ -210,16 +201,16 @@ func (s *Sidebar) View() string {
 // renderHeader renders the sidebar header with hamburger and breadcrumb
 func (s *Sidebar) renderHeader(styles Styles) string {
 	if s.collapsed {
-		return styles.Header.Render(IconHamburger)
+		return styles.Header.Render(symbols.Hamburger())
 	}
 
 	// Build breadcrumb: ☰ Menu > Category
-	header := IconHamburger + " Menu"
+	header := symbols.Hamburger() + " Menu"
 	if len(s.path) > 0 {
 		// Find category label
 		for _, item := range s.menu {
 			if item.ID == s.path[0] {
-				header = IconHamburger + " " + item.Label
+				header = symbols.Hamburger() + " " + item.Label
 				break
 			}
 		}
@@ -237,7 +228,7 @@ func (s *Sidebar) renderDivider(styles Styles) string {
 	if width < 1 {
 		width = 1
 	}
-	return styles.Divider.Render(strings.Repeat(DividerChar, width))
+	return styles.Divider.Render(strings.Repeat(symbols.Divider(), width))
 }
 
 // renderItem renders a single menu item
@@ -254,7 +245,7 @@ func (s *Sidebar) renderItem(item MenuItem, index int, styles Styles) string {
 	if s.collapsed {
 		// In collapsed mode, show icon or active indicator
 		if isActive {
-			label = IconActive
+			label = symbols.Active()
 		} else {
 			label = item.Icon
 		}
@@ -263,19 +254,19 @@ func (s *Sidebar) renderItem(item MenuItem, index int, styles Styles) string {
 		// [cursor 2ch] [active 2ch] [icon 2ch] [label] [shortcut]
 		cursor := "  " // 2 chars: no cursor
 		if isSelected {
-			cursor = IconCursor + " " // 2 chars: cursor + space
+			cursor = symbols.Cursor() + " " // 2 chars: cursor + space
 		}
 
 		active := "  " // 2 chars: no active indicator
 		if isActive {
-			active = IconActive + " " // 2 chars: dot + space
+			active = symbols.Active() + " " // 2 chars: dot + space
 		}
 
 		icon := item.Icon + " " // icon + space
 
 		if item.Type == MenuItemCategory {
 			// Category: cursor + icon + label + expand arrow (no active indicator)
-			label = fmt.Sprintf("%s%s%s %s", cursor, icon, item.Label, IconExpand)
+			label = fmt.Sprintf("%s%s%s %s", cursor, icon, item.Label, symbols.Expand())
 		} else {
 			// Leaf: cursor + active + icon + label + shortcut
 			label = fmt.Sprintf("%s%s%s%s", cursor, active, icon, item.Label)
