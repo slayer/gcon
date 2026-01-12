@@ -245,3 +245,11 @@ func (v *BucketsView) SetSize(width, height int) {
 func (v *BucketsView) GetStorageClient() *gcp.StorageClient {
 	return v.storageClient
 }
+
+// Close cleans up resources held by the view
+func (v *BucketsView) Close() error {
+	if v.storageClient != nil {
+		return v.storageClient.Close()
+	}
+	return nil
+}

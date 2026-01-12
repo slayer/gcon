@@ -95,12 +95,11 @@ func (c *StorageClient) ListObjects(ctx context.Context, bucketName, prefix, pag
 		it.PageInfo().Token = pageToken
 	}
 
-	// Set page size
+	// Let iterator handle pagination via MaxSize - this ensures NextToken is properly set
 	if pageSize > 0 {
 		it.PageInfo().MaxSize = pageSize
 	}
 
-	count := 0
 	for {
 		attrs, err := it.Next()
 		if err == iterator.Done {
@@ -121,14 +120,9 @@ func (c *StorageClient) ListObjects(ctx context.Context, bucketName, prefix, pag
 			// Regular object
 			result.Objects = append(result.Objects, objectFromAttrs(attrs, prefix))
 		}
-
-		count++
-		if pageSize > 0 && count >= pageSize {
-			break
-		}
 	}
 
-	// Check for next page
+	// Check for next page - token is valid after iterator exhausts current page
 	result.NextToken = it.PageInfo().Token
 	result.HasMore = result.NextToken != ""
 

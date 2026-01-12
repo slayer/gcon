@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/stretchr/testify/assert"
 )
@@ -89,7 +90,7 @@ func TestObjectsViewUpdate(t *testing.T) {
 
 		assert.False(t, view.loading)
 		assert.Equal(t, 2, len(view.objects))
-		assert.Equal(t, "next-token", view.pageToken)
+		assert.Equal(t, "next-token", view.nextPageToken)
 		assert.True(t, view.hasMore)
 	})
 
@@ -148,19 +149,131 @@ func TestObjectsViewSetSize(t *testing.T) {
 }
 
 func TestObjectsViewPagination(t *testing.T) {
-	view := NewObjectsView("test-bucket", nil)
-
 	t.Run("resetPagination clears all pagination state", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
 		view.currentPage = 3
-		view.pageToken = "some-token"
-		view.prevPageTokens = []string{"token1", "token2"}
+		view.nextPageToken = "some-token"
+		view.currentPageToken = "current-token"
+		view.pageTokenHistory = []string{"token1", "token2"}
 		view.hasMore = true
 
 		view.resetPagination()
 
 		assert.Equal(t, 1, view.currentPage)
-		assert.Empty(t, view.pageToken)
-		assert.Empty(t, view.prevPageTokens)
+		assert.Empty(t, view.nextPageToken)
+		assert.Empty(t, view.currentPageToken)
+		assert.Empty(t, view.pageTokenHistory)
 		assert.False(t, view.hasMore)
+	})
+
+	t.Run("NextPage updates pagination state correctly", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.loading = false
+		view.currentPage = 1
+		view.currentPageToken = ""
+		view.nextPageToken = "page2-token"
+		view.hasMore = true
+
+		// Simulate pressing 'n' for next page
+		view.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+
+		// State should be updated for loading next page
+		assert.True(t, view.loading)
+		assert.Equal(t, 2, view.currentPage)
+		assert.Equal(t, "page2-token", view.currentPageToken)
+		// History should contain the previous page token (empty for first page)
+		assert.Equal(t, []string{""}, view.pageTokenHistory)
+	})
+
+	t.Run("PrevPage updates pagination state correctly", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.loading = false
+		view.currentPage = 2
+		view.currentPageToken = "page2-token"
+		view.nextPageToken = "page3-token"
+		view.pageTokenHistory = []string{""} // First page token
+		view.hasMore = true
+
+		// Simulate pressing 'p' for previous page
+		view.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+
+		// State should be updated for loading previous page
+		assert.True(t, view.loading)
+		assert.Equal(t, 1, view.currentPage)
+		assert.Equal(t, "", view.currentPageToken)
+		assert.Empty(t, view.pageTokenHistory)
+	})
+
+	t.Run("NextPage does nothing when no more pages", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.loading = false
+		view.currentPage = 1
+		view.hasMore = false
+		view.nextPageToken = ""
+
+		view.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+
+		// State should not change
+		assert.False(t, view.loading)
+		assert.Equal(t, 1, view.currentPage)
+	})
+
+	t.Run("PrevPage does nothing on first page", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.loading = false
+		view.currentPage = 1
+		view.pageTokenHistory = []string{}
+
+		view.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+
+		// State should not change
+		assert.False(t, view.loading)
+		assert.Equal(t, 1, view.currentPage)
+	})
+
+	t.Run("multi-page navigation maintains correct history", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.loading = false
+
+		// Setup: on page 1
+		view.currentPage = 1
+		view.currentPageToken = ""
+		view.nextPageToken = "page2-token"
+		view.hasMore = true
+		view.pageTokenHistory = []string{}
+
+		// Navigate to page 2
+		view.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+		assert.Equal(t, 2, view.currentPage)
+		assert.Equal(t, "page2-token", view.currentPageToken)
+		assert.Equal(t, []string{""}, view.pageTokenHistory)
+
+		// Simulate page 2 loaded with next token
+		view.loading = false
+		view.nextPageToken = "page3-token"
+
+		// Navigate to page 3
+		view.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+		assert.Equal(t, 3, view.currentPage)
+		assert.Equal(t, "page3-token", view.currentPageToken)
+		assert.Equal(t, []string{"", "page2-token"}, view.pageTokenHistory)
+
+		// Simulate page 3 loaded
+		view.loading = false
+
+		// Navigate back to page 2
+		view.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+		assert.Equal(t, 2, view.currentPage)
+		assert.Equal(t, "page2-token", view.currentPageToken)
+		assert.Equal(t, []string{""}, view.pageTokenHistory)
+
+		// Simulate page 2 loaded
+		view.loading = false
+
+		// Navigate back to page 1
+		view.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+		assert.Equal(t, 1, view.currentPage)
+		assert.Equal(t, "", view.currentPageToken)
+		assert.Empty(t, view.pageTokenHistory)
 	})
 }
