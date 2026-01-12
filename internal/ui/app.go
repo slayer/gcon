@@ -446,6 +446,11 @@ func (a *App) View() string {
 	contentHeight := a.layout.ContentHeight()
 	_, footerHeight := a.layout.FooterSize()
 
+	debugLog("=== View() called ===")
+	debugLog("Terminal: width=%d, height=%d", a.width, a.height)
+	debugLog("Layout: header=%d, content=%d, footer=%d, total=%d",
+		headerHeight, contentHeight, footerHeight, headerHeight+contentHeight+footerHeight)
+
 	// Main content area (with or without sidebar)
 	var content string
 	if a.sidebarActive() {
@@ -453,6 +458,9 @@ func (a *App) View() string {
 	} else {
 		content = a.renderCurrentView()
 	}
+
+	debugLogView("Raw header", header)
+	debugLogView("Raw content", content)
 
 	// Error display
 	if a.err != nil {
@@ -462,17 +470,46 @@ func (a *App) View() string {
 	// Use lipgloss.Place for positioning, then truncate at line boundaries.
 	// Line-based truncation is ANSI-safe since escape sequences don't span lines.
 	// This avoids the fragmentation issues that MaxHeight() causes in native terminals.
-	styledHeader := truncateToHeight(lipgloss.Place(a.width, headerHeight, lipgloss.Left, lipgloss.Top, header), headerHeight)
-	styledContent := truncateToHeight(lipgloss.Place(a.width, contentHeight, lipgloss.Left, lipgloss.Top, content), contentHeight)
-	styledFooter := truncateToHeight(lipgloss.Place(a.width, footerHeight, lipgloss.Left, lipgloss.Top, a.renderFooter()), footerHeight)
+	//
+	// Calculate safe width accounting for emojis in all rendered content.
+	// SafeWidth detects emojis and reduces width to prevent line wrapping.
+	footer := a.renderFooter()
+	allContent := header + content + footer
+	safeWidth := SafeWidth(a.width, allContent)
+	placedHeader := lipgloss.Place(safeWidth, headerHeight, lipgloss.Left, lipgloss.Top, header)
+	placedContent := lipgloss.Place(safeWidth, contentHeight, lipgloss.Left, lipgloss.Top, content)
+	placedFooter := lipgloss.Place(safeWidth, footerHeight, lipgloss.Left, lipgloss.Top, footer)
+
+	debugLog("SafeWidth: %d (terminal=%d, emojis=%d)", safeWidth, a.width, countWideEmojis(allContent))
+	debugLogView("Placed header", placedHeader)
+	debugLogView("Placed content", placedContent)
+	debugLogView("Placed footer", placedFooter)
+
+	styledHeader := truncateToHeight(placedHeader, headerHeight)
+	styledContent := truncateToHeight(placedContent, contentHeight)
+	styledFooter := truncateToHeight(placedFooter, footerHeight)
 
 	// Compose final layout with guaranteed heights
-	return lipgloss.JoinVertical(
+	result := lipgloss.JoinVertical(
 		lipgloss.Left,
 		styledHeader,
 		styledContent,
 		styledFooter,
 	)
+
+	// Log width analysis
+	resultLines := strings.Split(result, "\n")
+	debugLog("Final result: %d lines", len(resultLines))
+	for i, line := range resultLines {
+		w := lipgloss.Width(line)
+		tw := TerminalWidth(line)
+		if tw > a.width {
+			debugLog("⚠️ Line %d exceeds width: lipgloss=%d, terminal=%d > %d", i, w, tw, a.width)
+		}
+	}
+	debugLog("")
+
+	return result
 }
 
 // renderHeader creates the header with breadcrumb
@@ -517,8 +554,10 @@ func (a *App) renderWithSidebar() string {
 	sidebarView := a.sidebar.View()
 	contentView := a.renderCurrentView()
 
-	// Only apply width to main content - sidebar manages its own dimensions
-	mainWidth := a.layout.ContentWidth()
+	// Calculate safe width accounting for emojis in sidebar and content.
+	// Use SafeWidth to automatically detect emojis and reduce width accordingly.
+	combined := sidebarView + contentView
+	mainWidth := SafeWidth(a.layout.ContentWidth(), combined)
 	mainStyle := lipgloss.NewStyle().Width(mainWidth)
 	styledContent := mainStyle.Render(contentView)
 
