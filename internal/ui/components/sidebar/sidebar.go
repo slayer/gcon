@@ -198,9 +198,11 @@ func (s *Sidebar) View() string {
 		width = CollapsedWidth
 	}
 
+	// Use both Height (to pad) and MaxHeight (to truncate) for consistent output
 	container := styles.Container.
 		Width(width).
-		Height(s.height)
+		Height(s.height).
+		MaxHeight(s.height)
 
 	return container.Render(content)
 }
