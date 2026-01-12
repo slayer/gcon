@@ -472,16 +472,25 @@ func (a *App) View() string {
 	// Line-based truncation is ANSI-safe since escape sequences don't span lines.
 	// This avoids the fragmentation issues that MaxHeight() causes in native terminals.
 	//
-	// Calculate safe width accounting for emojis in all rendered content.
-	// SafeWidth detects emojis and reduces width to prevent line wrapping.
+	// Calculate safe width for each component individually.
+	// lipgloss.Place() pads based on lipgloss.Width(), but terminals may render
+	// some emojis wider than lipgloss measures. We reduce the target width
+	// by the emoji count in each component to compensate.
 	footer := a.renderFooter()
-	allContent := header + content + footer
-	safeWidth := SafeWidth(a.width, allContent)
-	placedHeader := lipgloss.Place(safeWidth, headerHeight, lipgloss.Left, lipgloss.Top, header)
-	placedContent := lipgloss.Place(safeWidth, contentHeight, lipgloss.Left, lipgloss.Top, content)
-	placedFooter := lipgloss.Place(safeWidth, footerHeight, lipgloss.Left, lipgloss.Top, footer)
 
-	debugLog("SafeWidth: %d (terminal=%d, emojis=%d)", safeWidth, a.width, countWideEmojis(allContent))
+	// Each component gets its own safe width calculation
+	headerSafeWidth := SafeWidth(a.width, header)
+	contentSafeWidth := SafeWidth(a.width, content)
+	footerSafeWidth := SafeWidth(a.width, footer)
+
+	placedHeader := lipgloss.Place(headerSafeWidth, headerHeight, lipgloss.Left, lipgloss.Top, header)
+	placedContent := lipgloss.Place(contentSafeWidth, contentHeight, lipgloss.Left, lipgloss.Top, content)
+	placedFooter := lipgloss.Place(footerSafeWidth, footerHeight, lipgloss.Left, lipgloss.Top, footer)
+
+	debugLog("SafeWidths: header=%d, content=%d, footer=%d (terminal=%d)",
+		headerSafeWidth, contentSafeWidth, footerSafeWidth, a.width)
+	debugLog("EmojiCounts: header=%d, content=%d, footer=%d",
+		countWideEmojis(header), countWideEmojis(content), countWideEmojis(footer))
 	debugLogView("Placed header", placedHeader)
 	debugLogView("Placed content", placedContent)
 	debugLogView("Placed footer", placedFooter)

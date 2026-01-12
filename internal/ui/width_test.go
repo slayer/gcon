@@ -82,10 +82,22 @@ func TestSafeWidth(t *testing.T) {
 			expected:      99,
 		},
 		{
-			name:          "multiple emojis",
+			name:          "multiple emojis on same line",
 			terminalWidth: 100,
 			content:       "☁ gcon • ☰ Menu • 🟢 RUNNING",
 			expected:      98, // 100 - 2 miscounted emojis (☁, ☰); 🟢 is already 2-wide in lipgloss
+		},
+		{
+			name:          "multiline uses max per line",
+			terminalWidth: 100,
+			content:       "☁ header\n☰ ● menu\nplain text",
+			expected:      98, // Line 2 has 2 emojis (☰, ●) - max of any line
+		},
+		{
+			name:          "multiline emoji count not summed",
+			terminalWidth: 100,
+			content:       "☁ line1\n☰ line2\n● line3", // 3 total, but max 1 per line
+			expected:      99,                          // Only reduce by 1 (max per line)
 		},
 		{
 			name:          "minimum width enforced",

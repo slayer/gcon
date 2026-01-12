@@ -20,13 +20,43 @@ func TerminalWidth(s string) int {
 // SafeWidth returns the maximum width that can be used for content
 // to avoid line wrapping due to emoji width miscalculation.
 // Pass the terminal width and the string that will be rendered.
+//
+// For multi-line content, this finds the line with the most miscounted emojis
+// and reduces width by that amount. This ensures all lines will fit when
+// lipgloss.Place() pads each line to this width.
 func SafeWidth(terminalWidth int, content string) int {
-	extra := countWideEmojis(content)
-	safe := terminalWidth - extra
+	maxExtra := maxLineEmojiCount(content)
+	safe := terminalWidth - maxExtra
 	if safe < 10 {
 		return 10
 	}
 	return safe
+}
+
+// maxLineEmojiCount finds the maximum emoji count on any single line.
+// This is used to calculate safe width for multi-line content.
+func maxLineEmojiCount(content string) int {
+	maxCount := 0
+	start := 0
+	for i, r := range content {
+		if r == '\n' {
+			line := content[start:i]
+			count := countWideEmojis(line)
+			if count > maxCount {
+				maxCount = count
+			}
+			start = i + 1
+		}
+	}
+	// Check last line
+	if start < len(content) {
+		line := content[start:]
+		count := countWideEmojis(line)
+		if count > maxCount {
+			maxCount = count
+		}
+	}
+	return maxCount
 }
 
 // SafeWidthForEmojis returns the terminal width reduced by the expected
