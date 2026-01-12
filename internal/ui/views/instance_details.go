@@ -13,6 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
+	"github.com/slayer/gcon/internal/ui/components"
 )
 
 // InstanceSelectedMsg is sent when an instance is selected from the list
@@ -246,8 +247,8 @@ func (v *InstanceDetailsView) View() string {
 	}
 
 	if v.err != nil {
-		errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#EA4335"))
-		return errStyle.Render(fmt.Sprintf("\n  Error: %v\n\n  Press 'r' to retry, 'esc' to go back", v.err))
+		return "\n" + components.RenderError(v.err) + "\n" +
+			components.HintStyle.Render("  Press 'esc' to go back")
 	}
 
 	if v.details == nil {
