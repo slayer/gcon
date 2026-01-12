@@ -244,14 +244,11 @@ func (c *StorageClient) DownloadObject(ctx context.Context, bucketName, objectNa
 	}
 	defer func() { _ = file.Close() }()
 
-	// Copy with progress reporting
+	// Copy with progress reporting (copyWithProgress handles final progress update internally)
 	if progress != nil {
-		written, err := copyWithProgress(file, reader, totalSize, progress)
-		if err != nil {
+		if _, err := copyWithProgress(file, reader, totalSize, progress); err != nil {
 			return fmt.Errorf("failed to download: %w", err)
 		}
-		// Final progress update
-		progress(written, totalSize)
 	} else {
 		if _, err := io.Copy(file, reader); err != nil {
 			return fmt.Errorf("failed to download: %w", err)
@@ -281,14 +278,11 @@ func (c *StorageClient) UploadObject(ctx context.Context, bucketName, objectName
 	// to get proper error handling for the upload finalization
 	writer := c.client.Bucket(bucketName).Object(objectName).NewWriter(ctx)
 
-	// Copy with progress reporting
+	// Copy with progress reporting (copyWithProgress handles final progress update internally)
 	if progress != nil {
-		written, err := copyWithProgress(writer, file, totalSize, progress)
-		if err != nil {
+		if _, err := copyWithProgress(writer, file, totalSize, progress); err != nil {
 			return fmt.Errorf("failed to upload: %w", err)
 		}
-		// Final progress update
-		progress(written, totalSize)
 	} else {
 		if _, err := io.Copy(writer, file); err != nil {
 			return fmt.Errorf("failed to upload: %w", err)

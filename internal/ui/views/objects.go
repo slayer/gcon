@@ -275,7 +275,6 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 		v.downloading = true
 		v.downloadFiles = msg.files
 		v.downloadIndex = 0
-		v.downloadChan = make(chan progress.ProgressUpdate, 10)
 
 		// Calculate total size for progress
 		var totalSize int64
@@ -293,6 +292,7 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 		)
 		v.downloadProgress.SetSize(v.width)
 
+		// Channel created inside startDownload to avoid leak on early error
 		return v.startDownload()
 
 	case downloadProgressMsg:
@@ -339,9 +339,8 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 	case uploadStartMsg:
 		v.uploading = true
 		v.uploadFiles = msg.files
-		v.uploadChan = make(chan progress.ProgressUpdate, 10)
 
-		// Calculate total size
+		// Calculate total size for initial progress display
 		var totalSize int64
 		for _, path := range msg.files {
 			info, err := os.Stat(path)
@@ -360,6 +359,7 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 		)
 		v.uploadProgress.SetSize(v.width)
 
+		// Channel created inside startUpload to avoid leak on early error
 		return v.startUpload()
 
 	case uploadProgressMsg:
@@ -616,6 +616,9 @@ func (v *ObjectsView) startDownload() tea.Cmd {
 			return downloadCompleteMsg{err: fmt.Errorf("failed to get working directory: %w", err)}
 		}
 
+		// Create channel here (inside goroutine) to avoid leak on early error above
+		v.downloadChan = make(chan progress.ProgressUpdate, 10)
+
 		// Calculate total size
 		var totalSize int64
 		for _, f := range files {
@@ -781,6 +784,9 @@ func (v *ObjectsView) startUpload() tea.Cmd {
 				totalSize += info.Size()
 			}
 		}
+
+		// Create channel here (inside goroutine) to avoid leak on early error above
+		v.uploadChan = make(chan progress.ProgressUpdate, 10)
 
 		var bytesUploaded int64
 
