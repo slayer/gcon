@@ -3,7 +3,6 @@ package views
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
@@ -12,6 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components"
+	"github.com/slayer/gcon/internal/ui/symbols"
 )
 
 // instanceItem implements list.Item for VM instances
@@ -20,18 +20,7 @@ type instanceItem struct {
 }
 
 func (i instanceItem) Title() string {
-	// Show status indicator with color
-	var statusIcon string
-	switch i.instance.Status {
-	case "RUNNING":
-		statusIcon = "🟢"
-	case "TERMINATED", "STOPPED":
-		statusIcon = "🔴"
-	case "STAGING", "PROVISIONING", "STOPPING", "SUSPENDING":
-		statusIcon = "🟡"
-	default:
-		statusIcon = "⚪"
-	}
+	statusIcon := symbols.GetStatusSymbol(i.instance.Status)
 	return fmt.Sprintf("%s %s", statusIcon, i.instance.Name)
 }
 
@@ -362,19 +351,8 @@ func (v *InstancesView) GetComputeClient() *gcp.ComputeClient {
 	return v.computeClient
 }
 
-// renderLoading renders a loading message that fills the view height
-// to prevent rendering artifacts when transitioning to loaded state
+// renderLoading renders a loading message
+// Height enforcement is handled by the app's View() method using lipgloss.MaxHeight()
 func (v *InstancesView) renderLoading(msg string) string {
-	content := fmt.Sprintf("\n  %s %s\n", v.spinner.View(), msg)
-	// Sidebar outputs height-1 newlines (lipgloss Height renders n lines = n-1 newlines)
-	// Content must match for proper horizontal join
-	targetNewlines := v.height - 1
-	if targetNewlines < 10 {
-		targetNewlines = 10
-	}
-	currentNewlines := strings.Count(content, "\n")
-	for i := currentNewlines; i < targetNewlines; i++ {
-		content += "\n"
-	}
-	return content
+	return fmt.Sprintf("\n  %s %s\n", v.spinner.View(), msg)
 }

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/slayer/gcon/internal/ui/symbols"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -102,15 +103,15 @@ func TestToggleCollapsed(t *testing.T) {
 	s := New()
 
 	assert.False(t, s.IsCollapsed())
-	assert.Equal(t, ExpandedWidth, s.Width())
+	assert.Equal(t, ExpandedWidth+1, s.Width()) // +1 for right border
 
 	s.Toggle()
 	assert.True(t, s.IsCollapsed())
-	assert.Equal(t, CollapsedWidth, s.Width())
+	assert.Equal(t, CollapsedWidth+1, s.Width()) // +1 for right border
 
 	s.Toggle()
 	assert.False(t, s.IsCollapsed())
-	assert.Equal(t, ExpandedWidth, s.Width())
+	assert.Equal(t, ExpandedWidth+1, s.Width()) // +1 for right border
 }
 
 func TestUnfocusedIgnoresKeys(t *testing.T) {
@@ -234,7 +235,7 @@ func TestRenderHeader(t *testing.T) {
 
 	// At root, header should show "☰ Menu"
 	output := s.View()
-	assert.Contains(t, output, IconHamburger)
+	assert.Contains(t, output, symbols.Hamburger())
 
 	// Drill into Compute Engine
 	s.SetFocused(true)
