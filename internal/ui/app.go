@@ -106,8 +106,9 @@ func (a *App) Init() tea.Cmd {
 }
 
 // loadInitialProject switches directly to instances view using the configured project ID.
-// We skip project validation to avoid requiring cloudresourcemanager permissions -
-// any errors will surface when loading instances instead.
+// Trade-off: We skip project validation to avoid requiring cloudresourcemanager permissions.
+// This means invalid project IDs won't be caught until the user tries to load instances,
+// but it allows users without project listing permissions to still use the app.
 func (a *App) loadInitialProject() tea.Cmd {
 	return func() tea.Msg {
 		// Use project ID directly without validation
