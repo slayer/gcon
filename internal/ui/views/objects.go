@@ -17,6 +17,7 @@ import (
 	"github.com/slayer/gcon/internal/ui/components/confirm"
 	"github.com/slayer/gcon/internal/ui/components/filepicker"
 	"github.com/slayer/gcon/internal/ui/components/progress"
+	"github.com/slayer/gcon/internal/ui/symbols"
 )
 
 const defaultPageSize = 100
@@ -28,9 +29,9 @@ type objectItem struct {
 
 func (i objectItem) Title() string {
 	if i.object.IsFolder {
-		return fmt.Sprintf("📁 %s/", i.object.DisplayName)
+		return fmt.Sprintf("%s %s/", symbols.Folder(), i.object.DisplayName)
 	}
-	return fmt.Sprintf("📄 %s", i.object.DisplayName)
+	return fmt.Sprintf("%s %s", symbols.File(), i.object.DisplayName)
 }
 
 func (i objectItem) Description() string {
@@ -757,20 +758,10 @@ func (v *ObjectsView) IsFilePickerShown() bool {
 	return v.showFilePicker
 }
 
-// renderLoading renders a loading message that fills the view height
+// renderLoading renders a loading message
+// Height enforcement is handled by the app's View() method using lipgloss.MaxHeight()
 func (v *ObjectsView) renderLoading(msg string) string {
-	content := fmt.Sprintf("\n  %s %s\n", v.spinner.View(), msg)
-	// Sidebar outputs height-1 newlines (lipgloss Height renders n lines = n-1 newlines)
-	// Content must match for proper horizontal join
-	targetNewlines := v.height - 1
-	if targetNewlines < 10 {
-		targetNewlines = 10
-	}
-	currentNewlines := strings.Count(content, "\n")
-	for i := currentNewlines; i < targetNewlines; i++ {
-		content += "\n"
-	}
-	return content
+	return fmt.Sprintf("\n  %s %s\n", v.spinner.View(), msg)
 }
 
 // ObjectsLoadedMsgForTest creates an objectsLoadedMsg for testing

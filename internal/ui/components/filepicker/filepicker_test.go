@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/slayer/gcon/internal/ui/symbols"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -41,7 +42,7 @@ func TestFileEntry(t *testing.T) {
 		item := fileItem{entry: entry}
 
 		assert.Contains(t, item.Title(), "test.txt")
-		assert.Contains(t, item.Title(), "📄")
+		assert.Contains(t, item.Title(), symbols.File())
 		assert.Equal(t, "test.txt", item.FilterValue())
 	})
 
@@ -55,7 +56,7 @@ func TestFileEntry(t *testing.T) {
 		item := fileItem{entry: entry}
 
 		assert.Contains(t, item.Title(), "docs")
-		assert.Contains(t, item.Title(), "📁")
+		assert.Contains(t, item.Title(), symbols.Folder())
 		assert.Contains(t, item.Title(), "[ ]") // Checkbox for unselected
 		assert.Equal(t, "", item.Description()) // Single-line display, no description
 	})

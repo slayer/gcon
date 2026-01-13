@@ -13,6 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
+	"github.com/slayer/gcon/internal/ui/symbols"
 )
 
 // InstanceSelectedMsg is sent when an instance is selected from the list
@@ -473,16 +474,7 @@ func renderRow(labelStyle, valueStyle, mutedStyle lipgloss.Style, label, value s
 }
 
 func getStatusIcon(status string) string {
-	switch status {
-	case "RUNNING":
-		return "🟢"
-	case "TERMINATED", "STOPPED":
-		return "🔴"
-	case "STAGING", "PROVISIONING", "STOPPING", "SUSPENDING":
-		return "🟡"
-	default:
-		return "⚪"
-	}
+	return symbols.GetStatusSymbol(status)
 }
 
 func formatTimestamp(ts string) string {
@@ -545,19 +537,8 @@ func min(a, b int) int {
 	return b
 }
 
-// renderLoading renders a loading message that fills the view height
+// renderLoading renders a loading message
+// Height enforcement is handled by the app's View() method using lipgloss.MaxHeight()
 func (v *InstanceDetailsView) renderLoading(msg string) string {
-	content := fmt.Sprintf("\n  %s %s\n", v.spinner.View(), msg)
-
-	// Sidebar outputs height-1 newlines (lipgloss Height renders n lines = n-1 newlines)
-	// Content must match for proper horizontal join
-	targetNewlines := v.height - 1
-	if targetNewlines < 10 {
-		targetNewlines = 10
-	}
-	currentNewlines := strings.Count(content, "\n")
-	for i := currentNewlines; i < targetNewlines; i++ {
-		content += "\n"
-	}
-	return content
+	return fmt.Sprintf("\n  %s %s\n", v.spinner.View(), msg)
 }

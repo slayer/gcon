@@ -3,6 +3,7 @@ package views
 import (
 	"testing"
 
+	"github.com/slayer/gcon/internal/ui/symbols"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -11,15 +12,15 @@ func TestGetStatusIcon(t *testing.T) {
 		status   string
 		expected string
 	}{
-		{"RUNNING", "🟢"},
-		{"TERMINATED", "🔴"},
-		{"STOPPED", "🔴"},
-		{"STAGING", "🟡"},
-		{"PROVISIONING", "🟡"},
-		{"STOPPING", "🟡"},
-		{"SUSPENDING", "🟡"},
-		{"UNKNOWN", "⚪"},
-		{"", "⚪"},
+		{"RUNNING", symbols.StatusRunning()},
+		{"TERMINATED", symbols.StatusStopped()},
+		{"STOPPED", symbols.StatusStopped()},
+		{"STAGING", symbols.StatusTransitioning()},
+		{"PROVISIONING", symbols.StatusTransitioning()},
+		{"STOPPING", symbols.StatusTransitioning()},
+		{"SUSPENDING", symbols.StatusTransitioning()},
+		{"UNKNOWN", symbols.StatusUnknown()},
+		{"", symbols.StatusUnknown()},
 	}
 
 	for _, tt := range tests {
