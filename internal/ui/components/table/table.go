@@ -62,6 +62,7 @@ func DefaultKeyMap() KeyMap {
 // Model represents a filterable table with GCP styling
 type Model struct {
 	table     table.Model
+	styles    table.Styles // Store styles for updating Selected width
 	columns   []table.Column
 	allRows   []Row // All rows (unfiltered)
 	rows      []Row // Currently visible rows (filtered)
@@ -82,7 +83,8 @@ func New(columns []table.Column, title string) Model {
 		table.WithFocused(true),
 		table.WithHeight(10),
 	)
-	t.SetStyles(DefaultTableStyles())
+	styles := DefaultTableStyles()
+	t.SetStyles(styles)
 
 	ti := textinput.New()
 	ti.Placeholder = "Type to filter..."
@@ -91,6 +93,7 @@ func New(columns []table.Column, title string) Model {
 
 	return Model{
 		table:   t,
+		styles:  styles,
 		columns: columns,
 		allRows: []Row{},
 		rows:    []Row{},
@@ -164,6 +167,12 @@ func (m *Model) SetSize(width, height int) {
 
 	// Adjust column widths proportionally
 	m.adjustColumnWidths(width)
+
+	// Update Selected style to span full row width with padding to fill background
+	m.styles.Selected = m.styles.Selected.
+		Width(width).
+		MaxWidth(width)
+	m.table.SetStyles(m.styles)
 }
 
 // adjustColumnWidths distributes width among columns
@@ -172,18 +181,30 @@ func (m *Model) adjustColumnWidths(totalWidth int) {
 		return
 	}
 
-	// Calculate total requested width
+	// Calculate total requested width and count expandable columns
+	// Narrow columns (<=5 chars) are kept fixed (e.g., status icons)
 	requestedWidth := 0
+	expandableCount := 0
 	for _, col := range m.columns {
 		requestedWidth += col.Width
+		if col.Width > 5 {
+			expandableCount++
+		}
 	}
 
-	// If we have more space, expand columns proportionally
-	if totalWidth > requestedWidth {
-		extraSpace := totalWidth - requestedWidth - 4 // Leave some padding
-		extraPerColumn := extraSpace / len(m.columns)
+	// Account for table overhead: borders and cell separators
+	// bubbles/table adds spacing between columns (2 chars each) plus border chars
+	tableOverhead := 4 + len(m.columns)*2 // base padding + 2 chars per column gap
+
+	// If we have more space, expand only wider columns proportionally
+	availableWidth := totalWidth - tableOverhead
+	if availableWidth > requestedWidth && expandableCount > 0 {
+		extraSpace := availableWidth - requestedWidth
+		extraPerColumn := extraSpace / expandableCount
 		for i := range m.columns {
-			m.columns[i].Width += extraPerColumn
+			if m.columns[i].Width > 5 {
+				m.columns[i].Width += extraPerColumn
+			}
 		}
 	}
 

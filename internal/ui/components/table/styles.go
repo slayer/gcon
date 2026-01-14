@@ -27,10 +27,11 @@ func DefaultTableStyles() table.Styles {
 	s.Selected = s.Selected.
 		Foreground(ColorWhite).
 		Background(ColorPrimary).
-		Bold(false)
+		Bold(true)
 
-	s.Cell = s.Cell.
-		Foreground(ColorWhite)
+	// Cell style - minimal styling so Selected background shows through
+	// Note: bubbles/table renders Cell first, then wraps with Selected
+	s.Cell = lipgloss.NewStyle().Padding(0, 1)
 
 	return s
 }
