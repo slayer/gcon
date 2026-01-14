@@ -18,6 +18,7 @@ import (
 	"github.com/slayer/gcon/internal/ui/components/filepicker"
 	"github.com/slayer/gcon/internal/ui/components/progress"
 	"github.com/slayer/gcon/internal/ui/components/table"
+	"github.com/slayer/gcon/internal/ui/symbols"
 )
 
 const defaultPageSize = 100
@@ -198,12 +199,12 @@ func objectToRow(obj gcp.StorageObject) table.Row {
 	var name, size, contentType, modified string
 
 	if obj.IsFolder {
-		name = "📁 " + obj.DisplayName + "/"
+		name = symbols.Folder() + " " + obj.DisplayName + "/"
 		size = "-"
 		contentType = "Folder"
 		modified = "-"
 	} else {
-		name = "📄 " + obj.DisplayName
+		name = symbols.File() + " " + obj.DisplayName
 		size = gcp.FormatSize(obj.Size)
 		contentType = obj.ContentType
 		if contentType == "" {

@@ -9,6 +9,7 @@ import (
 	"github.com/slayer/gcon/internal/ui/components/confirm"
 	"github.com/slayer/gcon/internal/ui/components/filepicker"
 	"github.com/slayer/gcon/internal/ui/components/progress"
+	"github.com/slayer/gcon/internal/ui/symbols"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -23,7 +24,7 @@ func TestObjectToRow(t *testing.T) {
 		row := objectToRow(obj)
 
 		assert.Contains(t, row.Data[0], "folder1")
-		assert.Contains(t, row.Data[0], "📁")
+		assert.Contains(t, row.Data[0], symbols.Folder())
 		assert.Equal(t, "-", row.Data[1]) // Size
 		assert.Equal(t, "Folder", row.Data[2])
 		assert.Equal(t, "-", row.Data[3]) // Modified
@@ -43,7 +44,7 @@ func TestObjectToRow(t *testing.T) {
 		row := objectToRow(obj)
 
 		assert.Contains(t, row.Data[0], "document.pdf")
-		assert.Contains(t, row.Data[0], "📄")
+		assert.Contains(t, row.Data[0], symbols.File())
 		assert.Equal(t, "1.5 MB", row.Data[1])
 		assert.Equal(t, "application/pdf", row.Data[2])
 		assert.Equal(t, "2024-01-20", row.Data[3])

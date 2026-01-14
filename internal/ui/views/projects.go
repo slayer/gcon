@@ -12,6 +12,7 @@ import (
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/table"
+	"github.com/slayer/gcon/internal/ui/symbols"
 )
 
 // projectKeyMap defines project-specific key bindings
@@ -100,15 +101,16 @@ type projectsErrorMsg struct {
 	err error
 }
 
-// stateIcon returns an icon for project state
+// stateIcon returns a symbol for project state
 func stateIcon(state string) string {
+	// Map project states to status symbols
 	switch state {
 	case "ACTIVE":
-		return "🟢"
+		return symbols.StatusRunning()
 	case "DELETE_REQUESTED", "DELETE_IN_PROGRESS":
-		return "🔴"
+		return symbols.StatusStopped()
 	default:
-		return "⚪"
+		return symbols.StatusUnknown()
 	}
 }
 

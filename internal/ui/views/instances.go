@@ -12,6 +12,7 @@ import (
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/table"
+	"github.com/slayer/gcon/internal/ui/symbols"
 )
 
 // InstancesView displays and manages Compute Engine instances in a table format
@@ -72,8 +73,7 @@ func defaultInstanceKeyMap() instanceKeyMap {
 // Table column definitions
 func instanceColumns() []btable.Column {
 	return []btable.Column{
-		{Title: "Status", Width: 3},
-		{Title: "Name", Width: 25},
+		{Title: "Name", Width: 30},
 		{Title: "Zone", Width: 20},
 		{Title: "Internal IP", Width: 15},
 		{Title: "External IP", Width: 15},
@@ -148,18 +148,9 @@ type instanceActionMsg struct {
 	err      error
 }
 
-// statusIcon returns an emoji indicator for instance status
+// statusIcon returns a symbol indicator for instance status
 func statusIcon(status string) string {
-	switch status {
-	case "RUNNING":
-		return "🟢"
-	case "TERMINATED", "STOPPED":
-		return "🔴"
-	case "STAGING", "PROVISIONING", "STOPPING", "SUSPENDING":
-		return "🟡"
-	default:
-		return "⚪"
-	}
+	return symbols.GetStatusSymbol(status)
 }
 
 // instanceToRow converts a GCP instance to a table row
@@ -169,10 +160,12 @@ func instanceToRow(inst gcp.Instance) table.Row {
 		externalIP = "-"
 	}
 
+	// Combine status icon with name (like objects view)
+	name := statusIcon(inst.Status) + " " + inst.Name
+
 	return table.Row{
 		Data: []string{
-			statusIcon(inst.Status), // Icon only in first column
-			inst.Name,
+			name,
 			inst.Zone,
 			inst.InternalIP,
 			externalIP,
