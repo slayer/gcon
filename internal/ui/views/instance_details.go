@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -14,6 +13,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/symbols"
+	"github.com/slayer/gcon/internal/ui/timeutil"
 )
 
 // InstanceSelectedMsg is sent when an instance is selected from the list
@@ -333,7 +333,7 @@ func (v *InstanceDetailsView) renderContent() string {
 	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Description", defaultIfEmpty(d.Description, "None")))
 	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Status", fmt.Sprintf("%s %s", getStatusIcon(d.Status), d.Status)))
 	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Zone", d.Zone))
-	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Created", formatTimestamp(d.CreatedAt)))
+	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Created", timeutil.FormatTimestamp(d.CreatedAt)))
 	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Deletion protection", formatBool(d.DeletionProtection)))
 	b.WriteString("\n")
 
@@ -475,17 +475,6 @@ func renderRow(labelStyle, valueStyle, mutedStyle lipgloss.Style, label, value s
 
 func getStatusIcon(status string) string {
 	return symbols.GetStatusSymbol(status)
-}
-
-func formatTimestamp(ts string) string {
-	if ts == "" {
-		return "—"
-	}
-	t, err := time.Parse(time.RFC3339, ts)
-	if err != nil {
-		return ts
-	}
-	return t.Format("Jan 2, 2006, 3:04:05 PM MST")
 }
 
 func formatBool(b bool) string {

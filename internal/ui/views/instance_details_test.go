@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/slayer/gcon/internal/ui/symbols"
+	"github.com/slayer/gcon/internal/ui/timeutil"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -56,7 +57,7 @@ func TestFormatTimestamp(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := formatTimestamp(tt.input)
+			result := timeutil.FormatTimestamp(tt.input)
 			assert.Contains(t, result, tt.contains)
 		})
 	}
