@@ -410,6 +410,8 @@ func (a *App) handleCommandSelected(cmd commandpalette.Command) (tea.Model, tea.
 		return a.handleNavigationCommand(cmd)
 	case commandpalette.CommandTypeAction:
 		return a.handleActionCommand(cmd)
+	case commandpalette.CommandTypeRecent:
+		return a.handleRecentCommand(cmd)
 	}
 
 	return a, nil
@@ -445,6 +447,41 @@ func (a *App) handleActionCommand(cmd commandpalette.Command) (tea.Model, tea.Cm
 	case "action:quit":
 		return a, tea.Quit
 	}
+	return a, nil
+}
+
+// handleRecentCommand navigates to a recently accessed resource
+func (a *App) handleRecentCommand(cmd commandpalette.Command) (tea.Model, tea.Cmd) {
+	// Parse the command ID: "recent:<type>:<id>"
+	parts := strings.SplitN(cmd.ID, ":", 3)
+	if len(parts) < 3 {
+		return a, nil
+	}
+
+	recentType := parts[1]
+	// resourceID := parts[2] // Available if needed for direct navigation
+
+	switch recentType {
+	case "project":
+		// Go back to project list - user can select from there
+		a.currentView = ViewProjects
+		return a, nil
+	case "bucket":
+		// Navigate to buckets view if we have a project
+		if a.selectedProject != nil {
+			return a, func() tea.Msg {
+				return sidebar.NavigateMsg{ViewType: sidebar.ViewBuckets}
+			}
+		}
+	case "instance":
+		// Navigate to instances view if we have a project
+		if a.selectedProject != nil {
+			return a, func() tea.Msg {
+				return sidebar.NavigateMsg{ViewType: sidebar.ViewInstances}
+			}
+		}
+	}
+
 	return a, nil
 }
 
