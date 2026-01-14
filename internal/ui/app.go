@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
+	"github.com/slayer/gcon/internal/ui/components/commandpalette"
 	"github.com/slayer/gcon/internal/ui/components/sidebar"
 	"github.com/slayer/gcon/internal/ui/layout"
 	"github.com/slayer/gcon/internal/ui/symbols"
@@ -71,6 +72,11 @@ type App struct {
 	// Sidebar navigation (active after project selection)
 	sidebar      *sidebar.Sidebar
 	focusedPanel FocusedPanel
+
+	// Command palette
+	commandPalette     *commandpalette.CommandPalette
+	showCommandPalette bool
+	recentTracker      *commandpalette.RecentTracker
 }
 
 // AppOptions configures the application
@@ -92,6 +98,8 @@ func NewApp(client *gcp.Client, opts AppOptions) *App {
 		initialProjectID: opts.InitialProjectID,
 		sidebar:          sidebar.New(),
 		focusedPanel:     FocusContent,
+		commandPalette:   commandpalette.New(),
+		recentTracker:    commandpalette.NewRecentTracker(),
 	}
 }
 
@@ -128,6 +136,21 @@ func (a *App) sidebarActive() bool {
 
 // Update implements tea.Model
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Handle command palette messages first (highest priority when active)
+	if a.showCommandPalette {
+		switch msg := msg.(type) {
+		case tea.KeyMsg:
+			cmd := a.commandPalette.Update(msg)
+			return a, cmd
+		case commandpalette.CommandSelectedMsg:
+			return a.handleCommandSelected(msg.Command)
+		case commandpalette.CommandCancelMsg:
+			a.showCommandPalette = false
+			a.commandPalette.Reset()
+			return a, nil
+		}
+	}
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		// Handle back navigation first (before view-specific handlers)
@@ -203,6 +226,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.updateViewSizes()
 			}
 			return a, nil
+		case key.Matches(msg, a.keys.CommandPalette):
+			// Open command palette
+			a.openCommandPalette(msg.String() == ":")
+			return a, nil
 		}
 
 		// Route to sidebar if focused
@@ -227,6 +254,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case views.ProjectSelectedMsg:
 		project := msg.Project
 		a.selectedProject = &project
+		// Track recent project access
+		a.recentTracker.Track(commandpalette.RecentTypeProject, project.ID, project.Name)
 		// Navigate to instances view with sidebar
 		a.currentView = ViewInstances
 		a.instancesView = views.NewInstancesView(project.ID)
@@ -239,6 +268,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Navigate to instance details view
 		inst := msg.Instance
 		a.selectedInstance = &inst
+		// Track recent instance access
+		a.recentTracker.Track(commandpalette.RecentTypeInstance, inst.Name, inst.Name)
 		a.currentView = ViewInstanceDetails
 		// Pass compute client from instances view to avoid re-initialization
 		a.instanceDetailsView = views.NewInstanceDetailsView(
@@ -284,6 +315,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		bucket := msg.Bucket
 		a.selectedBucket = &bucket
+		// Track recent bucket access
+		a.recentTracker.Track(commandpalette.RecentTypeBucket, bucket.Name, bucket.Name)
 		a.currentView = ViewObjects
 		a.objectsView = views.NewObjectsView(bucket.Name, storageClient)
 		a.updateSidebarActiveView()
@@ -335,6 +368,75 @@ func (a *App) toggleFocus() {
 		a.focusedPanel = FocusContent
 		a.sidebar.SetFocused(false)
 	}
+}
+
+// openCommandPalette shows the command palette
+func (a *App) openCommandPalette(showPrefix bool) {
+	a.showCommandPalette = true
+	a.commandPalette.Reset()
+	a.commandPalette.SetShowPrefix(showPrefix)
+	a.commandPalette.SetProjectSelected(a.selectedProject != nil)
+
+	// Build command list with recent items at the top
+	commands := a.recentTracker.Commands()
+	commands = append(commands, commandpalette.DefaultCommands()...)
+	a.commandPalette.SetCommands(commands)
+
+	// Set size for centered display
+	paletteWidth := a.width * 6 / 10 // 60% of screen width
+	if paletteWidth < 50 {
+		paletteWidth = 50
+	}
+	if paletteWidth > 80 {
+		paletteWidth = 80
+	}
+	a.commandPalette.SetSize(paletteWidth, a.height)
+}
+
+// handleCommandSelected processes a selected command from the palette
+func (a *App) handleCommandSelected(cmd commandpalette.Command) (tea.Model, tea.Cmd) {
+	a.showCommandPalette = false
+	a.commandPalette.Reset()
+
+	switch cmd.Type {
+	case commandpalette.CommandTypeNavigation:
+		return a.handleNavigationCommand(cmd)
+	case commandpalette.CommandTypeAction:
+		return a.handleActionCommand(cmd)
+	}
+
+	return a, nil
+}
+
+// handleNavigationCommand navigates to the selected view
+func (a *App) handleNavigationCommand(cmd commandpalette.Command) (tea.Model, tea.Cmd) {
+	// Navigation commands require a project to be selected
+	if a.selectedProject == nil {
+		return a, nil
+	}
+
+	// Navigate to the view (reuse sidebar navigation logic via NavigateMsg)
+	return a, func() tea.Msg {
+		return sidebar.NavigateMsg{ViewType: sidebar.ViewType(cmd.ViewType)}
+	}
+}
+
+// handleActionCommand executes the selected action
+func (a *App) handleActionCommand(cmd commandpalette.Command) (tea.Model, tea.Cmd) {
+	switch cmd.ID {
+	case "action:refresh":
+		return a, func() tea.Msg { return RefreshMsg{} }
+	case "action:toggle-sidebar":
+		if a.sidebarActive() {
+			a.sidebar.Toggle()
+			a.updateViewSizes()
+		}
+		return a, nil
+	case "action:help":
+		a.showHelp = !a.showHelp
+		return a, nil
+	}
+	return a, nil
 }
 
 // updateViewSizes recalculates sizes for all views using the layout manager
@@ -531,6 +633,11 @@ func (a *App) View() string {
 	}
 	debugLog("")
 
+	// Render command palette overlay if active
+	if a.showCommandPalette {
+		result = a.renderWithCommandPalette(result)
+	}
+
 	return result
 }
 
@@ -626,6 +733,45 @@ func (a *App) renderWithSidebar() string {
 	}
 	debugLog("renderWithSidebar: result maxLineWidth=%d", MaxLineWidth(result))
 	return result
+}
+
+// renderWithCommandPalette overlays the command palette on top of the content
+func (a *App) renderWithCommandPalette(background string) string {
+	// Get the command palette view
+	paletteView := a.commandPalette.View()
+
+	// Split background into lines
+	bgLines := strings.Split(background, "\n")
+
+	// Split palette into lines
+	paletteLines := strings.Split(paletteView, "\n")
+
+	// Calculate position (centered horizontally, 1/4 down vertically)
+	paletteWidth := lipgloss.Width(paletteLines[0])
+	leftPad := (a.width - paletteWidth) / 2
+	if leftPad < 0 {
+		leftPad = 0
+	}
+	topPad := a.height / 4
+	if topPad < 2 {
+		topPad = 2
+	}
+
+	// Overlay the palette on the background
+	result := make([]string, len(bgLines))
+	copy(result, bgLines)
+
+	for i, paletteLine := range paletteLines {
+		bgIndex := topPad + i
+		if bgIndex < len(result) {
+			// Replace background line with padded palette line
+			// We fully replace the line rather than trying to preserve background
+			// because ANSI escape codes make byte-based slicing unreliable
+			result[bgIndex] = strings.Repeat(" ", leftPad) + paletteLine
+		}
+	}
+
+	return strings.Join(result, "\n")
 }
 
 // renderCurrentView renders the content area based on current view
