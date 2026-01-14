@@ -1,6 +1,7 @@
 package commandpalette
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -112,7 +113,7 @@ func TestSetMaxItems(t *testing.T) {
 
 	// Add 5 items
 	for i := 1; i <= 5; i++ {
-		tracker.Track(RecentTypeProject, "proj-"+string(rune('0'+i)), "Project")
+		tracker.Track(RecentTypeProject, "proj-"+strconv.Itoa(i), "Project")
 	}
 
 	assert.Equal(t, 5, len(tracker.Items()))

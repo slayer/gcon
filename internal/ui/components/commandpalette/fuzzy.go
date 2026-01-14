@@ -28,12 +28,12 @@ func Score(query, text string) int {
 
 	// Exact match (case-insensitive)
 	if queryLower == textLower {
-		return scoreExact + scoreBonusShort*(100-len(text))
+		return scoreExact + scoreBonusShort*max(0, 100-len(text))
 	}
 
 	// Prefix match
 	if strings.HasPrefix(textLower, queryLower) {
-		return scorePrefix + scoreBonusShort*(100-len(text))
+		return scorePrefix + scoreBonusShort*max(0, 100-len(text))
 	}
 
 	// Multi-word query: each word must match somewhere

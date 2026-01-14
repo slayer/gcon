@@ -101,6 +101,8 @@ func (r *RecentTracker) Commands() []Command {
 			cmd.ViewType = ViewBuckets
 		case RecentTypeInstance:
 			cmd.ViewType = ViewInstances
+		case RecentTypeProject:
+			// Projects navigate back to project list, no ViewType needed
 		}
 
 		commands = append(commands, cmd)

@@ -146,48 +146,48 @@ func (p *CommandPalette) Init() tea.Cmd {
 func (p *CommandPalette) Update(msg tea.Msg) tea.Cmd {
 	var cmd tea.Cmd
 
-	if keyMsg, ok := msg.(tea.KeyMsg); ok {
-		msg := keyMsg
-		switch {
-		case key.Matches(msg, p.keys.Cancel):
-			return func() tea.Msg { return CommandCancelMsg{} }
-
-		case key.Matches(msg, p.keys.Select):
-			if len(p.filtered) > 0 && p.cursor < len(p.filtered) {
-				selected := p.filtered[p.cursor]
-				if selected.Enabled {
-					return func() tea.Msg { return CommandSelectedMsg{Command: selected} }
-				}
-			}
-			return nil
-
-		case key.Matches(msg, p.keys.Up), key.Matches(msg, p.keys.CtrlP):
-			if p.cursor > 0 {
-				p.cursor--
-			}
-			return nil
-
-		case key.Matches(msg, p.keys.Down), key.Matches(msg, p.keys.CtrlN):
-			if p.cursor < len(p.filtered)-1 {
-				p.cursor++
-			}
-			return nil
-
-		default:
-			// Pass to text input for typing
-			prevValue := p.input.Value()
-			p.input, cmd = p.input.Update(msg)
-
-			// If input changed, re-filter
-			if p.input.Value() != prevValue {
-				p.filtered = Filter(p.commands, p.input.Value())
-				p.cursor = 0 // Reset cursor on filter change
-			}
-			return cmd
-		}
+	keyMsg, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return nil
 	}
 
-	return nil
+	switch {
+	case key.Matches(keyMsg, p.keys.Cancel):
+		return func() tea.Msg { return CommandCancelMsg{} }
+
+	case key.Matches(keyMsg, p.keys.Select):
+		if len(p.filtered) > 0 && p.cursor < len(p.filtered) {
+			selected := p.filtered[p.cursor]
+			if selected.Enabled {
+				return func() tea.Msg { return CommandSelectedMsg{Command: selected} }
+			}
+		}
+		return nil
+
+	case key.Matches(keyMsg, p.keys.Up), key.Matches(keyMsg, p.keys.CtrlP):
+		if p.cursor > 0 {
+			p.cursor--
+		}
+		return nil
+
+	case key.Matches(keyMsg, p.keys.Down), key.Matches(keyMsg, p.keys.CtrlN):
+		if p.cursor < len(p.filtered)-1 {
+			p.cursor++
+		}
+		return nil
+
+	default:
+		// Pass to text input for typing
+		prevValue := p.input.Value()
+		p.input, cmd = p.input.Update(keyMsg)
+
+		// If input changed, re-filter
+		if p.input.Value() != prevValue {
+			p.filtered = Filter(p.commands, p.input.Value())
+			p.cursor = 0 // Reset cursor on filter change
+		}
+		return cmd
+	}
 }
 
 // View renders the command palette

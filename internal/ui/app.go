@@ -230,8 +230,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return a, nil
 		case key.Matches(msg, a.keys.CommandPalette):
-			// Open command palette
-			a.openCommandPalette(msg.String() == ":")
+			// Open command palette, show ":" prefix only when triggered by colon key
+			showPrefix := key.Matches(msg, key.NewBinding(key.WithKeys(":")))
+			a.openCommandPalette(showPrefix)
 			return a, nil
 		}
 
