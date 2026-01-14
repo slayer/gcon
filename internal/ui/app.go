@@ -301,6 +301,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Navigate to disk details view
 		disk := msg.Disk
 		a.selectedDisk = &disk
+		// Track recent disk access
+		a.recentTracker.Track(commandpalette.RecentTypeDisk, disk.Name, disk.Name)
 		a.currentView = ViewDiskDetails
 		// Pass compute client from disks view to avoid re-initialization
 		a.diskDetailsView = views.NewDiskDetailsView(
@@ -510,6 +512,13 @@ func (a *App) handleRecentCommand(cmd commandpalette.Command) (tea.Model, tea.Cm
 		if a.selectedProject != nil {
 			return a, func() tea.Msg {
 				return sidebar.NavigateMsg{ViewType: sidebar.ViewInstances}
+			}
+		}
+	case "disk":
+		// Navigate to disks view if we have a project
+		if a.selectedProject != nil {
+			return a, func() tea.Msg {
+				return sidebar.NavigateMsg{ViewType: sidebar.ViewDisks}
 			}
 		}
 	}
