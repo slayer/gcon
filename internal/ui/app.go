@@ -436,6 +436,8 @@ func (a *App) handleActionCommand(cmd commandpalette.Command) (tea.Model, tea.Cm
 	case "action:help":
 		a.showHelp = !a.showHelp
 		return a, nil
+	case "action:quit":
+		return a, tea.Quit
 	}
 	return a, nil
 }

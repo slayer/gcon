@@ -39,7 +39,7 @@ func defaultKeyMap() paletteKeyMap {
 			key.WithHelp("enter", "select"),
 		),
 		Cancel: key.NewBinding(
-			key.WithKeys("esc"),
+			key.WithKeys("esc", "ctrl+c"),
 			key.WithHelp("esc", "cancel"),
 		),
 		CtrlN: key.NewBinding(

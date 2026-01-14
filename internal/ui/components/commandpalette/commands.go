@@ -35,6 +35,7 @@ const (
 	IconSidebar  = "☰"
 	IconHelp     = "?"
 	IconRecent   = "⏱"
+	IconQuit     = "✕"
 )
 
 // Command represents an executable palette item
@@ -123,6 +124,13 @@ func ActionCommands() []Command {
 			ID:      "action:help",
 			Label:   "Help",
 			Icon:    IconHelp,
+			Type:    CommandTypeAction,
+			Enabled: true,
+		},
+		{
+			ID:      "action:quit",
+			Label:   "Quit",
+			Icon:    IconQuit,
 			Type:    CommandTypeAction,
 			Enabled: true,
 		},
