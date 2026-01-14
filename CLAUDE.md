@@ -244,6 +244,7 @@ Layout calculations depend on accurate width reporting. If a component reports w
 | `r` | Refresh current view |
 | `/` | Search/Filter |
 | `Enter` | Select/Confirm |
+| `:` or `Ctrl+K` | Open command palette |
 
 ### Instances View
 
