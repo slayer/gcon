@@ -746,9 +746,17 @@ func (a *App) renderWithCommandPalette(background string) string {
 	// Split palette into lines
 	paletteLines := strings.Split(paletteView, "\n")
 
+	// Find max palette width for consistent positioning
+	maxPaletteWidth := 0
+	for _, line := range paletteLines {
+		w := lipgloss.Width(line)
+		if w > maxPaletteWidth {
+			maxPaletteWidth = w
+		}
+	}
+
 	// Calculate position (centered horizontally, 1/4 down vertically)
-	paletteWidth := lipgloss.Width(paletteLines[0])
-	leftPad := (a.width - paletteWidth) / 2
+	leftPad := (a.width - maxPaletteWidth) / 2
 	if leftPad < 0 {
 		leftPad = 0
 	}
@@ -761,7 +769,8 @@ func (a *App) renderWithCommandPalette(background string) string {
 	result := make([]string, len(bgLines))
 	copy(result, bgLines)
 
-	rightStart := leftPad + paletteWidth
+	// Right side always starts at the same position for alignment
+	rightStart := leftPad + maxPaletteWidth
 
 	for i, paletteLine := range paletteLines {
 		bgIndex := topPad + i
@@ -771,7 +780,7 @@ func (a *App) renderWithCommandPalette(background string) string {
 
 			// Build the overlayed line:
 			// 1. Left part of background (truncated to leftPad width)
-			// 2. Palette line
+			// 2. Palette line (padded to maxPaletteWidth)
 			// 3. Right part of background (from rightStart onwards)
 			var newLine strings.Builder
 
@@ -786,13 +795,15 @@ func (a *App) renderWithCommandPalette(background string) string {
 				}
 			}
 
-			// Middle: the palette line
+			// Middle: the palette line, padded to consistent width
 			newLine.WriteString(paletteLine)
+			paletteLineWidth := lipgloss.Width(paletteLine)
+			if paletteLineWidth < maxPaletteWidth {
+				newLine.WriteString(strings.Repeat(" ", maxPaletteWidth-paletteLineWidth))
+			}
 
 			// Right part: skip first rightStart characters of background
 			if rightStart < bgWidth {
-				// Use ansi.Truncate to get full line, then truncate left part
-				// We need to cut the first rightStart characters
 				rightPart := truncateLeft(bgLine, rightStart)
 				newLine.WriteString(rightPart)
 			}
