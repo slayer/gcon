@@ -1124,7 +1124,7 @@ func (a *App) renderFooter() string {
 		return a.help.View(a.keys)
 	}
 
-	helpText := "? help • q quit"
+	helpText := ": cmd • ? help • q quit"
 	if a.currentView != ViewProjects {
 		helpText = "esc back • " + helpText
 	}

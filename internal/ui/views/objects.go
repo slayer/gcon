@@ -19,6 +19,7 @@ import (
 	"github.com/slayer/gcon/internal/ui/components/progress"
 	"github.com/slayer/gcon/internal/ui/components/table"
 	"github.com/slayer/gcon/internal/ui/symbols"
+	"github.com/slayer/gcon/internal/ui/timeutil"
 )
 
 const defaultPageSize = 100
@@ -210,7 +211,7 @@ func objectToRow(obj gcp.StorageObject) table.Row {
 		if contentType == "" {
 			contentType = "unknown"
 		}
-		modified = obj.Updated.Format("2006-01-02")
+		modified = timeutil.FormatDate(obj.Updated)
 	}
 
 	return table.Row{
