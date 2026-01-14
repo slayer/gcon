@@ -9,95 +9,19 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
+	btable "github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components/confirm"
 	"github.com/slayer/gcon/internal/ui/components/filepicker"
 	"github.com/slayer/gcon/internal/ui/components/progress"
+	"github.com/slayer/gcon/internal/ui/components/table"
 	"github.com/slayer/gcon/internal/ui/symbols"
 )
 
 const defaultPageSize = 100
-
-// objectItem implements list.Item for GCS objects
-type objectItem struct {
-	object gcp.StorageObject
-}
-
-func (i objectItem) Title() string {
-	if i.object.IsFolder {
-		return fmt.Sprintf("%s %s/", symbols.Folder(), i.object.DisplayName)
-	}
-	return fmt.Sprintf("%s %s", symbols.File(), i.object.DisplayName)
-}
-
-func (i objectItem) Description() string {
-	if i.object.IsFolder {
-		return "— • Folder"
-	}
-	size := gcp.FormatSize(i.object.Size)
-	contentType := i.object.ContentType
-	if contentType == "" {
-		contentType = "unknown"
-	}
-	updated := i.object.Updated.Format("2006-01-02")
-	return fmt.Sprintf("%s • %s • %s", size, contentType, updated)
-}
-
-func (i objectItem) FilterValue() string {
-	return i.object.DisplayName + " " + i.object.ContentType
-}
-
-// ObjectsView displays and manages objects within a bucket
-type ObjectsView struct {
-	storageClient *gcp.StorageClient
-	bucketName    string
-	currentPrefix string   // Current folder path (e.g., "folder1/folder2/")
-	prefixStack   []string // Navigation history for back functionality
-	list          list.Model
-	spinner       spinner.Model
-	loading       bool
-	err           error
-	width         int
-	height        int
-	objects       []gcp.StorageObject
-	keys          objectKeyMap
-
-	// Pagination state (using master's improved token handling)
-	currentPage      int
-	nextPageToken    string   // Token for loading next page
-	currentPageToken string   // Token used to load current page (empty for first page)
-	pageTokenHistory []string // History of page tokens used (for back navigation)
-	hasMore          bool
-	totalLoaded      int // Total objects loaded across pages
-
-	// Download state
-	downloading      bool
-	downloadProgress *progress.Progress
-	downloadFiles    []gcp.StorageObject // Files being downloaded (for folder downloads)
-	downloadIndex    int                 // Current file index in multi-file download
-	downloadChan     chan progress.ProgressUpdate
-
-	// Upload state
-	showFilePicker bool
-	filePicker     *filepicker.FilePicker
-	uploading      bool
-	uploadProgress *progress.Progress
-	uploadFiles    []string // Local file paths to upload
-	uploadChan     chan progress.ProgressUpdate
-
-	// Delete state
-	pendingDelete      *gcp.StorageObject  // Object pending delete confirmation
-	pendingDeleteFiles []gcp.StorageObject // Files to delete (resolved for folders)
-	showDeleteConfirm  bool
-	deleteConfirm      *confirm.ConfirmDialog
-	deleting           bool
-	deleteProgress     *progress.Progress
-	deleteChan         chan deleteProgressUpdate
-}
 
 // objectKeyMap defines object-specific key bindings
 type objectKeyMap struct {
@@ -143,27 +67,68 @@ func defaultObjectKeyMap() objectKeyMap {
 	}
 }
 
-// NewObjectsView creates a new objects view
-func NewObjectsView(bucketName string, storageClient *gcp.StorageClient) *ObjectsView {
-	delegate := list.NewDefaultDelegate()
-	delegate.Styles.SelectedTitle = delegate.Styles.SelectedTitle.
-		Foreground(lipgloss.Color("#FFFFFF")).
-		Background(lipgloss.Color("#4285F4")).
-		Bold(true)
-	delegate.Styles.SelectedDesc = delegate.Styles.SelectedDesc.
-		Foreground(lipgloss.Color("#CCCCCC")).
-		Background(lipgloss.Color("#4285F4"))
-
-	l := list.New([]list.Item{}, delegate, 0, 0)
-	l.SetShowTitle(false) // Title shown in app header instead
-	l.SetShowStatusBar(true)
-	l.SetFilteringEnabled(true)
-
-	// Add help keys
-	l.AdditionalShortHelpKeys = func() []key.Binding {
-		km := defaultObjectKeyMap()
-		return []key.Binding{km.Enter, km.Download, km.Upload, km.Refresh, km.NextPage, km.PrevPage}
+// Table column definitions for objects
+func objectColumns() []btable.Column {
+	return []btable.Column{
+		{Title: "Name", Width: 40},
+		{Title: "Size", Width: 12},
+		{Title: "Content Type", Width: 20},
+		{Title: "Modified", Width: 12},
 	}
+}
+
+// ObjectsView displays and manages objects within a bucket using a table format
+type ObjectsView struct {
+	storageClient *gcp.StorageClient
+	bucketName    string
+	currentPrefix string   // Current folder path (e.g., "folder1/folder2/")
+	prefixStack   []string // Navigation history for back functionality
+	table         table.Model
+	spinner       spinner.Model
+	loading       bool
+	err           error
+	width         int
+	height        int
+	objects       []gcp.StorageObject
+	keys          objectKeyMap
+
+	// Pagination state
+	currentPage      int
+	nextPageToken    string   // Token for loading next page
+	currentPageToken string   // Token used to load current page (empty for first page)
+	pageTokenHistory []string // History of page tokens used (for back navigation)
+	hasMore          bool
+	totalLoaded      int // Total objects loaded across pages
+
+	// Download state
+	downloading      bool
+	downloadProgress *progress.Progress
+	downloadFiles    []gcp.StorageObject // Files being downloaded (for folder downloads)
+	downloadIndex    int                 // Current file index in multi-file download
+	downloadChan     chan progress.ProgressUpdate
+
+	// Upload state
+	showFilePicker bool
+	filePicker     *filepicker.FilePicker
+	uploading      bool
+	uploadProgress *progress.Progress
+	uploadFiles    []string // Local file paths to upload
+	uploadChan     chan progress.ProgressUpdate
+
+	// Delete state
+	pendingDelete      *gcp.StorageObject  // Object pending delete confirmation
+	pendingDeleteFiles []gcp.StorageObject // Files to delete (resolved for folders)
+	showDeleteConfirm  bool
+	deleteConfirm      *confirm.ConfirmDialog
+	deleting           bool
+	deleteProgress     *progress.Progress
+	deleteChan         chan deleteProgressUpdate
+}
+
+// NewObjectsView creates a new objects view with table display
+func NewObjectsView(bucketName string, storageClient *gcp.StorageClient) *ObjectsView {
+	title := fmt.Sprintf("Bucket: %s", bucketName)
+	t := table.New(objectColumns(), title)
 
 	s := spinner.New()
 	s.Spinner = spinner.Dot
@@ -174,7 +139,7 @@ func NewObjectsView(bucketName string, storageClient *gcp.StorageClient) *Object
 		bucketName:       bucketName,
 		currentPrefix:    "",
 		prefixStack:      make([]string, 0),
-		list:             l,
+		table:            t,
 		spinner:          s,
 		loading:          true,
 		keys:             defaultObjectKeyMap(),
@@ -228,6 +193,32 @@ type objectsErrorMsg struct {
 
 // ObjectsBackMsg signals to return to buckets view (exported for app.go)
 type ObjectsBackMsg struct{}
+
+// objectToRow converts a GCS object to a table row
+func objectToRow(obj gcp.StorageObject) table.Row {
+	var name, size, contentType, modified string
+
+	if obj.IsFolder {
+		name = symbols.Folder() + " " + obj.DisplayName + "/"
+		size = "-"
+		contentType = "Folder"
+		modified = "-"
+	} else {
+		name = symbols.File() + " " + obj.DisplayName
+		size = gcp.FormatSize(obj.Size)
+		contentType = obj.ContentType
+		if contentType == "" {
+			contentType = "unknown"
+		}
+		modified = obj.Updated.Format("2006-01-02")
+	}
+
+	return table.Row{
+		Data:        []string{name, size, contentType, modified},
+		FilterValue: obj.DisplayName + " " + contentType,
+		ID:          obj.Name, // Full path name for lookup
+	}
+}
 
 // Download-related messages
 type downloadStartMsg struct {
@@ -300,11 +291,12 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 		v.hasMore = msg.hasMore
 		v.totalLoaded = len(msg.objects)
 
-		items := make([]list.Item, len(msg.objects))
+		// Convert to table rows
+		rows := make([]table.Row, len(msg.objects))
 		for i, obj := range msg.objects {
-			items[i] = objectItem{object: obj}
+			rows[i] = objectToRow(obj)
 		}
-		v.list.SetItems(items)
+		v.table.SetRows(rows)
 		return nil
 
 	case objectsErrorMsg:
@@ -552,44 +544,48 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 			return nil
 		}
 
-		// If list is filtering, let it handle all keys except our shortcuts
-		// Check upload key first since it should work even in empty buckets
-		if key.Matches(msg, v.keys.Upload) {
+		// Let table handle filtering mode
+		if v.table.IsFiltering() {
+			var cmd tea.Cmd
+			v.table, cmd = v.table.Update(msg)
+			return cmd
+		}
+
+		switch {
+		case key.Matches(msg, v.keys.Upload):
 			// Open file picker for upload
 			cwd, _ := os.Getwd()
 			v.filePicker = filepicker.New(cwd, true)
 			v.filePicker.SetSize(v.width-10, v.height-10)
 			v.showFilePicker = true
 			return v.filePicker.Init()
-		}
 
-		// If list is in filtering mode, delegate to list
-		if v.list.FilterState() == list.Filtering {
-			var cmd tea.Cmd
-			v.list, cmd = v.list.Update(msg)
-			return cmd
-		}
-
-		switch {
 		case key.Matches(msg, v.keys.Delete):
 			// Delete selected file or folder
-			if item, ok := v.list.SelectedItem().(objectItem); ok {
-				return v.prepareDelete(item.object)
+			if row := v.table.SelectedRow(); row != nil {
+				obj := v.findObjectByName(row.ID)
+				if obj != nil {
+					return v.prepareDelete(*obj)
+				}
 			}
 
 		case key.Matches(msg, v.keys.Download):
 			// Download selected file or folder
-			if item, ok := v.list.SelectedItem().(objectItem); ok {
-				return v.prepareDownload(item.object)
+			if row := v.table.SelectedRow(); row != nil {
+				obj := v.findObjectByName(row.ID)
+				if obj != nil {
+					return v.prepareDownload(*obj)
+				}
 			}
 
 		case key.Matches(msg, v.keys.Enter):
 			// Navigate into folder on Enter
-			if item, ok := v.list.SelectedItem().(objectItem); ok {
-				if item.object.IsFolder {
+			if row := v.table.SelectedRow(); row != nil {
+				obj := v.findObjectByName(row.ID)
+				if obj != nil && obj.IsFolder {
 					// Push current prefix to stack and navigate into folder
 					v.prefixStack = append(v.prefixStack, v.currentPrefix)
-					v.currentPrefix = item.object.Name
+					v.currentPrefix = obj.Name
 					v.resetPagination()
 					v.loading = true
 					return tea.Batch(v.spinner.Tick, v.loadObjects(""))
@@ -634,8 +630,18 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 	}
 
 	var cmd tea.Cmd
-	v.list, cmd = v.list.Update(msg)
+	v.table, cmd = v.table.Update(msg)
 	return cmd
+}
+
+// findObjectByName looks up an object by its full name
+func (v *ObjectsView) findObjectByName(name string) *gcp.StorageObject {
+	for _, obj := range v.objects {
+		if obj.Name == name {
+			return &obj
+		}
+	}
+	return nil
 }
 
 // HandleBack handles ESC key - returns true if handled internally (went up a folder)
@@ -659,6 +665,17 @@ func (v *ObjectsView) resetPagination() {
 	v.currentPageToken = ""
 	v.pageTokenHistory = make([]string, 0)
 	v.hasMore = false
+}
+
+// buildTitle builds the title showing current path
+func (v *ObjectsView) buildTitle() string {
+	title := fmt.Sprintf("Bucket: %s", v.bucketName)
+	if v.currentPrefix != "" {
+		// Show path in title
+		path := strings.TrimSuffix(v.currentPrefix, "/")
+		title = fmt.Sprintf("Bucket: %s / %s", v.bucketName, path)
+	}
+	return title
 }
 
 // View renders the objects view
@@ -704,9 +721,15 @@ func (v *ObjectsView) View() string {
 	status := statusStyle.Render(fmt.Sprintf("  %d items%s", len(v.objects), pageInfo))
 
 	// Help text for actions
-	help := statusStyle.Render("\n  enter: open • d: download • u: upload • D: delete • n/p: next/prev page • r: refresh • /: filter • esc: back")
+	help := statusStyle.Render("\n  enter: open • d: download • u: upload • D: delete • n/p: next/prev page • /: filter • r: refresh • esc: back")
 
-	content := v.list.View() + "\n" + status + help
+	// Build title with current path
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("#4285F4")).
+		MarginBottom(1)
+
+	content := titleStyle.Render(v.buildTitle()) + "\n" + v.table.View() + "\n" + status + help
 
 	// Overlay file picker when shown
 	if v.showFilePicker && v.filePicker != nil {
@@ -740,7 +763,7 @@ func (v *ObjectsView) View() string {
 func (v *ObjectsView) SetSize(width, height int) {
 	v.width = width
 	v.height = height
-	v.list.SetSize(width, height-6) // Extra space for status and help
+	v.table.SetSize(width, height-8) // Extra space for title, status and help
 }
 
 // GetCurrentPath returns the current folder path being browsed
