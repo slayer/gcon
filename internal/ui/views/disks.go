@@ -31,11 +31,16 @@ type DisksView struct {
 
 // diskKeyMap defines disk-specific key bindings
 type diskKeyMap struct {
+	Enter   key.Binding
 	Refresh key.Binding
 }
 
 func defaultDiskKeyMap() diskKeyMap {
 	return diskKeyMap{
+		Enter: key.NewBinding(
+			key.WithKeys("enter"),
+			key.WithHelp("enter", "details"),
+		),
 		Refresh: key.NewBinding(
 			key.WithKeys("r"),
 			key.WithHelp("r", "refresh"),
@@ -199,7 +204,19 @@ func (v *DisksView) Update(msg tea.Msg) tea.Cmd {
 			return cmd
 		}
 
-		if key.Matches(msg, v.keys.Refresh) {
+		switch {
+		case key.Matches(msg, v.keys.Enter):
+			// Navigate to disk details on Enter
+			if row := v.table.SelectedRow(); row != nil {
+				disk := v.findDiskByName(row.ID)
+				if disk != nil {
+					return func() tea.Msg {
+						return DiskSelectedMsg{Disk: *disk}
+					}
+				}
+			}
+
+		case key.Matches(msg, v.keys.Refresh):
 			v.loading = true
 			v.err = nil
 			return tea.Batch(v.spinner.Tick, v.loadDisks())
@@ -210,6 +227,16 @@ func (v *DisksView) Update(msg tea.Msg) tea.Cmd {
 	var cmd tea.Cmd
 	v.table, cmd = v.table.Update(msg)
 	return cmd
+}
+
+// findDiskByName looks up a disk by name
+func (v *DisksView) findDiskByName(name string) *gcp.Disk {
+	for _, disk := range v.disks {
+		if disk.Name == name {
+			return &disk
+		}
+	}
+	return nil
 }
 
 // View renders the disks view
@@ -232,9 +259,14 @@ func (v *DisksView) View() string {
 
 	// Help text for actions
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
-	help := helpStyle.Render("\n  /: filter • r: refresh • esc: back")
+	help := helpStyle.Render("\n  enter: details • /: filter • r: refresh • esc: back")
 
 	return v.table.View() + help
+}
+
+// GetComputeClient returns the compute client for reuse in detail views
+func (v *DisksView) GetComputeClient() *gcp.ComputeClient {
+	return v.computeClient
 }
 
 // SetSize updates the view dimensions
