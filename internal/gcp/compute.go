@@ -20,6 +20,17 @@ type Instance struct {
 	CreatedAt   string
 }
 
+// Disk represents a simplified Compute Engine persistent disk
+type Disk struct {
+	Name       string
+	Zone       string
+	SizeGB     int64
+	Type       string // pd-standard, pd-ssd, pd-balanced, etc.
+	Status     string // READY, CREATING, FAILED, etc.
+	AttachedTo string // Instance name if attached, empty otherwise
+	CreatedAt  string
+}
+
 // InstanceDetails contains comprehensive VM instance information
 type InstanceDetails struct {
 	// Basic Information
@@ -211,6 +222,66 @@ func (c *ComputeClient) GetInstanceDetails(ctx context.Context, projectID, zone,
 	}
 
 	return instanceDetailsFromAPI(inst, zone), nil
+}
+
+// ListDisks returns all persistent disks across all zones in a project
+func (c *ComputeClient) ListDisks(ctx context.Context, projectID string) ([]Disk, error) {
+	var disks []Disk
+
+	// Use aggregatedList to get disks from all zones in one call
+	req := c.service.Disks.AggregatedList(projectID)
+	err := req.Pages(ctx, func(page *compute.DiskAggregatedList) error {
+		for zone, scopedList := range page.Items {
+			if scopedList.Disks == nil {
+				continue
+			}
+			for _, d := range scopedList.Disks {
+				disks = append(disks, diskFromAPI(d, zone))
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, WrapListError(err, "disks", projectID)
+	}
+
+	return disks, nil
+}
+
+// diskFromAPI converts API disk to our simplified struct
+func diskFromAPI(d *compute.Disk, zone string) Disk {
+	// Extract zone name from full path (zones/us-central1-a -> us-central1-a)
+	zoneName := extractName(zone)
+
+	// Extract disk type name from full path
+	diskType := extractName(d.Type)
+
+	// Get attached instance name if any
+	var attachedTo string
+	if len(d.Users) > 0 {
+		// Users field contains full instance URLs, extract instance name
+		attachedTo = extractName(d.Users[0])
+	}
+
+	return Disk{
+		Name:       d.Name,
+		Zone:       zoneName,
+		SizeGB:     d.SizeGb,
+		Type:       diskType,
+		Status:     d.Status,
+		AttachedTo: attachedTo,
+		CreatedAt:  d.CreationTimestamp,
+	}
+}
+
+// IsAttached returns true if the disk is attached to an instance
+func (d *Disk) IsAttached() bool {
+	return d.AttachedTo != ""
+}
+
+// IsReady returns true if the disk is in READY state
+func (d *Disk) IsReady() bool {
+	return d.Status == "READY"
 }
 
 // instanceDetailsFromAPI converts full API instance to InstanceDetails struct

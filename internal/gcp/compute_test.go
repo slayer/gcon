@@ -401,3 +401,92 @@ func TestInstanceMethods(t *testing.T) {
 func stringPtr(s string) *string {
 	return &s
 }
+
+func TestDiskFromAPI(t *testing.T) {
+	tests := []struct {
+		name     string
+		disk     *compute.Disk
+		zone     string
+		validate func(t *testing.T, disk Disk)
+	}{
+		{
+			name: "basic disk",
+			disk: &compute.Disk{
+				Name:              "test-disk",
+				SizeGb:            100,
+				Type:              "projects/test/zones/us-central1-a/diskTypes/pd-standard",
+				Status:            "READY",
+				CreationTimestamp: "2025-01-11T10:00:00Z",
+			},
+			zone: "zones/us-central1-a",
+			validate: func(t *testing.T, d Disk) {
+				assert.Equal(t, "test-disk", d.Name)
+				assert.Equal(t, "us-central1-a", d.Zone)
+				assert.Equal(t, int64(100), d.SizeGB)
+				assert.Equal(t, "pd-standard", d.Type)
+				assert.Equal(t, "READY", d.Status)
+				assert.Empty(t, d.AttachedTo)
+			},
+		},
+		{
+			name: "disk attached to instance",
+			disk: &compute.Disk{
+				Name:   "attached-disk",
+				SizeGb: 500,
+				Type:   "projects/test/zones/us-central1-a/diskTypes/pd-ssd",
+				Status: "READY",
+				Users: []string{
+					"projects/test/zones/us-central1-a/instances/my-vm",
+				},
+			},
+			zone: "zones/us-central1-a",
+			validate: func(t *testing.T, d Disk) {
+				assert.Equal(t, "attached-disk", d.Name)
+				assert.Equal(t, "pd-ssd", d.Type)
+				assert.Equal(t, "my-vm", d.AttachedTo)
+			},
+		},
+		{
+			name: "disk with balanced type",
+			disk: &compute.Disk{
+				Name:   "balanced-disk",
+				SizeGb: 200,
+				Type:   "projects/test/zones/us-east1-b/diskTypes/pd-balanced",
+				Status: "READY",
+			},
+			zone: "us-east1-b",
+			validate: func(t *testing.T, d Disk) {
+				assert.Equal(t, "us-east1-b", d.Zone)
+				assert.Equal(t, "pd-balanced", d.Type)
+				assert.Equal(t, int64(200), d.SizeGB)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			disk := diskFromAPI(tt.disk, tt.zone)
+			tt.validate(t, disk)
+		})
+	}
+}
+
+func TestDiskMethods(t *testing.T) {
+	t.Run("IsAttached", func(t *testing.T) {
+		attached := Disk{AttachedTo: "my-instance"}
+		detached := Disk{AttachedTo: ""}
+
+		assert.True(t, attached.IsAttached())
+		assert.False(t, detached.IsAttached())
+	})
+
+	t.Run("IsReady", func(t *testing.T) {
+		ready := Disk{Status: "READY"}
+		creating := Disk{Status: "CREATING"}
+		failed := Disk{Status: "FAILED"}
+
+		assert.True(t, ready.IsReady())
+		assert.False(t, creating.IsReady())
+		assert.False(t, failed.IsReady())
+	})
+}
