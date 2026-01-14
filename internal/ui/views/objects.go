@@ -765,13 +765,6 @@ func (v *ObjectsView) View() string {
 	return content
 }
 
-// SetSize updates the view dimensions (deprecated, use SetContext)
-func (v *ObjectsView) SetSize(width, height int) {
-	v.width = width
-	v.height = height
-	v.table.SetSize(width, height-8) // Extra space for title, status and help
-}
-
 // SetContext updates the view with shared program context.
 // Reads dimensions from the context for consistent sizing.
 func (v *ObjectsView) SetContext(ctx *context.ProgramContext) {

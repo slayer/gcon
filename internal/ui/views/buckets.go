@@ -242,11 +242,6 @@ func (v *BucketsView) View() string {
 	return v.table.View() + help
 }
 
-// SetSize updates the view dimensions (deprecated, use SetContext)
-func (v *BucketsView) SetSize(width, height int) {
-	v.table.SetSize(width, height-4)
-}
-
 // SetContext updates the view with shared program context.
 // Reads dimensions from the context for consistent sizing.
 func (v *BucketsView) SetContext(ctx *context.ProgramContext) {

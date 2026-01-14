@@ -269,11 +269,6 @@ func (v *DisksView) GetComputeClient() *gcp.ComputeClient {
 	return v.computeClient
 }
 
-// SetSize updates the view dimensions (deprecated, use SetContext)
-func (v *DisksView) SetSize(width, height int) {
-	v.table.SetSize(width, height-6) // Reserve space for header and help
-}
-
 // SetContext updates the view with shared program context.
 // Reads dimensions from the context for consistent sizing.
 func (v *DisksView) SetContext(ctx *context.ProgramContext) {

@@ -9,9 +9,15 @@ import (
 	"github.com/slayer/gcon/internal/ui/components/confirm"
 	"github.com/slayer/gcon/internal/ui/components/filepicker"
 	"github.com/slayer/gcon/internal/ui/components/progress"
+	"github.com/slayer/gcon/internal/ui/context"
 	"github.com/slayer/gcon/internal/ui/symbols"
 	"github.com/stretchr/testify/assert"
 )
+
+// testContext creates a test context with standard dimensions
+func testContext() *context.ProgramContext {
+	return &context.ProgramContext{ContentWidth: 100, ContentHeight: 50}
+}
 
 func TestObjectToRow(t *testing.T) {
 	t.Run("folder item", func(t *testing.T) {
@@ -147,7 +153,7 @@ func TestObjectsViewGetters(t *testing.T) {
 func TestObjectsViewSetSize(t *testing.T) {
 	view := NewObjectsView("test-bucket", nil)
 
-	view.SetSize(100, 50)
+	view.SetContext(testContext())
 
 	assert.Equal(t, 100, view.width)
 	assert.Equal(t, 50, view.height)
@@ -287,7 +293,7 @@ func TestObjectsViewFilePicker(t *testing.T) {
 	t.Run("pressing u opens file picker", func(t *testing.T) {
 		view := NewObjectsView("test-bucket", nil)
 		view.loading = false
-		view.SetSize(100, 50)
+		view.SetContext(testContext())
 
 		// Press 'u' to open upload file picker
 		view.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'u'}})
@@ -300,7 +306,7 @@ func TestObjectsViewFilePicker(t *testing.T) {
 		view := NewObjectsView("test-bucket", nil)
 		view.loading = false
 		view.objects = []gcp.StorageObject{} // Empty bucket
-		view.SetSize(100, 50)
+		view.SetContext(testContext())
 
 		// Press 'u' to open upload file picker
 		view.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'u'}})
@@ -312,7 +318,7 @@ func TestObjectsViewFilePicker(t *testing.T) {
 	t.Run("file picker receives forwarded messages", func(t *testing.T) {
 		view := NewObjectsView("test-bucket", nil)
 		view.loading = false
-		view.SetSize(100, 50)
+		view.SetContext(testContext())
 
 		// Open file picker
 		view.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'u'}})
@@ -331,7 +337,7 @@ func TestObjectsViewFilePicker(t *testing.T) {
 		view := NewObjectsView("test-bucket", nil)
 		view.loading = false
 		view.showFilePicker = true
-		view.SetSize(100, 50)
+		view.SetContext(testContext())
 
 		// Send confirm message with selected files
 		cmd := view.Update(filepicker.FilePickerConfirmMsg{
@@ -371,7 +377,7 @@ func TestObjectsViewFilePicker(t *testing.T) {
 	t.Run("keys are forwarded to file picker when active", func(t *testing.T) {
 		view := NewObjectsView("test-bucket", nil)
 		view.loading = false
-		view.SetSize(100, 50)
+		view.SetContext(testContext())
 
 		// Open file picker
 		view.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'u'}})
@@ -418,7 +424,7 @@ func TestObjectsViewDownload(t *testing.T) {
 	t.Run("downloadStartMsg initializes download state", func(t *testing.T) {
 		view := NewObjectsView("test-bucket", nil)
 		view.loading = false
-		view.SetSize(100, 50)
+		view.SetContext(testContext())
 
 		files := []gcp.StorageObject{
 			{Name: "file1.txt", DisplayName: "file1.txt", Size: 1024},
@@ -472,7 +478,7 @@ func TestObjectsViewUpload(t *testing.T) {
 	t.Run("uploadStartMsg initializes upload state", func(t *testing.T) {
 		view := NewObjectsView("test-bucket", nil)
 		view.loading = false
-		view.SetSize(100, 50)
+		view.SetContext(testContext())
 
 		// Note: uploadStartMsg requires actual files to exist for os.Stat
 		// This test verifies the state change
@@ -566,7 +572,7 @@ func TestObjectsViewDelete(t *testing.T) {
 
 	t.Run("deleteFilesResolvedMsg shows confirmation dialog", func(t *testing.T) {
 		view := NewObjectsView("test-bucket", nil)
-		view.SetSize(100, 50)
+		view.SetContext(testContext())
 		files := []gcp.StorageObject{
 			{Name: "file1.txt", DisplayName: "file1.txt"},
 		}
@@ -622,7 +628,7 @@ func TestObjectsViewDelete(t *testing.T) {
 
 	t.Run("deleteStartMsg initializes delete state", func(t *testing.T) {
 		view := NewObjectsView("test-bucket", nil)
-		view.SetSize(100, 50)
+		view.SetContext(testContext())
 		view.pendingDeleteFiles = []gcp.StorageObject{
 			{Name: "test.txt", DisplayName: "test.txt"},
 		}
@@ -690,7 +696,7 @@ func TestObjectsViewDelete(t *testing.T) {
 
 	t.Run("createDeleteConfirmDialog for single file", func(t *testing.T) {
 		view := NewObjectsView("test-bucket", nil)
-		view.SetSize(100, 50)
+		view.SetContext(testContext())
 		files := []gcp.StorageObject{
 			{Name: "test.txt", DisplayName: "test.txt"},
 		}
@@ -703,7 +709,7 @@ func TestObjectsViewDelete(t *testing.T) {
 
 	t.Run("createDeleteConfirmDialog for multiple files", func(t *testing.T) {
 		view := NewObjectsView("test-bucket", nil)
-		view.SetSize(100, 50)
+		view.SetContext(testContext())
 		files := []gcp.StorageObject{
 			{Name: "file1.txt", DisplayName: "file1.txt"},
 			{Name: "file2.txt", DisplayName: "file2.txt"},
@@ -717,7 +723,7 @@ func TestObjectsViewDelete(t *testing.T) {
 
 	t.Run("createDeleteConfirmDialog truncates long file list", func(t *testing.T) {
 		view := NewObjectsView("test-bucket", nil)
-		view.SetSize(100, 50)
+		view.SetContext(testContext())
 		files := make([]gcp.StorageObject, 10)
 		for i := 0; i < 10; i++ {
 			files[i] = gcp.StorageObject{Name: "file.txt", DisplayName: "file.txt"}

@@ -357,11 +357,6 @@ func (v *InstancesView) View() string {
 	return header + v.table.View() + help
 }
 
-// SetSize updates the view dimensions (deprecated, use SetContext)
-func (v *InstancesView) SetSize(width, height int) {
-	v.table.SetSize(width, height-6) // Reserve space for header and help
-}
-
 // SetContext updates the view with shared program context.
 // Reads dimensions from the context for consistent sizing.
 func (v *InstancesView) SetContext(ctx *context.ProgramContext) {

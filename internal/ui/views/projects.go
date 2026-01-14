@@ -227,11 +227,6 @@ func (v *ProjectsView) View() string {
 	return v.table.View() + help
 }
 
-// SetSize updates the view dimensions (deprecated, use SetContext)
-func (v *ProjectsView) SetSize(width, height int) {
-	v.table.SetSize(width, height-4) // Reserve space for help
-}
-
 // SetContext updates the view with shared program context.
 // Reads dimensions from the context for consistent sizing.
 func (v *ProjectsView) SetContext(ctx *context.ProgramContext) {

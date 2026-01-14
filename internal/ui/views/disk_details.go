@@ -176,13 +176,6 @@ func (v *DiskDetailsView) View() string {
 	return v.viewport.View() + help
 }
 
-// SetSize updates the view dimensions (deprecated, use SetContext)
-func (v *DiskDetailsView) SetSize(width, height int) {
-	v.width = width
-	v.height = height
-	v.applySize(width, height)
-}
-
 // SetContext updates the view with shared program context.
 // Reads dimensions from the context for consistent sizing.
 func (v *DiskDetailsView) SetContext(ctx *context.ProgramContext) {

@@ -5,6 +5,7 @@ import (
 
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components/table"
+	"github.com/slayer/gcon/internal/ui/context"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -18,7 +19,8 @@ func TestDisksView_NewDisksView(t *testing.T) {
 
 func TestDisksView_RenderLoading(t *testing.T) {
 	v := NewDisksView("test-project")
-	v.SetSize(80, 30)
+	ctx := &context.ProgramContext{ContentWidth: 80, ContentHeight: 30}
+	v.SetContext(ctx)
 
 	output := v.renderLoading("Loading disks...")
 
