@@ -3,6 +3,7 @@ package progress
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
@@ -16,7 +17,7 @@ var (
 	mutedTextColor = lipgloss.Color("#9AA0A6")
 )
 
-// Progress represents a progress bar display
+// Progress represents a progress bar display with elapsed time tracking
 type Progress struct {
 	Title            string
 	CurrentFile      string
@@ -25,13 +26,45 @@ type Progress struct {
 	BytesTransferred int64
 	TotalBytes       int64
 	width            int
+	startTime        time.Time
+	showElapsed      bool
 }
 
 // New creates a new progress display
 func New() *Progress {
 	return &Progress{
-		width: 50,
+		width:       50,
+		showElapsed: true,
 	}
+}
+
+// Start begins elapsed time tracking
+func (p *Progress) Start() {
+	p.startTime = time.Now()
+}
+
+// Elapsed returns the elapsed duration since Start was called
+func (p *Progress) Elapsed() time.Duration {
+	if p.startTime.IsZero() {
+		return 0
+	}
+	return time.Since(p.startTime)
+}
+
+// Reset resets the progress state including the timer
+func (p *Progress) Reset() {
+	p.Title = ""
+	p.CurrentFile = ""
+	p.CurrentFileNum = 0
+	p.TotalFiles = 0
+	p.BytesTransferred = 0
+	p.TotalBytes = 0
+	p.startTime = time.Time{}
+}
+
+// SetShowElapsed controls whether elapsed time is displayed
+func (p *Progress) SetShowElapsed(show bool) {
+	p.showElapsed = show
 }
 
 // SetSize sets the width of the progress bar
@@ -95,15 +128,22 @@ func (p *Progress) View() string {
 	sizeStyle := lipgloss.NewStyle().
 		Foreground(mutedTextColor)
 
+	elapsedStyle := lipgloss.NewStyle().
+		Foreground(mutedTextColor)
+
 	// Build content
 	var lines []string
 
-	// Title line
+	// Title line with elapsed time
+	titleText := p.Title
 	if p.TotalFiles > 1 {
-		lines = append(lines, titleStyle.Render(fmt.Sprintf("%s: %d of %d files", p.Title, p.CurrentFileNum, p.TotalFiles)))
-	} else {
-		lines = append(lines, titleStyle.Render(p.Title))
+		titleText = fmt.Sprintf("%s: %d of %d files", p.Title, p.CurrentFileNum, p.TotalFiles)
 	}
+	if p.showElapsed && !p.startTime.IsZero() {
+		elapsed := p.formatElapsed()
+		titleText = fmt.Sprintf("%s  %s", titleText, elapsedStyle.Render(elapsed))
+	}
+	lines = append(lines, titleStyle.Render(titleText))
 
 	// Current file line
 	if p.CurrentFile != "" {
@@ -136,4 +176,17 @@ type ProgressUpdate struct {
 	TotalFiles       int
 	Done             bool  // True when operation is complete
 	Error            error // Non-nil if operation failed
+}
+
+// formatElapsed formats the elapsed duration as MM:SS or HH:MM:SS
+func (p *Progress) formatElapsed() string {
+	d := p.Elapsed()
+	hours := int(d.Hours())
+	minutes := int(d.Minutes()) % 60
+	seconds := int(d.Seconds()) % 60
+
+	if hours > 0 {
+		return fmt.Sprintf("%02d:%02d:%02d", hours, minutes, seconds)
+	}
+	return fmt.Sprintf("%02d:%02d", minutes, seconds)
 }
