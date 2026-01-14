@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components/commandpalette"
 	"github.com/slayer/gcon/internal/ui/components/sidebar"
@@ -815,14 +816,15 @@ func (a *App) renderWithCommandPalette(background string) string {
 	return strings.Join(result, "\n")
 }
 
-// truncateRight keeps the first n visible characters of an ANSI string
+// truncateRight keeps the first n visible columns of an ANSI string.
+// Uses runewidth to correctly handle wide characters (e.g., CJK, some symbols).
 func truncateRight(s string, n int) string {
 	if n <= 0 {
 		return ""
 	}
 
 	var result strings.Builder
-	var visibleCount int
+	var visibleWidth int
 	inEscape := false
 
 	for _, r := range s {
@@ -839,40 +841,39 @@ func truncateRight(s string, n int) string {
 			continue
 		}
 
-		if visibleCount >= n {
+		rw := runewidth.RuneWidth(r)
+		if visibleWidth+rw > n {
 			break
 		}
 		result.WriteRune(r)
-		visibleCount++
+		visibleWidth += rw
 	}
 
 	return result.String()
 }
 
-// truncateLeft removes the first n visible characters from an ANSI string
+// truncateLeft removes the first n visible columns from an ANSI string.
+// Uses runewidth to correctly handle wide characters.
 func truncateLeft(s string, n int) string {
 	width := lipgloss.Width(s)
 	if n >= width {
 		return ""
 	}
-	// Truncate to (width - n) from the right, but we need from the left
-	// Use a workaround: truncate to full width, then find where to cut
-	// This is tricky with ANSI codes, so we iterate through runes
 
 	var result strings.Builder
-	var visibleCount int
+	var visibleWidth int
 	inEscape := false
 
 	for _, r := range s {
 		if r == '\x1b' {
 			inEscape = true
-			if visibleCount >= n {
+			if visibleWidth >= n {
 				result.WriteRune(r)
 			}
 			continue
 		}
 		if inEscape {
-			if visibleCount >= n {
+			if visibleWidth >= n {
 				result.WriteRune(r)
 			}
 			if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
@@ -881,10 +882,11 @@ func truncateLeft(s string, n int) string {
 			continue
 		}
 
-		if visibleCount >= n {
+		rw := runewidth.RuneWidth(r)
+		if visibleWidth >= n {
 			result.WriteRune(r)
 		}
-		visibleCount++
+		visibleWidth += rw
 	}
 
 	return result.String()
