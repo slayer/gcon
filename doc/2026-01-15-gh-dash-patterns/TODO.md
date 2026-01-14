@@ -10,15 +10,17 @@ Adopt valuable patterns from gh-dash TUI into gcon to improve code organization,
 - [x] Add shared dimensions (ScreenWidth, ScreenHeight, ContentWidth, ContentHeight)
 - [x] Add shared styles reference
 - [x] Add StartTask callback for async operations
-- [ ] Update App to propagate context to all views (deferred - requires larger refactor)
-- [ ] Update views to use context instead of individual SetSize calls (deferred)
+- [x] Update App to use ProgramContext with syncContext method
+- [x] Add GetContext() method for views to access shared context
+- [ ] Update views to use context instead of individual SetSize calls (future enhancement)
 
 ### Phase 2: Task Tracking System (High Value, Medium Effort)
 - [x] Create Task struct with states in `internal/ui/context/context.go`
 - [x] Add task map to ProgramContext for tracking active operations
 - [x] Create messages for task lifecycle (TaskStartedMsg, TaskFinishedMsg, TaskClearMsg)
-- [ ] Update async operations to use task system (deferred - requires view changes)
-- [ ] Implement auto-clear after task completion (deferred)
+- [x] Add startTask and finishTask methods to App
+- [x] Handle TaskClearMsg in App.Update for auto-removal after 2 seconds
+- [ ] Update async operations in views to use task system (future enhancement)
 
 ### Phase 3: Table Enhancements (High Value, Medium Effort)
 - [x] Add Column struct with Title, Width, Hidden, Grow, ComputedWidth fields
