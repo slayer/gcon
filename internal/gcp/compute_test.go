@@ -490,3 +490,115 @@ func TestDiskMethods(t *testing.T) {
 		assert.False(t, failed.IsReady())
 	})
 }
+
+func TestDiskDetailsFromAPI(t *testing.T) {
+	tests := []struct {
+		name     string
+		disk     *compute.Disk
+		zone     string
+		validate func(t *testing.T, details *DiskDetails)
+	}{
+		{
+			name: "basic disk",
+			disk: &compute.Disk{
+				Name:              "test-disk",
+				Id:                12345,
+				Description:       "Test disk",
+				Status:            "READY",
+				SizeGb:            100,
+				Type:              "projects/test/zones/us-central1-a/diskTypes/pd-ssd",
+				CreationTimestamp: "2025-01-11T10:00:00Z",
+			},
+			zone: "zones/us-central1-a",
+			validate: func(t *testing.T, d *DiskDetails) {
+				assert.Equal(t, "test-disk", d.Name)
+				assert.Equal(t, uint64(12345), d.ID)
+				assert.Equal(t, "Test disk", d.Description)
+				assert.Equal(t, "READY", d.Status)
+				assert.Equal(t, "us-central1-a", d.Zone)
+				assert.Equal(t, int64(100), d.SizeGB)
+				assert.Equal(t, "pd-ssd", d.Type)
+				assert.Equal(t, "Google-managed", d.DiskEncryptionKey)
+			},
+		},
+		{
+			name: "disk with users",
+			disk: &compute.Disk{
+				Name:   "attached-disk",
+				Id:     67890,
+				Status: "READY",
+				SizeGb: 500,
+				Type:   "projects/test/zones/us-central1-a/diskTypes/pd-balanced",
+				Users: []string{
+					"projects/test/zones/us-central1-a/instances/vm-1",
+					"projects/test/zones/us-central1-a/instances/vm-2",
+				},
+			},
+			zone: "us-central1-a",
+			validate: func(t *testing.T, d *DiskDetails) {
+				assert.Equal(t, "attached-disk", d.Name)
+				assert.Len(t, d.Users, 2)
+				assert.Equal(t, "vm-1", d.Users[0])
+				assert.Equal(t, "vm-2", d.Users[1])
+			},
+		},
+		{
+			name: "disk with source image",
+			disk: &compute.Disk{
+				Name:        "boot-disk",
+				Id:          11111,
+				Status:      "READY",
+				SizeGb:      50,
+				Type:        "pd-standard",
+				SourceImage: "projects/debian-cloud/global/images/debian-11-bullseye-v20230711",
+			},
+			zone: "us-east1-b",
+			validate: func(t *testing.T, d *DiskDetails) {
+				assert.Equal(t, "debian-11-bullseye-v20230711", d.SourceImage)
+				assert.Empty(t, d.SourceSnapshot)
+				assert.Empty(t, d.SourceDisk)
+			},
+		},
+		{
+			name: "disk with CMEK encryption",
+			disk: &compute.Disk{
+				Name:   "encrypted-disk",
+				Id:     22222,
+				Status: "READY",
+				SizeGb: 200,
+				Type:   "pd-ssd",
+				DiskEncryptionKey: &compute.CustomerEncryptionKey{
+					KmsKeyName: "projects/test/locations/global/keyRings/my-ring/cryptoKeys/my-key",
+				},
+			},
+			zone: "us-west1-a",
+			validate: func(t *testing.T, d *DiskDetails) {
+				assert.Equal(t, "Customer-managed (CMEK)", d.DiskEncryptionKey)
+			},
+		},
+		{
+			name: "disk with provisioned IOPS",
+			disk: &compute.Disk{
+				Name:                  "extreme-disk",
+				Id:                    33333,
+				Status:                "READY",
+				SizeGb:                1000,
+				Type:                  "pd-extreme",
+				ProvisionedIops:       50000,
+				ProvisionedThroughput: 1200,
+			},
+			zone: "us-central1-a",
+			validate: func(t *testing.T, d *DiskDetails) {
+				assert.Equal(t, int64(50000), d.ProvisionedIOPS)
+				assert.Equal(t, int64(1200), d.ProvisionedTPUT)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			details := diskDetailsFromAPI(tt.disk, tt.zone)
+			tt.validate(t, details)
+		})
+	}
+}
