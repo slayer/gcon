@@ -757,21 +757,126 @@ func (a *App) renderWithCommandPalette(background string) string {
 		topPad = 2
 	}
 
-	// Overlay the palette on the background
+	// Overlay the palette on the background, preserving content on both sides
 	result := make([]string, len(bgLines))
 	copy(result, bgLines)
+
+	rightStart := leftPad + paletteWidth
 
 	for i, paletteLine := range paletteLines {
 		bgIndex := topPad + i
 		if bgIndex < len(result) {
-			// Replace background line with padded palette line
-			// We fully replace the line rather than trying to preserve background
-			// because ANSI escape codes make byte-based slicing unreliable
-			result[bgIndex] = strings.Repeat(" ", leftPad) + paletteLine
+			bgLine := result[bgIndex]
+			bgWidth := lipgloss.Width(bgLine)
+
+			// Build the overlayed line:
+			// 1. Left part of background (truncated to leftPad width)
+			// 2. Palette line
+			// 3. Right part of background (from rightStart onwards)
+			var newLine strings.Builder
+
+			// Left part: truncate background to leftPad characters
+			if leftPad > 0 {
+				leftPart := truncateRight(bgLine, leftPad)
+				newLine.WriteString(leftPart)
+				// Pad if background was shorter than leftPad
+				leftWidth := lipgloss.Width(leftPart)
+				if leftWidth < leftPad {
+					newLine.WriteString(strings.Repeat(" ", leftPad-leftWidth))
+				}
+			}
+
+			// Middle: the palette line
+			newLine.WriteString(paletteLine)
+
+			// Right part: skip first rightStart characters of background
+			if rightStart < bgWidth {
+				// Use ansi.Truncate to get full line, then truncate left part
+				// We need to cut the first rightStart characters
+				rightPart := truncateLeft(bgLine, rightStart)
+				newLine.WriteString(rightPart)
+			}
+
+			result[bgIndex] = newLine.String()
 		}
 	}
 
 	return strings.Join(result, "\n")
+}
+
+// truncateRight keeps the first n visible characters of an ANSI string
+func truncateRight(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+
+	var result strings.Builder
+	var visibleCount int
+	inEscape := false
+
+	for _, r := range s {
+		if r == '\x1b' {
+			inEscape = true
+			result.WriteRune(r)
+			continue
+		}
+		if inEscape {
+			result.WriteRune(r)
+			if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
+				inEscape = false
+			}
+			continue
+		}
+
+		if visibleCount >= n {
+			break
+		}
+		result.WriteRune(r)
+		visibleCount++
+	}
+
+	return result.String()
+}
+
+// truncateLeft removes the first n visible characters from an ANSI string
+func truncateLeft(s string, n int) string {
+	width := lipgloss.Width(s)
+	if n >= width {
+		return ""
+	}
+	// Truncate to (width - n) from the right, but we need from the left
+	// Use a workaround: truncate to full width, then find where to cut
+	// This is tricky with ANSI codes, so we iterate through runes
+
+	var result strings.Builder
+	var visibleCount int
+	inEscape := false
+
+	for _, r := range s {
+		if r == '\x1b' {
+			inEscape = true
+			if visibleCount >= n {
+				result.WriteRune(r)
+			}
+			continue
+		}
+		if inEscape {
+			if visibleCount >= n {
+				result.WriteRune(r)
+			}
+			if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
+				inEscape = false
+			}
+			continue
+		}
+
+		if visibleCount >= n {
+			result.WriteRune(r)
+		}
+		visibleCount++
+	}
+
+	return result.String()
 }
 
 // renderCurrentView renders the content area based on current view

@@ -8,7 +8,6 @@ var (
 	colorMuted    = lipgloss.Color("#9AA0A6") // Gray
 	colorText     = lipgloss.Color("#FFFFFF") // White text
 	colorBorder   = lipgloss.Color("#5F6368") // Border gray
-	colorBgModal  = lipgloss.Color("#303134") // Modal background
 	colorSelected = lipgloss.Color("#4285F4") // Selected item background
 )
 
