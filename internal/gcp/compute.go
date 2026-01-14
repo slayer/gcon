@@ -31,6 +31,39 @@ type Disk struct {
 	CreatedAt  string
 }
 
+// DiskDetails contains comprehensive persistent disk information
+type DiskDetails struct {
+	// Basic Information
+	Name        string
+	ID          uint64
+	Description string
+	Status      string
+	Zone        string
+	CreatedAt   string
+	LastAttach  string
+	LastDetach  string
+	Labels      map[string]string
+
+	// Size and Type
+	SizeGB          int64
+	Type            string // pd-standard, pd-ssd, pd-balanced, pd-extreme
+	ProvisionedIOPS int64  // For pd-extreme disks
+	ProvisionedTPUT int64  // Provisioned throughput in MB/s
+
+	// Source
+	SourceImage    string
+	SourceSnapshot string
+	SourceDisk     string
+
+	// Encryption
+	DiskEncryptionKey string // Type of encryption (Google-managed, CMEK, etc.)
+
+	// Usage
+	Users              []string // Instances using this disk
+	ReplicaZones       []string // For regional disks
+	PhysicalBlockSizeB int64    // Physical block size in bytes
+}
+
 // InstanceDetails contains comprehensive VM instance information
 type InstanceDetails struct {
 	// Basic Information
@@ -282,6 +315,62 @@ func (d *Disk) IsAttached() bool {
 // IsReady returns true if the disk is in READY state
 func (d *Disk) IsReady() bool {
 	return d.Status == "READY"
+}
+
+// GetDiskDetails returns comprehensive details for a specific disk
+func (c *ComputeClient) GetDiskDetails(ctx context.Context, projectID, zone, diskName string) (*DiskDetails, error) {
+	disk, err := c.service.Disks.Get(projectID, zone, diskName).Context(ctx).Do()
+	if err != nil {
+		return nil, WrapGetError(err, "disk details", diskName)
+	}
+
+	return diskDetailsFromAPI(disk, zone), nil
+}
+
+// diskDetailsFromAPI converts full API disk to DiskDetails struct
+func diskDetailsFromAPI(d *compute.Disk, zone string) *DiskDetails {
+	details := &DiskDetails{
+		Name:               d.Name,
+		ID:                 d.Id,
+		Description:        d.Description,
+		Status:             d.Status,
+		Zone:               extractName(zone),
+		CreatedAt:          d.CreationTimestamp,
+		LastAttach:         d.LastAttachTimestamp,
+		LastDetach:         d.LastDetachTimestamp,
+		Labels:             d.Labels,
+		SizeGB:             d.SizeGb,
+		Type:               extractName(d.Type),
+		ProvisionedIOPS:    d.ProvisionedIops,
+		ProvisionedTPUT:    d.ProvisionedThroughput,
+		SourceImage:        extractName(d.SourceImage),
+		SourceSnapshot:     extractName(d.SourceSnapshot),
+		SourceDisk:         extractName(d.SourceDisk),
+		PhysicalBlockSizeB: d.PhysicalBlockSizeBytes,
+	}
+
+	// Extract user instance names from full URLs
+	for _, user := range d.Users {
+		details.Users = append(details.Users, extractName(user))
+	}
+
+	// Extract replica zones for regional disks
+	for _, rz := range d.ReplicaZones {
+		details.ReplicaZones = append(details.ReplicaZones, extractName(rz))
+	}
+
+	// Determine encryption type
+	details.DiskEncryptionKey = "Google-managed"
+	if d.DiskEncryptionKey != nil {
+		switch {
+		case d.DiskEncryptionKey.KmsKeyName != "":
+			details.DiskEncryptionKey = "Customer-managed (CMEK)"
+		case d.DiskEncryptionKey.RawKey != "":
+			details.DiskEncryptionKey = "Customer-supplied (CSEK)"
+		}
+	}
+
+	return details
 }
 
 // instanceDetailsFromAPI converts full API instance to InstanceDetails struct

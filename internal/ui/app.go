@@ -24,6 +24,7 @@ const (
 	ViewInstances
 	ViewInstanceDetails
 	ViewDisks
+	ViewDiskDetails
 	ViewBuckets
 	ViewObjects // Browsing objects within a bucket
 	ViewNetworks
@@ -55,12 +56,14 @@ type App struct {
 	instancesView       *views.InstancesView
 	instanceDetailsView *views.InstanceDetailsView
 	disksView           *views.DisksView
+	diskDetailsView     *views.DiskDetailsView
 	bucketsView         *views.BucketsView
 	objectsView         *views.ObjectsView
 
 	// Selected context
 	selectedProject  *gcp.Project
 	selectedInstance *gcp.Instance
+	selectedDisk     *gcp.Disk
 	selectedBucket   *gcp.Bucket
 
 	// UI state
@@ -171,6 +174,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.selectedInstance = nil
 				a.updateSidebarActiveView()
 				return a, nil
+			case ViewDiskDetails:
+				// Go back to disks list
+				a.currentView = ViewDisks
+				a.diskDetailsView = nil
+				a.selectedDisk = nil
+				a.updateSidebarActiveView()
+				return a, nil
 			case ViewObjects:
 				// Check if we can go up a folder, otherwise go back to buckets
 				if a.objectsView != nil {
@@ -190,6 +200,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.currentView = ViewProjects
 				a.instancesView = nil
 				a.disksView = nil
+				a.diskDetailsView = nil
 				// Close storage client before discarding bucketsView
 				if a.bucketsView != nil {
 					_ = a.bucketsView.Close()
@@ -286,6 +297,22 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.updateViewSizes()
 		return a, a.instanceDetailsView.Init()
 
+	case views.DiskSelectedMsg:
+		// Navigate to disk details view
+		disk := msg.Disk
+		a.selectedDisk = &disk
+		a.currentView = ViewDiskDetails
+		// Pass compute client from disks view to avoid re-initialization
+		a.diskDetailsView = views.NewDiskDetailsView(
+			a.selectedProject.ID,
+			disk.Zone,
+			disk.Name,
+			a.disksView.GetComputeClient(),
+		)
+		a.updateSidebarActiveView()
+		a.updateViewSizes()
+		return a, a.diskDetailsView.Init()
+
 	case InitialProjectLoadedMsg:
 		// Initial project loaded successfully, go directly to instances view
 		a.loadingInitialProject = false
@@ -345,6 +372,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case ViewDisks:
 			if a.disksView != nil {
 				cmd = a.disksView.Update(msg)
+			}
+		case ViewDiskDetails:
+			if a.diskDetailsView != nil {
+				cmd = a.diskDetailsView.Update(msg)
 			}
 		case ViewBuckets:
 			if a.bucketsView != nil {
@@ -518,6 +549,9 @@ func (a *App) updateViewSizes() {
 	if a.disksView != nil {
 		a.disksView.SetSize(contentWidth, contentHeight)
 	}
+	if a.diskDetailsView != nil {
+		a.diskDetailsView.SetSize(contentWidth, contentHeight)
+	}
 	if a.bucketsView != nil {
 		a.bucketsView.SetSize(contentWidth, contentHeight)
 	}
@@ -531,7 +565,7 @@ func (a *App) updateSidebarActiveView() {
 	switch a.currentView {
 	case ViewInstances, ViewInstanceDetails:
 		a.sidebar.SetActiveView(sidebar.ViewInstances)
-	case ViewDisks:
+	case ViewDisks, ViewDiskDetails:
 		a.sidebar.SetActiveView(sidebar.ViewDisks)
 	case ViewBuckets, ViewObjects:
 		a.sidebar.SetActiveView(sidebar.ViewBuckets)
@@ -720,6 +754,10 @@ func (a *App) renderHeader() string {
 
 		if a.currentView == ViewInstanceDetails && a.selectedInstance != nil {
 			header += a.styles.Muted.Render(" • " + a.selectedInstance.Name)
+		}
+
+		if a.currentView == ViewDiskDetails && a.selectedDisk != nil {
+			header += a.styles.Muted.Render(" • " + a.selectedDisk.Name)
 		}
 
 		// Show bucket name and path when browsing objects
@@ -968,6 +1006,10 @@ func (a *App) renderCurrentView() string {
 	case ViewDisks:
 		if a.disksView != nil {
 			return a.disksView.View()
+		}
+	case ViewDiskDetails:
+		if a.diskDetailsView != nil {
+			return a.diskDetailsView.View()
 		}
 	case ViewBuckets:
 		if a.bucketsView != nil {
