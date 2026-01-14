@@ -331,6 +331,7 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 			totalSize += f.Size
 		}
 
+		v.downloadProgress.Start() // Start elapsed time tracking
 		v.downloadProgress.SetProgress(
 			"Downloading",
 			msg.files[0].DisplayName,
@@ -398,6 +399,7 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 			}
 		}
 
+		v.uploadProgress.Start() // Start elapsed time tracking
 		v.uploadProgress.SetProgress(
 			"Uploading",
 			filepath.Base(msg.files[0]),
@@ -490,6 +492,7 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 	case deleteStartMsg:
 		v.deleting = true
 		if len(msg.files) > 0 {
+			v.deleteProgress.Start() // Start elapsed time tracking
 			v.deleteProgress.SetProgress(
 				"Deleting",
 				msg.files[0].DisplayName,
