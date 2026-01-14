@@ -12,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
+	"github.com/slayer/gcon/internal/ui/symbols"
 )
 
 // Colors matching GCP theme
@@ -50,9 +51,9 @@ func (i fileItem) Title() string {
 	}
 
 	// Icon and name
-	icon := "📄"
+	icon := symbols.File()
 	if i.entry.IsDir {
-		icon = "📁"
+		icon = symbols.Folder()
 	}
 
 	// Format: "[x] 📄 filename.txt (1.5 KB)" or "[x] 📁 foldername"

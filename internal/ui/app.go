@@ -1,7 +1,7 @@
 package ui
 
 import (
-	"context"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
@@ -9,6 +9,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components/sidebar"
+	"github.com/slayer/gcon/internal/ui/layout"
+	"github.com/slayer/gcon/internal/ui/symbols"
 	"github.com/slayer/gcon/internal/ui/views"
 )
 
@@ -43,6 +45,7 @@ type App struct {
 	help      help.Model
 	width     int
 	height    int
+	layout    *layout.Layout // Tile-based layout manager
 
 	// Current view state
 	currentView         ViewType
@@ -58,8 +61,9 @@ type App struct {
 	selectedBucket   *gcp.Bucket
 
 	// UI state
-	showHelp bool
-	err      error
+	showHelp              bool
+	err                   error
+	loadingInitialProject bool // True while loading project from config/flag
 
 	// Initial project from config/flag (skip project selector if set)
 	initialProjectID string
@@ -82,6 +86,7 @@ func NewApp(client *gcp.Client, opts AppOptions) *App {
 		styles:           DefaultStyles(),
 		keys:             DefaultKeyMap(),
 		help:             help.New(),
+		layout:           layout.New(),
 		currentView:      ViewProjects,
 		projectView:      views.NewProjectsView(client),
 		initialProjectID: opts.InitialProjectID,
@@ -94,22 +99,25 @@ func NewApp(client *gcp.Client, opts AppOptions) *App {
 func (a *App) Init() tea.Cmd {
 	// If initial project is set, load it directly instead of showing selector
 	if a.initialProjectID != "" {
+		a.loadingInitialProject = true
 		return a.loadInitialProject()
 	}
 	return a.projectView.Init()
 }
 
-// loadInitialProject fetches project details and switches to instances view
+// loadInitialProject switches directly to instances view using the configured project ID.
+// Trade-off: We skip project validation to avoid requiring cloudresourcemanager permissions.
+// This means invalid project IDs won't be caught until the user tries to load instances,
+// but it allows users without project listing permissions to still use the app.
 func (a *App) loadInitialProject() tea.Cmd {
 	return func() tea.Msg {
-		project, err := a.gcpClient.GetProject(context.Background(), a.initialProjectID)
-		if err != nil {
-			return InitialProjectErrorMsg{
-				Err:       err,
-				ProjectID: a.initialProjectID,
-			}
+		// Use project ID directly without validation
+		return InitialProjectLoadedMsg{
+			Project: gcp.Project{
+				ID:   a.initialProjectID,
+				Name: a.initialProjectID,
+			},
 		}
-		return InitialProjectLoadedMsg{Project: *project}
 	}
 }
 
@@ -207,6 +215,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.width = msg.Width
 		a.height = msg.Height
 		a.help.Width = msg.Width
+		// Update layout with new terminal dimensions
+		a.layout.SetSize(msg.Width, msg.Height)
 		a.updateViewSizes()
 		return a, nil
 
@@ -243,6 +253,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case InitialProjectLoadedMsg:
 		// Initial project loaded successfully, go directly to instances view
+		a.loadingInitialProject = false
 		a.selectedProject = &msg.Project
 		a.currentView = ViewInstances
 		a.instancesView = views.NewInstancesView(msg.Project.ID)
@@ -253,6 +264,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case InitialProjectErrorMsg:
 		// Failed to load initial project, fall back to selector with error displayed
+		a.loadingInitialProject = false
 		a.err = msg.Err
 		a.initialProjectID = ""
 		return a, a.projectView.Init()
@@ -325,18 +337,29 @@ func (a *App) toggleFocus() {
 	}
 }
 
-// updateViewSizes recalculates sizes for all views
+// updateViewSizes recalculates sizes for all views using the layout manager
 func (a *App) updateViewSizes() {
-	contentWidth := a.width
-	contentHeight := a.height - 4 // Account for header and footer
-
-	// Subtract sidebar width when active
+	// Update layout with sidebar state
 	if a.sidebarActive() {
-		contentWidth -= a.sidebar.Width()
+		a.layout.SetSidebarWidth(a.sidebar.Width())
+		a.layout.SetSidebarActive(true)
+	} else {
+		a.layout.SetSidebarActive(false)
+	}
+
+	// Get dimensions from layout - layout handles all calculations
+	contentWidth := a.layout.ContentWidth()
+	contentHeight := a.layout.ContentHeight()
+
+	// Sidebar uses content height directly
+	if a.sidebarActive() {
 		a.sidebar.SetSize(contentHeight)
 	}
 
+	// Projects view uses full width (no sidebar)
 	a.projectView.SetSize(a.width, contentHeight)
+
+	// Other views use content area (respecting sidebar)
 	if a.instancesView != nil {
 		a.instancesView.SetSize(contentWidth, contentHeight)
 	}
@@ -424,6 +447,16 @@ func (a *App) View() string {
 		return header + "\n\n  Loading..."
 	}
 
+	// Get dimensions from layout for consistent rendering
+	_, headerHeight := a.layout.HeaderSize()
+	contentHeight := a.layout.ContentHeight()
+	_, footerHeight := a.layout.FooterSize()
+
+	debugLog("=== View() called ===")
+	debugLog("Terminal: width=%d, height=%d", a.width, a.height)
+	debugLog("Layout: header=%d, content=%d, footer=%d, total=%d",
+		headerHeight, contentHeight, footerHeight, headerHeight+contentHeight+footerHeight)
+
 	// Main content area (with or without sidebar)
 	var content string
 	if a.sidebarActive() {
@@ -432,26 +465,78 @@ func (a *App) View() string {
 		content = a.renderCurrentView()
 	}
 
+	debugLogView("Raw header", header)
+	debugLogView("Raw content", content)
+
 	// Error display
 	if a.err != nil {
 		content += "\n" + a.styles.Error.Render("Error: "+a.err.Error())
 	}
 
-	// Help footer
+	// Use lipgloss.Place for positioning, then truncate at line boundaries.
+	// Line-based truncation is ANSI-safe since escape sequences don't span lines.
+	// This avoids the fragmentation issues that MaxHeight() causes in native terminals.
+	//
+	// Calculate safe width for each component individually.
+	// lipgloss.Place() pads based on lipgloss.Width(), but terminals may render
+	// some emojis wider than lipgloss measures. We reduce the target width
+	// by the emoji count in each component to compensate.
 	footer := a.renderFooter()
 
-	// Compose final layout
-	return lipgloss.JoinVertical(
+	// Calculate safe width for the component with the most emojis.
+	// JoinVertical pads all components to match the widest one, so we must
+	// use a single safe width based on the worst-case emoji count.
+	// This ensures lines with emojis don't overflow after JoinVertical padding.
+	allContent := header + "\n" + content + "\n" + footer
+	safeWidth := SafeWidth(a.width, allContent)
+
+	placedHeader := lipgloss.Place(safeWidth, headerHeight, lipgloss.Left, lipgloss.Top, header)
+	placedContent := lipgloss.Place(safeWidth, contentHeight, lipgloss.Left, lipgloss.Top, content)
+	placedFooter := lipgloss.Place(safeWidth, footerHeight, lipgloss.Left, lipgloss.Top, footer)
+
+	debugLog("SafeWidth: %d (terminal=%d), maxEmojis=%d",
+		safeWidth, a.width, maxLineEmojiCount(allContent))
+	debugLogView("Placed header", placedHeader)
+	debugLogView("Placed content", placedContent)
+	debugLogView("Placed footer", placedFooter)
+
+	styledHeader := truncateToHeight(placedHeader, headerHeight)
+	styledContent := truncateToHeight(placedContent, contentHeight)
+	styledFooter := truncateToHeight(placedFooter, footerHeight)
+
+	// Compose final layout with guaranteed heights
+	result := lipgloss.JoinVertical(
 		lipgloss.Left,
-		header,
-		content,
-		footer,
+		styledHeader,
+		styledContent,
+		styledFooter,
 	)
+
+	// Log width analysis
+	resultLines := strings.Split(result, "\n")
+	debugLog("Final result: %d lines", len(resultLines))
+	for i, line := range resultLines {
+		w := lipgloss.Width(line)
+		tw := TerminalWidth(line)
+		emojiCount := countWideEmojis(line)
+		if tw > a.width {
+			debugLog("! Line %d exceeds width: lipgloss=%d, terminal=%d > %d, emojis=%d", i, w, tw, a.width, emojiCount)
+			// Show first 80 chars of raw line content for debugging
+			preview := line
+			if len(preview) > 80 {
+				preview = preview[:80] + "..."
+			}
+			debugLog("  content: %q", preview)
+		}
+	}
+	debugLog("")
+
+	return result
 }
 
 // renderHeader creates the header with breadcrumb
 func (a *App) renderHeader() string {
-	header := a.styles.Title.Render("☁ gcon")
+	header := a.styles.Title.Render(symbols.Cloud() + " gcon")
 	if a.selectedProject != nil {
 		header += a.styles.Muted.Render(" • " + a.selectedProject.ID)
 
@@ -485,20 +570,71 @@ func (a *App) renderHeader() string {
 	return header
 }
 
-// renderWithSidebar creates the two-panel layout
+// renderWithSidebar creates the two-panel layout with guaranteed matching heights
 func (a *App) renderWithSidebar() string {
+	// Sidebar already has its own styling (border, width, height) applied internally
 	sidebarView := a.sidebar.View()
 	contentView := a.renderCurrentView()
 
-	return lipgloss.JoinHorizontal(
+	// Calculate safe width accounting for emojis in BOTH sidebar and content.
+	// JoinHorizontal combines lines side-by-side, so emojis from both views
+	// end up on the same terminal line. We need to account for the maximum
+	// combined emoji count on any single line.
+	sidebarMaxEmojis := maxLineEmojiCount(sidebarView)
+	contentMaxEmojis := maxLineEmojiCount(contentView)
+	totalMaxEmojis := sidebarMaxEmojis + contentMaxEmojis
+
+	// Debug: show emoji count per sidebar line
+	sidebarLines := strings.Split(sidebarView, "\n")
+	for i, line := range sidebarLines {
+		ec := countWideEmojis(line)
+		if ec > 0 {
+			debugLog("  sidebar line %d: %d emojis, width=%d", i, ec, lipgloss.Width(line))
+		}
+	}
+
+	mainWidth := a.layout.ContentWidth() - totalMaxEmojis
+	if mainWidth < 10 {
+		mainWidth = 10
+	}
+	// Use MaxWidth to constrain content that may be wider than available space.
+	// Width() sets minimum width, MaxWidth() sets maximum and truncates/wraps.
+	mainStyle := lipgloss.NewStyle().Width(mainWidth).MaxWidth(mainWidth)
+	styledContent := mainStyle.Render(contentView)
+
+	debugLog("renderWithSidebar: sidebar=%d, contentWidth=%d, mainWidth=%d, emojis=%d+%d",
+		lipgloss.Width(sidebarView), a.layout.ContentWidth(), mainWidth,
+		sidebarMaxEmojis, contentMaxEmojis)
+
+	// Join horizontally - parent View() will enforce overall height
+	result := lipgloss.JoinHorizontal(
 		lipgloss.Top,
 		sidebarView,
-		contentView,
+		styledContent,
 	)
+
+	// Debug: show width breakdown after join
+	resultLines := strings.Split(result, "\n")
+	expectedWidth := a.layout.ContentWidth()
+	for i, line := range resultLines[:min(10, len(resultLines))] {
+		lw := lipgloss.Width(line)
+		tw := TerminalWidth(line)
+		// Only log lines where width differs from expected layout width
+		if lw != expectedWidth || tw > a.width {
+			debugLog("  result line %d: lipgloss=%d, terminal=%d, emojis=%d", i, lw, tw, countWideEmojis(line))
+		}
+	}
+	debugLog("renderWithSidebar: result maxLineWidth=%d", MaxLineWidth(result))
+	return result
 }
 
 // renderCurrentView renders the content area based on current view
 func (a *App) renderCurrentView() string {
+	// Show loading message while fetching initial project from config
+	if a.loadingInitialProject {
+		return "Loading project " + a.initialProjectID + "..."
+	}
+
 	switch a.currentView {
 	case ViewProjects:
 		return a.projectView.View()
@@ -547,4 +683,20 @@ func (a *App) renderFooter() string {
 		helpText = "tab focus • [ sidebar • " + helpText
 	}
 	return a.styles.Help.Render(helpText)
+}
+
+// truncateToHeight truncates content to exactly maxLines by splitting on newlines.
+// This is ANSI-safe because escape sequences don't span line boundaries.
+func truncateToHeight(content string, maxLines int) string {
+	if maxLines <= 0 {
+		return ""
+	}
+
+	lines := strings.Split(content, "\n")
+	if len(lines) <= maxLines {
+		return content
+	}
+
+	// Take only the first maxLines lines
+	return strings.Join(lines[:maxLines], "\n")
 }
