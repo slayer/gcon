@@ -2,7 +2,7 @@
 
 ## Summary
 
-This PR introduces foundational patterns from the gh-dash TUI into gcon, providing building blocks for improved code organization, UX, and performance. The implementation is backward compatible - new components are opt-in and don't require changes to existing views.
+This PR introduces foundational patterns from the gh-dash TUI into gcon, providing building blocks for improved code organization, UX, and performance. All views now use a centralized `ProgramContext` for dimension and style management through a new `View` interface with `SetContext` method.
 
 ## Changes Made
 
@@ -35,6 +35,37 @@ ctx.Tasks["load"] = context.Task{
 // Check for active tasks
 if ctx.HasActiveTask() {
     desc := ctx.ActiveTaskDescription()
+}
+```
+
+### 1a. View Interface (`internal/ui/views/`)
+
+**New File:**
+- `view.go` - View interface definition
+
+**Features:**
+- `View` interface defines contract for all views
+- `SetContext(ctx *ProgramContext)` method for context propagation
+- Views read dimensions from context instead of separate parameters
+
+**Usage:**
+```go
+// All views implement the View interface
+type View interface {
+    Init() tea.Cmd
+    Update(msg tea.Msg) tea.Cmd
+    View() string
+    SetContext(ctx *context.ProgramContext)
+}
+
+// App propagates context to views
+func (a *App) updateViewSizes() {
+    a.syncContext()
+    a.projectView.SetContext(a.ctx)
+    if a.instancesView != nil {
+        a.instancesView.SetContext(a.ctx)
+    }
+    // ... other views
 }
 ```
 
@@ -143,11 +174,10 @@ go test ./internal/ui/components/footer/... -v
 
 Items deferred to future PRs:
 
-1. **Context Integration** - Update App and views to use ProgramContext
-2. **Task System Integration** - Connect async operations to task tracking
-3. **Autocomplete** - Fuzzy filtering for resource lists
-4. **Caching** - API response caching with otter library
-5. **Auto-refresh** - Configurable polling for mutable views
+1. **Task System Integration** - Connect async operations to task tracking
+2. **Autocomplete** - Fuzzy filtering for resource lists
+3. **Caching** - API response caching with otter library
+4. **Auto-refresh** - Configurable polling for mutable views
 
 ## File Changes
 
@@ -156,6 +186,20 @@ internal/ui/context/
 ├── context.go      (new) - ProgramContext, Task, Styles
 ├── messages.go     (new) - Task lifecycle messages
 └── context_test.go (new) - Unit tests
+
+internal/ui/views/
+├── view.go           (new) - View interface definition
+├── projects.go       (modified) - Added SetContext, ctx field
+├── instances.go      (modified) - Added SetContext, ctx field
+├── instance_details.go (modified) - Added SetContext, ctx field
+├── disks.go          (modified) - Added SetContext, ctx field
+├── disk_details.go   (modified) - Added SetContext, ctx field
+├── buckets.go        (modified) - Added SetContext, ctx field
+├── objects.go        (modified) - Added SetContext, ctx field
+└── buckets_test.go   (modified) - Updated to use SetContext
+
+internal/ui/
+└── app.go            (modified) - Updated updateViewSizes to use SetContext
 
 internal/ui/components/table/
 ├── table.go        (modified) - Added Column struct, caching, states

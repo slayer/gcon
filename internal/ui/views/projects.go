@@ -1,7 +1,7 @@
 package views
 
 import (
-	"context"
+	gocontext "context"
 	"fmt"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -12,6 +12,7 @@ import (
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/table"
+	"github.com/slayer/gcon/internal/ui/context"
 	"github.com/slayer/gcon/internal/ui/symbols"
 )
 
@@ -46,12 +47,11 @@ func projectColumns() []btable.Column {
 // ProjectsView displays and manages the list of GCP projects in a table format
 type ProjectsView struct {
 	client   *gcp.Client
+	ctx      *context.ProgramContext // Shared context for dimensions and styles
 	table    table.Model
 	spinner  spinner.Model
 	loading  bool
 	err      error
-	width    int
-	height   int
 	projects []gcp.Project
 	keys     projectKeyMap
 }
@@ -84,7 +84,7 @@ func (v *ProjectsView) Init() tea.Cmd {
 // loadProjects fetches projects from GCP
 func (v *ProjectsView) loadProjects() tea.Cmd {
 	return func() tea.Msg {
-		projects, err := v.client.ListProjects(context.Background())
+		projects, err := v.client.ListProjects(gocontext.Background())
 		if err != nil {
 			return projectsErrorMsg{err: err}
 		}
@@ -227,11 +227,17 @@ func (v *ProjectsView) View() string {
 	return v.table.View() + help
 }
 
-// SetSize updates the view dimensions
+// SetSize updates the view dimensions (deprecated, use SetContext)
 func (v *ProjectsView) SetSize(width, height int) {
-	v.width = width
-	v.height = height
 	v.table.SetSize(width, height-4) // Reserve space for help
+}
+
+// SetContext updates the view with shared program context.
+// Reads dimensions from the context for consistent sizing.
+func (v *ProjectsView) SetContext(ctx *context.ProgramContext) {
+	v.ctx = ctx
+	// Projects view uses full screen width (no sidebar)
+	v.table.SetSize(ctx.ScreenWidth, ctx.ContentHeight-4)
 }
 
 // SelectedProject returns the currently selected project

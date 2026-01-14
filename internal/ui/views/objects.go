@@ -1,7 +1,7 @@
 package views
 
 import (
-	"context"
+	gocontext "context"
 	"fmt"
 	"os"
 	pathpkg "path"
@@ -18,6 +18,7 @@ import (
 	"github.com/slayer/gcon/internal/ui/components/filepicker"
 	"github.com/slayer/gcon/internal/ui/components/progress"
 	"github.com/slayer/gcon/internal/ui/components/table"
+	"github.com/slayer/gcon/internal/ui/context"
 	"github.com/slayer/gcon/internal/ui/symbols"
 	"github.com/slayer/gcon/internal/ui/timeutil"
 )
@@ -82,8 +83,9 @@ func objectColumns() []btable.Column {
 type ObjectsView struct {
 	storageClient *gcp.StorageClient
 	bucketName    string
-	currentPrefix string   // Current folder path (e.g., "folder1/folder2/")
-	prefixStack   []string // Navigation history for back functionality
+	currentPrefix string                  // Current folder path (e.g., "folder1/folder2/")
+	prefixStack   []string                // Navigation history for back functionality
+	ctx           *context.ProgramContext // Shared context for dimensions and styles
 	table         table.Model
 	spinner       spinner.Model
 	loading       bool
@@ -164,7 +166,7 @@ func (v *ObjectsView) Init() tea.Cmd {
 func (v *ObjectsView) loadObjects(pageToken string) tea.Cmd {
 	return func() tea.Msg {
 		result, err := v.storageClient.ListObjects(
-			context.Background(),
+			gocontext.Background(),
 			v.bucketName,
 			v.currentPrefix,
 			pageToken,
@@ -763,11 +765,20 @@ func (v *ObjectsView) View() string {
 	return content
 }
 
-// SetSize updates the view dimensions
+// SetSize updates the view dimensions (deprecated, use SetContext)
 func (v *ObjectsView) SetSize(width, height int) {
 	v.width = width
 	v.height = height
 	v.table.SetSize(width, height-8) // Extra space for title, status and help
+}
+
+// SetContext updates the view with shared program context.
+// Reads dimensions from the context for consistent sizing.
+func (v *ObjectsView) SetContext(ctx *context.ProgramContext) {
+	v.ctx = ctx
+	v.width = ctx.ContentWidth
+	v.height = ctx.ContentHeight
+	v.table.SetSize(ctx.ContentWidth, ctx.ContentHeight-8)
 }
 
 // GetCurrentPath returns the current folder path being browsed
@@ -806,7 +817,7 @@ func (v *ObjectsView) prepareDownload(obj gcp.StorageObject) tea.Cmd {
 		if obj.IsFolder {
 			// For folders, list all objects recursively
 			objects, err := v.storageClient.ListAllObjects(
-				context.Background(),
+				gocontext.Background(),
 				v.bucketName,
 				obj.Name,
 			)
@@ -875,7 +886,7 @@ func (v *ObjectsView) startDownload() tea.Cmd {
 
 			// Download with progress callback
 			err := v.storageClient.DownloadObject(
-				context.Background(),
+				gocontext.Background(),
 				v.bucketName,
 				file.Name,
 				localPath,
@@ -1068,7 +1079,7 @@ func (v *ObjectsView) startUpload() tea.Cmd {
 
 			// Upload with progress callback
 			err := v.storageClient.UploadObject(
-				context.Background(),
+				gocontext.Background(),
 				v.bucketName,
 				file.remotePath,
 				file.localPath,
@@ -1234,7 +1245,7 @@ func (v *ObjectsView) prepareDelete(obj gcp.StorageObject) tea.Cmd {
 func (v *ObjectsView) resolveDeleteFiles(folder gcp.StorageObject) tea.Cmd {
 	return func() tea.Msg {
 		objects, err := v.storageClient.ListAllObjects(
-			context.Background(),
+			gocontext.Background(),
 			v.bucketName,
 			folder.Name,
 		)
@@ -1296,7 +1307,7 @@ func (v *ObjectsView) startDelete() tea.Cmd {
 			}
 
 			err := v.storageClient.DeleteObject(
-				context.Background(),
+				gocontext.Background(),
 				v.bucketName,
 				file.Name,
 			)

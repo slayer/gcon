@@ -603,7 +603,8 @@ func (a *App) handleRecentCommand(cmd commandpalette.Command) (tea.Model, tea.Cm
 	return a, nil
 }
 
-// updateViewSizes recalculates sizes for all views using the layout manager
+// updateViewSizes recalculates sizes for all views using the layout manager.
+// Uses SetContext to propagate shared context to all views.
 func (a *App) updateViewSizes() {
 	// Update layout with sidebar state
 	if a.sidebarActive() {
@@ -613,36 +614,34 @@ func (a *App) updateViewSizes() {
 		a.layout.SetSidebarActive(false)
 	}
 
-	// Get dimensions from layout - layout handles all calculations
-	contentWidth := a.layout.ContentWidth()
-	contentHeight := a.layout.ContentHeight()
+	// Sync context with current dimensions before propagating
+	a.syncContext()
 
 	// Sidebar uses content height directly
 	if a.sidebarActive() {
-		a.sidebar.SetSize(contentHeight)
+		a.sidebar.SetSize(a.ctx.ContentHeight)
 	}
 
-	// Projects view uses full width (no sidebar)
-	a.projectView.SetSize(a.width, contentHeight)
+	// Propagate context to all views - they read dimensions from ctx
+	a.projectView.SetContext(a.ctx)
 
-	// Other views use content area (respecting sidebar)
 	if a.instancesView != nil {
-		a.instancesView.SetSize(contentWidth, contentHeight)
+		a.instancesView.SetContext(a.ctx)
 	}
 	if a.instanceDetailsView != nil {
-		a.instanceDetailsView.SetSize(contentWidth, contentHeight)
+		a.instanceDetailsView.SetContext(a.ctx)
 	}
 	if a.disksView != nil {
-		a.disksView.SetSize(contentWidth, contentHeight)
+		a.disksView.SetContext(a.ctx)
 	}
 	if a.diskDetailsView != nil {
-		a.diskDetailsView.SetSize(contentWidth, contentHeight)
+		a.diskDetailsView.SetContext(a.ctx)
 	}
 	if a.bucketsView != nil {
-		a.bucketsView.SetSize(contentWidth, contentHeight)
+		a.bucketsView.SetContext(a.ctx)
 	}
 	if a.objectsView != nil {
-		a.objectsView.SetSize(contentWidth, contentHeight)
+		a.objectsView.SetContext(a.ctx)
 	}
 }
 

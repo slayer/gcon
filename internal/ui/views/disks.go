@@ -1,7 +1,7 @@
 package views
 
 import (
-	"context"
+	gocontext "context"
 	"fmt"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -12,6 +12,7 @@ import (
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/table"
+	"github.com/slayer/gcon/internal/ui/context"
 	"github.com/slayer/gcon/internal/ui/symbols"
 )
 
@@ -19,12 +20,11 @@ import (
 type DisksView struct {
 	computeClient *gcp.ComputeClient
 	projectID     string
+	ctx           *context.ProgramContext // Shared context for dimensions and styles
 	table         table.Model
 	spinner       spinner.Model
 	loading       bool
 	err           error
-	width         int
-	height        int
 	disks         []gcp.Disk
 	keys          diskKeyMap
 }
@@ -88,7 +88,7 @@ func (v *DisksView) Init() tea.Cmd {
 // initComputeClient creates the compute client then loads disks
 func (v *DisksView) initComputeClient() tea.Cmd {
 	return func() tea.Msg {
-		client, err := gcp.NewComputeClient(context.Background())
+		client, err := gcp.NewComputeClient(gocontext.Background())
 		if err != nil {
 			return disksErrorMsg{err: err}
 		}
@@ -99,7 +99,7 @@ func (v *DisksView) initComputeClient() tea.Cmd {
 // loadDisks fetches disks from GCP
 func (v *DisksView) loadDisks() tea.Cmd {
 	return func() tea.Msg {
-		disks, err := v.computeClient.ListDisks(context.Background(), v.projectID)
+		disks, err := v.computeClient.ListDisks(gocontext.Background(), v.projectID)
 		if err != nil {
 			return disksErrorMsg{err: err}
 		}
@@ -269,11 +269,16 @@ func (v *DisksView) GetComputeClient() *gcp.ComputeClient {
 	return v.computeClient
 }
 
-// SetSize updates the view dimensions
+// SetSize updates the view dimensions (deprecated, use SetContext)
 func (v *DisksView) SetSize(width, height int) {
-	v.width = width
-	v.height = height
 	v.table.SetSize(width, height-6) // Reserve space for header and help
+}
+
+// SetContext updates the view with shared program context.
+// Reads dimensions from the context for consistent sizing.
+func (v *DisksView) SetContext(ctx *context.ProgramContext) {
+	v.ctx = ctx
+	v.table.SetSize(ctx.ContentWidth, ctx.ContentHeight-6)
 }
 
 // renderLoading renders a loading message
