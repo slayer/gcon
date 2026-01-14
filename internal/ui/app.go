@@ -54,6 +54,7 @@ type App struct {
 	projectView         *views.ProjectsView
 	instancesView       *views.InstancesView
 	instanceDetailsView *views.InstanceDetailsView
+	disksView           *views.DisksView
 	bucketsView         *views.BucketsView
 	objectsView         *views.ObjectsView
 
@@ -188,6 +189,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Go back to projects, clear sidebar state
 				a.currentView = ViewProjects
 				a.instancesView = nil
+				a.disksView = nil
 				// Close storage client before discarding bucketsView
 				if a.bucketsView != nil {
 					_ = a.bucketsView.Close()
@@ -339,6 +341,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.instanceDetailsView != nil {
 				cmd = a.instanceDetailsView.Update(msg)
 			}
+		case ViewDisks:
+			if a.disksView != nil {
+				cmd = a.disksView.Update(msg)
+			}
 		case ViewBuckets:
 			if a.bucketsView != nil {
 				cmd = a.bucketsView.Update(msg)
@@ -471,6 +477,9 @@ func (a *App) updateViewSizes() {
 	if a.instanceDetailsView != nil {
 		a.instanceDetailsView.SetSize(contentWidth, contentHeight)
 	}
+	if a.disksView != nil {
+		a.disksView.SetSize(contentWidth, contentHeight)
+	}
 	if a.bucketsView != nil {
 		a.bucketsView.SetSize(contentWidth, contentHeight)
 	}
@@ -513,8 +522,14 @@ func (a *App) handleSidebarNavigation(msg sidebar.NavigateMsg) tea.Cmd {
 			}
 		}
 	case sidebar.ViewDisks:
-		a.currentView = ViewDisks
-		// Placeholder - view not implemented yet
+		if a.currentView != ViewDisks {
+			a.currentView = ViewDisks
+			if a.disksView == nil {
+				a.disksView = views.NewDisksView(a.selectedProject.ID)
+				a.updateViewSizes()
+				cmd = a.disksView.Init()
+			}
+		}
 	case sidebar.ViewBuckets:
 		if a.currentView != ViewBuckets && a.currentView != ViewObjects {
 			a.currentView = ViewBuckets
@@ -913,7 +928,9 @@ func (a *App) renderCurrentView() string {
 			return a.instanceDetailsView.View()
 		}
 	case ViewDisks:
-		return a.renderPlaceholder("Disks")
+		if a.disksView != nil {
+			return a.disksView.View()
+		}
 	case ViewBuckets:
 		if a.bucketsView != nil {
 			return a.bucketsView.View()
