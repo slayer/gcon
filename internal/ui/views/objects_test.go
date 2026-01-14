@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestObjectItem(t *testing.T) {
+func TestObjectToRow(t *testing.T) {
 	t.Run("folder item", func(t *testing.T) {
 		obj := gcp.StorageObject{
 			Name:        "folder1/",
@@ -21,11 +21,14 @@ func TestObjectItem(t *testing.T) {
 			IsFolder:    true,
 		}
 
-		item := objectItem{object: obj}
+		row := objectToRow(obj)
 
-		assert.Contains(t, item.Title(), "folder1")
-		assert.Contains(t, item.Title(), symbols.Folder())
-		assert.Contains(t, item.Description(), "Folder")
+		assert.Contains(t, row.Data[0], "folder1")
+		assert.Contains(t, row.Data[0], symbols.Folder())
+		assert.Equal(t, "-", row.Data[1]) // Size
+		assert.Equal(t, "Folder", row.Data[2])
+		assert.Equal(t, "-", row.Data[3]) // Modified
+		assert.Equal(t, "folder1/", row.ID)
 	})
 
 	t.Run("file item", func(t *testing.T) {
@@ -38,15 +41,14 @@ func TestObjectItem(t *testing.T) {
 			IsFolder:    false,
 		}
 
-		item := objectItem{object: obj}
+		row := objectToRow(obj)
 
-		assert.Contains(t, item.Title(), "document.pdf")
-		assert.Contains(t, item.Title(), symbols.File())
-
-		desc := item.Description()
-		assert.Contains(t, desc, "1.5 MB")
-		assert.Contains(t, desc, "application/pdf")
-		assert.Contains(t, desc, "2024-01-20")
+		assert.Contains(t, row.Data[0], "document.pdf")
+		assert.Contains(t, row.Data[0], symbols.File())
+		assert.Equal(t, "1.5 MB", row.Data[1])
+		assert.Equal(t, "application/pdf", row.Data[2])
+		assert.Equal(t, "2024-01-20", row.Data[3])
+		assert.Equal(t, "document.pdf", row.ID)
 	})
 
 	t.Run("FilterValue", func(t *testing.T) {
@@ -56,11 +58,10 @@ func TestObjectItem(t *testing.T) {
 			ContentType: "image/png",
 		}
 
-		item := objectItem{object: obj}
-		filterVal := item.FilterValue()
+		row := objectToRow(obj)
 
-		assert.Contains(t, filterVal, "image.png")
-		assert.Contains(t, filterVal, "image/png")
+		assert.Contains(t, row.FilterValue, "image.png")
+		assert.Contains(t, row.FilterValue, "image/png")
 	})
 }
 

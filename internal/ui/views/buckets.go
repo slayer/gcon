@@ -5,44 +5,13 @@ import (
 	"fmt"
 
 	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
+	btable "github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
+	"github.com/slayer/gcon/internal/ui/components/table"
 )
-
-// bucketItem implements list.Item for GCS buckets
-type bucketItem struct {
-	bucket gcp.Bucket
-}
-
-func (i bucketItem) Title() string {
-	return fmt.Sprintf("📦 %s", i.bucket.Name)
-}
-
-func (i bucketItem) Description() string {
-	created := i.bucket.Created.Format("2006-01-02")
-	return fmt.Sprintf("%s • %s • %s", i.bucket.Location, i.bucket.StorageClass, created)
-}
-
-func (i bucketItem) FilterValue() string {
-	return i.bucket.Name + " " + i.bucket.Location + " " + i.bucket.StorageClass
-}
-
-// BucketsView displays and manages Cloud Storage buckets
-type BucketsView struct {
-	storageClient *gcp.StorageClient
-	projectID     string
-	list          list.Model
-	spinner       spinner.Model
-	loading       bool
-	err           error
-	width         int
-	height        int
-	buckets       []gcp.Bucket
-	keys          bucketKeyMap
-}
 
 // bucketKeyMap defines bucket-specific key bindings
 type bucketKeyMap struct {
@@ -63,27 +32,34 @@ func defaultBucketKeyMap() bucketKeyMap {
 	}
 }
 
-// NewBucketsView creates a new buckets view
-func NewBucketsView(projectID string) *BucketsView {
-	delegate := list.NewDefaultDelegate()
-	delegate.Styles.SelectedTitle = delegate.Styles.SelectedTitle.
-		Foreground(lipgloss.Color("#FFFFFF")).
-		Background(lipgloss.Color("#4285F4")).
-		Bold(true)
-	delegate.Styles.SelectedDesc = delegate.Styles.SelectedDesc.
-		Foreground(lipgloss.Color("#CCCCCC")).
-		Background(lipgloss.Color("#4285F4"))
-
-	l := list.New([]list.Item{}, delegate, 0, 0)
-	l.SetShowTitle(false) // Title shown in app header instead
-	l.SetShowStatusBar(true)
-	l.SetFilteringEnabled(true)
-
-	// Add help keys
-	l.AdditionalShortHelpKeys = func() []key.Binding {
-		km := defaultBucketKeyMap()
-		return []key.Binding{km.Enter, km.Refresh}
+// Table column definitions for buckets
+func bucketColumns() []btable.Column {
+	return []btable.Column{
+		{Title: "Name", Width: 40},
+		{Title: "Location", Width: 15},
+		{Title: "Storage Class", Width: 15},
+		{Title: "Created", Width: 12},
 	}
+}
+
+// BucketsView displays and manages Cloud Storage buckets in a table format
+type BucketsView struct {
+	storageClient *gcp.StorageClient
+	projectID     string
+	table         table.Model
+	spinner       spinner.Model
+	loading       bool
+	err           error
+	width         int
+	height        int
+	buckets       []gcp.Bucket
+	keys          bucketKeyMap
+}
+
+// NewBucketsView creates a new buckets view with table display
+func NewBucketsView(projectID string) *BucketsView {
+	title := fmt.Sprintf("Cloud Storage Buckets - %s", projectID)
+	t := table.New(bucketColumns(), title)
 
 	s := spinner.New()
 	s.Spinner = spinner.Dot
@@ -91,7 +67,7 @@ func NewBucketsView(projectID string) *BucketsView {
 
 	return &BucketsView{
 		projectID: projectID,
-		list:      l,
+		table:     t,
 		spinner:   s,
 		loading:   true,
 		keys:      defaultBucketKeyMap(),
@@ -146,6 +122,20 @@ type BucketSelectedMsg struct {
 	Bucket gcp.Bucket
 }
 
+// bucketToRow converts a GCS bucket to a table row
+func bucketToRow(b gcp.Bucket) table.Row {
+	return table.Row{
+		Data: []string{
+			"📦 " + b.Name,
+			b.Location,
+			b.StorageClass,
+			b.Created.Format("2006-01-02"),
+		},
+		FilterValue: b.Name + " " + b.Location + " " + b.StorageClass,
+		ID:          b.Name,
+	}
+}
+
 // Update handles messages for the buckets view
 func (v *BucketsView) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
@@ -157,11 +147,12 @@ func (v *BucketsView) Update(msg tea.Msg) tea.Cmd {
 		v.loading = false
 		v.buckets = msg.buckets
 
-		items := make([]list.Item, len(msg.buckets))
+		// Convert to table rows
+		rows := make([]table.Row, len(msg.buckets))
 		for i, bucket := range msg.buckets {
-			items[i] = bucketItem{bucket: bucket}
+			rows[i] = bucketToRow(bucket)
 		}
-		v.list.SetItems(items)
+		v.table.SetRows(rows)
 		return nil
 
 	case bucketsErrorMsg:
@@ -183,12 +174,22 @@ func (v *BucketsView) Update(msg tea.Msg) tea.Cmd {
 			return nil
 		}
 
+		// Let table handle filtering mode
+		if v.table.IsFiltering() {
+			var cmd tea.Cmd
+			v.table, cmd = v.table.Update(msg)
+			return cmd
+		}
+
 		switch {
 		case key.Matches(msg, v.keys.Enter):
 			// Navigate to bucket contents on Enter
-			if item, ok := v.list.SelectedItem().(bucketItem); ok {
-				return func() tea.Msg {
-					return BucketSelectedMsg{Bucket: item.bucket}
+			if row := v.table.SelectedRow(); row != nil {
+				bucket := v.findBucketByName(row.ID)
+				if bucket != nil {
+					return func() tea.Msg {
+						return BucketSelectedMsg{Bucket: *bucket}
+					}
 				}
 			}
 
@@ -200,8 +201,18 @@ func (v *BucketsView) Update(msg tea.Msg) tea.Cmd {
 	}
 
 	var cmd tea.Cmd
-	v.list, cmd = v.list.Update(msg)
+	v.table, cmd = v.table.Update(msg)
 	return cmd
+}
+
+// findBucketByName looks up a bucket by name
+func (v *BucketsView) findBucketByName(name string) *gcp.Bucket {
+	for _, b := range v.buckets {
+		if b.Name == name {
+			return &b
+		}
+	}
+	return nil
 }
 
 // View renders the buckets view
@@ -225,16 +236,16 @@ func (v *BucketsView) View() string {
 
 	// Help text for actions
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
-	help := helpStyle.Render("\n  enter: browse • r: refresh • /: filter • esc: back")
+	help := helpStyle.Render("\n  enter: browse • /: filter • r: refresh • esc: back")
 
-	return v.list.View() + help
+	return v.table.View() + help
 }
 
 // SetSize updates the view dimensions
 func (v *BucketsView) SetSize(width, height int) {
 	v.width = width
 	v.height = height
-	v.list.SetSize(width, height-4)
+	v.table.SetSize(width, height-4)
 }
 
 // GetStorageClient returns the storage client for reuse in objects view
