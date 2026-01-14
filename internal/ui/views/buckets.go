@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components/table"
+	"github.com/slayer/gcon/internal/ui/timeutil"
 )
 
 // bucketKeyMap defines bucket-specific key bindings
@@ -129,7 +130,7 @@ func bucketToRow(b gcp.Bucket) table.Row {
 			"📦 " + b.Name,
 			b.Location,
 			b.StorageClass,
-			b.Created.Format("2006-01-02"),
+			timeutil.FormatDate(b.Created),
 		},
 		FilterValue: b.Name + " " + b.Location + " " + b.StorageClass,
 		ID:          b.Name,

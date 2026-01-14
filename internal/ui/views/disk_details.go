@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/symbols"
+	"github.com/slayer/gcon/internal/ui/timeutil"
 )
 
 // DiskSelectedMsg is sent when a disk is selected from the list
@@ -235,12 +236,12 @@ func (v *DiskDetailsView) renderContent() string {
 	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Description", defaultIfEmpty(d.Description, "None")))
 	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Status", fmt.Sprintf("%s %s", statusIcon, d.Status)))
 	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Zone", d.Zone))
-	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Created", formatTimestamp(d.CreatedAt)))
+	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Created", timeutil.FormatTimestamp(d.CreatedAt)))
 	if d.LastAttach != "" {
-		b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Last Attached", formatTimestamp(d.LastAttach)))
+		b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Last Attached", timeutil.FormatTimestamp(d.LastAttach)))
 	}
 	if d.LastDetach != "" {
-		b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Last Detached", formatTimestamp(d.LastDetach)))
+		b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Last Detached", timeutil.FormatTimestamp(d.LastDetach)))
 	}
 	b.WriteString("\n")
 
