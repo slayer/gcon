@@ -601,23 +601,56 @@ func (c *ComputeClient) SetInstanceMetadata(ctx context.Context, projectID, zone
 	return nil
 }
 
-// GetProjectMetadata retrieves project-level metadata
-func (c *ComputeClient) GetProjectMetadata(ctx context.Context, projectID string) (map[string]string, error) {
+// GetProjectMetadata retrieves project-level metadata with fingerprint
+// This metadata applies to all instances in the project (commonInstanceMetadata)
+func (c *ComputeClient) GetProjectMetadata(ctx context.Context, projectID string) (*InstanceMetadata, error) {
 	project, err := c.service.Projects.Get(projectID).Context(ctx).Do()
 	if err != nil {
 		return nil, WrapGetError(err, "project metadata", projectID)
 	}
 
-	metadata := make(map[string]string)
+	metadata := &InstanceMetadata{
+		Items:       make(map[string]string),
+		Fingerprint: "",
+	}
+
 	if project.CommonInstanceMetadata != nil {
+		metadata.Fingerprint = project.CommonInstanceMetadata.Fingerprint
 		for _, item := range project.CommonInstanceMetadata.Items {
 			if item.Value != nil {
-				metadata[item.Key] = *item.Value
+				metadata.Items[item.Key] = *item.Value
 			} else {
-				metadata[item.Key] = ""
+				metadata.Items[item.Key] = ""
 			}
 		}
 	}
 
 	return metadata, nil
+}
+
+// SetProjectMetadata updates project-wide metadata (commonInstanceMetadata)
+// This metadata is inherited by all instances in the project
+// Uses fingerprint for optimistic locking to prevent concurrent updates
+func (c *ComputeClient) SetProjectMetadata(ctx context.Context, projectID string, metadata map[string]string, fingerprint string) error {
+	// Convert map to API format
+	var items []*compute.MetadataItems
+	for key, value := range metadata {
+		valueCopy := value
+		items = append(items, &compute.MetadataItems{
+			Key:   key,
+			Value: &valueCopy,
+		})
+	}
+
+	metadataObj := &compute.Metadata{
+		Fingerprint: fingerprint,
+		Items:       items,
+	}
+
+	_, err := c.service.Projects.SetCommonInstanceMetadata(projectID, metadataObj).Context(ctx).Do()
+	if err != nil {
+		return WrapActionError(err, "set project metadata", projectID)
+	}
+
+	return nil
 }

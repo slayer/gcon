@@ -62,7 +62,7 @@ func TestDrillDown(t *testing.T) {
 	// Should drill down, no navigation message for categories
 	assert.Nil(t, cmd)
 	assert.Equal(t, []string{"compute"}, s.path)
-	assert.Len(t, s.currentItems, 3, "Compute Engine has 3 children")
+	assert.Len(t, s.currentItems, 4, "Compute Engine has 4 children")
 	assert.Equal(t, 0, s.cursor, "cursor should reset to 0")
 }
 
@@ -167,7 +167,7 @@ func TestDefaultMenu(t *testing.T) {
 	assert.Equal(t, "compute", compute.ID)
 	assert.Equal(t, "Compute Engine", compute.Label)
 	assert.Equal(t, MenuItemCategory, compute.Type)
-	assert.Len(t, compute.Children, 3)
+	assert.Len(t, compute.Children, 4)
 
 	// Check VM instances under Compute Engine
 	vm := compute.Children[0]
@@ -186,7 +186,7 @@ func TestNumberShortcuts(t *testing.T) {
 	// Should drill down into Compute Engine
 	assert.Nil(t, cmd, "categories don't emit navigation")
 	assert.Equal(t, []string{"compute"}, s.path)
-	assert.Len(t, s.currentItems, 3)
+	assert.Len(t, s.currentItems, 4)
 
 	// Press "1" again to select VM instances
 	cmd = s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'1'}})

@@ -52,8 +52,11 @@ func TestInstanceMetadataViewUpdateLoadedMsg(t *testing.T) {
 		Fingerprint: "test-fingerprint",
 	}
 
-	projectMeta := map[string]string{
-		"ssh-keys": "project-user:ssh-rsa CCCCDDDD project@host",
+	projectMeta := &gcp.InstanceMetadata{
+		Items: map[string]string{
+			"ssh-keys": "project-user:ssh-rsa CCCCDDDD project@host",
+		},
+		Fingerprint: "test-project-fp",
 	}
 
 	msg := metadataLoadedMsg{
@@ -174,8 +177,11 @@ func TestInstanceMetadataViewGetCustomMetadata(t *testing.T) {
 func TestInstanceMetadataViewParseProjectSSHKeys(t *testing.T) {
 	client := &gcp.ComputeClient{}
 	view := NewInstanceMetadataView("test-project", "us-central1-a", "test-instance", client)
-	view.projectMetadata = map[string]string{
-		"ssh-keys": "user1:ssh-rsa AAAABBBB user1@host\nuser2:ssh-ed25519 CCCCDDDD user2@host",
+	view.projectMetadata = &gcp.InstanceMetadata{
+		Items: map[string]string{
+			"ssh-keys": "user1:ssh-rsa AAAABBBB user1@host\nuser2:ssh-ed25519 CCCCDDDD user2@host",
+		},
+		Fingerprint: "test-project-fp",
 	}
 
 	keys := view.parseProjectSSHKeys()
@@ -256,8 +262,11 @@ func TestInstanceMetadataViewRenderContent(t *testing.T) {
 		},
 		Fingerprint: "test-fingerprint",
 	}
-	view.projectMetadata = map[string]string{
-		"ssh-keys": "project-user:ssh-rsa CCCCDDDD project@host",
+	view.projectMetadata = &gcp.InstanceMetadata{
+		Items: map[string]string{
+			"ssh-keys": "project-user:ssh-rsa CCCCDDDD project@host",
+		},
+		Fingerprint: "test-project-fp",
 	}
 	view.ready = true
 	view.width = 100
@@ -284,7 +293,10 @@ func TestInstanceMetadataViewRenderContentNoMetadata(t *testing.T) {
 		Items:       map[string]string{},
 		Fingerprint: "test-fingerprint",
 	}
-	view.projectMetadata = map[string]string{}
+	view.projectMetadata = &gcp.InstanceMetadata{
+		Items:       map[string]string{},
+		Fingerprint: "test-project-fp",
+	}
 	view.ready = true
 	view.width = 100
 	view.height = 30
@@ -492,8 +504,11 @@ func TestInstanceMetadataViewSSHKeyParsing(t *testing.T) {
 		},
 		Fingerprint: "test",
 	}
-	view.projectMetadata = map[string]string{
-		"ssh-keys": "admin:ssh-rsa NNNNOOOOppppqqqqrrrrssss admin@example.com",
+	view.projectMetadata = &gcp.InstanceMetadata{
+		Items: map[string]string{
+			"ssh-keys": "admin:ssh-rsa NNNNOOOOppppqqqqrrrrssss admin@example.com",
+		},
+		Fingerprint: "test-project-fp",
 	}
 	view.ready = true
 	view.width = 100
