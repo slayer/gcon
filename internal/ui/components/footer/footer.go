@@ -73,7 +73,7 @@ func (m *Model) SetShowHelp(show bool) {
 
 // View renders the footer
 func (m Model) View() string {
-	if m.width == 0 {
+	if m.width == 0 || m.ctx == nil {
 		return ""
 	}
 

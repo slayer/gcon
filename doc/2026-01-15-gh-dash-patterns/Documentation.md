@@ -82,6 +82,7 @@ func (a *App) updateViewSizes() {
 **Usage:**
 ```go
 // Enhanced columns with grow flag
+// Note: Uses internal/ui/components/table.Column, not charmbracelet/bubbles/table
 cols := []table.Column{
     {Title: "Status", Width: 3, Hidden: false, Grow: false},
     {Title: "Name", Width: 20, Hidden: false, Grow: true},  // Expands

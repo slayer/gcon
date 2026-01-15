@@ -49,7 +49,10 @@ type ProgramContext struct {
 	// Task tracking - callback to start async operations with visual feedback
 	StartTask func(task Task) tea.Cmd
 
-	// Active tasks map (managed by App)
+	// Active tasks map (managed by App).
+	// NOTE: This map is accessed only from within the Bubble Tea event loop
+	// (Update/View methods). Do not read or write Tasks from goroutines
+	// outside the event loop without adding proper synchronization.
 	Tasks map[string]Task
 
 	// Current project context
