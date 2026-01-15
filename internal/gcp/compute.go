@@ -551,25 +551,31 @@ func (i *Instance) IsStopped() bool {
 
 // Image represents a simplified Compute Engine disk image
 type Image struct {
-	Name       string
-	Family     string
-	Status     string // READY, FAILED, PENDING, DELETING
-	DiskSizeGB int64
-	SourceType string // RAW, etc.
-	CreatedAt  string
+	Name             string
+	Family           string
+	Status           string // READY, FAILED, PENDING, DELETING
+	DiskSizeGB       int64
+	ArchiveSizeBytes int64
+	SourceType       string // RAW, etc.
+	CreatedAt        string
+	CreatedBy        string   // Source project or system (e.g., "debian-cloud", project ID)
+	StorageLocations []string // Regional or multi-regional locations
+	Architecture     string   // ARM64 or X86_64
 }
 
 // ImageDetails contains comprehensive disk image information
 type ImageDetails struct {
 	// Basic Information
-	Name        string
-	ID          uint64
-	Description string
-	Family      string
-	Status      string
-	CreatedAt   string
-	Deprecated  *DeprecationStatus
-	Labels      map[string]string
+	Name         string
+	ID           uint64
+	Description  string
+	Family       string
+	Status       string
+	CreatedAt    string
+	CreatedBy    string // Source project or system
+	Architecture string // ARM64 or X86_64
+	Deprecated   *DeprecationStatus
+	Labels       map[string]string
 
 	// Size Information
 	DiskSizeGB       int64
@@ -580,12 +586,17 @@ type ImageDetails struct {
 	// Source
 	SourceType     string // RAW, etc.
 	SourceDisk     string
+	SourceDiskID   string
 	SourceSnapshot string
 	SourceImage    string
+	SourceImageID  string
 
 	// Image Features
-	GuestOSFeatures []string
-	Licenses        []string
+	GuestOSFeatures           []string
+	Licenses                  []string
+	EnableConfidentialCompute bool
+	SatisfiesPzs              bool // Physical zone separation
+	LicenseCodes              []int64
 
 	// Encryption
 	ImageEncryptionKey          string
@@ -651,32 +662,103 @@ func imageFromAPI(img *compute.Image) Image {
 		family = "-"
 	}
 
-	return Image{
-		Name:       img.Name,
-		Family:     family,
-		Status:     img.Status,
-		DiskSizeGB: img.DiskSizeGb,
-		SourceType: img.SourceType,
-		CreatedAt:  img.CreationTimestamp,
+	// Extract creator/source project from self link or source disk
+	// Self link format: https://www.googleapis.com/compute/v1/projects/{project}/global/images/{image}
+	createdBy := extractCreatorFromImage(img)
+
+	// Get first storage location if available
+	location := "-"
+	if len(img.StorageLocations) > 0 {
+		location = img.StorageLocations[0]
 	}
+
+	arch := img.Architecture
+	if arch == "" {
+		arch = "X86_64" // Default
+	}
+
+	return Image{
+		Name:             img.Name,
+		Family:           family,
+		Status:           img.Status,
+		DiskSizeGB:       img.DiskSizeGb,
+		ArchiveSizeBytes: img.ArchiveSizeBytes,
+		SourceType:       img.SourceType,
+		CreatedAt:        img.CreationTimestamp,
+		CreatedBy:        createdBy,
+		StorageLocations: []string{location},
+		Architecture:     arch,
+	}
+}
+
+// extractCreatorFromImage extracts the creator/source project from image
+func extractCreatorFromImage(img *compute.Image) string {
+	// Try to extract from self link first
+	// Format: https://www.googleapis.com/compute/v1/projects/{project}/global/images/{image}
+	if img.SelfLink != "" {
+		parts := strings.Split(img.SelfLink, "/")
+		for i, part := range parts {
+			if part == "projects" && i+1 < len(parts) {
+				return parts[i+1]
+			}
+		}
+	}
+
+	// If source disk exists, try to extract from that
+	if img.SourceDisk != "" {
+		if projectID := extractProjectFromURL(img.SourceDisk); projectID != "" {
+			return projectID
+		}
+	}
+
+	// If source image exists, try to extract from that
+	if img.SourceImage != "" {
+		if projectID := extractProjectFromURL(img.SourceImage); projectID != "" {
+			return projectID
+		}
+	}
+
+	return "-"
+}
+
+// extractProjectFromURL extracts project ID from GCP resource URL
+func extractProjectFromURL(url string) string {
+	parts := strings.Split(url, "/")
+	for i, part := range parts {
+		if part == "projects" && i+1 < len(parts) {
+			return parts[i+1]
+		}
+	}
+	return ""
 }
 
 // imageDetailsFromAPI converts full API image to ImageDetails struct
 func imageDetailsFromAPI(img *compute.Image) *ImageDetails {
+	arch := img.Architecture
+	if arch == "" {
+		arch = "X86_64" // Default
+	}
+
 	details := &ImageDetails{
-		Name:           img.Name,
-		ID:             img.Id,
-		Description:    img.Description,
-		Family:         img.Family,
-		Status:         img.Status,
-		CreatedAt:      img.CreationTimestamp,
-		Labels:         img.Labels,
-		DiskSizeGB:     img.DiskSizeGb,
-		ArchiveSizeB:   img.ArchiveSizeBytes,
-		SourceType:     img.SourceType,
-		SourceDisk:     extractName(img.SourceDisk),
-		SourceSnapshot: extractName(img.SourceSnapshot),
-		SourceImage:    extractName(img.SourceImage),
+		Name:                      img.Name,
+		ID:                        img.Id,
+		Description:               img.Description,
+		Family:                    img.Family,
+		Status:                    img.Status,
+		CreatedAt:                 img.CreationTimestamp,
+		CreatedBy:                 extractCreatorFromImage(img),
+		Architecture:              arch,
+		Labels:                    img.Labels,
+		DiskSizeGB:                img.DiskSizeGb,
+		ArchiveSizeB:              img.ArchiveSizeBytes,
+		SourceType:                img.SourceType,
+		SourceDisk:                extractName(img.SourceDisk),
+		SourceDiskID:              img.SourceDiskId,
+		SourceSnapshot:            extractName(img.SourceSnapshot),
+		SourceImage:               extractName(img.SourceImage),
+		SourceImageID:             img.SourceImageId,
+		EnableConfidentialCompute: img.EnableConfidentialCompute,
+		SatisfiesPzs:              img.SatisfiesPzs,
 	}
 
 	// Storage locations
@@ -694,6 +776,12 @@ func imageDetailsFromAPI(img *compute.Image) *ImageDetails {
 	// Licenses
 	for _, license := range img.Licenses {
 		details.Licenses = append(details.Licenses, extractName(license))
+	}
+
+	// License codes
+	if len(img.LicenseCodes) > 0 {
+		details.LicenseCodes = make([]int64, len(img.LicenseCodes))
+		copy(details.LicenseCodes, img.LicenseCodes)
 	}
 
 	// Deprecation status

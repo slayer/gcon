@@ -238,6 +238,8 @@ func (v *ImageDetailsView) renderContent() string {
 	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Description", defaultIfEmpty(d.Description, "None")))
 	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Status", fmt.Sprintf("%s %s", statusIcon, d.Status)))
 	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Created", timeutil.FormatTimestamp(d.CreatedAt)))
+	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Created By", d.CreatedBy))
+	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Architecture", d.Architecture))
 	b.WriteString("\n")
 
 	// Deprecation status
@@ -291,29 +293,50 @@ func (v *ImageDetailsView) renderContent() string {
 	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Source Type", defaultIfEmpty(d.SourceType, "RAW")))
 	if d.SourceDisk != "" {
 		b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Source Disk", d.SourceDisk))
+		if d.SourceDiskID != "" {
+			b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Source Disk ID", d.SourceDiskID))
+		}
 	}
 	if d.SourceSnapshot != "" {
 		b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Source Snapshot", d.SourceSnapshot))
 	}
 	if d.SourceImage != "" {
 		b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Source Image", d.SourceImage))
+		if d.SourceImageID != "" {
+			b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Source Image ID", d.SourceImageID))
+		}
 	}
 	b.WriteString("\n")
 
 	// Image Features
+	b.WriteString(sectionStyle.Render("Image Features"))
+	b.WriteString("\n")
 	if len(d.GuestOSFeatures) > 0 {
-		b.WriteString(sectionStyle.Render("Guest OS Features"))
-		b.WriteString("\n")
-		b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Features", strings.Join(d.GuestOSFeatures, ", ")))
-		b.WriteString("\n")
+		b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Guest OS Features", strings.Join(d.GuestOSFeatures, ", ")))
+	} else {
+		b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Guest OS Features", "None"))
 	}
+	if d.EnableConfidentialCompute {
+		b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Confidential Computing", "Enabled"))
+	}
+	if d.SatisfiesPzs {
+		b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Physical Zone Separation", "Yes"))
+	}
+	b.WriteString("\n")
 
 	// Licenses
-	if len(d.Licenses) > 0 {
+	if len(d.Licenses) > 0 || len(d.LicenseCodes) > 0 {
 		b.WriteString(sectionStyle.Render("Licenses"))
 		b.WriteString("\n")
 		for _, license := range d.Licenses {
 			b.WriteString(fmt.Sprintf("    • %s\n", license))
+		}
+		if len(d.LicenseCodes) > 0 {
+			codes := make([]string, len(d.LicenseCodes))
+			for i, code := range d.LicenseCodes {
+				codes[i] = strconv.FormatInt(code, 10)
+			}
+			b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "License Codes", strings.Join(codes, ", ")))
 		}
 		b.WriteString("\n")
 	}

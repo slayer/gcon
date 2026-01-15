@@ -51,11 +51,12 @@ func defaultImageKeyMap() imageKeyMap {
 // Table column definitions
 func imageColumns() []btable.Column {
 	return []btable.Column{
-		{Title: "Name", Width: 35},
-		{Title: "Family", Width: 20},
-		{Title: "Status", Width: 12},
-		{Title: "Size", Width: 10},
-		{Title: "Created", Width: 20},
+		{Title: "Name", Width: 28},
+		{Title: "Created By", Width: 20},
+		{Title: "Location", Width: 12},
+		{Title: "Disk Size", Width: 10},
+		{Title: "Archive Size", Width: 12},
+		{Title: "Family", Width: 18},
 	}
 }
 
@@ -142,26 +143,49 @@ func imageToRow(image gcp.Image) table.Row {
 	// Combine status icon with name
 	name := imageStatusIcon(image) + " " + image.Name
 
-	// Format size with GB suffix
-	size := fmt.Sprintf("%d GB", image.DiskSizeGB)
+	// Format sizes
+	diskSize := fmt.Sprintf("%d GB", image.DiskSizeGB)
+	archiveSize := formatArchiveSize(image.ArchiveSizeBytes)
 
-	// Format creation date
-	created := image.CreatedAt
-	if len(created) > 10 {
-		created = created[:10] // Keep YYYY-MM-DD
+	// Get location (first storage location)
+	location := "-"
+	if len(image.StorageLocations) > 0 {
+		location = image.StorageLocations[0]
 	}
 
 	return table.Row{
 		Data: []string{
 			name,
+			image.CreatedBy,
+			location,
+			diskSize,
+			archiveSize,
 			image.Family,
-			image.Status,
-			size,
-			created,
 		},
-		FilterValue: image.Name + " " + image.Family + " " + image.Status,
+		FilterValue: image.Name + " " + image.Family + " " + image.CreatedBy + " " + location,
 		ID:          image.Name,
 	}
+}
+
+// formatArchiveSize formats archive size in bytes to human-readable format
+func formatArchiveSize(bytes int64) string {
+	if bytes == 0 {
+		return "-"
+	}
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	units := []string{"KB", "MB", "GB", "TB"}
+	if exp >= len(units) {
+		exp = len(units) - 1
+	}
+	return fmt.Sprintf("%.1f %s", float64(bytes)/float64(div), units[exp])
 }
 
 // Update handles messages for the images view
