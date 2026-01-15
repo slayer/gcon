@@ -118,43 +118,43 @@ type ProjectMetadataView struct {
 
 ## Implementation Steps
 
-### Phase 1: API Layer
-- [ ] Update `GetProjectMetadata` to return `*InstanceMetadata` with fingerprint
-- [ ] Add `SetProjectMetadata` method
-- [ ] Add tests for `SetProjectMetadata`
-- [ ] Run tests to verify API changes
+### Phase 1: API Layer ✅
+- [x] Update `GetProjectMetadata` to return `*InstanceMetadata` with fingerprint
+- [x] Add `SetProjectMetadata` method
+- [x] Add tests for `SetProjectMetadata`
+- [x] Run tests to verify API changes
 
-### Phase 2: View Component
-- [ ] Create `internal/ui/views/project_metadata.go`
-- [ ] Implement `ProjectMetadataView` struct
-- [ ] Implement Init, Update, View, SetContext methods
-- [ ] Add loading/saving states with spinner
-- [ ] Add viewport for scrollable content
-- [ ] Add metadata editor integration
-- [ ] Add save confirmation with warning
-- [ ] Create tests in `project_metadata_test.go`
+### Phase 2: View Component ✅
+- [x] Create `internal/ui/views/project_metadata.go`
+- [x] Implement `ProjectMetadataView` struct
+- [x] Implement Init, Update, View, SetContext methods
+- [x] Add loading/saving states with spinner
+- [x] Add viewport for scrollable content
+- [x] Add metadata editor integration
+- [x] Add save confirmation with warning
+- [x] Create tests in `project_metadata_test.go`
 
-### Phase 3: Sidebar & Navigation
-- [ ] Add `ViewProjectMetadata` to sidebar menu types
-- [ ] Add "Project metadata" menu item
-- [ ] Update sidebar tests
+### Phase 3: Sidebar & Navigation ✅
+- [x] Add `ViewProjectMetadata` to sidebar menu types
+- [x] Add "Project metadata" menu item
+- [x] Update sidebar tests
 
-### Phase 4: App Integration
-- [ ] Add `ViewProjectMetadata` to app ViewType enum
-- [ ] Add projectMetadataView to App struct
-- [ ] Wire up navigation in handleSidebarNavigation
-- [ ] Handle back navigation
-- [ ] Update renderCurrentView
-- [ ] Update updateSidebarActiveView
-- [ ] Update view sizing logic
+### Phase 4: App Integration ✅
+- [x] Add `ViewProjectMetadata` to app ViewType enum
+- [x] Add projectMetadataView to App struct
+- [x] Wire up navigation in handleSidebarNavigation
+- [x] Handle back navigation
+- [x] Update renderCurrentView
+- [x] Update updateSidebarActiveView
+- [x] Update view sizing logic
 
-### Phase 5: Testing & Validation
-- [ ] Run all tests
-- [ ] Test navigation flow
-- [ ] Test edit and save flow
-- [ ] Test error handling (conflicts, validation)
-- [ ] Test with real GCP project
-- [ ] Run linter
+### Phase 5: Testing & Validation ✅
+- [x] Run all tests
+- [x] Test navigation flow
+- [x] Test edit and save flow
+- [x] Test error handling (conflicts, validation)
+- [ ] Test with real GCP project (requires manual testing)
+- [x] Run linter
 
 ## UI/UX Considerations
 
