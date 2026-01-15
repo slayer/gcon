@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/slayer/gcon/internal/gcp"
+	"github.com/slayer/gcon/internal/ui/context"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -76,11 +77,17 @@ func TestBucketsViewUpdate(t *testing.T) {
 	})
 }
 
-func TestBucketsViewSetSize(t *testing.T) {
+func TestBucketsViewSetContext(t *testing.T) {
 	view := NewBucketsView("test-project")
+	ctx := &context.ProgramContext{
+		ScreenWidth:   100,
+		ScreenHeight:  50,
+		ContentWidth:  80,
+		ContentHeight: 45,
+	}
 
-	view.SetSize(100, 50)
+	view.SetContext(ctx)
 
-	assert.Equal(t, 100, view.width)
-	assert.Equal(t, 50, view.height)
+	// Verify context is stored
+	assert.Equal(t, ctx, view.ctx)
 }

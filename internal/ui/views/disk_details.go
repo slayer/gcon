@@ -1,7 +1,7 @@
 package views
 
 import (
-	"context"
+	gocontext "context"
 	"fmt"
 	"strconv"
 	"strings"
@@ -12,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
+	"github.com/slayer/gcon/internal/ui/context"
 	"github.com/slayer/gcon/internal/ui/symbols"
 	"github.com/slayer/gcon/internal/ui/timeutil"
 )
@@ -37,6 +38,7 @@ type DiskDetailsView struct {
 	projectID     string
 	zone          string
 	diskName      string
+	ctx           *context.ProgramContext // Shared context for dimensions and styles
 	details       *gcp.DiskDetails
 	viewport      viewport.Model
 	spinner       spinner.Model
@@ -99,7 +101,7 @@ func (v *DiskDetailsView) Init() tea.Cmd {
 // loadDetails fetches disk details from GCP
 func (v *DiskDetailsView) loadDetails() tea.Cmd {
 	return func() tea.Msg {
-		details, err := v.computeClient.GetDiskDetails(context.Background(), v.projectID, v.zone, v.diskName)
+		details, err := v.computeClient.GetDiskDetails(gocontext.Background(), v.projectID, v.zone, v.diskName)
 		if err != nil {
 			return diskDetailsErrorMsg{err: err}
 		}
@@ -174,11 +176,17 @@ func (v *DiskDetailsView) View() string {
 	return v.viewport.View() + help
 }
 
-// SetSize updates the view dimensions
-func (v *DiskDetailsView) SetSize(width, height int) {
-	v.width = width
-	v.height = height
+// SetContext updates the view with shared program context.
+// Reads dimensions from the context for consistent sizing.
+func (v *DiskDetailsView) SetContext(ctx *context.ProgramContext) {
+	v.ctx = ctx
+	v.width = ctx.ContentWidth
+	v.height = ctx.ContentHeight
+	v.applySize(ctx.ContentWidth, ctx.ContentHeight)
+}
 
+// applySize applies the given dimensions to the viewport
+func (v *DiskDetailsView) applySize(width, height int) {
 	// Reserve space for footer
 	viewportHeight := height - 4
 	if viewportHeight < 1 {

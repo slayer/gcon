@@ -3,6 +3,7 @@ package views
 import (
 	"testing"
 
+	"github.com/slayer/gcon/internal/ui/context"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -16,7 +17,8 @@ func TestInstancesView_NewInstancesView(t *testing.T) {
 
 func TestInstancesView_RenderLoading(t *testing.T) {
 	v := NewInstancesView("test-project")
-	v.SetSize(80, 30)
+	ctx := &context.ProgramContext{ContentWidth: 80, ContentHeight: 30}
+	v.SetContext(ctx)
 
 	// renderLoading should return a simple loading message
 	// Height enforcement is now handled at the app level
