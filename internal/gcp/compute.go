@@ -64,6 +64,50 @@ type DiskDetails struct {
 	PhysicalBlockSizeB int64    // Physical block size in bytes
 }
 
+// Snapshot represents a simplified disk snapshot
+type Snapshot struct {
+	Name         string
+	SourceDisk   string // Name of the source disk
+	SourceDiskID string // Full ID/URI of source disk
+	SizeGB       int64
+	Status       string // CREATING, UPLOADING, READY, FAILED, DELETING
+	CreatedAt    string
+	StorageBytes int64 // Actual storage used (may be less than SizeGB due to compression)
+}
+
+// SnapshotDetails contains comprehensive snapshot information
+type SnapshotDetails struct {
+	// Basic Information
+	Name        string
+	ID          uint64
+	Description string
+	Status      string
+	CreatedAt   string
+	Labels      map[string]string
+
+	// Source
+	SourceDisk     string // Name of source disk
+	SourceDiskID   string // Full disk URL
+	SourceDiskZone string // Zone where source disk was located
+
+	// Size and Storage
+	SizeGB            int64 // Size of source disk
+	StorageBytes      int64 // Actual storage used
+	StorageBytesGb    int64 // Storage in GB (StorageBytes / 1024^3)
+	DiskSizeGB        int64 // Original disk size
+	StorageLocations  []string
+	DownloadBytes     int64
+	AutoCreated       bool
+	ChainName         string
+	SatisfiesPZS      bool
+	SnapshotType      string
+	CreationSizeBytes int64
+
+	// Encryption
+	SnapshotEncryptionKey string // Type of encryption
+	SourceDiskEncryption  string // Encryption of source disk
+}
+
 // InstanceDetails contains comprehensive VM instance information
 type InstanceDetails struct {
 	// Basic Information
@@ -547,4 +591,132 @@ func (i *Instance) IsRunning() bool {
 // IsStopped returns true if the instance is in TERMINATED or STOPPED state
 func (i *Instance) IsStopped() bool {
 	return i.Status == "TERMINATED" || i.Status == "STOPPED"
+}
+
+// ListSnapshots returns all snapshots in a project
+func (c *ComputeClient) ListSnapshots(ctx context.Context, projectID string) ([]Snapshot, error) {
+	var snapshots []Snapshot
+
+	req := c.service.Snapshots.List(projectID)
+	err := req.Pages(ctx, func(page *compute.SnapshotList) error {
+		for _, s := range page.Items {
+			snapshots = append(snapshots, snapshotFromAPI(s))
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, WrapListError(err, "snapshots", projectID)
+	}
+
+	return snapshots, nil
+}
+
+// GetSnapshotDetails returns comprehensive details for a specific snapshot
+func (c *ComputeClient) GetSnapshotDetails(ctx context.Context, projectID, snapshotName string) (*SnapshotDetails, error) {
+	snapshot, err := c.service.Snapshots.Get(projectID, snapshotName).Context(ctx).Do()
+	if err != nil {
+		return nil, WrapGetError(err, "snapshot details", snapshotName)
+	}
+
+	return snapshotDetailsFromAPI(snapshot), nil
+}
+
+// DeleteSnapshot deletes a snapshot
+func (c *ComputeClient) DeleteSnapshot(ctx context.Context, projectID, snapshotName string) error {
+	_, err := c.service.Snapshots.Delete(projectID, snapshotName).Context(ctx).Do()
+	if err != nil {
+		return WrapActionError(err, "delete snapshot", snapshotName)
+	}
+	return nil
+}
+
+// snapshotFromAPI converts API snapshot to our simplified struct
+func snapshotFromAPI(s *compute.Snapshot) Snapshot {
+	return Snapshot{
+		Name:         s.Name,
+		SourceDisk:   extractName(s.SourceDisk),
+		SourceDiskID: s.SourceDiskId,
+		SizeGB:       s.DiskSizeGb,
+		Status:       s.Status,
+		CreatedAt:    s.CreationTimestamp,
+		StorageBytes: s.StorageBytes,
+	}
+}
+
+// snapshotDetailsFromAPI converts full API snapshot to SnapshotDetails struct
+func snapshotDetailsFromAPI(s *compute.Snapshot) *SnapshotDetails {
+	details := &SnapshotDetails{
+		Name:              s.Name,
+		ID:                s.Id,
+		Description:       s.Description,
+		Status:            s.Status,
+		CreatedAt:         s.CreationTimestamp,
+		Labels:            s.Labels,
+		SourceDisk:        extractName(s.SourceDisk),
+		SourceDiskID:      s.SourceDisk,
+		DiskSizeGB:        s.DiskSizeGb,
+		SizeGB:            s.DiskSizeGb,
+		StorageBytes:      s.StorageBytes,
+		StorageLocations:  s.StorageLocations,
+		DownloadBytes:     s.DownloadBytes,
+		AutoCreated:       s.AutoCreated,
+		ChainName:         s.ChainName,
+		SatisfiesPZS:      s.SatisfiesPzs,
+		SnapshotType:      s.SnapshotType,
+		CreationSizeBytes: s.CreationSizeBytes,
+	}
+
+	// Calculate storage in GB
+	if s.StorageBytes > 0 {
+		details.StorageBytesGb = s.StorageBytes / (1024 * 1024 * 1024)
+	}
+
+	// Extract source disk zone from full URL
+	if s.SourceDisk != "" {
+		parts := strings.Split(s.SourceDisk, "/")
+		for i, part := range parts {
+			if part == "zones" && i+1 < len(parts) {
+				details.SourceDiskZone = parts[i+1]
+				break
+			}
+		}
+	}
+
+	// Determine encryption type
+	details.SnapshotEncryptionKey = "Google-managed"
+	if s.SnapshotEncryptionKey != nil {
+		switch {
+		case s.SnapshotEncryptionKey.KmsKeyName != "":
+			details.SnapshotEncryptionKey = "Customer-managed (CMEK)"
+		case s.SnapshotEncryptionKey.RawKey != "":
+			details.SnapshotEncryptionKey = "Customer-supplied (CSEK)"
+		}
+	}
+
+	details.SourceDiskEncryption = "Google-managed"
+	if s.SourceDiskEncryptionKey != nil {
+		switch {
+		case s.SourceDiskEncryptionKey.KmsKeyName != "":
+			details.SourceDiskEncryption = "Customer-managed (CMEK)"
+		case s.SourceDiskEncryptionKey.RawKey != "":
+			details.SourceDiskEncryption = "Customer-supplied (CSEK)"
+		}
+	}
+
+	return details
+}
+
+// IsReady returns true if the snapshot is in READY state
+func (s *Snapshot) IsReady() bool {
+	return s.Status == "READY"
+}
+
+// IsCreating returns true if the snapshot is being created
+func (s *Snapshot) IsCreating() bool {
+	return s.Status == "CREATING" || s.Status == "UPLOADING"
+}
+
+// IsFailed returns true if the snapshot creation failed
+func (s *Snapshot) IsFailed() bool {
+	return s.Status == "FAILED"
 }
