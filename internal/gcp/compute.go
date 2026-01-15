@@ -548,3 +548,76 @@ func (i *Instance) IsRunning() bool {
 func (i *Instance) IsStopped() bool {
 	return i.Status == "TERMINATED" || i.Status == "STOPPED"
 }
+
+// GetInstanceMetadata retrieves metadata for a specific instance
+func (c *ComputeClient) GetInstanceMetadata(ctx context.Context, projectID, zone, instanceName string) (*InstanceMetadata, error) {
+	inst, err := c.service.Instances.Get(projectID, zone, instanceName).Context(ctx).Do()
+	if err != nil {
+		return nil, WrapGetError(err, "instance metadata", instanceName)
+	}
+
+	metadata := &InstanceMetadata{
+		Items:       make(map[string]string),
+		Fingerprint: "",
+	}
+
+	if inst.Metadata != nil {
+		metadata.Fingerprint = inst.Metadata.Fingerprint
+		for _, item := range inst.Metadata.Items {
+			if item.Value != nil {
+				metadata.Items[item.Key] = *item.Value
+			} else {
+				metadata.Items[item.Key] = ""
+			}
+		}
+	}
+
+	return metadata, nil
+}
+
+// SetInstanceMetadata updates metadata for a specific instance
+// Uses fingerprint for optimistic locking to prevent concurrent updates
+func (c *ComputeClient) SetInstanceMetadata(ctx context.Context, projectID, zone, instanceName string, metadata map[string]string, fingerprint string) error {
+	// Convert map to API format
+	var items []*compute.MetadataItems
+	for key, value := range metadata {
+		valueCopy := value // Create a copy for the pointer
+		items = append(items, &compute.MetadataItems{
+			Key:   key,
+			Value: &valueCopy,
+		})
+	}
+
+	metadataObj := &compute.Metadata{
+		Fingerprint: fingerprint,
+		Items:       items,
+	}
+
+	_, err := c.service.Instances.SetMetadata(projectID, zone, instanceName, metadataObj).Context(ctx).Do()
+	if err != nil {
+		return WrapActionError(err, "set instance metadata", instanceName)
+	}
+
+	return nil
+}
+
+// GetProjectMetadata retrieves project-level metadata
+func (c *ComputeClient) GetProjectMetadata(ctx context.Context, projectID string) (map[string]string, error) {
+	project, err := c.service.Projects.Get(projectID).Context(ctx).Do()
+	if err != nil {
+		return nil, WrapGetError(err, "project metadata", projectID)
+	}
+
+	metadata := make(map[string]string)
+	if project.CommonInstanceMetadata != nil {
+		for _, item := range project.CommonInstanceMetadata.Items {
+			if item.Value != nil {
+				metadata[item.Key] = *item.Value
+			} else {
+				metadata[item.Key] = ""
+			}
+		}
+	}
+
+	return metadata, nil
+}

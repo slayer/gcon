@@ -25,6 +25,7 @@ const (
 	ViewProjects ViewType = iota
 	ViewInstances
 	ViewInstanceDetails
+	ViewMetadata
 	ViewDisks
 	ViewDiskDetails
 	ViewBuckets
@@ -58,6 +59,7 @@ type App struct {
 	projectView         *views.ProjectsView
 	instancesView       *views.InstancesView
 	instanceDetailsView *views.InstanceDetailsView
+	metadataView        *views.InstanceMetadataView
 	disksView           *views.DisksView
 	diskDetailsView     *views.DiskDetailsView
 	bucketsView         *views.BucketsView
@@ -185,6 +187,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.selectedInstance = nil
 				a.updateSidebarActiveView()
 				return a, nil
+			case ViewMetadata:
+				// Go back to instances list
+				a.currentView = ViewInstances
+				a.metadataView = nil
+				a.updateSidebarActiveView()
+				return a, nil
 			case ViewDiskDetails:
 				// Go back to disks list
 				a.currentView = ViewDisks
@@ -210,6 +218,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Go back to projects, clear sidebar state
 				a.currentView = ViewProjects
 				a.instancesView = nil
+				a.metadataView = nil
 				a.disksView = nil
 				a.diskDetailsView = nil
 				// Close storage client before discarding bucketsView
@@ -388,6 +397,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case ViewInstanceDetails:
 			if a.instanceDetailsView != nil {
 				cmd = a.instanceDetailsView.Update(msg)
+			}
+		case ViewMetadata:
+			if a.metadataView != nil {
+				cmd = a.metadataView.Update(msg)
 			}
 		case ViewDisks:
 			if a.disksView != nil {
@@ -631,6 +644,9 @@ func (a *App) updateViewSizes() {
 	if a.instanceDetailsView != nil {
 		a.instanceDetailsView.SetContext(a.ctx)
 	}
+	if a.metadataView != nil {
+		a.metadataView.SetContext(a.ctx)
+	}
 	if a.disksView != nil {
 		a.disksView.SetContext(a.ctx)
 	}
@@ -650,6 +666,8 @@ func (a *App) updateSidebarActiveView() {
 	switch a.currentView {
 	case ViewInstances, ViewInstanceDetails:
 		a.sidebar.SetActiveView(sidebar.ViewInstances)
+	case ViewMetadata:
+		a.sidebar.SetActiveView(sidebar.ViewMetadata)
 	case ViewDisks, ViewDiskDetails:
 		a.sidebar.SetActiveView(sidebar.ViewDisks)
 	case ViewBuckets, ViewObjects:
@@ -685,6 +703,26 @@ func (a *App) handleSidebarNavigation(msg sidebar.NavigateMsg) tea.Cmd {
 				a.disksView = views.NewDisksView(a.selectedProject.ID)
 				a.updateViewSizes()
 				cmd = a.disksView.Init()
+			}
+		}
+	case sidebar.ViewMetadata:
+		// Metadata requires an instance to be selected
+		if a.selectedInstance == nil {
+			// No instance selected, stay on current view
+			return nil
+		}
+		if a.currentView != ViewMetadata {
+			a.currentView = ViewMetadata
+			// Pass compute client from instances view to avoid re-initialization
+			if a.instancesView != nil {
+				a.metadataView = views.NewInstanceMetadataView(
+					a.selectedProject.ID,
+					a.selectedInstance.Zone,
+					a.selectedInstance.Name,
+					a.instancesView.GetComputeClient(),
+				)
+				a.updateViewSizes()
+				cmd = a.metadataView.Init()
 			}
 		}
 	case sidebar.ViewBuckets:
@@ -828,7 +866,7 @@ func (a *App) renderHeader() string {
 		} else {
 			// Show category based on current view
 			switch a.currentView {
-			case ViewInstances, ViewInstanceDetails, ViewDisks:
+			case ViewInstances, ViewInstanceDetails, ViewMetadata, ViewDisks:
 				header += a.styles.Muted.Render(" • Compute Engine")
 			case ViewBuckets, ViewObjects:
 				header += a.styles.Muted.Render(" • Cloud Storage")
@@ -839,6 +877,10 @@ func (a *App) renderHeader() string {
 
 		if a.currentView == ViewInstanceDetails && a.selectedInstance != nil {
 			header += a.styles.Muted.Render(" • " + a.selectedInstance.Name)
+		}
+
+		if a.currentView == ViewMetadata && a.selectedInstance != nil {
+			header += a.styles.Muted.Render(" • " + a.selectedInstance.Name + " • Metadata")
 		}
 
 		if a.currentView == ViewDiskDetails && a.selectedDisk != nil {
@@ -1087,6 +1129,10 @@ func (a *App) renderCurrentView() string {
 	case ViewInstanceDetails:
 		if a.instanceDetailsView != nil {
 			return a.instanceDetailsView.View()
+		}
+	case ViewMetadata:
+		if a.metadataView != nil {
+			return a.metadataView.View()
 		}
 	case ViewDisks:
 		if a.disksView != nil {
