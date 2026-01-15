@@ -17,6 +17,7 @@ type KeyMap struct {
 	Tab           key.Binding
 	ShiftTab      key.Binding
 	ToggleSidebar key.Binding
+	ActionMenu    key.Binding
 }
 
 // DefaultKeyMap returns the default key bindings
@@ -73,6 +74,10 @@ func DefaultKeyMap() KeyMap {
 		ToggleSidebar: key.NewBinding(
 			key.WithKeys("["),
 			key.WithHelp("[", "toggle sidebar"),
+		),
+		ActionMenu: key.NewBinding(
+			key.WithKeys("."),
+			key.WithHelp(".", "actions"),
 		),
 	}
 }

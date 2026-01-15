@@ -21,6 +21,7 @@ type Styles struct {
 	ItemActive   lipgloss.Style // Currently active view
 	Category     lipgloss.Style // Category headers (when at root)
 	BackItem     lipgloss.Style // "< Back" item
+	Hotkey       lipgloss.Style // Highlighted hotkey letter
 }
 
 // DefaultStyles returns the default sidebar styles
@@ -65,6 +66,11 @@ func DefaultStyles() Styles {
 			Foreground(colorMuted).
 			Italic(true).
 			Padding(0, 0),
+
+		Hotkey: lipgloss.NewStyle().
+			Foreground(colorPrimary).
+			Bold(true).
+			Underline(true),
 	}
 }
 
@@ -103,6 +109,12 @@ func (s Styles) Dimmed() Styles {
 	s.ItemActive = s.ItemActive.
 		Foreground(colorMuted).
 		Bold(false)
+
+	// Dim hotkey styling when unfocused
+	s.Hotkey = s.Hotkey.
+		Foreground(colorDimmed).
+		Bold(false).
+		Underline(false)
 
 	return s
 }

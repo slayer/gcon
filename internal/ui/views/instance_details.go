@@ -13,6 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
+	"github.com/slayer/gcon/internal/ui/components/actionmenu"
 	"github.com/slayer/gcon/internal/ui/symbols"
 )
 
@@ -48,15 +49,18 @@ type InstanceDetailsView struct {
 	height        int
 	keys          instanceDetailsKeyMap
 	ready         bool
+	actionMenu    *actionmenu.ActionMenu
+	menuOpen      bool
 }
 
 type instanceDetailsKeyMap struct {
-	Up      key.Binding
-	Down    key.Binding
-	Start   key.Binding
-	Stop    key.Binding
-	Reset   key.Binding
-	Refresh key.Binding
+	Up         key.Binding
+	Down       key.Binding
+	Start      key.Binding
+	Stop       key.Binding
+	Reset      key.Binding
+	Refresh    key.Binding
+	ActionMenu key.Binding
 }
 
 func defaultInstanceDetailsKeyMap() instanceDetailsKeyMap {
@@ -84,6 +88,10 @@ func defaultInstanceDetailsKeyMap() instanceDetailsKeyMap {
 		Refresh: key.NewBinding(
 			key.WithKeys("r"),
 			key.WithHelp("r", "refresh"),
+		),
+		ActionMenu: key.NewBinding(
+			key.WithKeys("."),
+			key.WithHelp(".", "actions"),
 		),
 	}
 }
@@ -152,6 +160,15 @@ func (v *InstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 		v.loading = true
 		return tea.Batch(v.spinner.Tick, v.loadDetails())
 
+	case actionmenu.ActionSelectedMsg:
+		// Handle action menu selection
+		v.menuOpen = false
+		return v.executeAction(msg.Key)
+
+	case actionmenu.ActionMenuClosedMsg:
+		v.menuOpen = false
+		return nil
+
 	case spinner.TickMsg:
 		if v.loading || v.actionLoading {
 			var cmd tea.Cmd
@@ -165,7 +182,20 @@ func (v *InstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 			return nil
 		}
 
+		// Route keys to action menu when open
+		if v.menuOpen {
+			return v.actionMenu.Update(msg)
+		}
+
 		switch {
+		case key.Matches(msg, v.keys.ActionMenu):
+			// Toggle action menu
+			if v.details != nil {
+				v.actionMenu = actionmenu.New("Instance Actions", v.buildActions())
+				v.menuOpen = true
+			}
+			return nil
+
 		case key.Matches(msg, v.keys.Refresh):
 			v.loading = true
 			v.err = nil
@@ -199,6 +229,54 @@ func (v *InstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 		var cmd tea.Cmd
 		v.viewport, cmd = v.viewport.Update(msg)
 		return cmd
+	}
+
+	return nil
+}
+
+// buildActions creates the action menu items based on instance state
+func (v *InstanceDetailsView) buildActions() []actionmenu.Action {
+	isRunning := v.isInstanceRunning()
+	isStopped := v.isInstanceStopped()
+
+	return []actionmenu.Action{
+		{Key: 's', Label: "Start", Enabled: isStopped},
+		{Key: 'x', Label: "Stop", Enabled: isRunning},
+		{Key: 'R', Label: "Reset", Enabled: isRunning, Dangerous: true},
+		{Key: 'S', Label: "SSH", Enabled: isRunning},
+		{Key: 'r', Label: "Refresh", Enabled: true},
+	}
+}
+
+// executeAction performs the action selected from the menu
+func (v *InstanceDetailsView) executeAction(actionKey rune) tea.Cmd {
+	if v.details == nil {
+		return nil
+	}
+
+	switch actionKey {
+	case 's':
+		if v.isInstanceStopped() {
+			v.actionLoading = true
+			v.actionMsg = fmt.Sprintf("Starting %s...", v.instanceName)
+			return tea.Batch(v.spinner.Tick, v.startInstance())
+		}
+	case 'x':
+		if v.isInstanceRunning() {
+			v.actionLoading = true
+			v.actionMsg = fmt.Sprintf("Stopping %s...", v.instanceName)
+			return tea.Batch(v.spinner.Tick, v.stopInstance())
+		}
+	case 'R':
+		if v.isInstanceRunning() {
+			v.actionLoading = true
+			v.actionMsg = fmt.Sprintf("Resetting %s...", v.instanceName)
+			return tea.Batch(v.spinner.Tick, v.resetInstance())
+		}
+	case 'r':
+		v.loading = true
+		v.err = nil
+		return tea.Batch(v.spinner.Tick, v.loadDetails())
 	}
 
 	return nil
@@ -262,13 +340,32 @@ func (v *InstanceDetailsView) View() string {
 		header = successStyle.Render("  "+v.actionMsg) + "\n\n"
 	}
 
-	// Help text for actions
+	// Help text for actions - include '.' for action menu
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
 	scrollStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#4285F4"))
 	scrollInfo := scrollStyle.Render(fmt.Sprintf("%.0f%%", v.viewport.ScrollPercent()*100))
-	help := helpStyle.Render("\n  ↑/↓: scroll • s: start • x: stop • R: reset • r: refresh • esc: back") + " " + scrollInfo
+	help := helpStyle.Render("\n  ↑/↓: scroll • .: actions • s: start • x: stop • R: reset • r: refresh") + " " + scrollInfo
 
-	return header + v.viewport.View() + help
+	mainContent := header + v.viewport.View() + help
+
+	// Overlay action menu if open
+	if v.menuOpen && v.actionMenu != nil {
+		return v.renderWithActionMenu(mainContent)
+	}
+
+	return mainContent
+}
+
+// renderWithActionMenu overlays the action menu on top of the content
+func (v *InstanceDetailsView) renderWithActionMenu(content string) string {
+	menuView := v.actionMenu.View()
+
+	// Position menu in center-ish of the view
+	menuStyle := lipgloss.NewStyle().
+		MarginLeft(4).
+		MarginTop(2)
+
+	return content + "\n" + menuStyle.Render(menuView)
 }
 
 // SetSize updates the view dimensions
