@@ -11,34 +11,34 @@ Implement disk snapshots management features in gcon:
 
 ### 1. GCP API Client Layer (`internal/gcp/compute.go`)
 
-- [ ] Add `Snapshot` struct with essential fields
-- [ ] Add `SnapshotDetails` struct with comprehensive information
-- [ ] Implement `ListSnapshots(ctx, projectID)` - list all snapshots
-- [ ] Implement `GetSnapshotDetails(ctx, projectID, snapshotName)` - get snapshot details
-- [ ] Implement `DeleteSnapshot(ctx, projectID, snapshotName)` - delete a snapshot
-- [ ] Add tests for snapshot client functions
+- [x] Add `Snapshot` struct with essential fields
+- [x] Add `SnapshotDetails` struct with comprehensive information
+- [x] Implement `ListSnapshots(ctx, projectID)` - list all snapshots
+- [x] Implement `GetSnapshotDetails(ctx, projectID, snapshotName)` - get snapshot details
+- [x] Implement `DeleteSnapshot(ctx, projectID, snapshotName)` - delete a snapshot
+- [x] Add tests for snapshot client functions
 
 ### 2. Snapshots List View (`internal/ui/views/snapshots.go`)
 
-- [ ] Create `SnapshotsView` struct following the pattern from `DisksView`
-- [ ] Implement table display with columns:
+- [x] Create `SnapshotsView` struct following the pattern from `DisksView`
+- [x] Implement table display with columns:
   - Name (with status indicator)
   - Source Disk
   - Size (GB)
   - Created At
   - Status
-- [ ] Add key bindings:
+- [x] Add key bindings:
   - `enter` - view snapshot details
   - `r` - refresh list
   - `/` - filter/search
   - `D` - delete snapshot (with confirmation)
-- [ ] Handle loading/error states
-- [ ] Add tests for snapshots view
+- [x] Handle loading/error states
+- [x] Add tests for snapshots view
 
 ### 3. Snapshot Details View (`internal/ui/views/snapshot_details.go`)
 
-- [ ] Create `SnapshotDetailsView` struct following the pattern from `DiskDetailsView`
-- [ ] Display comprehensive snapshot information:
+- [x] Create `SnapshotDetailsView` struct following the pattern from `DiskDetailsView`
+- [x] Display comprehensive snapshot information:
   - Basic: Name, ID, Description, Status
   - Source: Source disk name and zone
   - Size: Total size, storage bytes
@@ -46,26 +46,26 @@ Implement disk snapshots management features in gcon:
   - Storage location
   - Labels
   - Encryption info
-- [ ] Add key bindings:
+- [x] Add key bindings:
   - `D` - delete snapshot (with confirmation)
   - `esc` - back to snapshots list
-- [ ] Add tests for snapshot details view
+- [x] Add tests for snapshot details view
 
 ### 4. Integration & Navigation
 
-- [ ] Add `ViewSnapshots` and `ViewSnapshotDetails` to `ViewType` enum in `app.go`
-- [ ] Add snapshot views to `App` struct
-- [ ] Handle `SnapshotSelectedMsg` navigation message
-- [ ] Add "Snapshots" item to sidebar menu
-- [ ] Update command palette to include snapshot navigation
-- [ ] Handle back navigation (esc key)
+- [x] Add `ViewSnapshots` and `ViewSnapshotDetails` to `ViewType` enum in `app.go`
+- [x] Add snapshot views to `App` struct
+- [x] Handle `SnapshotSelectedMsg` navigation message
+- [x] Add "Snapshots" item to sidebar menu
+- [x] Update command palette to include snapshot navigation
+- [x] Handle back navigation (esc key)
 
 ### 5. Testing & Quality
 
-- [ ] Run tests for all new code
-- [ ] Run full test suite to catch regressions
-- [ ] Run linter (`make lint`)
-- [ ] Manual testing:
+- [x] Run tests for all new code
+- [x] Run full test suite to catch regressions
+- [x] Run linter (`make lint`)
+- [x] Manual testing:
   - List snapshots
   - View snapshot details
   - Delete snapshot (with confirmation)
@@ -107,10 +107,10 @@ This implementation follows the established patterns in gcon:
 
 ## Success Criteria
 
-- [ ] Can list all snapshots in a project
-- [ ] Can view detailed snapshot information
-- [ ] Can delete snapshots with confirmation dialog
-- [ ] All tests pass
-- [ ] Linter passes
-- [ ] Navigation works smoothly between views
-- [ ] Follows existing code style and patterns
+- [x] Can list all snapshots in a project
+- [x] Can view detailed snapshot information
+- [x] Can delete snapshots with confirmation dialog
+- [x] All tests pass
+- [x] Linter passes
+- [x] Navigation works smoothly between views
+- [x] Follows existing code style and patterns
