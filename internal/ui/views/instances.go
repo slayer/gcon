@@ -3,6 +3,7 @@ package views
 import (
 	gocontext "context"
 	"fmt"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -450,30 +451,58 @@ func (v *InstancesView) View() string {
 	return mainContent
 }
 
-// renderWithActionMenu renders menu replacing the main content area
-// True overlay is complex in terminal; we show menu in place of content
-func (v *InstancesView) renderWithActionMenu(_ string) string {
+// renderWithActionMenu overlays the action menu centered on top of the content
+func (v *InstancesView) renderWithActionMenu(content string) string {
 	menuView := v.actionMenu.View()
 
-	// Show menu centered in the view area with some context
-	menuStyle := lipgloss.NewStyle().
-		MarginLeft(4).
-		MarginTop(2)
+	contentWidth := lipgloss.Width(content)
+	contentHeight := lipgloss.Height(content)
+	menuWidth := lipgloss.Width(menuView)
+	menuHeight := lipgloss.Height(menuView)
 
-	// Get selected instance info for context
-	var instanceInfo string
-	if row := v.table.SelectedRow(); row != nil {
-		inst := v.findInstanceByName(row.ID)
-		if inst != nil {
-			statusIcon := statusIcon(inst.Status)
-			instanceInfo = fmt.Sprintf("  %s %s (%s)\n\n", statusIcon, inst.Name, inst.Status)
+	// Calculate center position
+	left := (contentWidth - menuWidth) / 2
+	top := (contentHeight - menuHeight) / 2
+	if left < 0 {
+		left = 0
+	}
+	if top < 0 {
+		top = 0
+	}
+
+	// Split content into lines for overlay
+	contentLines := strings.Split(content, "\n")
+	menuLines := strings.Split(menuView, "\n")
+
+	// Overlay menu onto content
+	for i, menuLine := range menuLines {
+		contentRow := top + i
+		if contentRow >= 0 && contentRow < len(contentLines) {
+			contentLines[contentRow] = overlayLine(contentLines[contentRow], menuLine, left)
 		}
 	}
 
-	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
-	help := helpStyle.Render("\n\n  esc: close menu")
+	return strings.Join(contentLines, "\n")
+}
 
-	return instanceInfo + menuStyle.Render(menuView) + help
+// overlayLine places overlay on top of base at the given position
+func overlayLine(base, overlay string, left int) string {
+	baseRunes := []rune(base)
+	overlayRunes := []rune(overlay)
+
+	// Extend base if needed
+	for len(baseRunes) < left+len(overlayRunes) {
+		baseRunes = append(baseRunes, ' ')
+	}
+
+	// Copy overlay onto base
+	for i, r := range overlayRunes {
+		if left+i < len(baseRunes) {
+			baseRunes[left+i] = r
+		}
+	}
+
+	return string(baseRunes)
 }
 
 // SetContext updates the view with shared program context.

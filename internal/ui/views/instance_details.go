@@ -358,27 +358,58 @@ func (v *InstanceDetailsView) View() string {
 	return mainContent
 }
 
-// renderWithActionMenu renders menu replacing the main content area
-// True overlay is complex in terminal; we show menu in place of content
-func (v *InstanceDetailsView) renderWithActionMenu(_ string) string {
+// renderWithActionMenu overlays the action menu centered on top of the content
+func (v *InstanceDetailsView) renderWithActionMenu(content string) string {
 	menuView := v.actionMenu.View()
 
-	// Show menu with instance context
-	menuStyle := lipgloss.NewStyle().
-		MarginLeft(4).
-		MarginTop(2)
+	contentWidth := lipgloss.Width(content)
+	contentHeight := lipgloss.Height(content)
+	menuWidth := lipgloss.Width(menuView)
+	menuHeight := lipgloss.Height(menuView)
 
-	// Show instance info for context
-	var instanceInfo string
-	if v.details != nil {
-		statusIcon := getStatusIcon(v.details.Status)
-		instanceInfo = fmt.Sprintf("  %s %s (%s)\n\n", statusIcon, v.details.Name, v.details.Status)
+	// Calculate center position
+	left := (contentWidth - menuWidth) / 2
+	top := (contentHeight - menuHeight) / 2
+	if left < 0 {
+		left = 0
+	}
+	if top < 0 {
+		top = 0
 	}
 
-	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
-	help := helpStyle.Render("\n\n  esc: close menu")
+	// Split content into lines for overlay
+	contentLines := strings.Split(content, "\n")
+	menuLines := strings.Split(menuView, "\n")
 
-	return instanceInfo + menuStyle.Render(menuView) + help
+	// Overlay menu onto content
+	for i, menuLine := range menuLines {
+		contentRow := top + i
+		if contentRow >= 0 && contentRow < len(contentLines) {
+			contentLines[contentRow] = overlayLineDetails(contentLines[contentRow], menuLine, left)
+		}
+	}
+
+	return strings.Join(contentLines, "\n")
+}
+
+// overlayLineDetails places overlay on top of base at the given position
+func overlayLineDetails(base, overlay string, left int) string {
+	baseRunes := []rune(base)
+	overlayRunes := []rune(overlay)
+
+	// Extend base if needed
+	for len(baseRunes) < left+len(overlayRunes) {
+		baseRunes = append(baseRunes, ' ')
+	}
+
+	// Copy overlay onto base
+	for i, r := range overlayRunes {
+		if left+i < len(baseRunes) {
+			baseRunes[left+i] = r
+		}
+	}
+
+	return string(baseRunes)
 }
 
 // SetContext updates the view with shared program context.
