@@ -488,6 +488,11 @@ func (v *InstancesView) GetComputeClient() *gcp.ComputeClient {
 	return v.computeClient
 }
 
+// IsMenuOpen returns true if the action menu is currently open
+func (v *InstancesView) IsMenuOpen() bool {
+	return v.menuOpen
+}
+
 // renderLoading renders a loading message
 // Height enforcement is handled by the app's View() method using lipgloss.MaxHeight()
 func (v *InstancesView) renderLoading(msg string) string {

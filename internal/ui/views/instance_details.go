@@ -385,6 +385,11 @@ func (v *InstanceDetailsView) SetContext(ctx *context.ProgramContext) {
 	v.applySize(ctx.ContentWidth, ctx.ContentHeight)
 }
 
+// IsMenuOpen returns true if the action menu is currently open
+func (v *InstanceDetailsView) IsMenuOpen() bool {
+	return v.menuOpen
+}
+
 // applySize applies the given dimensions to the viewport
 func (v *InstanceDetailsView) applySize(width, height int) {
 	// Reserve space for header and footer

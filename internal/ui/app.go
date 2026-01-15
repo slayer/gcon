@@ -160,6 +160,32 @@ func (a *App) sidebarActive() bool {
 	return a.selectedProject != nil && a.currentView != ViewProjects
 }
 
+// isViewMenuOpen checks if any view has an action menu open
+func (a *App) isViewMenuOpen() bool {
+	switch a.currentView {
+	case ViewInstances:
+		return a.instancesView != nil && a.instancesView.IsMenuOpen()
+	case ViewInstanceDetails:
+		return a.instanceDetailsView != nil && a.instanceDetailsView.IsMenuOpen()
+	}
+	return false
+}
+
+// updateCurrentView sends a message to the current view and returns its command
+func (a *App) updateCurrentView(msg tea.Msg) tea.Cmd {
+	switch a.currentView {
+	case ViewInstances:
+		if a.instancesView != nil {
+			return a.instancesView.Update(msg)
+		}
+	case ViewInstanceDetails:
+		if a.instanceDetailsView != nil {
+			return a.instanceDetailsView.Update(msg)
+		}
+	}
+	return nil
+}
+
 // Update implements tea.Model
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Handle command palette messages first (highest priority when active)
@@ -180,7 +206,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		// Handle back navigation first (before view-specific handlers)
+		// But skip if a view has an action menu open - let the view handle Esc
 		if key.Matches(msg, a.keys.Back) {
+			// Check if any view has action menu open
+			if a.isViewMenuOpen() {
+				// Let the view handle Esc to close its menu
+				return a, a.updateCurrentView(msg)
+			}
+
 			// If sidebar is focused and drilled down, go back in sidebar
 			if a.focusedPanel == FocusSidebar && len(a.sidebar.GetPath()) > 0 {
 				a.sidebar.Update(msg)
