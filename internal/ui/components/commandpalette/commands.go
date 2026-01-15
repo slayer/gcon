@@ -19,6 +19,7 @@ type ViewType int
 const (
 	ViewInstances ViewType = iota
 	ViewDisks
+	ViewImages
 	ViewBuckets
 	ViewNetworks
 	ViewFirewall
@@ -28,6 +29,7 @@ const (
 const (
 	IconVM       = "■"
 	IconDisk     = "●"
+	IconImage    = "◉"
 	IconBucket   = "▪"
 	IconVPC      = "◆"
 	IconFirewall = "▲"
