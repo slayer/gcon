@@ -14,6 +14,7 @@ import (
 	"github.com/slayer/gcon/internal/ui/components/actionmenu"
 	"github.com/slayer/gcon/internal/ui/components/table"
 	"github.com/slayer/gcon/internal/ui/context"
+	"github.com/slayer/gcon/internal/ui/overlay"
 	"github.com/slayer/gcon/internal/ui/symbols"
 )
 
@@ -454,18 +455,12 @@ func (v *InstancesView) View() string {
 func (v *InstancesView) renderWithActionMenu(content string) string {
 	menuView := v.actionMenu.View()
 
-	// Use lipgloss.Place to center the menu within the content dimensions
+	// Get content dimensions
 	contentWidth := lipgloss.Width(content)
 	contentHeight := lipgloss.Height(content)
 
-	// Place menu centered, with the content as background
-	return lipgloss.Place(
-		contentWidth,
-		contentHeight,
-		lipgloss.Center,
-		lipgloss.Center,
-		menuView,
-	)
+	// Use overlay helper to composite menu on top of content
+	return overlay.Center(content, menuView, contentWidth, contentHeight)
 }
 
 // SetContext updates the view with shared program context.
