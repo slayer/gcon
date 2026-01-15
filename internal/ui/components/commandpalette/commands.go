@@ -19,6 +19,7 @@ type ViewType int
 const (
 	ViewInstances ViewType = iota
 	ViewDisks
+	ViewSnapshots
 	ViewBuckets
 	ViewNetworks
 	ViewFirewall
@@ -74,6 +75,14 @@ func NavigationCommands() []Command {
 			Icon:     IconDisk,
 			Type:     CommandTypeNavigation,
 			ViewType: ViewDisks,
+			Enabled:  true,
+		},
+		{
+			ID:       "nav:snapshots",
+			Label:    "Compute Engine: Snapshots",
+			Icon:     IconDisk,
+			Type:     CommandTypeNavigation,
+			ViewType: ViewSnapshots,
 			Enabled:  true,
 		},
 		{
