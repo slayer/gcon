@@ -602,3 +602,171 @@ func TestDiskDetailsFromAPI(t *testing.T) {
 		})
 	}
 }
+
+func TestSnapshotFromAPI(t *testing.T) {
+	tests := []struct {
+		name     string
+		snapshot *compute.Snapshot
+		validate func(t *testing.T, s Snapshot)
+	}{
+		{
+			name: "basic snapshot",
+			snapshot: &compute.Snapshot{
+				Name:              "snapshot-1",
+				SourceDisk:        "projects/test/zones/us-central1-a/disks/my-disk",
+				SourceDiskId:      "1234567890",
+				DiskSizeGb:        100,
+				Status:            "READY",
+				CreationTimestamp: "2025-01-11T10:00:00Z",
+				StorageBytes:      50000000000,
+			},
+			validate: func(t *testing.T, s Snapshot) {
+				assert.Equal(t, "snapshot-1", s.Name)
+				assert.Equal(t, "my-disk", s.SourceDisk)
+				assert.Equal(t, "1234567890", s.SourceDiskID)
+				assert.Equal(t, int64(100), s.SizeGB)
+				assert.Equal(t, "READY", s.Status)
+				assert.Equal(t, int64(50000000000), s.StorageBytes)
+			},
+		},
+		{
+			name: "snapshot with full disk path",
+			snapshot: &compute.Snapshot{
+				Name:       "snapshot-2",
+				SourceDisk: "https://www.googleapis.com/compute/v1/projects/test/zones/us-east1-b/disks/data-disk",
+				DiskSizeGb: 500,
+				Status:     "CREATING",
+			},
+			validate: func(t *testing.T, s Snapshot) {
+				assert.Equal(t, "data-disk", s.SourceDisk)
+				assert.Equal(t, int64(500), s.SizeGB)
+				assert.Equal(t, "CREATING", s.Status)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			snapshot := snapshotFromAPI(tt.snapshot)
+			tt.validate(t, snapshot)
+		})
+	}
+}
+
+func TestSnapshotMethods(t *testing.T) {
+	t.Run("IsReady", func(t *testing.T) {
+		ready := Snapshot{Status: "READY"}
+		creating := Snapshot{Status: "CREATING"}
+		failed := Snapshot{Status: "FAILED"}
+
+		assert.True(t, ready.IsReady())
+		assert.False(t, creating.IsReady())
+		assert.False(t, failed.IsReady())
+	})
+
+	t.Run("IsCreating", func(t *testing.T) {
+		creating := Snapshot{Status: "CREATING"}
+		uploading := Snapshot{Status: "UPLOADING"}
+		ready := Snapshot{Status: "READY"}
+
+		assert.True(t, creating.IsCreating())
+		assert.True(t, uploading.IsCreating())
+		assert.False(t, ready.IsCreating())
+	})
+
+	t.Run("IsFailed", func(t *testing.T) {
+		failed := Snapshot{Status: "FAILED"}
+		ready := Snapshot{Status: "READY"}
+		creating := Snapshot{Status: "CREATING"}
+
+		assert.True(t, failed.IsFailed())
+		assert.False(t, ready.IsFailed())
+		assert.False(t, creating.IsFailed())
+	})
+}
+
+func TestSnapshotDetailsFromAPI(t *testing.T) {
+	tests := []struct {
+		name     string
+		snapshot *compute.Snapshot
+		validate func(t *testing.T, details *SnapshotDetails)
+	}{
+		{
+			name: "basic snapshot",
+			snapshot: &compute.Snapshot{
+				Name:              "snapshot-1",
+				Id:                12345,
+				Description:       "Test snapshot",
+				Status:            "READY",
+				CreationTimestamp: "2025-01-11T10:00:00Z",
+				SourceDisk:        "projects/test/zones/us-central1-a/disks/my-disk",
+				DiskSizeGb:        100,
+				StorageBytes:      50000000000,
+				Labels:            map[string]string{"env": "prod"},
+			},
+			validate: func(t *testing.T, d *SnapshotDetails) {
+				assert.Equal(t, "snapshot-1", d.Name)
+				assert.Equal(t, uint64(12345), d.ID)
+				assert.Equal(t, "Test snapshot", d.Description)
+				assert.Equal(t, "READY", d.Status)
+				assert.Equal(t, "my-disk", d.SourceDisk)
+				assert.Equal(t, "us-central1-a", d.SourceDiskZone)
+				assert.Equal(t, int64(100), d.SizeGB)
+				assert.Equal(t, int64(50000000000), d.StorageBytes)
+				assert.Equal(t, int64(46), d.StorageBytesGb) // 50000000000 / 1024^3
+				assert.Equal(t, "Google-managed", d.SnapshotEncryptionKey)
+			},
+		},
+		{
+			name: "snapshot with CMEK encryption",
+			snapshot: &compute.Snapshot{
+				Name:       "encrypted-snapshot",
+				Id:         67890,
+				Status:     "READY",
+				SourceDisk: "projects/test/zones/us-west1-a/disks/secure-disk",
+				DiskSizeGb: 200,
+				SnapshotEncryptionKey: &compute.CustomerEncryptionKey{
+					KmsKeyName: "projects/test/locations/global/keyRings/ring/cryptoKeys/key",
+				},
+				SourceDiskEncryptionKey: &compute.CustomerEncryptionKey{
+					KmsKeyName: "projects/test/locations/global/keyRings/ring/cryptoKeys/key",
+				},
+			},
+			validate: func(t *testing.T, d *SnapshotDetails) {
+				assert.Equal(t, "encrypted-snapshot", d.Name)
+				assert.Equal(t, "us-west1-a", d.SourceDiskZone)
+				assert.Equal(t, "Customer-managed (CMEK)", d.SnapshotEncryptionKey)
+				assert.Equal(t, "Customer-managed (CMEK)", d.SourceDiskEncryption)
+			},
+		},
+		{
+			name: "snapshot with storage locations",
+			snapshot: &compute.Snapshot{
+				Name:             "multi-region-snapshot",
+				Id:               11111,
+				Status:           "READY",
+				SourceDisk:       "projects/test/zones/europe-west1-b/disks/data",
+				DiskSizeGb:       500,
+				StorageLocations: []string{"eu", "us"},
+				SnapshotType:     "STANDARD",
+				AutoCreated:      false,
+			},
+			validate: func(t *testing.T, d *SnapshotDetails) {
+				assert.Equal(t, "multi-region-snapshot", d.Name)
+				assert.Equal(t, "europe-west1-b", d.SourceDiskZone)
+				assert.Len(t, d.StorageLocations, 2)
+				assert.Equal(t, "eu", d.StorageLocations[0])
+				assert.Equal(t, "us", d.StorageLocations[1])
+				assert.Equal(t, "STANDARD", d.SnapshotType)
+				assert.False(t, d.AutoCreated)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			details := snapshotDetailsFromAPI(tt.snapshot)
+			tt.validate(t, details)
+		})
+	}
+}
