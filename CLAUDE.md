@@ -285,15 +285,13 @@ func (m *Model) SetSize(width, height int) {
 | `x` | Stop running instance |
 | `R` | Reset (hard reboot) |
 
-### Metadata View
+### Images View
 
 | Key | Action |
 |-----|--------|
-| `e` | Enter edit mode |
-| `j/k` or `↓/↑` | Scroll through metadata |
-| `r` | Refresh metadata |
-| `Ctrl+S` | Save changes (in edit mode) |
-| `Esc` | Cancel edit or go back |
+| `Enter` | View image details |
+| `/` | Filter images |
+| `r` | Refresh list |
 
 ### Objects View (GCS Browser)
 
@@ -368,26 +366,29 @@ Spin up multiple subagents for each task to ensure parallel development. Each su
 
 - [x] Project selector with search/filter
 - [x] Compute Engine instances list
+- [x] Compute Engine instance details view
+- [x] Compute Engine persistent disks list
+- [x] Compute Engine disk details view
+- [x] Compute Engine disk images list
+- [x] Compute Engine image details view
 - [x] Instance actions (start/stop/reset)
-- [x] Instance details view
-- [x] Instance metadata and SSH keys management
-- [x] Disks list and details view
-- [x] Cloud Storage buckets browser
-- [x] Cloud Storage objects browser (view, download, upload, delete)
-- [x] Command palette for quick navigation
-- [x] Sidebar navigation
-- [x] View navigation (projects → instances → metadata → back)
+- [x] View navigation with breadcrumbs
 - [x] Loading states with spinners
 - [x] Error handling with retry
+- [x] Cloud Storage buckets browser
+- [x] Cloud Storage objects browser with upload/download
+- [x] Command palette with fuzzy search
+- [x] Recent items tracking
+- [x] Sidebar navigation
 
 ## Planned Features
 
+- [ ] Disk image deletion with confirmation
+- [ ] Disk image creation from disks/snapshots
 - [ ] Cloud Logging viewer with filters
 - [ ] SSH to instance (via gcloud)
 - [ ] Resource caching
 - [ ] GKE cluster management
 - [ ] Cloud Run services
 - [ ] IAM management
-- [ ] VPC Networks management
-- [ ] Firewall rules management
 

@@ -602,3 +602,423 @@ func TestDiskDetailsFromAPI(t *testing.T) {
 		})
 	}
 }
+
+func TestExtractProjectFromURL(t *testing.T) {
+	tests := []struct {
+		name     string
+		url      string
+		expected string
+	}{
+		{
+			name:     "standard GCP URL",
+			url:      "https://www.googleapis.com/compute/v1/projects/my-project/zones/us-central1-a/disks/disk-1",
+			expected: "my-project",
+		},
+		{
+			name:     "global resource URL",
+			url:      "https://www.googleapis.com/compute/v1/projects/debian-cloud/global/images/debian-11",
+			expected: "debian-cloud",
+		},
+		{
+			name:     "URL without project",
+			url:      "https://www.googleapis.com/compute/v1/zones/us-central1-a",
+			expected: "",
+		},
+		{
+			name:     "empty URL",
+			url:      "",
+			expected: "",
+		},
+		{
+			name:     "malformed URL",
+			url:      "invalid-url",
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := extractProjectFromURL(tt.url)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestExtractCreatorFromImage(t *testing.T) {
+	tests := []struct {
+		name     string
+		img      *compute.Image
+		expected string
+	}{
+		{
+			name: "image with self link",
+			img: &compute.Image{
+				Name:     "my-image",
+				SelfLink: "https://www.googleapis.com/compute/v1/projects/my-project/global/images/my-image",
+			},
+			expected: "my-project",
+		},
+		{
+			name: "image from source disk",
+			img: &compute.Image{
+				Name:       "disk-image",
+				SelfLink:   "",
+				SourceDisk: "https://www.googleapis.com/compute/v1/projects/source-project/zones/us-central1-a/disks/source-disk",
+			},
+			expected: "source-project",
+		},
+		{
+			name: "image from source image",
+			img: &compute.Image{
+				Name:        "derived-image",
+				SelfLink:    "",
+				SourceDisk:  "",
+				SourceImage: "https://www.googleapis.com/compute/v1/projects/debian-cloud/global/images/debian-11",
+			},
+			expected: "debian-cloud",
+		},
+		{
+			name: "image with no sources",
+			img: &compute.Image{
+				Name:     "orphan-image",
+				SelfLink: "",
+			},
+			expected: "-",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := extractCreatorFromImage(tt.img)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestImageFromAPI(t *testing.T) {
+	tests := []struct {
+		name     string
+		img      *compute.Image
+		validate func(t *testing.T, img Image)
+	}{
+		{
+			name: "basic image",
+			img: &compute.Image{
+				Name:              "test-image",
+				Family:            "test-family",
+				Status:            "READY",
+				DiskSizeGb:        10,
+				ArchiveSizeBytes:  5368709120, // 5 GB
+				SourceType:        "RAW",
+				CreationTimestamp: "2025-01-15T10:00:00Z",
+				SelfLink:          "https://www.googleapis.com/compute/v1/projects/my-project/global/images/test-image",
+				StorageLocations:  []string{"us"},
+				Architecture:      "X86_64",
+			},
+			validate: func(t *testing.T, img Image) {
+				assert.Equal(t, "test-image", img.Name)
+				assert.Equal(t, "test-family", img.Family)
+				assert.Equal(t, "READY", img.Status)
+				assert.Equal(t, int64(10), img.DiskSizeGB)
+				assert.Equal(t, int64(5368709120), img.ArchiveSizeBytes)
+				assert.Equal(t, "RAW", img.SourceType)
+				assert.Equal(t, "my-project", img.CreatedBy)
+				assert.Equal(t, []string{"us"}, img.StorageLocations)
+				assert.Equal(t, "X86_64", img.Architecture)
+			},
+		},
+		{
+			name: "image with no family",
+			img: &compute.Image{
+				Name:     "no-family-image",
+				Family:   "",
+				Status:   "READY",
+				SelfLink: "https://www.googleapis.com/compute/v1/projects/test-proj/global/images/no-family",
+			},
+			validate: func(t *testing.T, img Image) {
+				assert.Equal(t, "-", img.Family)
+			},
+		},
+		{
+			name: "image with no architecture defaults to X86_64",
+			img: &compute.Image{
+				Name:         "default-arch",
+				Status:       "READY",
+				Architecture: "",
+				SelfLink:     "https://www.googleapis.com/compute/v1/projects/test/global/images/default-arch",
+			},
+			validate: func(t *testing.T, img Image) {
+				assert.Equal(t, "X86_64", img.Architecture)
+			},
+		},
+		{
+			name: "ARM64 image",
+			img: &compute.Image{
+				Name:         "arm-image",
+				Status:       "READY",
+				Architecture: "ARM64",
+				SelfLink:     "https://www.googleapis.com/compute/v1/projects/test/global/images/arm-image",
+			},
+			validate: func(t *testing.T, img Image) {
+				assert.Equal(t, "ARM64", img.Architecture)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := imageFromAPI(tt.img)
+			tt.validate(t, result)
+		})
+	}
+}
+
+func TestSnapshotFromAPI(t *testing.T) {
+	tests := []struct {
+		name     string
+		snapshot *compute.Snapshot
+		validate func(t *testing.T, s Snapshot)
+	}{
+		{
+			name: "basic snapshot",
+			snapshot: &compute.Snapshot{
+				Name:              "snapshot-1",
+				SourceDisk:        "projects/test/zones/us-central1-a/disks/my-disk",
+				SourceDiskId:      "1234567890",
+				DiskSizeGb:        100,
+				Status:            "READY",
+				CreationTimestamp: "2025-01-11T10:00:00Z",
+				StorageBytes:      50000000000,
+			},
+			validate: func(t *testing.T, s Snapshot) {
+				assert.Equal(t, "snapshot-1", s.Name)
+				assert.Equal(t, "my-disk", s.SourceDisk)
+				assert.Equal(t, "1234567890", s.SourceDiskID)
+				assert.Equal(t, int64(100), s.SizeGB)
+				assert.Equal(t, "READY", s.Status)
+				assert.Equal(t, int64(50000000000), s.StorageBytes)
+			},
+		},
+		{
+			name: "snapshot with full disk path",
+			snapshot: &compute.Snapshot{
+				Name:       "snapshot-2",
+				SourceDisk: "https://www.googleapis.com/compute/v1/projects/test/zones/us-east1-b/disks/data-disk",
+				DiskSizeGb: 500,
+				Status:     "CREATING",
+			},
+			validate: func(t *testing.T, s Snapshot) {
+				assert.Equal(t, "data-disk", s.SourceDisk)
+				assert.Equal(t, int64(500), s.SizeGB)
+				assert.Equal(t, "CREATING", s.Status)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			snapshot := snapshotFromAPI(tt.snapshot)
+			tt.validate(t, snapshot)
+		})
+	}
+}
+
+func TestImageDetailsFromAPI(t *testing.T) {
+	tests := []struct {
+		name     string
+		img      *compute.Image
+		validate func(t *testing.T, details *ImageDetails)
+	}{
+		{
+			name: "comprehensive image",
+			img: &compute.Image{
+				Name:                      "full-image",
+				Id:                        123456,
+				Description:               "Test image description",
+				Family:                    "test-family",
+				Status:                    "READY",
+				CreationTimestamp:         "2025-01-15T10:00:00Z",
+				SelfLink:                  "https://www.googleapis.com/compute/v1/projects/my-project/global/images/full-image",
+				Architecture:              "X86_64",
+				DiskSizeGb:                20,
+				ArchiveSizeBytes:          10737418240, // 10 GB
+				StorageLocations:          []string{"us-central1", "us-east1"},
+				SourceType:                "RAW",
+				SourceDiskId:              "disk-123",
+				SourceImageId:             "image-456",
+				EnableConfidentialCompute: true,
+				SatisfiesPzs:              true,
+				Labels:                    map[string]string{"env": "test"},
+				GuestOsFeatures:           []*compute.GuestOsFeature{{Type: "UEFI_COMPATIBLE"}, {Type: "VIRTIO_SCSI_MULTIQUEUE"}},
+				Licenses:                  []string{"projects/debian-cloud/global/licenses/debian-11"},
+				LicenseCodes:              []int64{1000, 2000},
+			},
+			validate: func(t *testing.T, d *ImageDetails) {
+				assert.Equal(t, "full-image", d.Name)
+				assert.Equal(t, uint64(123456), d.ID)
+				assert.Equal(t, "Test image description", d.Description)
+				assert.Equal(t, "test-family", d.Family)
+				assert.Equal(t, "READY", d.Status)
+				assert.Equal(t, "my-project", d.CreatedBy)
+				assert.Equal(t, "X86_64", d.Architecture)
+				assert.Equal(t, int64(20), d.DiskSizeGB)
+				assert.Equal(t, int64(10737418240), d.ArchiveSizeB)
+				assert.Equal(t, []string{"us-central1", "us-east1"}, d.StorageLocations)
+				assert.Equal(t, "disk-123", d.SourceDiskID)
+				assert.Equal(t, "image-456", d.SourceImageID)
+				assert.True(t, d.EnableConfidentialCompute)
+				assert.True(t, d.SatisfiesPzs)
+				assert.Equal(t, []string{"UEFI_COMPATIBLE", "VIRTIO_SCSI_MULTIQUEUE"}, d.GuestOSFeatures)
+				assert.Equal(t, []string{"debian-11"}, d.Licenses)
+				assert.Equal(t, []int64{1000, 2000}, d.LicenseCodes)
+			},
+		},
+		{
+			name: "image with deprecation",
+			img: &compute.Image{
+				Name:     "deprecated-image",
+				Id:       999,
+				Status:   "READY",
+				SelfLink: "https://www.googleapis.com/compute/v1/projects/test/global/images/deprecated-image",
+				Deprecated: &compute.DeprecationStatus{
+					State:       "DEPRECATED",
+					Replacement: "https://www.googleapis.com/compute/v1/projects/test/global/images/new-image",
+					Deprecated:  "2025-01-01T00:00:00Z",
+					Obsolete:    "2025-06-01T00:00:00Z",
+					Deleted:     "2025-12-01T00:00:00Z",
+				},
+			},
+			validate: func(t *testing.T, d *ImageDetails) {
+				assert.NotNil(t, d.Deprecated)
+				assert.Equal(t, "DEPRECATED", d.Deprecated.State)
+				assert.Equal(t, "new-image", d.Deprecated.Replacement)
+				assert.Equal(t, "2025-01-01T00:00:00Z", d.Deprecated.Deprecated)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := imageDetailsFromAPI(tt.img)
+			tt.validate(t, result)
+		})
+	}
+}
+
+func TestSnapshotMethods(t *testing.T) {
+	t.Run("IsReady", func(t *testing.T) {
+		ready := Snapshot{Status: "READY"}
+		creating := Snapshot{Status: "CREATING"}
+		failed := Snapshot{Status: "FAILED"}
+
+		assert.True(t, ready.IsReady())
+		assert.False(t, creating.IsReady())
+		assert.False(t, failed.IsReady())
+	})
+
+	t.Run("IsCreating", func(t *testing.T) {
+		creating := Snapshot{Status: "CREATING"}
+		uploading := Snapshot{Status: "UPLOADING"}
+		ready := Snapshot{Status: "READY"}
+
+		assert.True(t, creating.IsCreating())
+		assert.True(t, uploading.IsCreating())
+		assert.False(t, ready.IsCreating())
+	})
+
+	t.Run("IsFailed", func(t *testing.T) {
+		failed := Snapshot{Status: "FAILED"}
+		ready := Snapshot{Status: "READY"}
+		creating := Snapshot{Status: "CREATING"}
+
+		assert.True(t, failed.IsFailed())
+		assert.False(t, ready.IsFailed())
+		assert.False(t, creating.IsFailed())
+	})
+}
+
+func TestSnapshotDetailsFromAPI(t *testing.T) {
+	tests := []struct {
+		name     string
+		snapshot *compute.Snapshot
+		validate func(t *testing.T, details *SnapshotDetails)
+	}{
+		{
+			name: "basic snapshot",
+			snapshot: &compute.Snapshot{
+				Name:              "snapshot-1",
+				Id:                12345,
+				Description:       "Test snapshot",
+				Status:            "READY",
+				CreationTimestamp: "2025-01-11T10:00:00Z",
+				SourceDisk:        "projects/test/zones/us-central1-a/disks/my-disk",
+				DiskSizeGb:        100,
+				StorageBytes:      50000000000,
+				Labels:            map[string]string{"env": "prod"},
+			},
+			validate: func(t *testing.T, d *SnapshotDetails) {
+				assert.Equal(t, "snapshot-1", d.Name)
+				assert.Equal(t, uint64(12345), d.ID)
+				assert.Equal(t, "Test snapshot", d.Description)
+				assert.Equal(t, "READY", d.Status)
+				assert.Equal(t, "my-disk", d.SourceDisk)
+				assert.Equal(t, "us-central1-a", d.SourceDiskZone)
+				assert.Equal(t, int64(100), d.SizeGB)
+				assert.Equal(t, int64(50000000000), d.StorageBytes)
+				assert.Equal(t, int64(46), d.StorageBytesGb) // 50000000000 / 1024^3
+				assert.Equal(t, "Google-managed", d.SnapshotEncryptionKey)
+			},
+		},
+		{
+			name: "snapshot with CMEK encryption",
+			snapshot: &compute.Snapshot{
+				Name:       "encrypted-snapshot",
+				Id:         67890,
+				Status:     "READY",
+				SourceDisk: "projects/test/zones/us-west1-a/disks/secure-disk",
+				DiskSizeGb: 200,
+				SnapshotEncryptionKey: &compute.CustomerEncryptionKey{
+					KmsKeyName: "projects/test/locations/global/keyRings/ring/cryptoKeys/key",
+				},
+				SourceDiskEncryptionKey: &compute.CustomerEncryptionKey{
+					KmsKeyName: "projects/test/locations/global/keyRings/ring/cryptoKeys/key",
+				},
+			},
+			validate: func(t *testing.T, d *SnapshotDetails) {
+				assert.Equal(t, "encrypted-snapshot", d.Name)
+				assert.Equal(t, "us-west1-a", d.SourceDiskZone)
+				assert.Equal(t, "Customer-managed (CMEK)", d.SnapshotEncryptionKey)
+				assert.Equal(t, "Customer-managed (CMEK)", d.SourceDiskEncryption)
+			},
+		},
+		{
+			name: "snapshot with storage locations",
+			snapshot: &compute.Snapshot{
+				Name:             "multi-region-snapshot",
+				Id:               11111,
+				Status:           "READY",
+				SourceDisk:       "projects/test/zones/europe-west1-b/disks/data",
+				DiskSizeGb:       500,
+				StorageLocations: []string{"eu", "us"},
+				SnapshotType:     "STANDARD",
+				AutoCreated:      false,
+			},
+			validate: func(t *testing.T, d *SnapshotDetails) {
+				assert.Equal(t, "multi-region-snapshot", d.Name)
+				assert.Equal(t, "europe-west1-b", d.SourceDiskZone)
+				assert.Len(t, d.StorageLocations, 2)
+				assert.Equal(t, "eu", d.StorageLocations[0])
+				assert.Equal(t, "us", d.StorageLocations[1])
+				assert.Equal(t, "STANDARD", d.SnapshotType)
+				assert.False(t, d.AutoCreated)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			details := snapshotDetailsFromAPI(tt.snapshot)
+			tt.validate(t, details)
+		})
+	}
+}

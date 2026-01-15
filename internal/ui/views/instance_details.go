@@ -473,13 +473,7 @@ func (v *InstanceDetailsView) renderContent() string {
 }
 
 // Helper functions
-
-func renderRow(labelStyle, valueStyle, mutedStyle lipgloss.Style, label, value string) string {
-	if value == "" || value == "None" || value == "—" {
-		return labelStyle.Render(label+":") + " " + mutedStyle.Render(value) + "\n"
-	}
-	return labelStyle.Render(label+":") + " " + valueStyle.Render(value) + "\n"
-}
+// Shared helpers (renderRow, defaultIfEmpty, min) are now in helpers.go
 
 func getStatusIcon(status string) string {
 	return symbols.GetStatusSymbol(status)
@@ -510,13 +504,6 @@ func formatMaintenance(m string) string {
 	}
 }
 
-func defaultIfEmpty(s, def string) string {
-	if s == "" {
-		return def
-	}
-	return s
-}
-
 func truncate(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
@@ -525,13 +512,6 @@ func truncate(s string, maxLen int) string {
 		return s[:maxLen]
 	}
 	return s[:maxLen-3] + "..."
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 // renderLoading renders a loading message

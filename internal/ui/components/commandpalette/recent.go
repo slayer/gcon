@@ -18,6 +18,8 @@ const (
 	RecentTypeBucket   RecentItemType = "bucket"
 	RecentTypeInstance RecentItemType = "instance"
 	RecentTypeDisk     RecentItemType = "disk"
+	RecentTypeSnapshot RecentItemType = "snapshot"
+	RecentTypeImage    RecentItemType = "image"
 )
 
 // RecentItem represents a recently accessed resource
@@ -104,6 +106,10 @@ func (r *RecentTracker) Commands() []Command {
 			cmd.ViewType = ViewInstances
 		case RecentTypeDisk:
 			cmd.ViewType = ViewDisks
+		case RecentTypeSnapshot:
+			cmd.ViewType = ViewSnapshots
+		case RecentTypeImage:
+			cmd.ViewType = ViewImages
 		case RecentTypeProject:
 			// Projects navigate back to project list, no ViewType needed
 		}
