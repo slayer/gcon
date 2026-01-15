@@ -602,3 +602,167 @@ func TestDiskDetailsFromAPI(t *testing.T) {
 		})
 	}
 }
+
+func TestRegionFromZone(t *testing.T) {
+	tests := []struct {
+		name     string
+		zone     string
+		expected string
+	}{
+		{
+			name:     "us-central1-a",
+			zone:     "us-central1-a",
+			expected: "us-central1",
+		},
+		{
+			name:     "europe-west1-b",
+			zone:     "europe-west1-b",
+			expected: "europe-west1",
+		},
+		{
+			name:     "asia-southeast1-c",
+			zone:     "asia-southeast1-c",
+			expected: "asia-southeast1",
+		},
+		{
+			name:     "empty string",
+			zone:     "",
+			expected: "",
+		},
+		{
+			name:     "no hyphen",
+			zone:     "invalidzone",
+			expected: "invalidzone",
+		},
+		{
+			name:     "single segment",
+			zone:     "us",
+			expected: "us",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := RegionFromZone(tt.zone)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestParseMachineType(t *testing.T) {
+	tests := []struct {
+		name           string
+		machineType    string
+		expectedSeries string
+		expectedVCPUs  int64
+		expectedMemory int64
+	}{
+		{
+			name:           "n2-standard-4",
+			machineType:    "n2-standard-4",
+			expectedSeries: "n2",
+			expectedVCPUs:  4,
+			expectedMemory: 15360, // 4 * 3840 = 15360 MB
+		},
+		{
+			name:           "n1-standard-8",
+			machineType:    "n1-standard-8",
+			expectedSeries: "n1",
+			expectedVCPUs:  8,
+			expectedMemory: 30720, // 8 * 3840 = 30720 MB
+		},
+		{
+			name:           "n2-highmem-2",
+			machineType:    "n2-highmem-2",
+			expectedSeries: "n2",
+			expectedVCPUs:  2,
+			expectedMemory: 13312, // 2 * 6656 = 13312 MB
+		},
+		{
+			name:           "n1-highcpu-4",
+			machineType:    "n1-highcpu-4",
+			expectedSeries: "n1",
+			expectedVCPUs:  4,
+			expectedMemory: 3696, // 4 * 924 = 3696 MB
+		},
+		{
+			name:           "e2-standard-2",
+			machineType:    "e2-standard-2",
+			expectedSeries: "e2",
+			expectedVCPUs:  2,
+			expectedMemory: 8192, // 2 * 4096 = 8192 MB
+		},
+		{
+			name:           "e2-micro",
+			machineType:    "e2-micro",
+			expectedSeries: "e2",
+			expectedVCPUs:  2,
+			expectedMemory: 1024,
+		},
+		{
+			name:           "e2-small",
+			machineType:    "e2-small",
+			expectedSeries: "e2",
+			expectedVCPUs:  2,
+			expectedMemory: 2048,
+		},
+		{
+			name:           "e2-medium",
+			machineType:    "e2-medium",
+			expectedSeries: "e2",
+			expectedVCPUs:  2,
+			expectedMemory: 4096,
+		},
+		{
+			name:           "f1-micro",
+			machineType:    "f1-micro",
+			expectedSeries: "f1",
+			expectedVCPUs:  1,
+			expectedMemory: 614,
+		},
+		{
+			name:           "g1-small",
+			machineType:    "g1-small",
+			expectedSeries: "g1",
+			expectedVCPUs:  1,
+			expectedMemory: 1740,
+		},
+		{
+			name:           "custom-4-16384",
+			machineType:    "custom-4-16384",
+			expectedSeries: "custom",
+			expectedVCPUs:  4,
+			expectedMemory: 16384,
+		},
+		{
+			name:           "custom-8-32768",
+			machineType:    "custom-8-32768",
+			expectedSeries: "custom",
+			expectedVCPUs:  8,
+			expectedMemory: 32768,
+		},
+		{
+			name:           "empty string",
+			machineType:    "",
+			expectedSeries: "",
+			expectedVCPUs:  0,
+			expectedMemory: 0,
+		},
+		{
+			name:           "unknown format",
+			machineType:    "unknown",
+			expectedSeries: "unknown",
+			expectedVCPUs:  0,
+			expectedMemory: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			series, vcpus, memory := ParseMachineType(tt.machineType)
+			assert.Equal(t, tt.expectedSeries, series, "series mismatch")
+			assert.Equal(t, tt.expectedVCPUs, vcpus, "vCPUs mismatch")
+			assert.Equal(t, tt.expectedMemory, memory, "memory mismatch")
+		})
+	}
+}

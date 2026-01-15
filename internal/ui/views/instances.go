@@ -74,6 +74,7 @@ func defaultInstanceKeyMap() instanceKeyMap {
 func instanceColumns() []btable.Column {
 	return []btable.Column{
 		{Title: "Name", Width: 30},
+		{Title: "Region", Width: 15},
 		{Title: "Zone", Width: 20},
 		{Title: "Internal IP", Width: 15},
 		{Title: "External IP", Width: 15},
@@ -166,12 +167,13 @@ func instanceToRow(inst gcp.Instance) table.Row {
 	return table.Row{
 		Data: []string{
 			name,
+			inst.Region,
 			inst.Zone,
 			inst.InternalIP,
 			externalIP,
 			inst.MachineType,
 		},
-		FilterValue: inst.Name + " " + inst.Zone + " " + inst.Status + " " + inst.MachineType,
+		FilterValue: inst.Name + " " + inst.Region + " " + inst.Zone + " " + inst.Status + " " + inst.MachineType,
 		ID:          inst.Name,
 	}
 }

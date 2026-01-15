@@ -3,6 +3,7 @@ package gcp
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"google.golang.org/api/compute/v1"
@@ -13,6 +14,7 @@ import (
 type Instance struct {
 	Name        string
 	Zone        string
+	Region      string
 	MachineType string
 	Status      string
 	InternalIP  string
@@ -72,6 +74,7 @@ type InstanceDetails struct {
 	Description        string
 	Status             string
 	Zone               string
+	Region             string
 	CreatedAt          string
 	DeletionProtection bool
 	Labels             map[string]string
@@ -80,10 +83,18 @@ type InstanceDetails struct {
 	// Machine Configuration
 	MachineType    string
 	MachineTypeURI string // Full URI for parsing vCPUs/memory from custom types
+	MachineSeries  string
+	VCPUs          int64
+	MemoryMB       int64
 	CpuPlatform    string
 	MinCpuPlatform string
 	DisplayDevice  bool
 	GPUs           []GPU
+
+	// Operational
+	Hostname      string
+	LastStartTime string
+	LastStopTime  string
 
 	// Networking
 	CanIPForward      bool
@@ -375,20 +386,44 @@ func diskDetailsFromAPI(d *compute.Disk, zone string) *DiskDetails {
 
 // instanceDetailsFromAPI converts full API instance to InstanceDetails struct
 func instanceDetailsFromAPI(inst *compute.Instance, zone string) *InstanceDetails {
+	zoneName := extractName(zone)
+	machineType := extractName(inst.MachineType)
+
+	// Parse machine type to get series, vCPUs, and memory
+	series, vcpus, memoryMB := ParseMachineType(machineType)
+
+	// Get hostname from metadata
+	hostname := ""
+	if inst.Metadata != nil {
+		for _, item := range inst.Metadata.Items {
+			if item.Key == "hostname" && item.Value != nil {
+				hostname = *item.Value
+				break
+			}
+		}
+	}
+
 	details := &InstanceDetails{
 		Name:               inst.Name,
 		ID:                 inst.Id,
 		Description:        inst.Description,
 		Status:             inst.Status,
-		Zone:               extractName(zone),
+		Zone:               zoneName,
+		Region:             RegionFromZone(zoneName),
 		CreatedAt:          inst.CreationTimestamp,
 		DeletionProtection: inst.DeletionProtection,
 		Labels:             inst.Labels,
-		MachineType:        extractName(inst.MachineType),
+		MachineType:        machineType,
 		MachineTypeURI:     inst.MachineType,
+		MachineSeries:      series,
+		VCPUs:              vcpus,
+		MemoryMB:           memoryMB,
 		CpuPlatform:        inst.CpuPlatform,
 		MinCpuPlatform:     inst.MinCpuPlatform,
 		CanIPForward:       inst.CanIpForward,
+		Hostname:           hostname,
+		LastStartTime:      inst.LastStartTimestamp,
+		LastStopTime:       inst.LastStopTimestamp,
 	}
 
 	// Tags
@@ -497,6 +532,87 @@ func extractName(path string) string {
 	return parts[len(parts)-1]
 }
 
+// RegionFromZone extracts region name from zone (e.g., "us-central1-a" -> "us-central1")
+func RegionFromZone(zone string) string {
+	if zone == "" {
+		return ""
+	}
+	// Zone format is typically "region-letter" (e.g., us-central1-a)
+	// Remove the last hyphen and letter to get the region
+	lastHyphen := strings.LastIndex(zone, "-")
+	if lastHyphen > 0 {
+		return zone[:lastHyphen]
+	}
+	return zone
+}
+
+// ParseMachineType extracts machine series, vCPUs, and memory from machine type string
+func ParseMachineType(machineType string) (series string, vcpus int64, memoryMB int64) {
+	if machineType == "" {
+		return "", 0, 0
+	}
+
+	// Handle custom machine types (e.g., "custom-4-16384")
+	if strings.HasPrefix(machineType, "custom-") {
+		parts := strings.Split(machineType, "-")
+		if len(parts) >= 3 {
+			series = "custom"
+			vcpus, _ = strconv.ParseInt(parts[1], 10, 64)
+			memoryMB, _ = strconv.ParseInt(parts[2], 10, 64)
+			return
+		}
+	}
+
+	// Extract series (first part before hyphen)
+	parts := strings.Split(machineType, "-")
+	if len(parts) < 2 {
+		return machineType, 0, 0
+	}
+	series = parts[0]
+
+	// Handle predefined machine types
+	switch machineType {
+	// E2 series
+	case "e2-micro":
+		return series, 2, 1024
+	case "e2-small":
+		return series, 2, 2048
+	case "e2-medium":
+		return series, 2, 4096
+	// F1 and G1 series
+	case "f1-micro":
+		return series, 1, 614
+	case "g1-small":
+		return series, 1, 1740
+	}
+
+	// Handle standard format: series-type-vcpus (e.g., n2-standard-4)
+	if len(parts) >= 3 {
+		vcpus, err := strconv.ParseInt(parts[2], 10, 64)
+		if err != nil {
+			return series, 0, 0
+		}
+
+		machineFamily := parts[1]
+		switch {
+		case strings.HasPrefix(machineType, "e2-standard-"):
+			memoryMB = vcpus * 4096
+		case strings.HasPrefix(machineType, "n1-") || strings.HasPrefix(machineType, "n2-"):
+			switch machineFamily {
+			case "standard":
+				memoryMB = vcpus * 3840 // 3.75 GB per vCPU
+			case "highmem":
+				memoryMB = vcpus * 6656 // 6.5 GB per vCPU
+			case "highcpu":
+				memoryMB = vcpus * 924 // 0.9 GB per vCPU
+			}
+		}
+		return series, vcpus, memoryMB
+	}
+
+	return series, 0, 0
+}
+
 // instanceFromAPI converts API instance to our simplified struct
 func instanceFromAPI(inst *compute.Instance, zone string) Instance {
 	// Extract zone name from full path (zones/us-central1-a -> us-central1-a)
@@ -526,6 +642,7 @@ func instanceFromAPI(inst *compute.Instance, zone string) Instance {
 	return Instance{
 		Name:        inst.Name,
 		Zone:        zoneName,
+		Region:      RegionFromZone(zoneName),
 		MachineType: machineType,
 		Status:      inst.Status,
 		InternalIP:  internalIP,

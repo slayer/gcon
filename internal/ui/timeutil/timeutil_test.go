@@ -164,3 +164,210 @@ func mustLoadLocation(name string) *time.Location {
 	}
 	return loc
 }
+
+func TestCalculateUptime(t *testing.T) {
+	tests := []struct {
+		name       string
+		startTime  string
+		expected   string
+		setupMock  func() time.Time // Returns the "now" time to use for calculation
+		validateFn func(t *testing.T, result string)
+	}{
+		{
+			name:      "empty string returns dash",
+			startTime: "",
+			expected:  "—",
+		},
+		{
+			name:      "invalid timestamp returns dash",
+			startTime: "not-a-timestamp",
+			expected:  "—",
+		},
+		{
+			name:      "less than a minute",
+			startTime: time.Now().Add(-30 * time.Second).Format(time.RFC3339),
+			expected:  "< 1m",
+		},
+		{
+			name:      "exactly 1 minute",
+			startTime: time.Now().Add(-1 * time.Minute).Format(time.RFC3339),
+			expected:  "1m",
+		},
+		{
+			name:      "5 minutes",
+			startTime: time.Now().Add(-5 * time.Minute).Format(time.RFC3339),
+			expected:  "5m",
+		},
+		{
+			name:      "59 minutes",
+			startTime: time.Now().Add(-59 * time.Minute).Format(time.RFC3339),
+			expected:  "59m",
+		},
+		{
+			name:      "1 hour",
+			startTime: time.Now().Add(-1 * time.Hour).Format(time.RFC3339),
+			expected:  "1h",
+		},
+		{
+			name:      "1 hour 30 minutes",
+			startTime: time.Now().Add(-90 * time.Minute).Format(time.RFC3339),
+			expected:  "1h 30m",
+		},
+		{
+			name:      "5 hours 45 minutes",
+			startTime: time.Now().Add(-5*time.Hour - 45*time.Minute).Format(time.RFC3339),
+			expected:  "5h 45m",
+		},
+		{
+			name:      "23 hours 59 minutes",
+			startTime: time.Now().Add(-23*time.Hour - 59*time.Minute).Format(time.RFC3339),
+			expected:  "23h 59m",
+		},
+		{
+			name:      "1 day",
+			startTime: time.Now().Add(-24 * time.Hour).Format(time.RFC3339),
+			expected:  "1d",
+		},
+		{
+			name:      "1 day 5 hours",
+			startTime: time.Now().Add(-24*time.Hour - 5*time.Hour).Format(time.RFC3339),
+			expected:  "1d 5h",
+		},
+		{
+			name:      "2 days 5 hours 30 minutes",
+			startTime: time.Now().Add(-48*time.Hour - 5*time.Hour - 30*time.Minute).Format(time.RFC3339),
+			expected:  "2d 5h 30m",
+		},
+		{
+			name:      "7 days",
+			startTime: time.Now().Add(-7 * 24 * time.Hour).Format(time.RFC3339),
+			expected:  "7d",
+		},
+		{
+			name:      "30 days 12 hours 45 minutes",
+			startTime: time.Now().Add(-30*24*time.Hour - 12*time.Hour - 45*time.Minute).Format(time.RFC3339),
+			expected:  "30d 12h 45m",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := CalculateUptime(tt.startTime)
+			if tt.validateFn != nil {
+				tt.validateFn(t, result)
+			} else {
+				assert.Equal(t, tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestFormatDuration(t *testing.T) {
+	tests := []struct {
+		name        string
+		days        int
+		hours       int
+		minutes     int
+		includeDays bool
+		expected    string
+	}{
+		{
+			name:        "only minutes",
+			days:        0,
+			hours:       0,
+			minutes:     30,
+			includeDays: false,
+			expected:    "30m",
+		},
+		{
+			name:        "hours and minutes",
+			days:        0,
+			hours:       2,
+			minutes:     15,
+			includeDays: false,
+			expected:    "2h 15m",
+		},
+		{
+			name:        "only hours",
+			days:        0,
+			hours:       5,
+			minutes:     0,
+			includeDays: false,
+			expected:    "5h",
+		},
+		{
+			name:        "days hours minutes",
+			days:        3,
+			hours:       4,
+			minutes:     25,
+			includeDays: true,
+			expected:    "3d 4h 25m",
+		},
+		{
+			name:        "only days",
+			days:        1,
+			hours:       0,
+			minutes:     0,
+			includeDays: true,
+			expected:    "1d",
+		},
+		{
+			name:        "days and hours",
+			days:        2,
+			hours:       6,
+			minutes:     0,
+			includeDays: true,
+			expected:    "2d 6h",
+		},
+		{
+			name:        "all zero",
+			days:        0,
+			hours:       0,
+			minutes:     0,
+			includeDays: false,
+			expected:    "< 1m",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := formatDuration(tt.days, tt.hours, tt.minutes, tt.includeDays)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestFormatUnit(t *testing.T) {
+	tests := []struct {
+		name     string
+		value    int
+		unit     string
+		expected string
+	}{
+		{
+			name:     "5 hours",
+			value:    5,
+			unit:     "h",
+			expected: "5h",
+		},
+		{
+			name:     "30 minutes",
+			value:    30,
+			unit:     "m",
+			expected: "30m",
+		},
+		{
+			name:     "2 days",
+			value:    2,
+			unit:     "d",
+			expected: "2d",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := formatUnit(tt.value, tt.unit)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}

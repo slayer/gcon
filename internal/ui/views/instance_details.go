@@ -341,6 +341,7 @@ func (v *InstanceDetailsView) renderContent() string {
 	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Description", defaultIfEmpty(d.Description, "None")))
 	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Status", fmt.Sprintf("%s %s", getStatusIcon(d.Status), d.Status)))
 	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Zone", d.Zone))
+	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Region", d.Region))
 	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Created", timeutil.FormatTimestamp(d.CreatedAt)))
 	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Deletion protection", formatBool(d.DeletionProtection)))
 	b.WriteString("\n")
@@ -368,6 +369,16 @@ func (v *InstanceDetailsView) renderContent() string {
 	b.WriteString(sectionStyle.Render("Machine Configuration"))
 	b.WriteString("\n")
 	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Machine Type", d.MachineType))
+	if d.MachineSeries != "" {
+		b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Machine Series", d.MachineSeries))
+	}
+	if d.VCPUs > 0 {
+		b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "vCPUs", fmt.Sprintf("%d", d.VCPUs)))
+	}
+	if d.MemoryMB > 0 {
+		memoryGB := float64(d.MemoryMB) / 1024.0
+		b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Memory", fmt.Sprintf("%.2f GB", memoryGB)))
+	}
 	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "CPU Platform", defaultIfEmpty(d.CpuPlatform, "—")))
 	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Min CPU Platform", defaultIfEmpty(d.MinCpuPlatform, "None")))
 	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Display Device", formatBool(d.DisplayDevice)))
@@ -381,6 +392,25 @@ func (v *InstanceDetailsView) renderContent() string {
 		b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "GPUs", strings.Join(gpuStrs, ", ")))
 	} else {
 		b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "GPUs", "None"))
+	}
+	b.WriteString("\n")
+
+	// Operational Information
+	b.WriteString(sectionStyle.Render("Operational"))
+	b.WriteString("\n")
+	if d.Hostname != "" {
+		b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Hostname", d.Hostname))
+	}
+	if d.LastStartTime != "" {
+		b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Last started", timeutil.FormatTimestamp(d.LastStartTime)))
+		// Show uptime if instance is running
+		if d.Status == "RUNNING" {
+			uptime := timeutil.CalculateUptime(d.LastStartTime)
+			b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Uptime", uptime))
+		}
+	}
+	if d.LastStopTime != "" {
+		b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Last stopped", timeutil.FormatTimestamp(d.LastStopTime)))
 	}
 	b.WriteString("\n")
 
@@ -422,8 +452,13 @@ func (v *InstanceDetailsView) renderContent() string {
 			if disk.Boot {
 				bootStr = "Yes"
 			}
+			// Add [BOOT] prefix to boot disk name
+			diskName := disk.Name
+			if disk.Boot {
+				diskName = "[BOOT] " + diskName
+			}
 			b.WriteString(fmt.Sprintf("  %-25s %-10s %-12s %-12s %-10s\n",
-				truncate(disk.Name, 25),
+				truncate(diskName, 25),
 				fmt.Sprintf("%d GB", disk.SizeGB),
 				defaultIfEmpty(disk.Type, "—"),
 				disk.Mode,

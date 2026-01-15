@@ -2,6 +2,7 @@
 package timeutil
 
 import (
+	"fmt"
 	"time"
 )
 
@@ -45,4 +46,70 @@ func FormatTimestampDate(ts string) string {
 		return ts
 	}
 	return FormatDate(t)
+}
+
+// CalculateUptime calculates the duration from startTimeISO to now and formats it
+// as a human-readable string like "2d 5h 30m", "5h 30m", "30m", or "< 1m".
+func CalculateUptime(startTimeISO string) string {
+	if startTimeISO == "" {
+		return "—"
+	}
+
+	startTime, err := time.Parse(time.RFC3339, startTimeISO)
+	if err != nil {
+		return "—"
+	}
+
+	duration := time.Since(startTime)
+
+	// Less than a minute
+	if duration < time.Minute {
+		return "< 1m"
+	}
+
+	days := int(duration.Hours() / 24)
+	hours := int(duration.Hours()) % 24
+	minutes := int(duration.Minutes()) % 60
+
+	// Format based on duration length
+	if days > 0 {
+		return formatDuration(days, hours, minutes, true)
+	}
+	if hours > 0 {
+		return formatDuration(0, hours, minutes, false)
+	}
+	return formatDuration(0, 0, minutes, false)
+}
+
+// formatDuration formats duration components into a string
+func formatDuration(days, hours, minutes int, includeDays bool) string {
+	var parts []string
+
+	if includeDays && days > 0 {
+		parts = append(parts, formatUnit(days, "d"))
+	}
+	if hours > 0 {
+		parts = append(parts, formatUnit(hours, "h"))
+	}
+	if minutes > 0 {
+		parts = append(parts, formatUnit(minutes, "m"))
+	}
+
+	if len(parts) == 0 {
+		return "< 1m"
+	}
+
+	result := ""
+	for i, part := range parts {
+		if i > 0 {
+			result += " "
+		}
+		result += part
+	}
+	return result
+}
+
+// formatUnit formats a time unit (e.g., 5, "h" -> "5h")
+func formatUnit(value int, unit string) string {
+	return fmt.Sprintf("%d%s", value, unit)
 }
