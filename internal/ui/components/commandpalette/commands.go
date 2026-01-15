@@ -20,6 +20,7 @@ const (
 	ViewInstances ViewType = iota
 	ViewDisks
 	ViewSnapshots
+	ViewImages
 	ViewBuckets
 	ViewNetworks
 	ViewFirewall
@@ -29,6 +30,7 @@ const (
 const (
 	IconVM       = "■"
 	IconDisk     = "●"
+	IconImage    = "◉"
 	IconBucket   = "▪"
 	IconVPC      = "◆"
 	IconFirewall = "▲"
@@ -83,6 +85,14 @@ func NavigationCommands() []Command {
 			Icon:     IconDisk,
 			Type:     CommandTypeNavigation,
 			ViewType: ViewSnapshots,
+			Enabled:  true,
+		},
+		{
+			ID:       "nav:images",
+			Label:    "Compute Engine: Images",
+			Icon:     IconImage,
+			Type:     CommandTypeNavigation,
+			ViewType: ViewImages,
 			Enabled:  true,
 		},
 		{
