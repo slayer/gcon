@@ -285,6 +285,14 @@ func (m *Model) SetSize(width, height int) {
 | `x` | Stop running instance |
 | `R` | Reset (hard reboot) |
 
+### Images View
+
+| Key | Action |
+|-----|--------|
+| `Enter` | View image details |
+| `/` | Filter images |
+| `r` | Refresh list |
+
 ### Objects View (GCS Browser)
 
 | Key | Action |
@@ -358,17 +366,27 @@ Spin up multiple subagents for each task to ensure parallel development. Each su
 
 - [x] Project selector with search/filter
 - [x] Compute Engine instances list
+- [x] Compute Engine instance details view
+- [x] Compute Engine persistent disks list
+- [x] Compute Engine disk details view
+- [x] Compute Engine disk images list
+- [x] Compute Engine image details view
 - [x] Instance actions (start/stop/reset)
-- [x] View navigation (projects → instances → back)
+- [x] View navigation with breadcrumbs
 - [x] Loading states with spinners
 - [x] Error handling with retry
+- [x] Cloud Storage buckets browser
+- [x] Cloud Storage objects browser with upload/download
+- [x] Command palette with fuzzy search
+- [x] Recent items tracking
+- [x] Sidebar navigation
 
 ## Planned Features
 
-- [ ] Cloud Storage buckets browser
+- [ ] Disk image deletion with confirmation
+- [ ] Disk image creation from disks/snapshots
 - [ ] Cloud Logging viewer with filters
 - [ ] SSH to instance (via gcloud)
-- [ ] Instance details panel
 - [ ] Resource caching
 - [ ] GKE cluster management
 - [ ] Cloud Run services
