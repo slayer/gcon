@@ -197,6 +197,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.selectedDisk = nil
 				a.updateSidebarActiveView()
 				return a, nil
+			case ViewSnapshotDetails:
+				// Go back to snapshots list
+				a.currentView = ViewSnapshots
+				a.snapshotDetailsView = nil
+				a.selectedSnapshot = nil
+				a.updateSidebarActiveView()
+				return a, nil
 			case ViewObjects:
 				// Check if we can go up a folder, otherwise go back to buckets
 				if a.objectsView != nil {
@@ -211,12 +218,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.selectedBucket = nil
 				a.updateSidebarActiveView()
 				return a, nil
-			case ViewInstances, ViewDisks, ViewBuckets, ViewNetworks, ViewFirewall:
+			case ViewInstances, ViewDisks, ViewSnapshots, ViewBuckets, ViewNetworks, ViewFirewall:
 				// Go back to projects, clear sidebar state
 				a.currentView = ViewProjects
 				a.instancesView = nil
 				a.disksView = nil
 				a.diskDetailsView = nil
+				a.snapshotsView = nil
+				a.snapshotDetailsView = nil
 				// Close storage client before discarding bucketsView
 				if a.bucketsView != nil {
 					_ = a.bucketsView.Close()
