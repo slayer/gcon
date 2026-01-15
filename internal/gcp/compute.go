@@ -548,3 +548,208 @@ func (i *Instance) IsRunning() bool {
 func (i *Instance) IsStopped() bool {
 	return i.Status == "TERMINATED" || i.Status == "STOPPED"
 }
+
+// Image represents a simplified Compute Engine disk image
+type Image struct {
+	Name         string
+	Family       string
+	Status       string // READY, FAILED, PENDING, DELETING
+	SizeGB       int64
+	SourceType   string // RAW, etc.
+	CreatedAt    string
+	DiskSizeGB   int64
+	ArchiveSize  int64
+	StorageBytes int64
+}
+
+// ImageDetails contains comprehensive disk image information
+type ImageDetails struct {
+	// Basic Information
+	Name        string
+	ID          uint64
+	Description string
+	Family      string
+	Status      string
+	CreatedAt   string
+	Deprecated  *DeprecationStatus
+	Labels      map[string]string
+
+	// Size Information
+	DiskSizeGB       int64
+	ArchiveSizeB     int64
+	StorageBytes     int64
+	StorageLocations []string
+
+	// Source
+	SourceType     string // RAW, etc.
+	SourceDisk     string
+	SourceSnapshot string
+	SourceImage    string
+
+	// Image Features
+	GuestOSFeatures []string
+	Licenses        []string
+
+	// Encryption
+	ImageEncryptionKey          string
+	SourceDiskEncryptionKey     string
+	SourceSnapshotEncryptionKey string
+}
+
+// DeprecationStatus holds deprecation information for an image
+type DeprecationStatus struct {
+	State       string // DEPRECATED, OBSOLETE, DELETED
+	Replacement string
+	Deprecated  string // timestamp
+	Obsolete    string // timestamp
+	Deleted     string // timestamp
+}
+
+// IsReady returns true if the image is in READY state
+func (img *Image) IsReady() bool {
+	return img.Status == "READY"
+}
+
+// ListImages returns all custom images in a project
+func (c *ComputeClient) ListImages(ctx context.Context, projectID string) ([]Image, error) {
+	var images []Image
+
+	req := c.service.Images.List(projectID)
+	err := req.Pages(ctx, func(page *compute.ImageList) error {
+		for _, img := range page.Items {
+			images = append(images, imageFromAPI(img))
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, WrapListError(err, "images", projectID)
+	}
+
+	return images, nil
+}
+
+// GetImageDetails returns comprehensive details for a specific image
+func (c *ComputeClient) GetImageDetails(ctx context.Context, projectID, imageName string) (*ImageDetails, error) {
+	img, err := c.service.Images.Get(projectID, imageName).Context(ctx).Do()
+	if err != nil {
+		return nil, WrapGetError(err, "image details", imageName)
+	}
+
+	return imageDetailsFromAPI(img), nil
+}
+
+// DeleteImage deletes a disk image
+func (c *ComputeClient) DeleteImage(ctx context.Context, projectID, imageName string) error {
+	_, err := c.service.Images.Delete(projectID, imageName).Context(ctx).Do()
+	if err != nil {
+		return WrapActionError(err, "delete image", imageName)
+	}
+	return nil
+}
+
+// imageFromAPI converts API image to our simplified struct
+func imageFromAPI(img *compute.Image) Image {
+	family := img.Family
+	if family == "" {
+		family = "-"
+	}
+
+	return Image{
+		Name:         img.Name,
+		Family:       family,
+		Status:       img.Status,
+		SizeGB:       img.DiskSizeGb,
+		SourceType:   img.SourceType,
+		CreatedAt:    img.CreationTimestamp,
+		DiskSizeGB:   img.DiskSizeGb,
+		ArchiveSize:  img.ArchiveSizeBytes,
+		StorageBytes: img.ArchiveSizeBytes,
+	}
+}
+
+// imageDetailsFromAPI converts full API image to ImageDetails struct
+func imageDetailsFromAPI(img *compute.Image) *ImageDetails {
+	details := &ImageDetails{
+		Name:           img.Name,
+		ID:             img.Id,
+		Description:    img.Description,
+		Family:         img.Family,
+		Status:         img.Status,
+		CreatedAt:      img.CreationTimestamp,
+		Labels:         img.Labels,
+		DiskSizeGB:     img.DiskSizeGb,
+		ArchiveSizeB:   img.ArchiveSizeBytes,
+		SourceType:     img.SourceType,
+		SourceDisk:     extractName(img.SourceDisk),
+		SourceSnapshot: extractName(img.SourceSnapshot),
+		SourceImage:    extractName(img.SourceImage),
+	}
+
+	// Storage locations
+	if len(img.StorageLocations) > 0 {
+		details.StorageLocations = img.StorageLocations
+		// Get storage bytes from first location
+		if len(img.StorageLocations) > 0 {
+			// Note: StorageLocations is []string in the API, not objects with Size
+			details.StorageBytes = img.ArchiveSizeBytes
+		}
+	}
+
+	// Guest OS features
+	for _, feature := range img.GuestOsFeatures {
+		details.GuestOSFeatures = append(details.GuestOSFeatures, feature.Type)
+	}
+
+	// Licenses
+	for _, license := range img.Licenses {
+		details.Licenses = append(details.Licenses, extractName(license))
+	}
+
+	// Deprecation status
+	if img.Deprecated != nil {
+		details.Deprecated = &DeprecationStatus{
+			State:       img.Deprecated.State,
+			Replacement: extractName(img.Deprecated.Replacement),
+			Deprecated:  img.Deprecated.Deprecated,
+			Obsolete:    img.Deprecated.Obsolete,
+			Deleted:     img.Deprecated.Deleted,
+		}
+	}
+
+	// Determine encryption type
+	details.ImageEncryptionKey = "Google-managed"
+	if img.ImageEncryptionKey != nil {
+		switch {
+		case img.ImageEncryptionKey.KmsKeyName != "":
+			details.ImageEncryptionKey = "Customer-managed (CMEK)"
+		case img.ImageEncryptionKey.RawKey != "":
+			details.ImageEncryptionKey = "Customer-supplied (CSEK)"
+		}
+	}
+
+	// Source disk encryption
+	if img.SourceDiskEncryptionKey != nil {
+		switch {
+		case img.SourceDiskEncryptionKey.KmsKeyName != "":
+			details.SourceDiskEncryptionKey = "Customer-managed (CMEK)"
+		case img.SourceDiskEncryptionKey.RawKey != "":
+			details.SourceDiskEncryptionKey = "Customer-supplied (CSEK)"
+		default:
+			details.SourceDiskEncryptionKey = "Google-managed"
+		}
+	}
+
+	// Source snapshot encryption
+	if img.SourceSnapshotEncryptionKey != nil {
+		switch {
+		case img.SourceSnapshotEncryptionKey.KmsKeyName != "":
+			details.SourceSnapshotEncryptionKey = "Customer-managed (CMEK)"
+		case img.SourceSnapshotEncryptionKey.RawKey != "":
+			details.SourceSnapshotEncryptionKey = "Customer-supplied (CSEK)"
+		default:
+			details.SourceSnapshotEncryptionKey = "Google-managed"
+		}
+	}
+
+	return details
+}
