@@ -15,6 +15,8 @@ type ViewType int
 const (
 	ViewInstances ViewType = iota
 	ViewDisks
+	ViewSnapshots
+	ViewImages
 	ViewBuckets
 	ViewNetworks
 	ViewFirewall
@@ -31,6 +33,7 @@ const (
 	// Leaf item icons (filled shapes)
 	IconVM       = "■" // VM instances
 	IconDisk     = "●" // Disks
+	IconImage    = "◉" // Images
 	IconBucket   = "▪" // Buckets
 	IconVPC      = "◆" // VPC networks
 	IconFirewall = "▲" // Firewall
@@ -57,6 +60,8 @@ func DefaultMenu() []MenuItem {
 			Children: []MenuItem{
 				{ID: "vm-instances", Label: "VM instances", Icon: IconVM, Type: MenuItemLeaf, ViewType: ViewInstances},
 				{ID: "disks", Label: "Disks", Icon: IconDisk, Type: MenuItemLeaf, ViewType: ViewDisks},
+				{ID: "snapshots", Label: "Snapshots", Icon: IconDisk, Type: MenuItemLeaf, ViewType: ViewSnapshots},
+				{ID: "images", Label: "Images", Icon: IconImage, Type: MenuItemLeaf, ViewType: ViewImages},
 			},
 		},
 		{

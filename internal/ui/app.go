@@ -27,6 +27,10 @@ const (
 	ViewInstanceDetails
 	ViewDisks
 	ViewDiskDetails
+	ViewSnapshots
+	ViewSnapshotDetails
+	ViewImages
+	ViewImageDetails
 	ViewBuckets
 	ViewObjects // Browsing objects within a bucket
 	ViewNetworks
@@ -60,6 +64,10 @@ type App struct {
 	instanceDetailsView *views.InstanceDetailsView
 	disksView           *views.DisksView
 	diskDetailsView     *views.DiskDetailsView
+	snapshotsView       *views.SnapshotsView
+	snapshotDetailsView *views.SnapshotDetailsView
+	imagesView          *views.ImagesView
+	imageDetailsView    *views.ImageDetailsView
 	bucketsView         *views.BucketsView
 	objectsView         *views.ObjectsView
 
@@ -67,6 +75,8 @@ type App struct {
 	selectedProject  *gcp.Project
 	selectedInstance *gcp.Instance
 	selectedDisk     *gcp.Disk
+	selectedSnapshot *gcp.Snapshot
+	selectedImage    *gcp.Image
 	selectedBucket   *gcp.Bucket
 
 	// UI state
@@ -192,6 +202,20 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.selectedDisk = nil
 				a.updateSidebarActiveView()
 				return a, nil
+			case ViewSnapshotDetails:
+				// Go back to snapshots list
+				a.currentView = ViewSnapshots
+				a.snapshotDetailsView = nil
+				a.selectedSnapshot = nil
+				a.updateSidebarActiveView()
+				return a, nil
+			case ViewImageDetails:
+				// Go back to images list
+				a.currentView = ViewImages
+				a.imageDetailsView = nil
+				a.selectedImage = nil
+				a.updateSidebarActiveView()
+				return a, nil
 			case ViewObjects:
 				// Check if we can go up a folder, otherwise go back to buckets
 				if a.objectsView != nil {
@@ -206,12 +230,16 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.selectedBucket = nil
 				a.updateSidebarActiveView()
 				return a, nil
-			case ViewInstances, ViewDisks, ViewBuckets, ViewNetworks, ViewFirewall:
+			case ViewInstances, ViewDisks, ViewSnapshots, ViewImages, ViewBuckets, ViewNetworks, ViewFirewall:
 				// Go back to projects, clear sidebar state
 				a.currentView = ViewProjects
 				a.instancesView = nil
 				a.disksView = nil
 				a.diskDetailsView = nil
+				a.snapshotsView = nil
+				a.snapshotDetailsView = nil
+				a.imagesView = nil
+				a.imageDetailsView = nil
 				// Close storage client before discarding bucketsView
 				if a.bucketsView != nil {
 					_ = a.bucketsView.Close()
@@ -333,6 +361,40 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.updateViewSizes()
 		return a, a.diskDetailsView.Init()
 
+	case views.SnapshotSelectedMsg:
+		// Navigate to snapshot details view
+		snapshot := msg.Snapshot
+		a.selectedSnapshot = &snapshot
+		// Track recent snapshot access
+		a.recentTracker.Track(commandpalette.RecentTypeSnapshot, snapshot.Name, snapshot.Name)
+		a.currentView = ViewSnapshotDetails
+		// Pass compute client from snapshots view to avoid re-initialization
+		a.snapshotDetailsView = views.NewSnapshotDetailsView(
+			a.selectedProject.ID,
+			snapshot.Name,
+			a.snapshotsView.GetComputeClient(),
+		)
+		a.updateSidebarActiveView()
+		a.updateViewSizes()
+		return a, a.snapshotDetailsView.Init()
+
+	case views.ImageSelectedMsg:
+		// Navigate to image details view
+		image := msg.Image
+		a.selectedImage = &image
+		// Track recent image access
+		a.recentTracker.Track(commandpalette.RecentTypeImage, image.Name, image.Name)
+		a.currentView = ViewImageDetails
+		// Pass compute client from images view to avoid re-initialization
+		a.imageDetailsView = views.NewImageDetailsView(
+			a.selectedProject.ID,
+			image.Name,
+			a.imagesView.GetComputeClient(),
+		)
+		a.updateSidebarActiveView()
+		a.updateViewSizes()
+		return a, a.imageDetailsView.Init()
+
 	case InitialProjectLoadedMsg:
 		// Initial project loaded successfully, go directly to instances view
 		a.loadingInitialProject = false
@@ -396,6 +458,22 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case ViewDiskDetails:
 			if a.diskDetailsView != nil {
 				cmd = a.diskDetailsView.Update(msg)
+			}
+		case ViewSnapshots:
+			if a.snapshotsView != nil {
+				cmd = a.snapshotsView.Update(msg)
+			}
+		case ViewSnapshotDetails:
+			if a.snapshotDetailsView != nil {
+				cmd = a.snapshotDetailsView.Update(msg)
+			}
+		case ViewImages:
+			if a.imagesView != nil {
+				cmd = a.imagesView.Update(msg)
+			}
+		case ViewImageDetails:
+			if a.imageDetailsView != nil {
+				cmd = a.imageDetailsView.Update(msg)
 			}
 		case ViewBuckets:
 			if a.bucketsView != nil {
@@ -637,6 +715,18 @@ func (a *App) updateViewSizes() {
 	if a.diskDetailsView != nil {
 		a.diskDetailsView.SetContext(a.ctx)
 	}
+	if a.snapshotsView != nil {
+		a.snapshotsView.SetContext(a.ctx)
+	}
+	if a.snapshotDetailsView != nil {
+		a.snapshotDetailsView.SetContext(a.ctx)
+	}
+	if a.imagesView != nil {
+		a.imagesView.SetContext(a.ctx)
+	}
+	if a.imageDetailsView != nil {
+		a.imageDetailsView.SetContext(a.ctx)
+	}
 	if a.bucketsView != nil {
 		a.bucketsView.SetContext(a.ctx)
 	}
@@ -652,6 +742,10 @@ func (a *App) updateSidebarActiveView() {
 		a.sidebar.SetActiveView(sidebar.ViewInstances)
 	case ViewDisks, ViewDiskDetails:
 		a.sidebar.SetActiveView(sidebar.ViewDisks)
+	case ViewSnapshots, ViewSnapshotDetails:
+		a.sidebar.SetActiveView(sidebar.ViewSnapshots)
+	case ViewImages, ViewImageDetails:
+		a.sidebar.SetActiveView(sidebar.ViewImages)
 	case ViewBuckets, ViewObjects:
 		a.sidebar.SetActiveView(sidebar.ViewBuckets)
 	case ViewNetworks:
@@ -685,6 +779,24 @@ func (a *App) handleSidebarNavigation(msg sidebar.NavigateMsg) tea.Cmd {
 				a.disksView = views.NewDisksView(a.selectedProject.ID)
 				a.updateViewSizes()
 				cmd = a.disksView.Init()
+			}
+		}
+	case sidebar.ViewSnapshots:
+		if a.currentView != ViewSnapshots {
+			a.currentView = ViewSnapshots
+			if a.snapshotsView == nil {
+				a.snapshotsView = views.NewSnapshotsView(a.selectedProject.ID)
+				a.updateViewSizes()
+				cmd = a.snapshotsView.Init()
+			}
+		}
+	case sidebar.ViewImages:
+		if a.currentView != ViewImages {
+			a.currentView = ViewImages
+			if a.imagesView == nil {
+				a.imagesView = views.NewImagesView(a.selectedProject.ID)
+				a.updateViewSizes()
+				cmd = a.imagesView.Init()
 			}
 		}
 	case sidebar.ViewBuckets:
@@ -828,7 +940,7 @@ func (a *App) renderHeader() string {
 		} else {
 			// Show category based on current view
 			switch a.currentView {
-			case ViewInstances, ViewInstanceDetails, ViewDisks:
+			case ViewInstances, ViewInstanceDetails, ViewDisks, ViewDiskDetails, ViewSnapshots, ViewSnapshotDetails, ViewImages, ViewImageDetails:
 				header += a.styles.Muted.Render(" • Compute Engine")
 			case ViewBuckets, ViewObjects:
 				header += a.styles.Muted.Render(" • Cloud Storage")
@@ -843,6 +955,10 @@ func (a *App) renderHeader() string {
 
 		if a.currentView == ViewDiskDetails && a.selectedDisk != nil {
 			header += a.styles.Muted.Render(" • " + a.selectedDisk.Name)
+		}
+
+		if a.currentView == ViewImageDetails && a.selectedImage != nil {
+			header += a.styles.Muted.Render(" • " + a.selectedImage.Name)
 		}
 
 		// Show bucket name and path when browsing objects
@@ -1095,6 +1211,22 @@ func (a *App) renderCurrentView() string {
 	case ViewDiskDetails:
 		if a.diskDetailsView != nil {
 			return a.diskDetailsView.View()
+		}
+	case ViewSnapshots:
+		if a.snapshotsView != nil {
+			return a.snapshotsView.View()
+		}
+	case ViewSnapshotDetails:
+		if a.snapshotDetailsView != nil {
+			return a.snapshotDetailsView.View()
+		}
+	case ViewImages:
+		if a.imagesView != nil {
+			return a.imagesView.View()
+		}
+	case ViewImageDetails:
+		if a.imageDetailsView != nil {
+			return a.imageDetailsView.View()
 		}
 	case ViewBuckets:
 		if a.bucketsView != nil {

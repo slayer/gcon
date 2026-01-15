@@ -66,6 +66,51 @@ type DiskDetails struct {
 	PhysicalBlockSizeB int64    // Physical block size in bytes
 }
 
+// Snapshot represents a simplified disk snapshot
+type Snapshot struct {
+	Name             string
+	SourceDisk       string // Name of the source disk
+	SourceDiskID     string // Full ID/URI of source disk
+	SizeGB           int64
+	Status           string // CREATING, UPLOADING, READY, FAILED, DELETING
+	CreatedAt        string
+	StorageBytes     int64    // Actual storage used (may be less than SizeGB due to compression)
+	StorageLocations []string // Storage locations (regions)
+}
+
+// SnapshotDetails contains comprehensive snapshot information
+type SnapshotDetails struct {
+	// Basic Information
+	Name        string
+	ID          uint64
+	Description string
+	Status      string
+	CreatedAt   string
+	Labels      map[string]string
+
+	// Source
+	SourceDisk     string // Name of source disk
+	SourceDiskID   string // Full disk URL
+	SourceDiskZone string // Zone where source disk was located
+
+	// Size and Storage
+	SizeGB            int64 // Size of source disk
+	StorageBytes      int64 // Actual storage used
+	StorageBytesGb    int64 // Storage in GB (StorageBytes / 1024^3)
+	DiskSizeGB        int64 // Original disk size
+	StorageLocations  []string
+	DownloadBytes     int64
+	AutoCreated       bool
+	ChainName         string
+	SatisfiesPZS      bool
+	SnapshotType      string
+	CreationSizeBytes int64
+
+	// Encryption
+	SnapshotEncryptionKey string // Type of encryption
+	SourceDiskEncryption  string // Encryption of source disk
+}
+
 // InstanceDetails contains comprehensive VM instance information
 type InstanceDetails struct {
 	// Basic Information
@@ -664,4 +709,414 @@ func (i *Instance) IsRunning() bool {
 // IsStopped returns true if the instance is in TERMINATED or STOPPED state
 func (i *Instance) IsStopped() bool {
 	return i.Status == "TERMINATED" || i.Status == "STOPPED"
+}
+
+// Image represents a simplified Compute Engine disk image
+type Image struct {
+	Name             string
+	Family           string
+	Status           string // READY, FAILED, PENDING, DELETING
+	DiskSizeGB       int64
+	ArchiveSizeBytes int64
+	SourceType       string // RAW, etc.
+	CreatedAt        string
+	CreatedBy        string   // Source project or system (e.g., "debian-cloud", project ID)
+	StorageLocations []string // Regional or multi-regional locations
+	Architecture     string   // ARM64 or X86_64
+}
+
+// ImageDetails contains comprehensive disk image information
+type ImageDetails struct {
+	// Basic Information
+	Name         string
+	ID           uint64
+	Description  string
+	Family       string
+	Status       string
+	CreatedAt    string
+	CreatedBy    string // Source project or system
+	Architecture string // ARM64 or X86_64
+	Deprecated   *DeprecationStatus
+	Labels       map[string]string
+
+	// Size Information
+	DiskSizeGB       int64
+	ArchiveSizeB     int64
+	StorageBytes     int64
+	StorageLocations []string
+
+	// Source
+	SourceType     string // RAW, etc.
+	SourceDisk     string
+	SourceDiskID   string
+	SourceSnapshot string
+	SourceImage    string
+	SourceImageID  string
+
+	// Image Features
+	GuestOSFeatures           []string
+	Licenses                  []string
+	EnableConfidentialCompute bool
+	SatisfiesPzs              bool // Physical zone separation
+	LicenseCodes              []int64
+
+	// Encryption
+	ImageEncryptionKey          string
+	SourceDiskEncryptionKey     string
+	SourceSnapshotEncryptionKey string
+}
+
+// DeprecationStatus holds deprecation information for an image
+type DeprecationStatus struct {
+	State       string // DEPRECATED, OBSOLETE, DELETED
+	Replacement string
+	Deprecated  string // timestamp
+	Obsolete    string // timestamp
+	Deleted     string // timestamp
+}
+
+// IsReady returns true if the image is in READY state
+func (img *Image) IsReady() bool {
+	return img.Status == "READY"
+}
+
+// ListImages returns all custom images in a project
+func (c *ComputeClient) ListImages(ctx context.Context, projectID string) ([]Image, error) {
+	var images []Image
+
+	req := c.service.Images.List(projectID)
+	err := req.Pages(ctx, func(page *compute.ImageList) error {
+		for _, img := range page.Items {
+			images = append(images, imageFromAPI(img))
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, WrapListError(err, "images", projectID)
+	}
+
+	return images, nil
+}
+
+// GetImageDetails returns comprehensive details for a specific image
+func (c *ComputeClient) GetImageDetails(ctx context.Context, projectID, imageName string) (*ImageDetails, error) {
+	img, err := c.service.Images.Get(projectID, imageName).Context(ctx).Do()
+	if err != nil {
+		return nil, WrapGetError(err, "image details", imageName)
+	}
+
+	return imageDetailsFromAPI(img), nil
+}
+
+// DeleteImage deletes a disk image
+func (c *ComputeClient) DeleteImage(ctx context.Context, projectID, imageName string) error {
+	_, err := c.service.Images.Delete(projectID, imageName).Context(ctx).Do()
+	if err != nil {
+		return WrapActionError(err, "delete image", imageName)
+	}
+	return nil
+}
+
+// ListSnapshots returns all snapshots in a project
+func (c *ComputeClient) ListSnapshots(ctx context.Context, projectID string) ([]Snapshot, error) {
+	var snapshots []Snapshot
+
+	req := c.service.Snapshots.List(projectID)
+	err := req.Pages(ctx, func(page *compute.SnapshotList) error {
+		for _, s := range page.Items {
+			snapshots = append(snapshots, snapshotFromAPI(s))
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, WrapListError(err, "snapshots", projectID)
+	}
+
+	return snapshots, nil
+}
+
+// GetSnapshotDetails returns comprehensive details for a specific snapshot
+func (c *ComputeClient) GetSnapshotDetails(ctx context.Context, projectID, snapshotName string) (*SnapshotDetails, error) {
+	snapshot, err := c.service.Snapshots.Get(projectID, snapshotName).Context(ctx).Do()
+	if err != nil {
+		return nil, WrapGetError(err, "snapshot details", snapshotName)
+	}
+
+	return snapshotDetailsFromAPI(snapshot), nil
+}
+
+// DeleteSnapshot deletes a snapshot
+func (c *ComputeClient) DeleteSnapshot(ctx context.Context, projectID, snapshotName string) error {
+	_, err := c.service.Snapshots.Delete(projectID, snapshotName).Context(ctx).Do()
+	if err != nil {
+		return WrapActionError(err, "delete snapshot", snapshotName)
+	}
+	return nil
+}
+
+// imageFromAPI converts API image to our simplified struct
+func imageFromAPI(img *compute.Image) Image {
+	family := img.Family
+	if family == "" {
+		family = "-"
+	}
+
+	// Extract creator/source project from self link or source disk
+	createdBy := extractCreatorFromImage(img)
+
+	// Get first storage location if available
+	location := "-"
+	if len(img.StorageLocations) > 0 {
+		location = img.StorageLocations[0]
+	}
+
+	arch := img.Architecture
+	if arch == "" {
+		arch = "X86_64" // Default
+	}
+
+	return Image{
+		Name:             img.Name,
+		Family:           family,
+		Status:           img.Status,
+		DiskSizeGB:       img.DiskSizeGb,
+		ArchiveSizeBytes: img.ArchiveSizeBytes,
+		SourceType:       img.SourceType,
+		CreatedAt:        img.CreationTimestamp,
+		CreatedBy:        createdBy,
+		StorageLocations: []string{location},
+		Architecture:     arch,
+	}
+}
+
+// extractCreatorFromImage extracts the creator/source project from image
+func extractCreatorFromImage(img *compute.Image) string {
+	// Try to extract from self link first
+	if img.SelfLink != "" {
+		parts := strings.Split(img.SelfLink, "/")
+		for i, part := range parts {
+			if part == "projects" && i+1 < len(parts) {
+				return parts[i+1]
+			}
+		}
+	}
+
+	// If source disk exists, try to extract from that
+	if img.SourceDisk != "" {
+		if projectID := extractProjectFromURL(img.SourceDisk); projectID != "" {
+			return projectID
+		}
+	}
+
+	// If source image exists, try to extract from that
+	if img.SourceImage != "" {
+		if projectID := extractProjectFromURL(img.SourceImage); projectID != "" {
+			return projectID
+		}
+	}
+
+	return "-"
+}
+
+// extractProjectFromURL extracts project ID from GCP resource URL
+func extractProjectFromURL(url string) string {
+	parts := strings.Split(url, "/")
+	for i, part := range parts {
+		if part == "projects" && i+1 < len(parts) {
+			return parts[i+1]
+		}
+	}
+	return ""
+}
+
+// imageDetailsFromAPI converts full API image to ImageDetails struct
+func imageDetailsFromAPI(img *compute.Image) *ImageDetails {
+	arch := img.Architecture
+	if arch == "" {
+		arch = "X86_64" // Default
+	}
+
+	details := &ImageDetails{
+		Name:                      img.Name,
+		ID:                        img.Id,
+		Description:               img.Description,
+		Family:                    img.Family,
+		Status:                    img.Status,
+		CreatedAt:                 img.CreationTimestamp,
+		CreatedBy:                 extractCreatorFromImage(img),
+		Architecture:              arch,
+		Labels:                    img.Labels,
+		DiskSizeGB:                img.DiskSizeGb,
+		ArchiveSizeB:              img.ArchiveSizeBytes,
+		SourceType:                img.SourceType,
+		SourceDisk:                extractName(img.SourceDisk),
+		SourceDiskID:              img.SourceDiskId,
+		SourceSnapshot:            extractName(img.SourceSnapshot),
+		SourceImage:               extractName(img.SourceImage),
+		SourceImageID:             img.SourceImageId,
+		EnableConfidentialCompute: img.EnableConfidentialCompute,
+		SatisfiesPzs:              img.SatisfiesPzs,
+	}
+
+	// Storage locations
+	if len(img.StorageLocations) > 0 {
+		details.StorageLocations = img.StorageLocations
+		details.StorageBytes = img.ArchiveSizeBytes
+	}
+
+	// Guest OS features
+	for _, feature := range img.GuestOsFeatures {
+		details.GuestOSFeatures = append(details.GuestOSFeatures, feature.Type)
+	}
+
+	// Licenses
+	for _, license := range img.Licenses {
+		details.Licenses = append(details.Licenses, extractName(license))
+	}
+
+	// License codes
+	if len(img.LicenseCodes) > 0 {
+		details.LicenseCodes = make([]int64, len(img.LicenseCodes))
+		copy(details.LicenseCodes, img.LicenseCodes)
+	}
+
+	// Deprecation status
+	if img.Deprecated != nil {
+		details.Deprecated = &DeprecationStatus{
+			State:       img.Deprecated.State,
+			Replacement: extractName(img.Deprecated.Replacement),
+			Deprecated:  img.Deprecated.Deprecated,
+			Obsolete:    img.Deprecated.Obsolete,
+			Deleted:     img.Deprecated.Deleted,
+		}
+	}
+
+	// Determine encryption type
+	details.ImageEncryptionKey = "Google-managed"
+	if img.ImageEncryptionKey != nil {
+		switch {
+		case img.ImageEncryptionKey.KmsKeyName != "":
+			details.ImageEncryptionKey = "Customer-managed (CMEK)"
+		case img.ImageEncryptionKey.RawKey != "":
+			details.ImageEncryptionKey = "Customer-supplied (CSEK)"
+		}
+	}
+
+	// Source disk encryption
+	if img.SourceDiskEncryptionKey != nil {
+		switch {
+		case img.SourceDiskEncryptionKey.KmsKeyName != "":
+			details.SourceDiskEncryptionKey = "Customer-managed (CMEK)"
+		case img.SourceDiskEncryptionKey.RawKey != "":
+			details.SourceDiskEncryptionKey = "Customer-supplied (CSEK)"
+		default:
+			details.SourceDiskEncryptionKey = "Google-managed"
+		}
+	}
+
+	// Source snapshot encryption
+	if img.SourceSnapshotEncryptionKey != nil {
+		switch {
+		case img.SourceSnapshotEncryptionKey.KmsKeyName != "":
+			details.SourceSnapshotEncryptionKey = "Customer-managed (CMEK)"
+		case img.SourceSnapshotEncryptionKey.RawKey != "":
+			details.SourceSnapshotEncryptionKey = "Customer-supplied (CSEK)"
+		default:
+			details.SourceSnapshotEncryptionKey = "Google-managed"
+		}
+	}
+
+	return details
+}
+
+// snapshotFromAPI converts API snapshot to our simplified struct
+func snapshotFromAPI(s *compute.Snapshot) Snapshot {
+	return Snapshot{
+		Name:             s.Name,
+		SourceDisk:       extractName(s.SourceDisk),
+		SourceDiskID:     s.SourceDiskId,
+		SizeGB:           s.DiskSizeGb,
+		Status:           s.Status,
+		CreatedAt:        s.CreationTimestamp,
+		StorageBytes:     s.StorageBytes,
+		StorageLocations: s.StorageLocations,
+	}
+}
+
+// snapshotDetailsFromAPI converts full API snapshot to SnapshotDetails struct
+func snapshotDetailsFromAPI(s *compute.Snapshot) *SnapshotDetails {
+	details := &SnapshotDetails{
+		Name:              s.Name,
+		ID:                s.Id,
+		Description:       s.Description,
+		Status:            s.Status,
+		CreatedAt:         s.CreationTimestamp,
+		Labels:            s.Labels,
+		SourceDisk:        extractName(s.SourceDisk),
+		SourceDiskID:      s.SourceDisk,
+		DiskSizeGB:        s.DiskSizeGb,
+		SizeGB:            s.DiskSizeGb,
+		StorageBytes:      s.StorageBytes,
+		StorageLocations:  s.StorageLocations,
+		DownloadBytes:     s.DownloadBytes,
+		AutoCreated:       s.AutoCreated,
+		ChainName:         s.ChainName,
+		SatisfiesPZS:      s.SatisfiesPzs,
+		SnapshotType:      s.SnapshotType,
+		CreationSizeBytes: s.CreationSizeBytes,
+	}
+
+	// Calculate storage in GB
+	if s.StorageBytes > 0 {
+		details.StorageBytesGb = s.StorageBytes / (1024 * 1024 * 1024)
+	}
+
+	// Extract source disk zone from full URL
+	if s.SourceDisk != "" {
+		parts := strings.Split(s.SourceDisk, "/")
+		for i, part := range parts {
+			if part == "zones" && i+1 < len(parts) {
+				details.SourceDiskZone = parts[i+1]
+				break
+			}
+		}
+	}
+
+	// Determine encryption type
+	details.SnapshotEncryptionKey = "Google-managed"
+	if s.SnapshotEncryptionKey != nil {
+		switch {
+		case s.SnapshotEncryptionKey.KmsKeyName != "":
+			details.SnapshotEncryptionKey = "Customer-managed (CMEK)"
+		case s.SnapshotEncryptionKey.RawKey != "":
+			details.SnapshotEncryptionKey = "Customer-supplied (CSEK)"
+		}
+	}
+
+	details.SourceDiskEncryption = "Google-managed"
+	if s.SourceDiskEncryptionKey != nil {
+		switch {
+		case s.SourceDiskEncryptionKey.KmsKeyName != "":
+			details.SourceDiskEncryption = "Customer-managed (CMEK)"
+		case s.SourceDiskEncryptionKey.RawKey != "":
+			details.SourceDiskEncryption = "Customer-supplied (CSEK)"
+		}
+	}
+
+	return details
+}
+
+// IsReady returns true if the snapshot is in READY state
+func (s *Snapshot) IsReady() bool {
+	return s.Status == "READY"
+}
+
+// IsCreating returns true if the snapshot is being created
+func (s *Snapshot) IsCreating() bool {
+	return s.Status == "CREATING" || s.Status == "UPLOADING"
+}
+
+// IsFailed returns true if the snapshot creation failed
+func (s *Snapshot) IsFailed() bool {
+	return s.Status == "FAILED"
 }
