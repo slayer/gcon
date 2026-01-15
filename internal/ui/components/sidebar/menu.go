@@ -60,7 +60,7 @@ func DefaultMenu() []MenuItem {
 			Children: []MenuItem{
 				{ID: "vm-instances", Label: "VM instances", Icon: IconVM, Type: MenuItemLeaf, ViewType: ViewInstances},
 				{ID: "disks", Label: "Disks", Icon: IconDisk, Type: MenuItemLeaf, ViewType: ViewDisks},
-				{ID: "metadata", Label: "Metadata", Icon: IconMetadata, Type: MenuItemLeaf, ViewType: ViewMetadata},
+				{ID: "metadata", Label: "Instance metadata", Icon: IconMetadata, Type: MenuItemLeaf, ViewType: ViewMetadata},
 				{ID: "project-metadata", Label: "Project metadata", Icon: IconMetadata, Type: MenuItemLeaf, ViewType: ViewProjectMetadata},
 			},
 		},
