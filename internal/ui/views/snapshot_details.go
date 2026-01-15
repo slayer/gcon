@@ -288,13 +288,26 @@ func (v *SnapshotDetailsView) renderContent() string {
 	b.WriteString("\n")
 	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Disk Size", fmt.Sprintf("%d GB", d.DiskSizeGB)))
 	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Storage Used", fmt.Sprintf("%d GB (%.1f GB)", d.StorageBytesGb, float64(d.StorageBytes)/1024/1024/1024)))
-	if len(d.StorageLocations) > 0 {
-		b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Storage Locations", strings.Join(d.StorageLocations, ", ")))
-	}
 	if d.SnapshotType != "" {
 		b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Snapshot Type", d.SnapshotType))
 	}
 	b.WriteString("\n")
+
+	// Storage Locations
+	if len(d.StorageLocations) > 0 {
+		b.WriteString(sectionStyle.Render("Storage Locations"))
+		b.WriteString("\n")
+		if len(d.StorageLocations) == 1 {
+			b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Location", d.StorageLocations[0]))
+		} else {
+			b.WriteString(labelStyle.Render("Locations:"))
+			b.WriteString("\n")
+			for _, loc := range d.StorageLocations {
+				b.WriteString(fmt.Sprintf("  • %s\n", loc))
+			}
+		}
+		b.WriteString("\n")
+	}
 
 	// Encryption
 	b.WriteString(sectionStyle.Render("Encryption"))
