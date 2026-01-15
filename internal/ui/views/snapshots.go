@@ -57,9 +57,10 @@ func defaultSnapshotKeyMap() snapshotKeyMap {
 // Table column definitions
 func snapshotColumns() []btable.Column {
 	return []btable.Column{
-		{Title: "Name", Width: 30},
-		{Title: "Source Disk", Width: 25},
+		{Title: "Name", Width: 28},
+		{Title: "Source Disk", Width: 22},
 		{Title: "Size", Width: 10},
+		{Title: "Location", Width: 15},
 		{Title: "Created", Width: 20},
 		{Title: "Status", Width: 12},
 	}
@@ -158,6 +159,17 @@ func snapshotToRow(snapshot gcp.Snapshot) table.Row {
 	// Format size with GB suffix
 	size := fmt.Sprintf("%d GB", snapshot.SizeGB)
 
+	// Format storage locations
+	location := "-"
+	if len(snapshot.StorageLocations) > 0 {
+		if len(snapshot.StorageLocations) == 1 {
+			location = snapshot.StorageLocations[0]
+		} else {
+			// Show first location and count of others
+			location = fmt.Sprintf("%s +%d", snapshot.StorageLocations[0], len(snapshot.StorageLocations)-1)
+		}
+	}
+
 	// Format created time
 	created := timeutil.FormatTimestamp(snapshot.CreatedAt)
 
@@ -166,6 +178,7 @@ func snapshotToRow(snapshot gcp.Snapshot) table.Row {
 			name,
 			sourceDisk,
 			size,
+			location,
 			created,
 			snapshot.Status,
 		},

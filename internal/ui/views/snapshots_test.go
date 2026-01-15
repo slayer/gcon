@@ -49,20 +49,22 @@ func TestSnapshotToRow(t *testing.T) {
 		{
 			name: "basic snapshot",
 			snapshot: gcp.Snapshot{
-				Name:       "snapshot-1",
-				SourceDisk: "my-disk",
-				SizeGB:     100,
-				Status:     "READY",
-				CreatedAt:  "2025-01-15T10:00:00Z",
+				Name:             "snapshot-1",
+				SourceDisk:       "my-disk",
+				SizeGB:           100,
+				Status:           "READY",
+				CreatedAt:        "2025-01-15T10:00:00Z",
+				StorageLocations: []string{"us"},
 			},
 			validate: func(t *testing.T, row table.Row) {
-				assert.Len(t, row.Data, 5)
+				assert.Len(t, row.Data, 6)
 				assert.Contains(t, row.Data[0], "snapshot-1")
 				// Status icon is prepended to name
 				assert.NotEqual(t, "snapshot-1", row.Data[0], "status icon should be prepended")
 				assert.Equal(t, "my-disk", row.Data[1])
 				assert.Equal(t, "100 GB", row.Data[2])
-				assert.Equal(t, "READY", row.Data[4])
+				assert.Equal(t, "us", row.Data[3]) // Location column
+				assert.Equal(t, "READY", row.Data[5])
 				assert.Equal(t, "snapshot-1", row.ID)
 				assert.Contains(t, row.FilterValue, "snapshot-1")
 				assert.Contains(t, row.FilterValue, "my-disk")
@@ -78,9 +80,27 @@ func TestSnapshotToRow(t *testing.T) {
 				CreatedAt:  "2025-01-15T11:00:00Z",
 			},
 			validate: func(t *testing.T, row table.Row) {
-				assert.Equal(t, "-", row.Data[1]) // Source disk should be "-"
-				assert.Equal(t, "500 GB", row.Data[2])
-				assert.Equal(t, "CREATING", row.Data[4])
+				assert.Equal(t, "-", row.Data[1])        // Source disk should be "-"
+				assert.Equal(t, "500 GB", row.Data[2])   // Size
+				assert.Equal(t, "-", row.Data[3])        // Location should be "-"
+				assert.Equal(t, "CREATING", row.Data[5]) // Status
+			},
+		},
+		{
+			name: "snapshot with multiple locations",
+			snapshot: gcp.Snapshot{
+				Name:             "snapshot-3",
+				SourceDisk:       "data-disk",
+				SizeGB:           1000,
+				Status:           "READY",
+				CreatedAt:        "2025-01-15T12:00:00Z",
+				StorageLocations: []string{"us", "eu", "asia"},
+			},
+			validate: func(t *testing.T, row table.Row) {
+				assert.Equal(t, "data-disk", row.Data[1])
+				assert.Equal(t, "1000 GB", row.Data[2])
+				assert.Equal(t, "us +2", row.Data[3]) // Should show first location + count
+				assert.Equal(t, "READY", row.Data[5])
 			},
 		},
 	}

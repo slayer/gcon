@@ -66,13 +66,14 @@ type DiskDetails struct {
 
 // Snapshot represents a simplified disk snapshot
 type Snapshot struct {
-	Name         string
-	SourceDisk   string // Name of the source disk
-	SourceDiskID string // Full ID/URI of source disk
-	SizeGB       int64
-	Status       string // CREATING, UPLOADING, READY, FAILED, DELETING
-	CreatedAt    string
-	StorageBytes int64 // Actual storage used (may be less than SizeGB due to compression)
+	Name             string
+	SourceDisk       string // Name of the source disk
+	SourceDiskID     string // Full ID/URI of source disk
+	SizeGB           int64
+	Status           string // CREATING, UPLOADING, READY, FAILED, DELETING
+	CreatedAt        string
+	StorageBytes     int64    // Actual storage used (may be less than SizeGB due to compression)
+	StorageLocations []string // Storage locations (regions)
 }
 
 // SnapshotDetails contains comprehensive snapshot information
@@ -633,13 +634,14 @@ func (c *ComputeClient) DeleteSnapshot(ctx context.Context, projectID, snapshotN
 // snapshotFromAPI converts API snapshot to our simplified struct
 func snapshotFromAPI(s *compute.Snapshot) Snapshot {
 	return Snapshot{
-		Name:         s.Name,
-		SourceDisk:   extractName(s.SourceDisk),
-		SourceDiskID: s.SourceDiskId,
-		SizeGB:       s.DiskSizeGb,
-		Status:       s.Status,
-		CreatedAt:    s.CreationTimestamp,
-		StorageBytes: s.StorageBytes,
+		Name:             s.Name,
+		SourceDisk:       extractName(s.SourceDisk),
+		SourceDiskID:     s.SourceDiskId,
+		SizeGB:           s.DiskSizeGb,
+		Status:           s.Status,
+		CreatedAt:        s.CreationTimestamp,
+		StorageBytes:     s.StorageBytes,
+		StorageLocations: s.StorageLocations,
 	}
 }
 
