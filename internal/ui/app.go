@@ -2,6 +2,7 @@ package ui
 
 import (
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
@@ -11,6 +12,7 @@ import (
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components/commandpalette"
 	"github.com/slayer/gcon/internal/ui/components/sidebar"
+	"github.com/slayer/gcon/internal/ui/context"
 	"github.com/slayer/gcon/internal/ui/layout"
 	"github.com/slayer/gcon/internal/ui/symbols"
 	"github.com/slayer/gcon/internal/ui/views"
@@ -43,6 +45,7 @@ const (
 // App is the main application model
 type App struct {
 	gcpClient *gcp.Client
+	ctx       *context.ProgramContext // Shared context for all views
 	styles    Styles
 	keys      KeyMap
 	help      help.Model
@@ -92,8 +95,11 @@ type AppOptions struct {
 
 // NewApp creates a new application instance
 func NewApp(client *gcp.Client, opts AppOptions) *App {
-	return &App{
+	ctx := context.New()
+
+	a := &App{
 		gcpClient:        client,
+		ctx:              ctx,
 		styles:           DefaultStyles(),
 		keys:             DefaultKeyMap(),
 		help:             help.New(),
@@ -106,6 +112,11 @@ func NewApp(client *gcp.Client, opts AppOptions) *App {
 		commandPalette:   commandpalette.New(),
 		recentTracker:    commandpalette.NewRecentTracker(),
 	}
+
+	// Set up the StartTask callback for async operation tracking
+	ctx.StartTask = a.startTask
+
+	return a
 }
 
 // Init implements tea.Model
@@ -260,6 +271,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Update layout with new terminal dimensions
 		a.layout.SetSize(msg.Width, msg.Height)
 		a.updateViewSizes()
+		a.syncContext()
+		return a, nil
+
+	case context.TaskClearMsg:
+		// Remove completed task from tracking
+		delete(a.ctx.Tasks, msg.TaskID)
 		return a, nil
 
 	case ErrorMsg:
@@ -277,6 +294,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.focusedPanel = FocusContent
 		a.updateSidebarActiveView()
 		a.updateViewSizes()
+		a.syncContext()
 		return a, a.instancesView.Init()
 
 	case views.InstanceSelectedMsg:
@@ -398,6 +416,65 @@ func (a *App) cleanup() {
 	if a.bucketsView != nil {
 		_ = a.bucketsView.Close() // Best-effort cleanup on exit
 	}
+}
+
+// startTask registers a new async task and returns a command to animate the spinner.
+// Tasks are tracked in the context and displayed in the footer.
+func (a *App) startTask(task context.Task) tea.Cmd {
+	task.StartTime = time.Now()
+	task.State = context.TaskRunning
+	a.ctx.Tasks[task.ID] = task
+	return nil // Could return spinner.Tick if we want animation
+}
+
+// GetContext returns the shared program context.
+// Views can use this to access dimensions, styles, and task tracking.
+func (a *App) GetContext() *context.ProgramContext {
+	return a.ctx
+}
+
+// finishTask marks a task as complete and schedules its removal.
+// Called when an async operation completes. Currently unused but will be
+// integrated when views adopt the task system.
+//
+//nolint:unused
+func (a *App) finishTask(taskID string, err error) tea.Cmd {
+	if task, ok := a.ctx.Tasks[taskID]; ok {
+		now := time.Now()
+		task.FinishedTime = &now
+		if err != nil {
+			task.State = context.TaskError
+			task.Error = err
+		} else {
+			task.State = context.TaskFinished
+		}
+		a.ctx.Tasks[taskID] = task
+
+		// Schedule task removal after 2 seconds
+		return tea.Tick(2*time.Second, func(t time.Time) tea.Msg {
+			return context.TaskClearMsg{TaskID: taskID}
+		})
+	}
+	return nil
+}
+
+// syncContext updates the shared context with current app state.
+// Called after dimension changes or project selection.
+func (a *App) syncContext() {
+	contentWidth := a.layout.ContentWidth()
+	contentHeight := a.layout.ContentHeight()
+
+	a.ctx.SetDimensions(a.width, a.height, contentWidth, contentHeight)
+	a.ctx.SidebarActive = a.sidebarActive()
+	if a.sidebarActive() {
+		a.ctx.SidebarWidth = a.sidebar.Width()
+	}
+	if a.selectedProject != nil {
+		a.ctx.ProjectID = a.selectedProject.ID
+	} else {
+		a.ctx.ProjectID = ""
+	}
+	a.ctx.Error = a.err
 }
 
 // toggleFocus switches focus between sidebar and content
@@ -526,7 +603,8 @@ func (a *App) handleRecentCommand(cmd commandpalette.Command) (tea.Model, tea.Cm
 	return a, nil
 }
 
-// updateViewSizes recalculates sizes for all views using the layout manager
+// updateViewSizes recalculates sizes for all views using the layout manager.
+// Uses SetContext to propagate shared context to all views.
 func (a *App) updateViewSizes() {
 	// Update layout with sidebar state
 	if a.sidebarActive() {
@@ -536,36 +614,34 @@ func (a *App) updateViewSizes() {
 		a.layout.SetSidebarActive(false)
 	}
 
-	// Get dimensions from layout - layout handles all calculations
-	contentWidth := a.layout.ContentWidth()
-	contentHeight := a.layout.ContentHeight()
+	// Sync context with current dimensions before propagating
+	a.syncContext()
 
 	// Sidebar uses content height directly
 	if a.sidebarActive() {
-		a.sidebar.SetSize(contentHeight)
+		a.sidebar.SetSize(a.ctx.ContentHeight)
 	}
 
-	// Projects view uses full width (no sidebar)
-	a.projectView.SetSize(a.width, contentHeight)
+	// Propagate context to all views - they read dimensions from ctx
+	a.projectView.SetContext(a.ctx)
 
-	// Other views use content area (respecting sidebar)
 	if a.instancesView != nil {
-		a.instancesView.SetSize(contentWidth, contentHeight)
+		a.instancesView.SetContext(a.ctx)
 	}
 	if a.instanceDetailsView != nil {
-		a.instanceDetailsView.SetSize(contentWidth, contentHeight)
+		a.instanceDetailsView.SetContext(a.ctx)
 	}
 	if a.disksView != nil {
-		a.disksView.SetSize(contentWidth, contentHeight)
+		a.disksView.SetContext(a.ctx)
 	}
 	if a.diskDetailsView != nil {
-		a.diskDetailsView.SetSize(contentWidth, contentHeight)
+		a.diskDetailsView.SetContext(a.ctx)
 	}
 	if a.bucketsView != nil {
-		a.bucketsView.SetSize(contentWidth, contentHeight)
+		a.bucketsView.SetContext(a.ctx)
 	}
 	if a.objectsView != nil {
-		a.objectsView.SetSize(contentWidth, contentHeight)
+		a.objectsView.SetContext(a.ctx)
 	}
 }
 

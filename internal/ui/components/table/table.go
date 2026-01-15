@@ -1,4 +1,5 @@
 // Package table provides a reusable table component with GCP styling and filtering support.
+// Enhanced with column caching and flexible column definitions inspired by gh-dash.
 package table
 
 import (
@@ -17,6 +18,16 @@ type Row struct {
 	Data        []string // Column values
 	FilterValue string   // String used for filtering
 	ID          string   // Unique identifier for the row
+}
+
+// Column defines a table column with enhanced properties.
+// Inspired by gh-dash's column management pattern.
+type Column struct {
+	Title         string // Column header text
+	Width         int    // Base width (minimum if Grow is true)
+	Hidden        bool   // If true, column is not displayed
+	Grow          bool   // If true, column expands to fill available space
+	ComputedWidth int    // Cached width after layout calculation (internal)
 }
 
 // KeyMap defines the key bindings for the table
@@ -64,8 +75,9 @@ type Model struct {
 	table     table.Model
 	styles    table.Styles // Store styles for updating Selected width
 	columns   []table.Column
-	allRows   []Row // All rows (unfiltered)
-	rows      []Row // Currently visible rows (filtered)
+	colDefs   []Column // Enhanced column definitions with caching
+	allRows   []Row    // All rows (unfiltered)
+	rows      []Row    // Currently visible rows (filtered)
 	filter    textinput.Model
 	filtering bool
 	focused   bool
@@ -73,9 +85,18 @@ type Model struct {
 	height    int
 	title     string
 	keys      KeyMap
+
+	// Caching to prevent recalculation on every render
+	lastWidth       int  // Last width used for column calculation
+	columnsComputed bool // True if ComputedWidth values are valid
+
+	// Loading and empty states
+	loading     bool
+	loadingText string
+	emptyText   string
 }
 
-// New creates a new table model
+// New creates a new table model (backward compatible)
 func New(columns []table.Column, title string) Model {
 	t := table.New(
 		table.WithColumns(columns),
@@ -92,16 +113,80 @@ func New(columns []table.Column, title string) Model {
 	ti.Width = 30
 
 	return Model{
-		table:   t,
-		styles:  styles,
-		columns: columns,
-		allRows: []Row{},
-		rows:    []Row{},
-		filter:  ti,
-		focused: true,
-		title:   title,
-		keys:    DefaultKeyMap(),
+		table:     t,
+		styles:    styles,
+		columns:   columns,
+		allRows:   []Row{},
+		rows:      []Row{},
+		filter:    ti,
+		focused:   true,
+		title:     title,
+		keys:      DefaultKeyMap(),
+		emptyText: "No items",
 	}
+}
+
+// NewWithColumns creates a table with enhanced column definitions.
+// This enables column hiding, flexible growth, and width caching.
+func NewWithColumns(cols []Column, title string) Model {
+	// Convert to bubbles/table columns initially
+	tableCols := make([]table.Column, 0, len(cols))
+	for _, c := range cols {
+		if !c.Hidden {
+			tableCols = append(tableCols, table.Column{
+				Title: c.Title,
+				Width: c.Width,
+			})
+		}
+	}
+
+	t := table.New(
+		table.WithColumns(tableCols),
+		table.WithRows([]table.Row{}),
+		table.WithFocused(true),
+		table.WithHeight(10),
+	)
+	styles := DefaultTableStyles()
+	t.SetStyles(styles)
+
+	ti := textinput.New()
+	ti.Placeholder = "Type to filter..."
+	ti.CharLimit = 100
+	ti.Width = 30
+
+	return Model{
+		table:     t,
+		styles:    styles,
+		columns:   tableCols,
+		colDefs:   cols,
+		allRows:   []Row{},
+		rows:      []Row{},
+		filter:    ti,
+		focused:   true,
+		title:     title,
+		keys:      DefaultKeyMap(),
+		emptyText: "No items",
+	}
+}
+
+// SetLoading sets the loading state with optional custom text
+func (m *Model) SetLoading(loading bool, text string) {
+	m.loading = loading
+	if text != "" {
+		m.loadingText = text
+	} else {
+		m.loadingText = "Loading..."
+	}
+}
+
+// SetEmptyText sets the text shown when there are no rows
+func (m *Model) SetEmptyText(text string) {
+	m.emptyText = text
+}
+
+// IsLoading returns true if the table is in loading state
+func (m *Model) IsLoading() bool {
+	return m.loading
 }
 
 // SetRows updates the table rows
@@ -165,8 +250,12 @@ func (m *Model) SetSize(width, height int) {
 	m.table.SetWidth(width)
 	m.table.SetHeight(tableHeight)
 
-	// Adjust column widths proportionally
-	m.adjustColumnWidths(width)
+	// Only recalculate column widths if width changed (caching optimization)
+	if width != m.lastWidth || !m.columnsComputed {
+		m.adjustColumnWidths(width)
+		m.lastWidth = width
+		m.columnsComputed = true
+	}
 
 	// Update Selected style to span full row width with padding to fill background
 	m.styles.Selected = m.styles.Selected.
@@ -175,29 +264,36 @@ func (m *Model) SetSize(width, height int) {
 	m.table.SetStyles(m.styles)
 }
 
-// adjustColumnWidths distributes width among columns
+// adjustColumnWidths distributes width among columns.
+// Uses enhanced column definitions if available, with support for Grow flag.
 func (m *Model) adjustColumnWidths(totalWidth int) {
 	if len(m.columns) == 0 {
 		return
 	}
 
-	// Calculate total requested width and count expandable columns
-	// Narrow columns (<=5 chars) are kept fixed (e.g., status icons)
+	// Account for table overhead: borders and cell separators
+	// bubbles/table adds spacing between columns (2 chars each) plus border chars
+	tableOverhead := 4 + len(m.columns)*2 // base padding + 2 chars per column gap
+	availableWidth := totalWidth - tableOverhead
+
+	// If we have enhanced column definitions, use them
+	if len(m.colDefs) > 0 {
+		m.adjustColumnsWithDefs(availableWidth)
+		return
+	}
+
+	// Legacy behavior: expand wider columns proportionally
 	requestedWidth := 0
 	expandableCount := 0
 	for _, col := range m.columns {
 		requestedWidth += col.Width
+		// Narrow columns (<=5 chars) are kept fixed (e.g., status icons)
 		if col.Width > 5 {
 			expandableCount++
 		}
 	}
 
-	// Account for table overhead: borders and cell separators
-	// bubbles/table adds spacing between columns (2 chars each) plus border chars
-	tableOverhead := 4 + len(m.columns)*2 // base padding + 2 chars per column gap
-
 	// If we have more space, expand only wider columns proportionally
-	availableWidth := totalWidth - tableOverhead
 	if availableWidth > requestedWidth && expandableCount > 0 {
 		extraSpace := availableWidth - requestedWidth
 		extraPerColumn := extraSpace / expandableCount
@@ -209,6 +305,84 @@ func (m *Model) adjustColumnWidths(totalWidth int) {
 	}
 
 	m.table.SetColumns(m.columns)
+}
+
+// adjustColumnsWithDefs uses enhanced column definitions for width calculation.
+// Columns with Grow=true share extra space proportionally.
+func (m *Model) adjustColumnsWithDefs(availableWidth int) {
+	// Calculate fixed width and count growable columns
+	fixedWidth := 0
+	growCount := 0
+	visibleIdx := 0
+
+	for i := range m.colDefs {
+		if m.colDefs[i].Hidden {
+			continue
+		}
+		fixedWidth += m.colDefs[i].Width
+		if m.colDefs[i].Grow {
+			growCount++
+		}
+		visibleIdx++
+	}
+
+	// Calculate extra space to distribute among growable columns
+	extraSpace := availableWidth - fixedWidth
+	extraPerGrow := 0
+	if growCount > 0 && extraSpace > 0 {
+		extraPerGrow = extraSpace / growCount
+	}
+
+	// Build table columns with computed widths
+	tableCols := make([]table.Column, 0, visibleIdx)
+	for i := range m.colDefs {
+		if m.colDefs[i].Hidden {
+			continue
+		}
+
+		width := m.colDefs[i].Width
+		if m.colDefs[i].Grow && extraPerGrow > 0 {
+			width += extraPerGrow
+		}
+
+		// Cache the computed width
+		m.colDefs[i].ComputedWidth = width
+
+		tableCols = append(tableCols, table.Column{
+			Title: m.colDefs[i].Title,
+			Width: width,
+		})
+	}
+
+	m.columns = tableCols
+	m.table.SetColumns(tableCols)
+}
+
+// SetColumnHidden changes the visibility of a column by title.
+// Triggers a recalculation of column widths.
+func (m *Model) SetColumnHidden(title string, hidden bool) {
+	for i := range m.colDefs {
+		if m.colDefs[i].Title == title {
+			m.colDefs[i].Hidden = hidden
+			m.columnsComputed = false // Force recalculation
+			break
+		}
+	}
+}
+
+// GetVisibleColumnCount returns the number of visible columns
+func (m *Model) GetVisibleColumnCount() int {
+	if len(m.colDefs) == 0 {
+		return len(m.columns)
+	}
+
+	count := 0
+	for _, col := range m.colDefs {
+		if !col.Hidden {
+			count++
+		}
+	}
+	return count
 }
 
 // Focus sets the focus state
@@ -309,6 +483,26 @@ func (m Model) View() string {
 			Italic(true)
 		b.WriteString(filterStyle.Render("Filtered: " + m.filter.Value()))
 		b.WriteString("\n")
+	}
+
+	// Loading state
+	if m.loading {
+		loadingStyle := lipgloss.NewStyle().
+			Foreground(ColorPrimary).
+			Italic(true).
+			Padding(2, 0)
+		b.WriteString(loadingStyle.Render(m.loadingText))
+		return b.String()
+	}
+
+	// Empty state
+	if len(m.rows) == 0 && len(m.allRows) == 0 {
+		emptyStyle := lipgloss.NewStyle().
+			Foreground(ColorMuted).
+			Italic(true).
+			Padding(2, 0)
+		b.WriteString(emptyStyle.Render(m.emptyText))
+		return b.String()
 	}
 
 	// Table

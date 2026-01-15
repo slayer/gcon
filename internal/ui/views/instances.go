@@ -1,7 +1,7 @@
 package views
 
 import (
-	"context"
+	gocontext "context"
 	"fmt"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -12,6 +12,7 @@ import (
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/table"
+	"github.com/slayer/gcon/internal/ui/context"
 	"github.com/slayer/gcon/internal/ui/symbols"
 )
 
@@ -19,14 +20,13 @@ import (
 type InstancesView struct {
 	computeClient *gcp.ComputeClient
 	projectID     string
+	ctx           *context.ProgramContext // Shared context for dimensions and styles
 	table         table.Model
 	spinner       spinner.Model
 	loading       bool
 	actionLoading bool // True when performing start/stop action
 	actionMsg     string
 	err           error
-	width         int
-	height        int
 	instances     []gcp.Instance
 	keys          instanceKeyMap
 }
@@ -110,7 +110,7 @@ func (v *InstancesView) Init() tea.Cmd {
 // initComputeClient creates the compute client then loads instances
 func (v *InstancesView) initComputeClient() tea.Cmd {
 	return func() tea.Msg {
-		client, err := gcp.NewComputeClient(context.Background())
+		client, err := gcp.NewComputeClient(gocontext.Background())
 		if err != nil {
 			return instancesErrorMsg{err: err}
 		}
@@ -121,7 +121,7 @@ func (v *InstancesView) initComputeClient() tea.Cmd {
 // loadInstances fetches instances from GCP
 func (v *InstancesView) loadInstances() tea.Cmd {
 	return func() tea.Msg {
-		instances, err := v.computeClient.ListInstances(context.Background(), v.projectID)
+		instances, err := v.computeClient.ListInstances(gocontext.Background(), v.projectID)
 		if err != nil {
 			return instancesErrorMsg{err: err}
 		}
@@ -302,21 +302,21 @@ func (v *InstancesView) findInstanceByName(name string) *gcp.Instance {
 
 func (v *InstancesView) startInstance(inst gcp.Instance) tea.Cmd {
 	return func() tea.Msg {
-		err := v.computeClient.StartInstance(context.Background(), v.projectID, inst.Zone, inst.Name)
+		err := v.computeClient.StartInstance(gocontext.Background(), v.projectID, inst.Zone, inst.Name)
 		return instanceActionMsg{action: "Start", instance: inst.Name, err: err}
 	}
 }
 
 func (v *InstancesView) stopInstance(inst gcp.Instance) tea.Cmd {
 	return func() tea.Msg {
-		err := v.computeClient.StopInstance(context.Background(), v.projectID, inst.Zone, inst.Name)
+		err := v.computeClient.StopInstance(gocontext.Background(), v.projectID, inst.Zone, inst.Name)
 		return instanceActionMsg{action: "Stop", instance: inst.Name, err: err}
 	}
 }
 
 func (v *InstancesView) resetInstance(inst gcp.Instance) tea.Cmd {
 	return func() tea.Msg {
-		err := v.computeClient.ResetInstance(context.Background(), v.projectID, inst.Zone, inst.Name)
+		err := v.computeClient.ResetInstance(gocontext.Background(), v.projectID, inst.Zone, inst.Name)
 		return instanceActionMsg{action: "Reset", instance: inst.Name, err: err}
 	}
 }
@@ -357,11 +357,11 @@ func (v *InstancesView) View() string {
 	return header + v.table.View() + help
 }
 
-// SetSize updates the view dimensions
-func (v *InstancesView) SetSize(width, height int) {
-	v.width = width
-	v.height = height
-	v.table.SetSize(width, height-6) // Reserve space for header and help
+// SetContext updates the view with shared program context.
+// Reads dimensions from the context for consistent sizing.
+func (v *InstancesView) SetContext(ctx *context.ProgramContext) {
+	v.ctx = ctx
+	v.table.SetSize(ctx.ContentWidth, ctx.ContentHeight-6)
 }
 
 // SelectedInstance returns the currently selected instance

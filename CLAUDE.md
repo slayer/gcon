@@ -231,6 +231,37 @@ func (s *Sidebar) Width() int {
 
 Layout calculations depend on accurate width reporting. If a component reports width=26 but renders as 27 (due to border), content will overflow by 1 character.
 
+### lipgloss Style Testing
+`lipgloss.Style.String()` returns an empty string - it doesn't serialize style properties. To test that styles are properly initialized, render content instead:
+
+```go
+// Wrong - String() returns empty
+assert.NotEmpty(t, style.String())
+
+// Correct - test by rendering
+rendered := style.Render("test")
+assert.NotEmpty(t, rendered)
+```
+
+### Component Width Caching
+For components that recalculate layouts (like tables with flexible columns), cache the last width to avoid recalculation on every render:
+
+```go
+type Model struct {
+    lastWidth       int
+    columnsComputed bool
+}
+
+func (m *Model) SetSize(width, height int) {
+    // Only recalculate if width changed
+    if width != m.lastWidth || !m.columnsComputed {
+        m.adjustColumnWidths(width)
+        m.lastWidth = width
+        m.columnsComputed = true
+    }
+}
+```
+
 ## Key Bindings
 
 ### Global

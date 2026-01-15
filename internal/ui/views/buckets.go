@@ -1,7 +1,7 @@
 package views
 
 import (
-	"context"
+	gocontext "context"
 	"fmt"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components/table"
+	"github.com/slayer/gcon/internal/ui/context"
 	"github.com/slayer/gcon/internal/ui/timeutil"
 )
 
@@ -47,12 +48,11 @@ func bucketColumns() []btable.Column {
 type BucketsView struct {
 	storageClient *gcp.StorageClient
 	projectID     string
+	ctx           *context.ProgramContext // Shared context for dimensions and styles
 	table         table.Model
 	spinner       spinner.Model
 	loading       bool
 	err           error
-	width         int
-	height        int
 	buckets       []gcp.Bucket
 	keys          bucketKeyMap
 }
@@ -86,7 +86,7 @@ func (v *BucketsView) Init() tea.Cmd {
 // initStorageClient creates the storage client then loads buckets
 func (v *BucketsView) initStorageClient() tea.Cmd {
 	return func() tea.Msg {
-		client, err := gcp.NewStorageClient(context.Background())
+		client, err := gcp.NewStorageClient(gocontext.Background())
 		if err != nil {
 			return bucketsErrorMsg{err: err}
 		}
@@ -97,7 +97,7 @@ func (v *BucketsView) initStorageClient() tea.Cmd {
 // loadBuckets fetches buckets from GCP
 func (v *BucketsView) loadBuckets() tea.Cmd {
 	return func() tea.Msg {
-		buckets, err := v.storageClient.ListBuckets(context.Background(), v.projectID)
+		buckets, err := v.storageClient.ListBuckets(gocontext.Background(), v.projectID)
 		if err != nil {
 			return bucketsErrorMsg{err: err}
 		}
@@ -242,11 +242,11 @@ func (v *BucketsView) View() string {
 	return v.table.View() + help
 }
 
-// SetSize updates the view dimensions
-func (v *BucketsView) SetSize(width, height int) {
-	v.width = width
-	v.height = height
-	v.table.SetSize(width, height-4)
+// SetContext updates the view with shared program context.
+// Reads dimensions from the context for consistent sizing.
+func (v *BucketsView) SetContext(ctx *context.ProgramContext) {
+	v.ctx = ctx
+	v.table.SetSize(ctx.ContentWidth, ctx.ContentHeight-4)
 }
 
 // GetStorageClient returns the storage client for reuse in objects view
