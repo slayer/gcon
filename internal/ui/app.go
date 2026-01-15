@@ -264,23 +264,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.updateSidebarActiveView()
 				return a, nil
 			case ViewInstances, ViewDisks, ViewSnapshots, ViewImages, ViewBuckets, ViewNetworks, ViewFirewall:
-				// Go back to projects, clear sidebar state
-				a.currentView = ViewProjects
-				a.instancesView = nil
-				a.disksView = nil
-				a.diskDetailsView = nil
-				a.snapshotsView = nil
-				a.snapshotDetailsView = nil
-				a.imagesView = nil
-				a.imageDetailsView = nil
-				// Close storage client before discarding bucketsView
-				if a.bucketsView != nil {
-					_ = a.bucketsView.Close()
-				}
-				a.bucketsView = nil
-				a.selectedProject = nil
-				a.focusedPanel = FocusContent
-				return a, nil
+				// Once a project is selected, there's no going back to project selector
+				// Esc from these views quits the application
+				a.cleanup()
+				return a, tea.Quit
+			case ViewProjects:
+				// On projects view, Esc quits the application
+				a.cleanup()
+				return a, tea.Quit
 			}
 		}
 
@@ -1289,8 +1280,15 @@ func (a *App) renderFooter() string {
 	}
 
 	helpText := ": cmd • ? help • q quit"
-	if a.currentView != ViewProjects {
+	// Show "esc back" for detail views, "esc quit" for top-level views
+	switch a.currentView {
+	case ViewInstanceDetails, ViewDiskDetails, ViewSnapshotDetails, ViewImageDetails:
 		helpText = "esc back • " + helpText
+	case ViewObjects:
+		// Objects view may navigate up folders or back to buckets
+		helpText = "esc back • " + helpText
+	case ViewProjects, ViewInstances, ViewDisks, ViewSnapshots, ViewImages, ViewBuckets, ViewNetworks, ViewFirewall:
+		helpText = "esc quit • " + helpText
 	}
 	if a.sidebarActive() {
 		helpText = "tab focus • [ sidebar • " + helpText
