@@ -2,13 +2,17 @@ package ui
 
 import (
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
 	"github.com/slayer/gcon/internal/gcp"
+	"github.com/slayer/gcon/internal/ui/components/commandpalette"
 	"github.com/slayer/gcon/internal/ui/components/sidebar"
+	"github.com/slayer/gcon/internal/ui/context"
 	"github.com/slayer/gcon/internal/ui/layout"
 	"github.com/slayer/gcon/internal/ui/symbols"
 	"github.com/slayer/gcon/internal/ui/views"
@@ -22,6 +26,11 @@ const (
 	ViewInstances
 	ViewInstanceDetails
 	ViewDisks
+	ViewDiskDetails
+	ViewSnapshots
+	ViewSnapshotDetails
+	ViewImages
+	ViewImageDetails
 	ViewBuckets
 	ViewObjects // Browsing objects within a bucket
 	ViewNetworks
@@ -40,6 +49,7 @@ const (
 // App is the main application model
 type App struct {
 	gcpClient *gcp.Client
+	ctx       *context.ProgramContext // Shared context for all views
 	styles    Styles
 	keys      KeyMap
 	help      help.Model
@@ -52,12 +62,21 @@ type App struct {
 	projectView         *views.ProjectsView
 	instancesView       *views.InstancesView
 	instanceDetailsView *views.InstanceDetailsView
+	disksView           *views.DisksView
+	diskDetailsView     *views.DiskDetailsView
+	snapshotsView       *views.SnapshotsView
+	snapshotDetailsView *views.SnapshotDetailsView
+	imagesView          *views.ImagesView
+	imageDetailsView    *views.ImageDetailsView
 	bucketsView         *views.BucketsView
 	objectsView         *views.ObjectsView
 
 	// Selected context
 	selectedProject  *gcp.Project
 	selectedInstance *gcp.Instance
+	selectedDisk     *gcp.Disk
+	selectedSnapshot *gcp.Snapshot
+	selectedImage    *gcp.Image
 	selectedBucket   *gcp.Bucket
 
 	// UI state
@@ -71,6 +90,11 @@ type App struct {
 	// Sidebar navigation (active after project selection)
 	sidebar      *sidebar.Sidebar
 	focusedPanel FocusedPanel
+
+	// Command palette
+	commandPalette     *commandpalette.CommandPalette
+	showCommandPalette bool
+	recentTracker      *commandpalette.RecentTracker
 }
 
 // AppOptions configures the application
@@ -81,8 +105,11 @@ type AppOptions struct {
 
 // NewApp creates a new application instance
 func NewApp(client *gcp.Client, opts AppOptions) *App {
-	return &App{
+	ctx := context.New()
+
+	a := &App{
 		gcpClient:        client,
+		ctx:              ctx,
 		styles:           DefaultStyles(),
 		keys:             DefaultKeyMap(),
 		help:             help.New(),
@@ -92,7 +119,14 @@ func NewApp(client *gcp.Client, opts AppOptions) *App {
 		initialProjectID: opts.InitialProjectID,
 		sidebar:          sidebar.New(),
 		focusedPanel:     FocusContent,
+		commandPalette:   commandpalette.New(),
+		recentTracker:    commandpalette.NewRecentTracker(),
 	}
+
+	// Set up the StartTask callback for async operation tracking
+	ctx.StartTask = a.startTask
+
+	return a
 }
 
 // Init implements tea.Model
@@ -128,6 +162,21 @@ func (a *App) sidebarActive() bool {
 
 // Update implements tea.Model
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Handle command palette messages first (highest priority when active)
+	if a.showCommandPalette {
+		switch msg := msg.(type) {
+		case tea.KeyMsg:
+			cmd := a.commandPalette.Update(msg)
+			return a, cmd
+		case commandpalette.CommandSelectedMsg:
+			return a.handleCommandSelected(msg.Command)
+		case commandpalette.CommandCancelMsg:
+			a.showCommandPalette = false
+			a.commandPalette.Reset()
+			return a, nil
+		}
+	}
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		// Handle back navigation first (before view-specific handlers)
@@ -146,6 +195,27 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.selectedInstance = nil
 				a.updateSidebarActiveView()
 				return a, nil
+			case ViewDiskDetails:
+				// Go back to disks list
+				a.currentView = ViewDisks
+				a.diskDetailsView = nil
+				a.selectedDisk = nil
+				a.updateSidebarActiveView()
+				return a, nil
+			case ViewSnapshotDetails:
+				// Go back to snapshots list
+				a.currentView = ViewSnapshots
+				a.snapshotDetailsView = nil
+				a.selectedSnapshot = nil
+				a.updateSidebarActiveView()
+				return a, nil
+			case ViewImageDetails:
+				// Go back to images list
+				a.currentView = ViewImages
+				a.imageDetailsView = nil
+				a.selectedImage = nil
+				a.updateSidebarActiveView()
+				return a, nil
 			case ViewObjects:
 				// Check if we can go up a folder, otherwise go back to buckets
 				if a.objectsView != nil {
@@ -160,10 +230,16 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.selectedBucket = nil
 				a.updateSidebarActiveView()
 				return a, nil
-			case ViewInstances, ViewDisks, ViewBuckets, ViewNetworks, ViewFirewall:
+			case ViewInstances, ViewDisks, ViewSnapshots, ViewImages, ViewBuckets, ViewNetworks, ViewFirewall:
 				// Go back to projects, clear sidebar state
 				a.currentView = ViewProjects
 				a.instancesView = nil
+				a.disksView = nil
+				a.diskDetailsView = nil
+				a.snapshotsView = nil
+				a.snapshotDetailsView = nil
+				a.imagesView = nil
+				a.imageDetailsView = nil
 				// Close storage client before discarding bucketsView
 				if a.bucketsView != nil {
 					_ = a.bucketsView.Close()
@@ -203,6 +279,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.updateViewSizes()
 			}
 			return a, nil
+		case key.Matches(msg, a.keys.CommandPalette):
+			// Open command palette, show ":" prefix only when triggered by colon key
+			showPrefix := key.Matches(msg, key.NewBinding(key.WithKeys(":")))
+			a.openCommandPalette(showPrefix)
+			return a, nil
 		}
 
 		// Route to sidebar if focused
@@ -218,6 +299,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Update layout with new terminal dimensions
 		a.layout.SetSize(msg.Width, msg.Height)
 		a.updateViewSizes()
+		a.syncContext()
+		return a, nil
+
+	case context.TaskClearMsg:
+		// Remove completed task from tracking
+		delete(a.ctx.Tasks, msg.TaskID)
 		return a, nil
 
 	case ErrorMsg:
@@ -227,18 +314,23 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case views.ProjectSelectedMsg:
 		project := msg.Project
 		a.selectedProject = &project
+		// Track recent project access
+		a.recentTracker.Track(commandpalette.RecentTypeProject, project.ID, project.Name)
 		// Navigate to instances view with sidebar
 		a.currentView = ViewInstances
 		a.instancesView = views.NewInstancesView(project.ID)
 		a.focusedPanel = FocusContent
 		a.updateSidebarActiveView()
 		a.updateViewSizes()
+		a.syncContext()
 		return a, a.instancesView.Init()
 
 	case views.InstanceSelectedMsg:
 		// Navigate to instance details view
 		inst := msg.Instance
 		a.selectedInstance = &inst
+		// Track recent instance access
+		a.recentTracker.Track(commandpalette.RecentTypeInstance, inst.Name, inst.Name)
 		a.currentView = ViewInstanceDetails
 		// Pass compute client from instances view to avoid re-initialization
 		a.instanceDetailsView = views.NewInstanceDetailsView(
@@ -250,6 +342,58 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.updateSidebarActiveView()
 		a.updateViewSizes()
 		return a, a.instanceDetailsView.Init()
+
+	case views.DiskSelectedMsg:
+		// Navigate to disk details view
+		disk := msg.Disk
+		a.selectedDisk = &disk
+		// Track recent disk access
+		a.recentTracker.Track(commandpalette.RecentTypeDisk, disk.Name, disk.Name)
+		a.currentView = ViewDiskDetails
+		// Pass compute client from disks view to avoid re-initialization
+		a.diskDetailsView = views.NewDiskDetailsView(
+			a.selectedProject.ID,
+			disk.Zone,
+			disk.Name,
+			a.disksView.GetComputeClient(),
+		)
+		a.updateSidebarActiveView()
+		a.updateViewSizes()
+		return a, a.diskDetailsView.Init()
+
+	case views.SnapshotSelectedMsg:
+		// Navigate to snapshot details view
+		snapshot := msg.Snapshot
+		a.selectedSnapshot = &snapshot
+		// Track recent snapshot access
+		a.recentTracker.Track(commandpalette.RecentTypeSnapshot, snapshot.Name, snapshot.Name)
+		a.currentView = ViewSnapshotDetails
+		// Pass compute client from snapshots view to avoid re-initialization
+		a.snapshotDetailsView = views.NewSnapshotDetailsView(
+			a.selectedProject.ID,
+			snapshot.Name,
+			a.snapshotsView.GetComputeClient(),
+		)
+		a.updateSidebarActiveView()
+		a.updateViewSizes()
+		return a, a.snapshotDetailsView.Init()
+
+	case views.ImageSelectedMsg:
+		// Navigate to image details view
+		image := msg.Image
+		a.selectedImage = &image
+		// Track recent image access
+		a.recentTracker.Track(commandpalette.RecentTypeImage, image.Name, image.Name)
+		a.currentView = ViewImageDetails
+		// Pass compute client from images view to avoid re-initialization
+		a.imageDetailsView = views.NewImageDetailsView(
+			a.selectedProject.ID,
+			image.Name,
+			a.imagesView.GetComputeClient(),
+		)
+		a.updateSidebarActiveView()
+		a.updateViewSizes()
+		return a, a.imageDetailsView.Init()
 
 	case InitialProjectLoadedMsg:
 		// Initial project loaded successfully, go directly to instances view
@@ -284,6 +428,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		bucket := msg.Bucket
 		a.selectedBucket = &bucket
+		// Track recent bucket access
+		a.recentTracker.Track(commandpalette.RecentTypeBucket, bucket.Name, bucket.Name)
 		a.currentView = ViewObjects
 		a.objectsView = views.NewObjectsView(bucket.Name, storageClient)
 		a.updateSidebarActiveView()
@@ -304,6 +450,30 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case ViewInstanceDetails:
 			if a.instanceDetailsView != nil {
 				cmd = a.instanceDetailsView.Update(msg)
+			}
+		case ViewDisks:
+			if a.disksView != nil {
+				cmd = a.disksView.Update(msg)
+			}
+		case ViewDiskDetails:
+			if a.diskDetailsView != nil {
+				cmd = a.diskDetailsView.Update(msg)
+			}
+		case ViewSnapshots:
+			if a.snapshotsView != nil {
+				cmd = a.snapshotsView.Update(msg)
+			}
+		case ViewSnapshotDetails:
+			if a.snapshotDetailsView != nil {
+				cmd = a.snapshotDetailsView.Update(msg)
+			}
+		case ViewImages:
+			if a.imagesView != nil {
+				cmd = a.imagesView.Update(msg)
+			}
+		case ViewImageDetails:
+			if a.imageDetailsView != nil {
+				cmd = a.imageDetailsView.Update(msg)
 			}
 		case ViewBuckets:
 			if a.bucketsView != nil {
@@ -326,6 +496,65 @@ func (a *App) cleanup() {
 	}
 }
 
+// startTask registers a new async task and returns a command to animate the spinner.
+// Tasks are tracked in the context and displayed in the footer.
+func (a *App) startTask(task context.Task) tea.Cmd {
+	task.StartTime = time.Now()
+	task.State = context.TaskRunning
+	a.ctx.Tasks[task.ID] = task
+	return nil // Could return spinner.Tick if we want animation
+}
+
+// GetContext returns the shared program context.
+// Views can use this to access dimensions, styles, and task tracking.
+func (a *App) GetContext() *context.ProgramContext {
+	return a.ctx
+}
+
+// finishTask marks a task as complete and schedules its removal.
+// Called when an async operation completes. Currently unused but will be
+// integrated when views adopt the task system.
+//
+//nolint:unused
+func (a *App) finishTask(taskID string, err error) tea.Cmd {
+	if task, ok := a.ctx.Tasks[taskID]; ok {
+		now := time.Now()
+		task.FinishedTime = &now
+		if err != nil {
+			task.State = context.TaskError
+			task.Error = err
+		} else {
+			task.State = context.TaskFinished
+		}
+		a.ctx.Tasks[taskID] = task
+
+		// Schedule task removal after 2 seconds
+		return tea.Tick(2*time.Second, func(t time.Time) tea.Msg {
+			return context.TaskClearMsg{TaskID: taskID}
+		})
+	}
+	return nil
+}
+
+// syncContext updates the shared context with current app state.
+// Called after dimension changes or project selection.
+func (a *App) syncContext() {
+	contentWidth := a.layout.ContentWidth()
+	contentHeight := a.layout.ContentHeight()
+
+	a.ctx.SetDimensions(a.width, a.height, contentWidth, contentHeight)
+	a.ctx.SidebarActive = a.sidebarActive()
+	if a.sidebarActive() {
+		a.ctx.SidebarWidth = a.sidebar.Width()
+	}
+	if a.selectedProject != nil {
+		a.ctx.ProjectID = a.selectedProject.ID
+	} else {
+		a.ctx.ProjectID = ""
+	}
+	a.ctx.Error = a.err
+}
+
 // toggleFocus switches focus between sidebar and content
 func (a *App) toggleFocus() {
 	if a.focusedPanel == FocusContent {
@@ -337,7 +566,123 @@ func (a *App) toggleFocus() {
 	}
 }
 
-// updateViewSizes recalculates sizes for all views using the layout manager
+// openCommandPalette shows the command palette
+func (a *App) openCommandPalette(showPrefix bool) {
+	a.showCommandPalette = true
+	a.commandPalette.Reset()
+	a.commandPalette.SetShowPrefix(showPrefix)
+	a.commandPalette.SetProjectSelected(a.selectedProject != nil)
+
+	// Build command list with recent items at the top
+	commands := a.recentTracker.Commands()
+	commands = append(commands, commandpalette.DefaultCommands()...)
+	a.commandPalette.SetCommands(commands)
+
+	// Set size for centered display
+	paletteWidth := a.width * 6 / 10 // 60% of screen width
+	if paletteWidth < 50 {
+		paletteWidth = 50
+	}
+	if paletteWidth > 80 {
+		paletteWidth = 80
+	}
+	a.commandPalette.SetSize(paletteWidth, a.height)
+}
+
+// handleCommandSelected processes a selected command from the palette
+func (a *App) handleCommandSelected(cmd commandpalette.Command) (tea.Model, tea.Cmd) {
+	a.showCommandPalette = false
+	a.commandPalette.Reset()
+
+	switch cmd.Type {
+	case commandpalette.CommandTypeNavigation:
+		return a.handleNavigationCommand(cmd)
+	case commandpalette.CommandTypeAction:
+		return a.handleActionCommand(cmd)
+	case commandpalette.CommandTypeRecent:
+		return a.handleRecentCommand(cmd)
+	}
+
+	return a, nil
+}
+
+// handleNavigationCommand navigates to the selected view
+func (a *App) handleNavigationCommand(cmd commandpalette.Command) (tea.Model, tea.Cmd) {
+	// Navigation commands require a project to be selected
+	if a.selectedProject == nil {
+		return a, nil
+	}
+
+	// Navigate to the view (reuse sidebar navigation logic via NavigateMsg)
+	return a, func() tea.Msg {
+		return sidebar.NavigateMsg{ViewType: sidebar.ViewType(cmd.ViewType)}
+	}
+}
+
+// handleActionCommand executes the selected action
+func (a *App) handleActionCommand(cmd commandpalette.Command) (tea.Model, tea.Cmd) {
+	switch cmd.ID {
+	case "action:refresh":
+		return a, func() tea.Msg { return RefreshMsg{} }
+	case "action:toggle-sidebar":
+		if a.sidebarActive() {
+			a.sidebar.Toggle()
+			a.updateViewSizes()
+		}
+		return a, nil
+	case "action:help":
+		a.showHelp = !a.showHelp
+		return a, nil
+	case "action:quit":
+		return a, tea.Quit
+	}
+	return a, nil
+}
+
+// handleRecentCommand navigates to a recently accessed resource
+func (a *App) handleRecentCommand(cmd commandpalette.Command) (tea.Model, tea.Cmd) {
+	// Parse the command ID: "recent:<type>:<id>"
+	parts := strings.SplitN(cmd.ID, ":", 3)
+	if len(parts) < 3 {
+		return a, nil
+	}
+
+	recentType := parts[1]
+	// resourceID := parts[2] // Available if needed for direct navigation
+
+	switch recentType {
+	case "project":
+		// Go back to project list - user can select from there
+		a.currentView = ViewProjects
+		return a, nil
+	case "bucket":
+		// Navigate to buckets view if we have a project
+		if a.selectedProject != nil {
+			return a, func() tea.Msg {
+				return sidebar.NavigateMsg{ViewType: sidebar.ViewBuckets}
+			}
+		}
+	case "instance":
+		// Navigate to instances view if we have a project
+		if a.selectedProject != nil {
+			return a, func() tea.Msg {
+				return sidebar.NavigateMsg{ViewType: sidebar.ViewInstances}
+			}
+		}
+	case "disk":
+		// Navigate to disks view if we have a project
+		if a.selectedProject != nil {
+			return a, func() tea.Msg {
+				return sidebar.NavigateMsg{ViewType: sidebar.ViewDisks}
+			}
+		}
+	}
+
+	return a, nil
+}
+
+// updateViewSizes recalculates sizes for all views using the layout manager.
+// Uses SetContext to propagate shared context to all views.
 func (a *App) updateViewSizes() {
 	// Update layout with sidebar state
 	if a.sidebarActive() {
@@ -347,30 +692,46 @@ func (a *App) updateViewSizes() {
 		a.layout.SetSidebarActive(false)
 	}
 
-	// Get dimensions from layout - layout handles all calculations
-	contentWidth := a.layout.ContentWidth()
-	contentHeight := a.layout.ContentHeight()
+	// Sync context with current dimensions before propagating
+	a.syncContext()
 
 	// Sidebar uses content height directly
 	if a.sidebarActive() {
-		a.sidebar.SetSize(contentHeight)
+		a.sidebar.SetSize(a.ctx.ContentHeight)
 	}
 
-	// Projects view uses full width (no sidebar)
-	a.projectView.SetSize(a.width, contentHeight)
+	// Propagate context to all views - they read dimensions from ctx
+	a.projectView.SetContext(a.ctx)
 
-	// Other views use content area (respecting sidebar)
 	if a.instancesView != nil {
-		a.instancesView.SetSize(contentWidth, contentHeight)
+		a.instancesView.SetContext(a.ctx)
 	}
 	if a.instanceDetailsView != nil {
-		a.instanceDetailsView.SetSize(contentWidth, contentHeight)
+		a.instanceDetailsView.SetContext(a.ctx)
+	}
+	if a.disksView != nil {
+		a.disksView.SetContext(a.ctx)
+	}
+	if a.diskDetailsView != nil {
+		a.diskDetailsView.SetContext(a.ctx)
+	}
+	if a.snapshotsView != nil {
+		a.snapshotsView.SetContext(a.ctx)
+	}
+	if a.snapshotDetailsView != nil {
+		a.snapshotDetailsView.SetContext(a.ctx)
+	}
+	if a.imagesView != nil {
+		a.imagesView.SetContext(a.ctx)
+	}
+	if a.imageDetailsView != nil {
+		a.imageDetailsView.SetContext(a.ctx)
 	}
 	if a.bucketsView != nil {
-		a.bucketsView.SetSize(contentWidth, contentHeight)
+		a.bucketsView.SetContext(a.ctx)
 	}
 	if a.objectsView != nil {
-		a.objectsView.SetSize(contentWidth, contentHeight)
+		a.objectsView.SetContext(a.ctx)
 	}
 }
 
@@ -379,8 +740,12 @@ func (a *App) updateSidebarActiveView() {
 	switch a.currentView {
 	case ViewInstances, ViewInstanceDetails:
 		a.sidebar.SetActiveView(sidebar.ViewInstances)
-	case ViewDisks:
+	case ViewDisks, ViewDiskDetails:
 		a.sidebar.SetActiveView(sidebar.ViewDisks)
+	case ViewSnapshots, ViewSnapshotDetails:
+		a.sidebar.SetActiveView(sidebar.ViewSnapshots)
+	case ViewImages, ViewImageDetails:
+		a.sidebar.SetActiveView(sidebar.ViewImages)
 	case ViewBuckets, ViewObjects:
 		a.sidebar.SetActiveView(sidebar.ViewBuckets)
 	case ViewNetworks:
@@ -408,8 +773,32 @@ func (a *App) handleSidebarNavigation(msg sidebar.NavigateMsg) tea.Cmd {
 			}
 		}
 	case sidebar.ViewDisks:
-		a.currentView = ViewDisks
-		// Placeholder - view not implemented yet
+		if a.currentView != ViewDisks {
+			a.currentView = ViewDisks
+			if a.disksView == nil {
+				a.disksView = views.NewDisksView(a.selectedProject.ID)
+				a.updateViewSizes()
+				cmd = a.disksView.Init()
+			}
+		}
+	case sidebar.ViewSnapshots:
+		if a.currentView != ViewSnapshots {
+			a.currentView = ViewSnapshots
+			if a.snapshotsView == nil {
+				a.snapshotsView = views.NewSnapshotsView(a.selectedProject.ID)
+				a.updateViewSizes()
+				cmd = a.snapshotsView.Init()
+			}
+		}
+	case sidebar.ViewImages:
+		if a.currentView != ViewImages {
+			a.currentView = ViewImages
+			if a.imagesView == nil {
+				a.imagesView = views.NewImagesView(a.selectedProject.ID)
+				a.updateViewSizes()
+				cmd = a.imagesView.Init()
+			}
+		}
 	case sidebar.ViewBuckets:
 		if a.currentView != ViewBuckets && a.currentView != ViewObjects {
 			a.currentView = ViewBuckets
@@ -531,6 +920,11 @@ func (a *App) View() string {
 	}
 	debugLog("")
 
+	// Render command palette overlay if active
+	if a.showCommandPalette {
+		result = a.renderWithCommandPalette(result)
+	}
+
 	return result
 }
 
@@ -546,7 +940,7 @@ func (a *App) renderHeader() string {
 		} else {
 			// Show category based on current view
 			switch a.currentView {
-			case ViewInstances, ViewInstanceDetails, ViewDisks:
+			case ViewInstances, ViewInstanceDetails, ViewDisks, ViewDiskDetails, ViewSnapshots, ViewSnapshotDetails, ViewImages, ViewImageDetails:
 				header += a.styles.Muted.Render(" • Compute Engine")
 			case ViewBuckets, ViewObjects:
 				header += a.styles.Muted.Render(" • Cloud Storage")
@@ -557,6 +951,14 @@ func (a *App) renderHeader() string {
 
 		if a.currentView == ViewInstanceDetails && a.selectedInstance != nil {
 			header += a.styles.Muted.Render(" • " + a.selectedInstance.Name)
+		}
+
+		if a.currentView == ViewDiskDetails && a.selectedDisk != nil {
+			header += a.styles.Muted.Render(" • " + a.selectedDisk.Name)
+		}
+
+		if a.currentView == ViewImageDetails && a.selectedImage != nil {
+			header += a.styles.Muted.Render(" • " + a.selectedImage.Name)
 		}
 
 		// Show bucket name and path when browsing objects
@@ -628,6 +1030,162 @@ func (a *App) renderWithSidebar() string {
 	return result
 }
 
+// renderWithCommandPalette overlays the command palette on top of the content
+func (a *App) renderWithCommandPalette(background string) string {
+	// Get the command palette view
+	paletteView := a.commandPalette.View()
+
+	// Split background into lines
+	bgLines := strings.Split(background, "\n")
+
+	// Split palette into lines
+	paletteLines := strings.Split(paletteView, "\n")
+
+	// Find max palette width for consistent positioning
+	maxPaletteWidth := 0
+	for _, line := range paletteLines {
+		w := lipgloss.Width(line)
+		if w > maxPaletteWidth {
+			maxPaletteWidth = w
+		}
+	}
+
+	// Calculate position (centered horizontally, 1/4 down vertically)
+	leftPad := (a.width - maxPaletteWidth) / 2
+	if leftPad < 0 {
+		leftPad = 0
+	}
+	topPad := a.height / 4
+	if topPad < 2 {
+		topPad = 2
+	}
+
+	// Overlay the palette on the background, preserving content on both sides
+	result := make([]string, len(bgLines))
+	copy(result, bgLines)
+
+	// Right side always starts at the same position for alignment
+	rightStart := leftPad + maxPaletteWidth
+
+	for i, paletteLine := range paletteLines {
+		bgIndex := topPad + i
+		if bgIndex < len(result) {
+			bgLine := result[bgIndex]
+			bgWidth := lipgloss.Width(bgLine)
+
+			// Build the overlayed line:
+			// 1. Left part of background (truncated to leftPad width)
+			// 2. Palette line (padded to maxPaletteWidth)
+			// 3. Right part of background (from rightStart onwards)
+			var newLine strings.Builder
+
+			// Left part: truncate background to leftPad characters
+			if leftPad > 0 {
+				leftPart := truncateRight(bgLine, leftPad)
+				newLine.WriteString(leftPart)
+				// Pad if background was shorter than leftPad
+				leftWidth := lipgloss.Width(leftPart)
+				if leftWidth < leftPad {
+					newLine.WriteString(strings.Repeat(" ", leftPad-leftWidth))
+				}
+			}
+
+			// Middle: the palette line, padded to consistent width
+			newLine.WriteString(paletteLine)
+			paletteLineWidth := lipgloss.Width(paletteLine)
+			if paletteLineWidth < maxPaletteWidth {
+				newLine.WriteString(strings.Repeat(" ", maxPaletteWidth-paletteLineWidth))
+			}
+
+			// Right part: skip first rightStart characters of background
+			if rightStart < bgWidth {
+				rightPart := truncateLeft(bgLine, rightStart)
+				newLine.WriteString(rightPart)
+			}
+
+			result[bgIndex] = newLine.String()
+		}
+	}
+
+	return strings.Join(result, "\n")
+}
+
+// truncateRight keeps the first n visible columns of an ANSI string.
+// Uses runewidth to correctly handle wide characters (e.g., CJK, some symbols).
+func truncateRight(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+
+	var result strings.Builder
+	var visibleWidth int
+	inEscape := false
+
+	for _, r := range s {
+		if r == '\x1b' {
+			inEscape = true
+			result.WriteRune(r)
+			continue
+		}
+		if inEscape {
+			result.WriteRune(r)
+			if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
+				inEscape = false
+			}
+			continue
+		}
+
+		rw := runewidth.RuneWidth(r)
+		if visibleWidth+rw > n {
+			break
+		}
+		result.WriteRune(r)
+		visibleWidth += rw
+	}
+
+	return result.String()
+}
+
+// truncateLeft removes the first n visible columns from an ANSI string.
+// Uses runewidth to correctly handle wide characters.
+func truncateLeft(s string, n int) string {
+	width := lipgloss.Width(s)
+	if n >= width {
+		return ""
+	}
+
+	var result strings.Builder
+	var visibleWidth int
+	inEscape := false
+
+	for _, r := range s {
+		if r == '\x1b' {
+			inEscape = true
+			if visibleWidth >= n {
+				result.WriteRune(r)
+			}
+			continue
+		}
+		if inEscape {
+			if visibleWidth >= n {
+				result.WriteRune(r)
+			}
+			if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
+				inEscape = false
+			}
+			continue
+		}
+
+		rw := runewidth.RuneWidth(r)
+		if visibleWidth >= n {
+			result.WriteRune(r)
+		}
+		visibleWidth += rw
+	}
+
+	return result.String()
+}
+
 // renderCurrentView renders the content area based on current view
 func (a *App) renderCurrentView() string {
 	// Show loading message while fetching initial project from config
@@ -647,7 +1205,29 @@ func (a *App) renderCurrentView() string {
 			return a.instanceDetailsView.View()
 		}
 	case ViewDisks:
-		return a.renderPlaceholder("Disks")
+		if a.disksView != nil {
+			return a.disksView.View()
+		}
+	case ViewDiskDetails:
+		if a.diskDetailsView != nil {
+			return a.diskDetailsView.View()
+		}
+	case ViewSnapshots:
+		if a.snapshotsView != nil {
+			return a.snapshotsView.View()
+		}
+	case ViewSnapshotDetails:
+		if a.snapshotDetailsView != nil {
+			return a.snapshotDetailsView.View()
+		}
+	case ViewImages:
+		if a.imagesView != nil {
+			return a.imagesView.View()
+		}
+	case ViewImageDetails:
+		if a.imageDetailsView != nil {
+			return a.imageDetailsView.View()
+		}
 	case ViewBuckets:
 		if a.bucketsView != nil {
 			return a.bucketsView.View()
@@ -675,7 +1255,7 @@ func (a *App) renderFooter() string {
 		return a.help.View(a.keys)
 	}
 
-	helpText := "? help • q quit"
+	helpText := ": cmd • ? help • q quit"
 	if a.currentView != ViewProjects {
 		helpText = "esc back • " + helpText
 	}

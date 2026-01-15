@@ -1,11 +1,10 @@
 package views
 
 import (
-	"context"
+	gocontext "context"
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -14,7 +13,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components/actionmenu"
+	"github.com/slayer/gcon/internal/ui/context"
 	"github.com/slayer/gcon/internal/ui/symbols"
+	"github.com/slayer/gcon/internal/ui/timeutil"
 )
 
 // InstanceSelectedMsg is sent when an instance is selected from the list
@@ -38,6 +39,7 @@ type InstanceDetailsView struct {
 	projectID     string
 	zone          string
 	instanceName  string
+	ctx           *context.ProgramContext // Shared context for dimensions and styles
 	details       *gcp.InstanceDetails
 	viewport      viewport.Model
 	spinner       spinner.Model
@@ -124,7 +126,7 @@ func (v *InstanceDetailsView) Init() tea.Cmd {
 // loadDetails fetches instance details from GCP
 func (v *InstanceDetailsView) loadDetails() tea.Cmd {
 	return func() tea.Msg {
-		details, err := v.computeClient.GetInstanceDetails(context.Background(), v.projectID, v.zone, v.instanceName)
+		details, err := v.computeClient.GetInstanceDetails(gocontext.Background(), v.projectID, v.zone, v.instanceName)
 		if err != nil {
 			return instanceDetailsErrorMsg{err: err}
 		}
@@ -292,21 +294,21 @@ func (v *InstanceDetailsView) isInstanceStopped() bool {
 
 func (v *InstanceDetailsView) startInstance() tea.Cmd {
 	return func() tea.Msg {
-		err := v.computeClient.StartInstance(context.Background(), v.projectID, v.zone, v.instanceName)
+		err := v.computeClient.StartInstance(gocontext.Background(), v.projectID, v.zone, v.instanceName)
 		return instanceActionMsg{action: "Start", instance: v.instanceName, err: err}
 	}
 }
 
 func (v *InstanceDetailsView) stopInstance() tea.Cmd {
 	return func() tea.Msg {
-		err := v.computeClient.StopInstance(context.Background(), v.projectID, v.zone, v.instanceName)
+		err := v.computeClient.StopInstance(gocontext.Background(), v.projectID, v.zone, v.instanceName)
 		return instanceActionMsg{action: "Stop", instance: v.instanceName, err: err}
 	}
 }
 
 func (v *InstanceDetailsView) resetInstance() tea.Cmd {
 	return func() tea.Msg {
-		err := v.computeClient.ResetInstance(context.Background(), v.projectID, v.zone, v.instanceName)
+		err := v.computeClient.ResetInstance(gocontext.Background(), v.projectID, v.zone, v.instanceName)
 		return instanceActionMsg{action: "Reset", instance: v.instanceName, err: err}
 	}
 }
@@ -368,11 +370,17 @@ func (v *InstanceDetailsView) renderWithActionMenu(content string) string {
 	return content + "\n" + menuStyle.Render(menuView)
 }
 
-// SetSize updates the view dimensions
-func (v *InstanceDetailsView) SetSize(width, height int) {
-	v.width = width
-	v.height = height
+// SetContext updates the view with shared program context.
+// Reads dimensions from the context for consistent sizing.
+func (v *InstanceDetailsView) SetContext(ctx *context.ProgramContext) {
+	v.ctx = ctx
+	v.width = ctx.ContentWidth
+	v.height = ctx.ContentHeight
+	v.applySize(ctx.ContentWidth, ctx.ContentHeight)
+}
 
+// applySize applies the given dimensions to the viewport
+func (v *InstanceDetailsView) applySize(width, height int) {
 	// Reserve space for header and footer
 	viewportHeight := height - 4
 	if viewportHeight < 1 {
@@ -430,7 +438,7 @@ func (v *InstanceDetailsView) renderContent() string {
 	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Description", defaultIfEmpty(d.Description, "None")))
 	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Status", fmt.Sprintf("%s %s", getStatusIcon(d.Status), d.Status)))
 	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Zone", d.Zone))
-	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Created", formatTimestamp(d.CreatedAt)))
+	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Created", timeutil.FormatTimestamp(d.CreatedAt)))
 	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Deletion protection", formatBool(d.DeletionProtection)))
 	b.WriteString("\n")
 
@@ -562,27 +570,10 @@ func (v *InstanceDetailsView) renderContent() string {
 }
 
 // Helper functions
-
-func renderRow(labelStyle, valueStyle, mutedStyle lipgloss.Style, label, value string) string {
-	if value == "" || value == "None" || value == "—" {
-		return labelStyle.Render(label+":") + " " + mutedStyle.Render(value) + "\n"
-	}
-	return labelStyle.Render(label+":") + " " + valueStyle.Render(value) + "\n"
-}
+// Shared helpers (renderRow, defaultIfEmpty, min) are now in helpers.go
 
 func getStatusIcon(status string) string {
 	return symbols.GetStatusSymbol(status)
-}
-
-func formatTimestamp(ts string) string {
-	if ts == "" {
-		return "—"
-	}
-	t, err := time.Parse(time.RFC3339, ts)
-	if err != nil {
-		return ts
-	}
-	return t.Format("Jan 2, 2006, 3:04:05 PM MST")
 }
 
 func formatBool(b bool) string {
@@ -610,13 +601,6 @@ func formatMaintenance(m string) string {
 	}
 }
 
-func defaultIfEmpty(s, def string) string {
-	if s == "" {
-		return def
-	}
-	return s
-}
-
 func truncate(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
@@ -625,13 +609,6 @@ func truncate(s string, maxLen int) string {
 		return s[:maxLen]
 	}
 	return s[:maxLen-3] + "..."
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 // renderLoading renders a loading message

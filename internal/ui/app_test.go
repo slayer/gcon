@@ -218,7 +218,7 @@ func TestUploadKeyRoutedToObjectsView(t *testing.T) {
 	// Setup: viewing empty bucket with objects view
 	app.currentView = ViewObjects
 	app.objectsView = views.NewObjectsView("test-bucket", nil)
-	app.objectsView.SetSize(100, 40)
+	app.objectsView.SetContext(app.ctx)
 	// Simulate loaded empty bucket
 	app.objectsView.Update(views.ObjectsLoadedMsgForTest([]gcp.StorageObject{}, "", false))
 

@@ -169,3 +169,16 @@ func File() string   { return activeSet.File }
 
 // Divider character for sidebar
 func Divider() string { return activeSet.Divider }
+
+// StatusSymbolWidth returns the display width of status symbols in current mode
+// Emoji: 2 (🟢), Unicode: 1 (●), ASCII: 4 ([OK])
+func StatusSymbolWidth() int {
+	switch activeMode {
+	case ModeASCII:
+		return 4
+	case ModeEmoji:
+		return 2
+	default: // ModeUnicode
+		return 1
+	}
+}

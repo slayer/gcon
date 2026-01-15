@@ -231,6 +231,37 @@ func (s *Sidebar) Width() int {
 
 Layout calculations depend on accurate width reporting. If a component reports width=26 but renders as 27 (due to border), content will overflow by 1 character.
 
+### lipgloss Style Testing
+`lipgloss.Style.String()` returns an empty string - it doesn't serialize style properties. To test that styles are properly initialized, render content instead:
+
+```go
+// Wrong - String() returns empty
+assert.NotEmpty(t, style.String())
+
+// Correct - test by rendering
+rendered := style.Render("test")
+assert.NotEmpty(t, rendered)
+```
+
+### Component Width Caching
+For components that recalculate layouts (like tables with flexible columns), cache the last width to avoid recalculation on every render:
+
+```go
+type Model struct {
+    lastWidth       int
+    columnsComputed bool
+}
+
+func (m *Model) SetSize(width, height int) {
+    // Only recalculate if width changed
+    if width != m.lastWidth || !m.columnsComputed {
+        m.adjustColumnWidths(width)
+        m.lastWidth = width
+        m.columnsComputed = true
+    }
+}
+```
+
 ## Key Bindings
 
 ### Global
@@ -244,6 +275,7 @@ Layout calculations depend on accurate width reporting. If a component reports w
 | `r` | Refresh current view |
 | `/` | Search/Filter |
 | `Enter` | Select/Confirm |
+| `:` or `Ctrl+K` | Open command palette |
 
 ### Instances View
 
@@ -252,6 +284,14 @@ Layout calculations depend on accurate width reporting. If a component reports w
 | `s` | Start stopped instance |
 | `x` | Stop running instance |
 | `R` | Reset (hard reboot) |
+
+### Images View
+
+| Key | Action |
+|-----|--------|
+| `Enter` | View image details |
+| `/` | Filter images |
+| `r` | Refresh list |
 
 ### Objects View (GCS Browser)
 
@@ -326,17 +366,27 @@ Spin up multiple subagents for each task to ensure parallel development. Each su
 
 - [x] Project selector with search/filter
 - [x] Compute Engine instances list
+- [x] Compute Engine instance details view
+- [x] Compute Engine persistent disks list
+- [x] Compute Engine disk details view
+- [x] Compute Engine disk images list
+- [x] Compute Engine image details view
 - [x] Instance actions (start/stop/reset)
-- [x] View navigation (projects → instances → back)
+- [x] View navigation with breadcrumbs
 - [x] Loading states with spinners
 - [x] Error handling with retry
+- [x] Cloud Storage buckets browser
+- [x] Cloud Storage objects browser with upload/download
+- [x] Command palette with fuzzy search
+- [x] Recent items tracking
+- [x] Sidebar navigation
 
 ## Planned Features
 
-- [ ] Cloud Storage buckets browser
+- [ ] Disk image deletion with confirmation
+- [ ] Disk image creation from disks/snapshots
 - [ ] Cloud Logging viewer with filters
 - [ ] SSH to instance (via gcloud)
-- [ ] Instance details panel
 - [ ] Resource caching
 - [ ] GKE cluster management
 - [ ] Cloud Run services
