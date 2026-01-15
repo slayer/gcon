@@ -362,54 +362,18 @@ func (v *InstanceDetailsView) View() string {
 func (v *InstanceDetailsView) renderWithActionMenu(content string) string {
 	menuView := v.actionMenu.View()
 
+	// Use lipgloss.Place to center the menu within the content dimensions
 	contentWidth := lipgloss.Width(content)
 	contentHeight := lipgloss.Height(content)
-	menuWidth := lipgloss.Width(menuView)
-	menuHeight := lipgloss.Height(menuView)
 
-	// Calculate center position
-	left := (contentWidth - menuWidth) / 2
-	top := (contentHeight - menuHeight) / 2
-	if left < 0 {
-		left = 0
-	}
-	if top < 0 {
-		top = 0
-	}
-
-	// Split content into lines for overlay
-	contentLines := strings.Split(content, "\n")
-	menuLines := strings.Split(menuView, "\n")
-
-	// Overlay menu onto content
-	for i, menuLine := range menuLines {
-		contentRow := top + i
-		if contentRow >= 0 && contentRow < len(contentLines) {
-			contentLines[contentRow] = overlayLineDetails(contentLines[contentRow], menuLine, left)
-		}
-	}
-
-	return strings.Join(contentLines, "\n")
-}
-
-// overlayLineDetails places overlay on top of base at the given position
-func overlayLineDetails(base, overlay string, left int) string {
-	baseRunes := []rune(base)
-	overlayRunes := []rune(overlay)
-
-	// Extend base if needed
-	for len(baseRunes) < left+len(overlayRunes) {
-		baseRunes = append(baseRunes, ' ')
-	}
-
-	// Copy overlay onto base
-	for i, r := range overlayRunes {
-		if left+i < len(baseRunes) {
-			baseRunes[left+i] = r
-		}
-	}
-
-	return string(baseRunes)
+	// Place menu centered
+	return lipgloss.Place(
+		contentWidth,
+		contentHeight,
+		lipgloss.Center,
+		lipgloss.Center,
+		menuView,
+	)
 }
 
 // SetContext updates the view with shared program context.
