@@ -450,16 +450,30 @@ func (v *InstancesView) View() string {
 	return mainContent
 }
 
-// renderWithActionMenu overlays the action menu on top of the content
-func (v *InstancesView) renderWithActionMenu(content string) string {
+// renderWithActionMenu renders menu replacing the main content area
+// True overlay is complex in terminal; we show menu in place of content
+func (v *InstancesView) renderWithActionMenu(_ string) string {
 	menuView := v.actionMenu.View()
 
-	// Position menu in center-ish of the view
+	// Show menu centered in the view area with some context
 	menuStyle := lipgloss.NewStyle().
 		MarginLeft(4).
 		MarginTop(2)
 
-	return content + "\n" + menuStyle.Render(menuView)
+	// Get selected instance info for context
+	var instanceInfo string
+	if row := v.table.SelectedRow(); row != nil {
+		inst := v.findInstanceByName(row.ID)
+		if inst != nil {
+			statusIcon := statusIcon(inst.Status)
+			instanceInfo = fmt.Sprintf("  %s %s (%s)\n\n", statusIcon, inst.Name, inst.Status)
+		}
+	}
+
+	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
+	help := helpStyle.Render("\n\n  esc: close menu")
+
+	return instanceInfo + menuStyle.Render(menuView) + help
 }
 
 // SetContext updates the view with shared program context.
