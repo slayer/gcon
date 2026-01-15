@@ -143,7 +143,7 @@ func imageToRow(image gcp.Image) table.Row {
 	name := imageStatusIcon(image) + " " + image.Name
 
 	// Format size with GB suffix
-	size := fmt.Sprintf("%d GB", image.SizeGB)
+	size := fmt.Sprintf("%d GB", image.DiskSizeGB)
 
 	// Format creation date
 	created := image.CreatedAt

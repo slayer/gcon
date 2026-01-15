@@ -551,15 +551,12 @@ func (i *Instance) IsStopped() bool {
 
 // Image represents a simplified Compute Engine disk image
 type Image struct {
-	Name         string
-	Family       string
-	Status       string // READY, FAILED, PENDING, DELETING
-	SizeGB       int64
-	SourceType   string // RAW, etc.
-	CreatedAt    string
-	DiskSizeGB   int64
-	ArchiveSize  int64
-	StorageBytes int64
+	Name       string
+	Family     string
+	Status     string // READY, FAILED, PENDING, DELETING
+	DiskSizeGB int64
+	SourceType string // RAW, etc.
+	CreatedAt  string
 }
 
 // ImageDetails contains comprehensive disk image information
@@ -655,15 +652,12 @@ func imageFromAPI(img *compute.Image) Image {
 	}
 
 	return Image{
-		Name:         img.Name,
-		Family:       family,
-		Status:       img.Status,
-		SizeGB:       img.DiskSizeGb,
-		SourceType:   img.SourceType,
-		CreatedAt:    img.CreationTimestamp,
-		DiskSizeGB:   img.DiskSizeGb,
-		ArchiveSize:  img.ArchiveSizeBytes,
-		StorageBytes: img.ArchiveSizeBytes,
+		Name:       img.Name,
+		Family:     family,
+		Status:     img.Status,
+		DiskSizeGB: img.DiskSizeGb,
+		SourceType: img.SourceType,
+		CreatedAt:  img.CreationTimestamp,
 	}
 }
 
@@ -688,11 +682,8 @@ func imageDetailsFromAPI(img *compute.Image) *ImageDetails {
 	// Storage locations
 	if len(img.StorageLocations) > 0 {
 		details.StorageLocations = img.StorageLocations
-		// Get storage bytes from first location
-		if len(img.StorageLocations) > 0 {
-			// Note: StorageLocations is []string in the API, not objects with Size
-			details.StorageBytes = img.ArchiveSizeBytes
-		}
+		// Note: StorageLocations is []string in the API, not objects with Size
+		details.StorageBytes = img.ArchiveSizeBytes
 	}
 
 	// Guest OS features
