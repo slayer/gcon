@@ -123,7 +123,7 @@ func NewApp(client *gcp.Client, opts AppOptions) *App {
 		help:             help.New(),
 		layout:           layout.New(),
 		currentView:      ViewProjects,
-		previousView:     ViewNone,
+		viewStack:        []ViewType{},
 		projectView:      views.NewProjectsView(client),
 		initialProjectID: opts.InitialProjectID,
 		sidebar:          sidebar.New(),
