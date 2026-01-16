@@ -27,6 +27,8 @@ const (
 	ViewProjects ViewType = iota
 	ViewInstances
 	ViewInstanceDetails
+	ViewMetadata
+	ViewProjectMetadata
 	ViewDisks
 	ViewDiskDetails
 	ViewSnapshots
@@ -64,6 +66,8 @@ type App struct {
 	projectView         *views.ProjectsView
 	instancesView       *views.InstancesView
 	instanceDetailsView *views.InstanceDetailsView
+	metadataView        *views.InstanceMetadataView
+	projectMetadataView *views.ProjectMetadataView
 	disksView           *views.DisksView
 	diskDetailsView     *views.DiskDetailsView
 	snapshotsView       *views.SnapshotsView
@@ -449,6 +453,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.instanceDetailsView != nil {
 				cmd = a.instanceDetailsView.Update(msg)
 			}
+		case ViewMetadata:
+			if a.metadataView != nil {
+				cmd = a.metadataView.Update(msg)
+			}
+		case ViewProjectMetadata:
+			if a.projectMetadataView != nil {
+				cmd = a.projectMetadataView.Update(msg)
+			}
 		case ViewDisks:
 			if a.disksView != nil {
 				cmd = a.disksView.Update(msg)
@@ -707,6 +719,12 @@ func (a *App) updateViewSizes() {
 	if a.instanceDetailsView != nil {
 		a.instanceDetailsView.SetContext(a.ctx)
 	}
+	if a.metadataView != nil {
+		a.metadataView.SetContext(a.ctx)
+	}
+	if a.projectMetadataView != nil {
+		a.projectMetadataView.SetContext(a.ctx)
+	}
 	if a.disksView != nil {
 		a.disksView.SetContext(a.ctx)
 	}
@@ -795,6 +813,21 @@ func (a *App) handleSidebarNavigation(msg sidebar.NavigateMsg) tea.Cmd {
 				a.imagesView = views.NewImagesView(a.selectedProject.ID)
 				a.updateViewSizes()
 				cmd = a.imagesView.Init()
+			}
+		}
+	case sidebar.ViewProjectMetadata:
+		if a.selectedProject == nil {
+			return nil
+		}
+		if a.currentView != ViewProjectMetadata {
+			a.currentView = ViewProjectMetadata
+			if a.instancesView != nil {
+				a.projectMetadataView = views.NewProjectMetadataView(
+					a.selectedProject.ID,
+					a.instancesView.GetComputeClient(),
+				)
+				a.updateViewSizes()
+				cmd = a.projectMetadataView.Init()
 			}
 		}
 	case sidebar.ViewBuckets:
@@ -1202,6 +1235,14 @@ func (a *App) renderCurrentView() string {
 		if a.instanceDetailsView != nil {
 			return a.instanceDetailsView.View()
 		}
+	case ViewMetadata:
+		if a.metadataView != nil {
+			return a.metadataView.View()
+		}
+	case ViewProjectMetadata:
+		if a.projectMetadataView != nil {
+			return a.projectMetadataView.View()
+		}
 	case ViewDisks:
 		if a.disksView != nil {
 			return a.disksView.View()
@@ -1262,7 +1303,7 @@ func (a *App) renderFooter() string {
 func (a *App) syncFooter() {
 	// Left1: Navigation hint (esc back/quit)
 	switch a.currentView {
-	case ViewInstanceDetails, ViewDiskDetails, ViewSnapshotDetails, ViewImageDetails, ViewObjects:
+	case ViewInstanceDetails, ViewMetadata, ViewProjectMetadata, ViewDiskDetails, ViewSnapshotDetails, ViewImageDetails, ViewObjects:
 		a.footer.SetLeft1("esc back")
 	case ViewProjects, ViewInstances, ViewDisks, ViewSnapshots, ViewImages, ViewBuckets, ViewNetworks, ViewFirewall:
 		a.footer.SetLeft1("esc quit")
