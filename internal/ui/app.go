@@ -59,6 +59,7 @@ type App struct {
 
 	// Current view state
 	currentView         ViewType
+	previousView        ViewType // Track previous view for back navigation
 	projectView         *views.ProjectsView
 	instancesView       *views.InstancesView
 	instanceDetailsView *views.InstanceDetailsView
@@ -229,10 +230,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.updateSidebarActiveView()
 				return a, nil
 			case ViewDiskDetails:
-				// Go back to disks list
-				a.currentView = ViewDisks
+				// Go back to previous view (could be disks list or instance details)
+				if a.previousView == ViewInstanceDetails {
+					a.currentView = ViewInstanceDetails
+				} else {
+					a.currentView = ViewDisks
+				}
 				a.diskDetailsView = nil
 				a.selectedDisk = nil
+				a.previousView = 0 // Clear previous view
 				a.updateSidebarActiveView()
 				return a, nil
 			case ViewSnapshotDetails:
@@ -389,6 +395,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Navigate to disk details from instance details view
 		// Track recent disk access
 		a.recentTracker.Track(commandpalette.RecentTypeDisk, msg.DiskName, msg.DiskName)
+		// Save previous view for back navigation
+		a.previousView = a.currentView
 		a.currentView = ViewDiskDetails
 		// Pass compute client from instance details view
 		a.diskDetailsView = views.NewDiskDetailsView(
