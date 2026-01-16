@@ -3,6 +3,7 @@ package views
 import (
 	gocontext "context"
 	"fmt"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -181,6 +182,8 @@ func (v *InstancesView) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case computeClientReadyMsg:
 		v.computeClient = msg.client
+		// Register loading task in status bar
+		v.registerTask("load-instances", "Loading instances...")
 		return v.loadInstances()
 
 	case instancesLoadedMsg:
@@ -188,6 +191,8 @@ func (v *InstancesView) Update(msg tea.Msg) tea.Cmd {
 		v.actionLoading = false
 		v.actionMsg = ""
 		v.instances = msg.instances
+		// Clear the loading task
+		v.clearTask("load-instances")
 
 		// Convert instances to table rows
 		rows := make([]table.Row, len(msg.instances))
@@ -201,17 +206,23 @@ func (v *InstancesView) Update(msg tea.Msg) tea.Cmd {
 		v.loading = false
 		v.actionLoading = false
 		v.err = msg.err
+		// Mark task as error
+		v.failTask("load-instances", msg.err)
 		return nil
 
 	case instanceActionMsg:
 		v.actionLoading = false
 		if msg.err != nil {
 			v.err = msg.err
+			v.failTask("action-"+msg.instance, msg.err)
 			return nil
 		}
 		v.actionMsg = fmt.Sprintf("%s %s: success", msg.action, msg.instance)
+		// Mark action as successful
+		v.finishTask("action-"+msg.instance, msg.action+" "+msg.instance)
 		// Refresh the list after action
 		v.loading = true
+		v.registerTask("load-instances", "Refreshing...")
 		return tea.Batch(v.spinner.Tick, v.loadInstances())
 
 	case spinner.TickMsg:
@@ -250,6 +261,7 @@ func (v *InstancesView) Update(msg tea.Msg) tea.Cmd {
 		case key.Matches(msg, v.keys.Refresh):
 			v.loading = true
 			v.err = nil
+			v.registerTask("load-instances", "Refreshing...")
 			return tea.Batch(v.spinner.Tick, v.loadInstances())
 
 		case key.Matches(msg, v.keys.Start):
@@ -258,6 +270,7 @@ func (v *InstancesView) Update(msg tea.Msg) tea.Cmd {
 				if inst != nil && inst.IsStopped() {
 					v.actionLoading = true
 					v.actionMsg = fmt.Sprintf("Starting %s...", inst.Name)
+					v.registerTask("action-"+inst.Name, "Starting "+inst.Name+"...")
 					return tea.Batch(v.spinner.Tick, v.startInstance(*inst))
 				}
 			}
@@ -268,6 +281,7 @@ func (v *InstancesView) Update(msg tea.Msg) tea.Cmd {
 				if inst != nil && inst.IsRunning() {
 					v.actionLoading = true
 					v.actionMsg = fmt.Sprintf("Stopping %s...", inst.Name)
+					v.registerTask("action-"+inst.Name, "Stopping "+inst.Name+"...")
 					return tea.Batch(v.spinner.Tick, v.stopInstance(*inst))
 				}
 			}
@@ -381,4 +395,43 @@ func (v *InstancesView) GetComputeClient() *gcp.ComputeClient {
 // Height enforcement is handled by the app's View() method using lipgloss.MaxHeight()
 func (v *InstancesView) renderLoading(msg string) string {
 	return fmt.Sprintf("\n  %s %s\n", v.spinner.View(), msg)
+}
+
+// Task registration helpers for status bar integration
+func (v *InstancesView) registerTask(id, description string) {
+	if v.ctx != nil {
+		v.ctx.Tasks[id] = context.Task{
+			ID:          id,
+			Description: description,
+			State:       context.TaskRunning,
+			StartTime:   time.Now(),
+		}
+	}
+}
+
+func (v *InstancesView) clearTask(id string) {
+	if v.ctx != nil {
+		delete(v.ctx.Tasks, id)
+	}
+}
+
+func (v *InstancesView) finishTask(id, description string) {
+	if v.ctx != nil {
+		v.ctx.Tasks[id] = context.Task{
+			ID:          id,
+			Description: description,
+			State:       context.TaskFinished,
+		}
+	}
+}
+
+func (v *InstancesView) failTask(id string, err error) {
+	if v.ctx != nil {
+		v.ctx.Tasks[id] = context.Task{
+			ID:          id,
+			Description: err.Error(),
+			State:       context.TaskError,
+			Error:       err,
+		}
+	}
 }
