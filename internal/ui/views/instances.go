@@ -368,6 +368,11 @@ func (v *InstancesView) executeAction(actionKey rune) tea.Cmd {
 			v.actionMsg = fmt.Sprintf("Resetting %s...", inst.Name)
 			return tea.Batch(v.spinner.Tick, v.resetInstance(*inst))
 		}
+	case 'S':
+		if inst.IsRunning() {
+			// SSH to instance is a planned feature
+			v.err = fmt.Errorf("SSH action is not yet implemented for instance %s", inst.Name)
+		}
 	case 'r':
 		v.loading = true
 		v.err = nil

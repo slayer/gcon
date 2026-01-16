@@ -50,6 +50,13 @@ const (
 	tabIDObservability = "observability"
 )
 
+// Layout constants for viewport height calculation
+const (
+	// Lines reserved for: optional header (max 2) + tab bar (1) + separator (1) + help text (1)
+	// We use 5 to account for the maximum case
+	detailsViewportReservedLines = 5
+)
+
 // InstanceDetailsView displays comprehensive instance information
 type InstanceDetailsView struct {
 	computeClient *gcp.ComputeClient
@@ -333,6 +340,11 @@ func (v *InstanceDetailsView) executeAction(actionKey rune) tea.Cmd {
 			v.actionMsg = fmt.Sprintf("Resetting %s...", v.instanceName)
 			return tea.Batch(v.spinner.Tick, v.resetInstance())
 		}
+	case 'S':
+		if v.isInstanceRunning() {
+			// SSH to instance is a planned feature
+			v.err = fmt.Errorf("SSH action is not yet implemented for instance %s", v.instanceName)
+		}
 	case 'r':
 		v.loading = true
 		v.err = nil
@@ -465,7 +477,7 @@ func (v *InstanceDetailsView) IsMenuOpen() bool {
 // applySize applies the given dimensions to the viewports
 func (v *InstanceDetailsView) applySize(width, height int) {
 	// Reserve space for header, tab bar, and footer
-	viewportHeight := height - 5
+	viewportHeight := height - detailsViewportReservedLines
 	if viewportHeight < 1 {
 		viewportHeight = 1
 	}

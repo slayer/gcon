@@ -81,10 +81,19 @@ func New(title string, actions []Action) *ActionMenu {
 	// Add padding for border and extra breathing room
 	maxWidth += 10
 
+	// Find first enabled action for cursor
+	firstEnabled := 0
+	for i, action := range actions {
+		if action.Enabled {
+			firstEnabled = i
+			break
+		}
+	}
+
 	return &ActionMenu{
 		title:   title,
 		actions: actions,
-		cursor:  0,
+		cursor:  firstEnabled,
 		width:   maxWidth,
 		keys:    defaultKeyMap(),
 		styles:  DefaultStyles(),

@@ -22,6 +22,8 @@ import (
 type ViewType int
 
 const (
+	ViewNone ViewType = -1 // Sentinel value for unset/invalid view
+
 	ViewProjects ViewType = iota
 	ViewInstances
 	ViewInstanceDetails
@@ -116,6 +118,7 @@ func NewApp(client *gcp.Client, opts AppOptions) *App {
 		help:             help.New(),
 		layout:           layout.New(),
 		currentView:      ViewProjects,
+		previousView:     ViewNone,
 		projectView:      views.NewProjectsView(client),
 		initialProjectID: opts.InitialProjectID,
 		sidebar:          sidebar.New(),
@@ -238,7 +241,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				a.diskDetailsView = nil
 				a.selectedDisk = nil
-				a.previousView = 0 // Clear previous view
+				a.previousView = ViewNone // Clear previous view
 				a.updateSidebarActiveView()
 				return a, nil
 			case ViewSnapshotDetails:
