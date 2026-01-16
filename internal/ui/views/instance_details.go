@@ -3,6 +3,7 @@ package views
 import (
 	gocontext "context"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -565,12 +566,18 @@ func (v *InstanceDetailsView) renderDetailsTab() string {
 	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Deletion protection", formatBool(d.DeletionProtection)))
 	b.WriteString("\n")
 
-	// Labels
+	// Labels (sorted alphabetically for consistent display)
 	if len(d.Labels) > 0 {
 		b.WriteString(labelStyle.Render("Labels"))
 		b.WriteString("\n")
-		for k, val := range d.Labels {
-			b.WriteString(fmt.Sprintf("    %s: %s\n", k, val))
+		// Sort label keys for consistent ordering
+		labelKeys := make([]string, 0, len(d.Labels))
+		for k := range d.Labels {
+			labelKeys = append(labelKeys, k)
+		}
+		sort.Strings(labelKeys)
+		for _, k := range labelKeys {
+			b.WriteString(fmt.Sprintf("    %s: %s\n", k, d.Labels[k]))
 		}
 	} else {
 		b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Labels", "None"))
@@ -688,12 +695,18 @@ func (v *InstanceDetailsView) renderDetailsTab() string {
 	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Automatic Restart", formatOnOff(d.Scheduling.AutomaticRestart)))
 	b.WriteString("\n")
 
-	// Metadata
+	// Metadata (sorted alphabetically for consistent display)
 	if len(d.Metadata) > 0 {
 		b.WriteString(sectionStyle.Render("Custom Metadata"))
 		b.WriteString("\n")
-		for k, val := range d.Metadata {
-			b.WriteString(fmt.Sprintf("  %s: %s\n", k, truncate(val, 50)))
+		// Sort metadata keys for consistent ordering
+		metaKeys := make([]string, 0, len(d.Metadata))
+		for k := range d.Metadata {
+			metaKeys = append(metaKeys, k)
+		}
+		sort.Strings(metaKeys)
+		for _, k := range metaKeys {
+			b.WriteString(fmt.Sprintf("  %s: %s\n", k, truncate(d.Metadata[k], 50)))
 		}
 	}
 
