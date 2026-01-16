@@ -21,6 +21,7 @@ const (
 	ViewDisks
 	ViewSnapshots
 	ViewImages
+	ViewProjectMetadata
 	ViewBuckets
 	ViewNetworks
 	ViewFirewall
@@ -31,6 +32,7 @@ const (
 	IconVM       = "■"
 	IconDisk     = "●"
 	IconImage    = "◉"
+	IconMetadata = "◐"
 	IconBucket   = "▪"
 	IconVPC      = "◆"
 	IconFirewall = "▲"
@@ -93,6 +95,14 @@ func NavigationCommands() []Command {
 			Icon:     IconImage,
 			Type:     CommandTypeNavigation,
 			ViewType: ViewImages,
+			Enabled:  true,
+		},
+		{
+			ID:       "nav:metadata",
+			Label:    "Compute Engine: Metadata",
+			Icon:     IconMetadata,
+			Type:     CommandTypeNavigation,
+			ViewType: ViewProjectMetadata,
 			Enabled:  true,
 		},
 		{
