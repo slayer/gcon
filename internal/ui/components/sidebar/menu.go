@@ -46,44 +46,49 @@ type MenuItem struct {
 	ID       string       // Unique identifier (e.g., "compute", "vm-instances")
 	Label    string       // Full text display (e.g., "VM instances")
 	Icon     string       // Icon for display
+	Hotkey   rune         // Keyboard shortcut (case-sensitive, e.g., 'c' for Compute)
 	Type     MenuItemType // Category or Leaf
 	ViewType ViewType     // Target view for leaf items
 	Children []MenuItem   // Child items for categories
 }
 
 // DefaultMenu returns the GCP Console-like menu structure
+// Hotkeys are case-sensitive: 'c' for Compute, 'V' for VPC Network
 func DefaultMenu() []MenuItem {
 	return []MenuItem{
 		{
-			ID:    "compute",
-			Label: "Compute Engine",
-			Icon:  IconCompute,
-			Type:  MenuItemCategory,
+			ID:     "compute",
+			Label:  "Compute Engine",
+			Icon:   IconCompute,
+			Hotkey: 'c',
+			Type:   MenuItemCategory,
 			Children: []MenuItem{
-				{ID: "vm-instances", Label: "VM instances", Icon: IconVM, Type: MenuItemLeaf, ViewType: ViewInstances},
-				{ID: "disks", Label: "Disks", Icon: IconDisk, Type: MenuItemLeaf, ViewType: ViewDisks},
-				{ID: "snapshots", Label: "Snapshots", Icon: IconDisk, Type: MenuItemLeaf, ViewType: ViewSnapshots},
-				{ID: "images", Label: "Images", Icon: IconImage, Type: MenuItemLeaf, ViewType: ViewImages},
-				{ID: "metadata", Label: "Metadata", Icon: IconMetadata, Type: MenuItemLeaf, ViewType: ViewProjectMetadata},
+				{ID: "vm-instances", Label: "VM instances", Icon: IconVM, Hotkey: 'v', Type: MenuItemLeaf, ViewType: ViewInstances},
+				{ID: "disks", Label: "Disks", Icon: IconDisk, Hotkey: 'd', Type: MenuItemLeaf, ViewType: ViewDisks},
+				{ID: "snapshots", Label: "Snapshots", Icon: IconDisk, Hotkey: 'S', Type: MenuItemLeaf, ViewType: ViewSnapshots},
+				{ID: "images", Label: "Images", Icon: IconImage, Hotkey: 'I', Type: MenuItemLeaf, ViewType: ViewImages},
+				{ID: "metadata", Label: "Metadata", Icon: IconMetadata, Hotkey: 'M', Type: MenuItemLeaf, ViewType: ViewProjectMetadata},
 			},
 		},
 		{
-			ID:    "storage",
-			Label: "Cloud Storage",
-			Icon:  IconStorage,
-			Type:  MenuItemCategory,
+			ID:     "storage",
+			Label:  "Cloud Storage",
+			Icon:   IconStorage,
+			Hotkey: 's',
+			Type:   MenuItemCategory,
 			Children: []MenuItem{
-				{ID: "buckets", Label: "Buckets", Icon: IconBucket, Type: MenuItemLeaf, ViewType: ViewBuckets},
+				{ID: "buckets", Label: "Buckets", Icon: IconBucket, Hotkey: 'b', Type: MenuItemLeaf, ViewType: ViewBuckets},
 			},
 		},
 		{
-			ID:    "networking",
-			Label: "VPC Network",
-			Icon:  IconNetwork,
-			Type:  MenuItemCategory,
+			ID:     "networking",
+			Label:  "VPC Network",
+			Icon:   IconNetwork,
+			Hotkey: 'V',
+			Type:   MenuItemCategory,
 			Children: []MenuItem{
-				{ID: "networks", Label: "VPC networks", Icon: IconVPC, Type: MenuItemLeaf, ViewType: ViewNetworks},
-				{ID: "firewall", Label: "Firewall", Icon: IconFirewall, Type: MenuItemLeaf, ViewType: ViewFirewall},
+				{ID: "networks", Label: "VPC networks", Icon: IconVPC, Hotkey: 'n', Type: MenuItemLeaf, ViewType: ViewNetworks},
+				{ID: "firewall", Label: "Firewall", Icon: IconFirewall, Hotkey: 'f', Type: MenuItemLeaf, ViewType: ViewFirewall},
 			},
 		},
 	}

@@ -23,3 +23,8 @@ type View interface {
 	// Views should read dimensions from ctx.ContentWidth and ctx.ContentHeight.
 	SetContext(ctx *context.ProgramContext)
 }
+
+// MenuOpener is an interface for views that can have a menu open.
+type MenuOpener interface {
+	IsMenuOpen() bool
+}
