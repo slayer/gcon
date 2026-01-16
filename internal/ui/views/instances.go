@@ -12,8 +12,10 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components"
+	"github.com/slayer/gcon/internal/ui/components/actionmenu"
 	"github.com/slayer/gcon/internal/ui/components/table"
 	"github.com/slayer/gcon/internal/ui/context"
+	"github.com/slayer/gcon/internal/ui/overlay"
 	"github.com/slayer/gcon/internal/ui/symbols"
 )
 
@@ -30,16 +32,19 @@ type InstancesView struct {
 	err           error
 	instances     []gcp.Instance
 	keys          instanceKeyMap
+	actionMenu    *actionmenu.ActionMenu
+	menuOpen      bool
 }
 
 // instanceKeyMap defines instance-specific key bindings
 type instanceKeyMap struct {
-	Enter   key.Binding
-	Start   key.Binding
-	Stop    key.Binding
-	Reset   key.Binding
-	SSH     key.Binding
-	Refresh key.Binding
+	Enter      key.Binding
+	Start      key.Binding
+	Stop       key.Binding
+	Reset      key.Binding
+	SSH        key.Binding
+	Refresh    key.Binding
+	ActionMenu key.Binding
 }
 
 func defaultInstanceKeyMap() instanceKeyMap {
@@ -67,6 +72,10 @@ func defaultInstanceKeyMap() instanceKeyMap {
 		Refresh: key.NewBinding(
 			key.WithKeys("r"),
 			key.WithHelp("r", "refresh"),
+		),
+		ActionMenu: key.NewBinding(
+			key.WithKeys("."),
+			key.WithHelp(".", "actions"),
 		),
 	}
 }
@@ -224,6 +233,15 @@ func (v *InstancesView) Update(msg tea.Msg) tea.Cmd {
 		v.registerTask("load-instances", "Refreshing...")
 		return tea.Batch(clearCmd, v.spinner.Tick, v.loadInstances())
 
+	case actionmenu.ActionSelectedMsg:
+		// Handle action menu selection
+		v.menuOpen = false
+		return v.executeAction(msg.Key)
+
+	case actionmenu.ActionMenuClosedMsg:
+		v.menuOpen = false
+		return nil
+
 	case spinner.TickMsg:
 		if v.loading || v.actionLoading {
 			var cmd tea.Cmd
@@ -238,6 +256,11 @@ func (v *InstancesView) Update(msg tea.Msg) tea.Cmd {
 			return nil
 		}
 
+		// Route keys to action menu when open
+		if v.menuOpen {
+			return v.actionMenu.Update(msg)
+		}
+
 		// Let table handle filtering mode
 		if v.table.IsFiltering() {
 			var cmd tea.Cmd
@@ -246,6 +269,17 @@ func (v *InstancesView) Update(msg tea.Msg) tea.Cmd {
 		}
 
 		switch {
+		case key.Matches(msg, v.keys.ActionMenu):
+			// Toggle action menu
+			if row := v.table.SelectedRow(); row != nil {
+				inst := v.findInstanceByName(row.ID)
+				if inst != nil {
+					v.actionMenu = actionmenu.New("Instance Actions", v.buildActions(*inst))
+					v.menuOpen = true
+				}
+			}
+			return nil
+
 		case key.Matches(msg, v.keys.Enter):
 			// Navigate to instance details on Enter
 			if row := v.table.SelectedRow(); row != nil {
@@ -301,6 +335,64 @@ func (v *InstancesView) Update(msg tea.Msg) tea.Cmd {
 	var cmd tea.Cmd
 	v.table, cmd = v.table.Update(msg)
 	return cmd
+}
+
+// buildActions creates the action menu items based on instance state
+func (v *InstancesView) buildActions(inst gcp.Instance) []actionmenu.Action {
+	isRunning := inst.IsRunning()
+	isStopped := inst.IsStopped()
+
+	return []actionmenu.Action{
+		{Key: 's', Label: "Start", Enabled: isStopped},
+		{Key: 'x', Label: "Stop", Enabled: isRunning},
+		{Key: 'R', Label: "Reset", Enabled: isRunning, Dangerous: true},
+		{Key: 'S', Label: "SSH", Enabled: isRunning},
+		{Key: 'r', Label: "Refresh", Enabled: true},
+	}
+}
+
+// executeAction performs the action selected from the menu
+func (v *InstancesView) executeAction(actionKey rune) tea.Cmd {
+	row := v.table.SelectedRow()
+	if row == nil {
+		return nil
+	}
+	inst := v.findInstanceByName(row.ID)
+	if inst == nil {
+		return nil
+	}
+
+	switch actionKey {
+	case 's':
+		if inst.IsStopped() {
+			v.actionLoading = true
+			v.actionMsg = fmt.Sprintf("Starting %s...", inst.Name)
+			return tea.Batch(v.spinner.Tick, v.startInstance(*inst))
+		}
+	case 'x':
+		if inst.IsRunning() {
+			v.actionLoading = true
+			v.actionMsg = fmt.Sprintf("Stopping %s...", inst.Name)
+			return tea.Batch(v.spinner.Tick, v.stopInstance(*inst))
+		}
+	case 'R':
+		if inst.IsRunning() {
+			v.actionLoading = true
+			v.actionMsg = fmt.Sprintf("Resetting %s...", inst.Name)
+			return tea.Batch(v.spinner.Tick, v.resetInstance(*inst))
+		}
+	case 'S':
+		if inst.IsRunning() {
+			// SSH to instance is a planned feature
+			v.err = fmt.Errorf("SSH action is not yet implemented for instance %s", inst.Name)
+		}
+	case 'r':
+		v.loading = true
+		v.err = nil
+		return tea.Batch(v.spinner.Tick, v.loadInstances())
+	}
+
+	return nil
 }
 
 // findInstanceByName looks up an instance by name
@@ -363,11 +455,30 @@ func (v *InstancesView) View() string {
 		header = successStyle.Render("  ✓ "+v.actionMsg) + "\n\n"
 	}
 
-	// Help text for actions
+	// Help text for actions - include '.' for action menu
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
-	help := helpStyle.Render("\n  enter: details • s: start • x: stop • R: reset • /: filter • r: refresh • esc: back")
+	help := helpStyle.Render("\n  enter: details • .: actions • s: start • x: stop • R: reset • /: filter • r: refresh")
 
-	return header + v.table.View() + help
+	mainContent := header + v.table.View() + help
+
+	// Overlay action menu if open
+	if v.menuOpen && v.actionMenu != nil {
+		return v.renderWithActionMenu(mainContent)
+	}
+
+	return mainContent
+}
+
+// renderWithActionMenu overlays the action menu centered on top of the content
+func (v *InstancesView) renderWithActionMenu(content string) string {
+	menuView := v.actionMenu.View()
+
+	// Use context width for consistent centering (like command palette)
+	contentWidth := v.ctx.ContentWidth
+	contentHeight := lipgloss.Height(content)
+
+	// Use overlay helper to composite menu on top of content
+	return overlay.Center(content, menuView, contentWidth, contentHeight)
 }
 
 // SetContext updates the view with shared program context.
@@ -388,6 +499,11 @@ func (v *InstancesView) SelectedInstance() *gcp.Instance {
 // GetComputeClient returns the compute client for reuse in detail views
 func (v *InstancesView) GetComputeClient() *gcp.ComputeClient {
 	return v.computeClient
+}
+
+// IsMenuOpen returns true if the action menu is currently open
+func (v *InstancesView) IsMenuOpen() bool {
+	return v.menuOpen
 }
 
 // renderLoading renders a loading message

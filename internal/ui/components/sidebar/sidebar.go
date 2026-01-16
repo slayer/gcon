@@ -113,6 +113,12 @@ func (s *Sidebar) Update(msg tea.Msg) tea.Cmd {
 		return s.selectItem()
 	}
 
+	// Handle letter hotkeys (case-sensitive)
+	if idx := s.findItemByHotkey(keyMsg.String()); idx >= 0 {
+		s.cursor = idx
+		return s.selectItem()
+	}
+
 	switch {
 	case key.Matches(keyMsg, s.keys.Up):
 		s.moveUp()
@@ -124,6 +130,20 @@ func (s *Sidebar) Update(msg tea.Msg) tea.Cmd {
 		s.goBack()
 	}
 	return nil
+}
+
+// findItemByHotkey returns the index of the item matching the hotkey, or -1
+func (s *Sidebar) findItemByHotkey(keyStr string) int {
+	if len(keyStr) != 1 {
+		return -1
+	}
+	pressedKey := rune(keyStr[0])
+	for i, item := range s.currentItems {
+		if item.Hotkey == pressedKey {
+			return i
+		}
+	}
+	return -1
 }
 
 // getNumberKey returns the number (1-9) if a number key was pressed, 0 otherwise
@@ -265,12 +285,15 @@ func (s *Sidebar) renderItem(item MenuItem, index int, styles Styles) string {
 
 		icon := item.Icon + " " // icon + space
 
+		// Highlight hotkey in label (only when focused and not selected)
+		displayLabel := s.highlightHotkey(item.Label, item.Hotkey, styles, isSelected)
+
 		if item.Type == MenuItemCategory {
 			// Category: cursor + icon + label + expand arrow (no active indicator)
-			label = fmt.Sprintf("%s%s%s %s", cursor, icon, item.Label, symbols.Expand())
+			label = fmt.Sprintf("%s%s%s %s", cursor, icon, displayLabel, symbols.Expand())
 		} else {
 			// Leaf: cursor + active + icon + label + shortcut
-			label = fmt.Sprintf("%s%s%s%s", cursor, active, icon, item.Label)
+			label = fmt.Sprintf("%s%s%s%s", cursor, active, icon, displayLabel)
 			if shortcut != "" && s.focused {
 				label += " " + shortcut
 			}
@@ -291,6 +314,29 @@ func (s *Sidebar) renderItem(item MenuItem, index int, styles Styles) string {
 	}
 
 	return style.Render(label)
+}
+
+// highlightHotkey returns the label with the hotkey character highlighted
+func (s *Sidebar) highlightHotkey(label string, hotkey rune, styles Styles, isSelected bool) string {
+	if hotkey == 0 || !s.focused || isSelected {
+		// No hotkey, unfocused, or selected (bg color makes it hard to see)
+		return label
+	}
+
+	// Find the hotkey character in the label (case-sensitive match)
+	hotkeyStr := string(hotkey)
+	idx := strings.Index(label, hotkeyStr)
+	if idx == -1 {
+		// Hotkey char not found in label, return as-is
+		return label
+	}
+
+	// Split and highlight
+	before := label[:idx]
+	highlighted := styles.Hotkey.Render(hotkeyStr)
+	after := label[idx+len(hotkeyStr):]
+
+	return before + highlighted + after
 }
 
 // moveUp moves cursor up
