@@ -1,0 +1,124 @@
+package ui
+
+import (
+	"strings"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/slayer/gcon/internal/ui/components/commandpalette"
+	"github.com/slayer/gcon/internal/ui/components/sidebar"
+)
+
+// openCommandPalette shows the command palette and configures it based on current state
+func (a *App) openCommandPalette(showPrefix bool) {
+	a.showCommandPalette = true
+	a.commandPalette.Reset()
+	a.commandPalette.SetShowPrefix(showPrefix)
+	a.commandPalette.SetProjectSelected(a.selectedProject != nil)
+
+	// Build command list with recent items at the top
+	commands := a.recentTracker.Commands()
+	commands = append(commands, commandpalette.DefaultCommands()...)
+	a.commandPalette.SetCommands(commands)
+
+	// Set size for centered display
+	paletteWidth := a.width * 6 / 10 // 60% of screen width
+	if paletteWidth < 50 {
+		paletteWidth = 50
+	}
+	if paletteWidth > 80 {
+		paletteWidth = 80
+	}
+	a.commandPalette.SetSize(paletteWidth, a.height)
+}
+
+// handleCommandSelected processes a selected command from the palette
+func (a *App) handleCommandSelected(cmd commandpalette.Command) (tea.Model, tea.Cmd) {
+	a.showCommandPalette = false
+	a.commandPalette.Reset()
+
+	switch cmd.Type {
+	case commandpalette.CommandTypeNavigation:
+		return a.handleNavigationCommand(cmd)
+	case commandpalette.CommandTypeAction:
+		return a.handleActionCommand(cmd)
+	case commandpalette.CommandTypeRecent:
+		return a.handleRecentCommand(cmd)
+	}
+
+	return a, nil
+}
+
+// handleNavigationCommand navigates to the selected view from command palette
+func (a *App) handleNavigationCommand(cmd commandpalette.Command) (tea.Model, tea.Cmd) {
+	// Navigation commands require a project to be selected
+	if a.selectedProject == nil {
+		return a, nil
+	}
+
+	// Navigate to the view (reuse sidebar navigation logic via NavigateMsg)
+	return a, func() tea.Msg {
+		return sidebar.NavigateMsg{ViewType: sidebar.ViewType(cmd.ViewType)}
+	}
+}
+
+// handleActionCommand executes the selected action from command palette
+func (a *App) handleActionCommand(cmd commandpalette.Command) (tea.Model, tea.Cmd) {
+	switch cmd.ID {
+	case "action:refresh":
+		return a, func() tea.Msg { return RefreshMsg{} }
+	case "action:toggle-sidebar":
+		if a.sidebarActive() {
+			a.sidebar.Toggle()
+			a.updateViewSizes()
+		}
+		return a, nil
+	case "action:help":
+		a.showHelp = !a.showHelp
+		return a, nil
+	case "action:quit":
+		return a, tea.Quit
+	}
+	return a, nil
+}
+
+// handleRecentCommand navigates to a recently accessed resource from command palette
+func (a *App) handleRecentCommand(cmd commandpalette.Command) (tea.Model, tea.Cmd) {
+	// Parse the command ID: "recent:<type>:<id>"
+	parts := strings.SplitN(cmd.ID, ":", 3)
+	if len(parts) < 3 {
+		return a, nil
+	}
+
+	recentType := parts[1]
+	// resourceID := parts[2] // Available if needed for direct navigation
+
+	switch recentType {
+	case "project":
+		// Go back to project list - user can select from there
+		a.currentView = ViewProjects
+		return a, nil
+	case "bucket":
+		// Navigate to buckets view if we have a project
+		if a.selectedProject != nil {
+			return a, func() tea.Msg {
+				return sidebar.NavigateMsg{ViewType: sidebar.ViewBuckets}
+			}
+		}
+	case "instance":
+		// Navigate to instances view if we have a project
+		if a.selectedProject != nil {
+			return a, func() tea.Msg {
+				return sidebar.NavigateMsg{ViewType: sidebar.ViewInstances}
+			}
+		}
+	case "disk":
+		// Navigate to disks view if we have a project
+		if a.selectedProject != nil {
+			return a, func() tea.Msg {
+				return sidebar.NavigateMsg{ViewType: sidebar.ViewDisks}
+			}
+		}
+	}
+
+	return a, nil
+}
