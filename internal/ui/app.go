@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
 	"github.com/slayer/gcon/internal/gcp"
+	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/commandpalette"
 	"github.com/slayer/gcon/internal/ui/components/sidebar"
 	"github.com/slayer/gcon/internal/ui/context"
@@ -95,6 +96,9 @@ type App struct {
 	commandPalette     *commandpalette.CommandPalette
 	showCommandPalette bool
 	recentTracker      *commandpalette.RecentTracker
+
+	// Footer
+	footer *components.Footer
 }
 
 // AppOptions configures the application
@@ -121,6 +125,7 @@ func NewApp(client *gcp.Client, opts AppOptions) *App {
 		focusedPanel:     FocusContent,
 		commandPalette:   commandpalette.New(),
 		recentTracker:    commandpalette.NewRecentTracker(),
+		footer:           components.NewFooter(),
 	}
 
 	// Set up the StartTask callback for async operation tracking
@@ -289,6 +294,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.help.Width = msg.Width
 		// Update layout with new terminal dimensions
 		a.layout.SetSize(msg.Width, msg.Height)
+		a.footer.SetWidth(msg.Width)
 		a.updateViewSizes()
 		a.syncContext()
 		return a, nil
@@ -1240,41 +1246,56 @@ func (a *App) renderPlaceholder(name string) string {
 	return a.styles.Muted.Render("\n  " + name + " view - not implemented yet\n\n  Use sidebar to navigate to VM instances.")
 }
 
-// renderFooter creates the help footer with optional task status
+// renderFooter syncs content to the footer component and renders it
 func (a *App) renderFooter() string {
 	if a.showHelp {
 		return a.help.View(a.keys)
 	}
 
-	helpText := ": cmd • ? help • q quit"
-	// Show "esc back" for detail views, "esc quit" for top-level views
+	// Sync footer content based on current state
+	a.syncFooter()
+	return a.footer.View()
+}
+
+// syncFooter updates all footer slots based on current application state
+func (a *App) syncFooter() {
+	// Left1: Navigation hint (esc back/quit)
 	switch a.currentView {
-	case ViewInstanceDetails, ViewDiskDetails, ViewSnapshotDetails, ViewImageDetails:
-		helpText = "esc back • " + helpText
-	case ViewObjects:
-		// Objects view may navigate up folders or back to buckets
-		helpText = "esc back • " + helpText
+	case ViewInstanceDetails, ViewDiskDetails, ViewSnapshotDetails, ViewImageDetails, ViewObjects:
+		a.footer.SetLeft1("esc back")
 	case ViewProjects, ViewInstances, ViewDisks, ViewSnapshots, ViewImages, ViewBuckets, ViewNetworks, ViewFirewall:
-		helpText = "esc quit • " + helpText
-	}
-	if a.sidebarActive() {
-		helpText = "tab focus • [ sidebar • " + helpText
+		a.footer.SetLeft1("esc quit")
+	default:
+		a.footer.ClearLeft1()
 	}
 
-	// Add task status if any tasks are active
+	// Left2: Sidebar toggle hint (only when sidebar is active)
+	if a.sidebarActive() {
+		a.footer.SetLeft2("[ sidebar")
+	} else {
+		a.footer.ClearLeft2()
+	}
+
+	// Left3: Help shortcuts
+	a.footer.SetLeft3(": cmd • ? help • q quit")
+
+	// Center: Clear for now (can be used for view-specific info)
+	a.footer.ClearCenter()
+
+	// Right1: Project info (if selected)
+	if a.selectedProject != nil {
+		a.footer.SetRight1(a.selectedProject.ID)
+	} else {
+		a.footer.ClearRight1()
+	}
+
+	// Right2/Right3: Task status (pre-rendered with custom styles)
 	taskStatus := a.renderTaskStatus()
 	if taskStatus != "" {
-		// Calculate spacing to right-align task status
-		helpWidth := lipgloss.Width(helpText)
-		taskWidth := lipgloss.Width(taskStatus)
-		spacing := a.width - helpWidth - taskWidth - 2 // -2 for some padding
-		if spacing < 1 {
-			spacing = 1
-		}
-		return a.styles.Help.Render(helpText) + strings.Repeat(" ", spacing) + taskStatus
+		a.footer.SetRight2Styled(taskStatus)
+	} else {
+		a.footer.ClearRight2Styled()
 	}
-
-	return a.styles.Help.Render(helpText)
 }
 
 // Task status styles with colored backgrounds
