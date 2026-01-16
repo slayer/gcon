@@ -385,6 +385,22 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.updateViewSizes()
 		return a, a.diskDetailsView.Init()
 
+	case views.InstanceDiskSelectedMsg:
+		// Navigate to disk details from instance details view
+		// Track recent disk access
+		a.recentTracker.Track(commandpalette.RecentTypeDisk, msg.DiskName, msg.DiskName)
+		a.currentView = ViewDiskDetails
+		// Pass compute client from instance details view
+		a.diskDetailsView = views.NewDiskDetailsView(
+			a.selectedProject.ID,
+			msg.Zone,
+			msg.DiskName,
+			a.instanceDetailsView.GetComputeClient(),
+		)
+		a.updateSidebarActiveView()
+		a.updateViewSizes()
+		return a, a.diskDetailsView.Init()
+
 	case views.SnapshotSelectedMsg:
 		// Navigate to snapshot details view
 		snapshot := msg.Snapshot

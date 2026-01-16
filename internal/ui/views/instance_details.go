@@ -13,6 +13,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components/actionmenu"
+	"github.com/slayer/gcon/internal/ui/components/links"
+	"github.com/slayer/gcon/internal/ui/components/tabs"
 	"github.com/slayer/gcon/internal/ui/context"
 	"github.com/slayer/gcon/internal/ui/overlay"
 	"github.com/slayer/gcon/internal/ui/symbols"
@@ -22,6 +24,13 @@ import (
 // InstanceSelectedMsg is sent when an instance is selected from the list
 type InstanceSelectedMsg struct {
 	Instance gcp.Instance
+}
+
+// InstanceDiskSelectedMsg is sent when a disk link is selected in instance details
+// Contains disk info extracted from DiskInfo.Source URL
+type InstanceDiskSelectedMsg struct {
+	DiskName string
+	Zone     string
 }
 
 // instanceDetailsLoadedMsg contains the fetched instance details
@@ -34,6 +43,12 @@ type instanceDetailsErrorMsg struct {
 	err error
 }
 
+// Tab IDs for instance details view
+const (
+	tabIDDetails       = "details"
+	tabIDObservability = "observability"
+)
+
 // InstanceDetailsView displays comprehensive instance information
 type InstanceDetailsView struct {
 	computeClient *gcp.ComputeClient
@@ -42,7 +57,6 @@ type InstanceDetailsView struct {
 	instanceName  string
 	ctx           *context.ProgramContext // Shared context for dimensions and styles
 	details       *gcp.InstanceDetails
-	viewport      viewport.Model
 	spinner       spinner.Model
 	loading       bool
 	actionLoading bool
@@ -54,6 +68,11 @@ type InstanceDetailsView struct {
 	ready         bool
 	actionMenu    *actionmenu.ActionMenu
 	menuOpen      bool
+	// Tab navigation
+	tabs         *tabs.Tabs
+	tabViewports []viewport.Model // Separate viewport per tab to preserve scroll
+	// Navigable links (e.g., disks)
+	diskLinks *links.Links
 }
 
 type instanceDetailsKeyMap struct {
@@ -105,6 +124,12 @@ func NewInstanceDetailsView(projectID, zone, instanceName string, computeClient 
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#4285F4"))
 
+	// Initialize tabs
+	tabsComponent := tabs.New([]tabs.Tab{
+		{ID: tabIDDetails, Label: "Details"},
+		{ID: tabIDObservability, Label: "Observability"},
+	})
+
 	return &InstanceDetailsView{
 		computeClient: computeClient,
 		projectID:     projectID,
@@ -113,6 +138,9 @@ func NewInstanceDetailsView(projectID, zone, instanceName string, computeClient 
 		spinner:       s,
 		loading:       true,
 		keys:          defaultInstanceDetailsKeyMap(),
+		tabs:          tabsComponent,
+		tabViewports:  make([]viewport.Model, 2), // One viewport per tab
+		diskLinks:     links.New(),
 	}
 }
 
@@ -180,6 +208,26 @@ func (v *InstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 		}
 		return nil
 
+	case tabs.TabChangedMsg:
+		// Tab changed - update active viewport content
+		v.updateViewportContent()
+		return nil
+
+	case links.LinkSelectedMsg:
+		// Handle disk link selection - navigate to disk details
+		if msg.Link.Type == "disk" {
+			// Extract zone and disk name from the link data
+			if diskInfo, ok := msg.Link.Data.(gcp.DiskInfo); ok {
+				diskName, zone := extractDiskInfoFromSource(diskInfo.Source)
+				if diskName != "" && zone != "" {
+					return func() tea.Msg {
+						return InstanceDiskSelectedMsg{DiskName: diskName, Zone: zone}
+					}
+				}
+			}
+		}
+		return nil
+
 	case tea.KeyMsg:
 		if v.actionLoading {
 			return nil
@@ -188,6 +236,21 @@ func (v *InstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 		// Route keys to action menu when open
 		if v.menuOpen {
 			return v.actionMenu.Update(msg)
+		}
+
+		// Handle tab navigation keys first
+		if tabs.HandleKey(msg) {
+			return v.tabs.Update(msg)
+		}
+
+		// In Details tab, route j/k/Enter to disk links if available
+		if v.tabs.ActiveTab().ID == tabIDDetails && v.diskLinks.HasItems() {
+			if links.HandleKey(msg) {
+				cmd := v.diskLinks.Update(msg)
+				// Re-render content to update highlighting
+				v.updateViewportContent()
+				return cmd
+			}
 		}
 
 		switch {
@@ -225,13 +288,6 @@ func (v *InstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 				return tea.Batch(v.spinner.Tick, v.resetInstance())
 			}
 		}
-	}
-
-	// Handle viewport scrolling
-	if v.ready {
-		var cmd tea.Cmd
-		v.viewport, cmd = v.viewport.Update(msg)
-		return cmd
 	}
 
 	return nil
@@ -343,13 +399,33 @@ func (v *InstanceDetailsView) View() string {
 		header = successStyle.Render("  "+v.actionMsg) + "\n\n"
 	}
 
-	// Help text for actions - include '.' for action menu
+	// Render tab bar
+	tabBar := "  " + v.tabs.View()
+
+	// Get active tab viewport
+	activeIdx := v.tabs.ActiveIndex()
+	var viewportContent string
+	var scrollPercent float64
+	if activeIdx >= 0 && activeIdx < len(v.tabViewports) {
+		viewportContent = v.tabViewports[activeIdx].View()
+		scrollPercent = v.tabViewports[activeIdx].ScrollPercent()
+	}
+
+	// Help text - context-sensitive based on active tab and available links
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
 	scrollStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#4285F4"))
-	scrollInfo := scrollStyle.Render(fmt.Sprintf("%.0f%%", v.viewport.ScrollPercent()*100))
-	help := helpStyle.Render("\n  ↑/↓: scroll • .: actions • s: start • x: stop • R: reset • r: refresh") + " " + scrollInfo
+	scrollInfo := scrollStyle.Render(fmt.Sprintf("%.0f%%", scrollPercent*100))
 
-	mainContent := header + v.viewport.View() + help
+	var helpText string
+	if v.tabs.ActiveTab().ID == tabIDDetails && v.diskLinks.HasItems() {
+		// Details tab with disk links - show disk navigation hint
+		helpText = "\n  j/k: select disk • enter: view disk • tab: switch tabs • .: actions"
+	} else {
+		helpText = "\n  tab/1-2: switch tabs • .: actions • r: refresh"
+	}
+	help := helpStyle.Render(helpText) + " " + scrollInfo
+
+	mainContent := header + tabBar + "\n" + viewportContent + help
 
 	// Overlay action menu if open
 	if v.menuOpen && v.actionMenu != nil {
@@ -385,21 +461,27 @@ func (v *InstanceDetailsView) IsMenuOpen() bool {
 	return v.menuOpen
 }
 
-// applySize applies the given dimensions to the viewport
+// applySize applies the given dimensions to the viewports
 func (v *InstanceDetailsView) applySize(width, height int) {
-	// Reserve space for header and footer
-	viewportHeight := height - 4
+	// Reserve space for header, tab bar, and footer
+	viewportHeight := height - 5
 	if viewportHeight < 1 {
 		viewportHeight = 1
 	}
 
 	if !v.ready {
-		v.viewport = viewport.New(width, viewportHeight)
-		v.viewport.Style = lipgloss.NewStyle().Padding(0, 2)
+		// Initialize viewport for each tab
+		for i := range v.tabViewports {
+			v.tabViewports[i] = viewport.New(width, viewportHeight)
+			v.tabViewports[i].Style = lipgloss.NewStyle().Padding(0, 2)
+		}
 		v.ready = true
 	} else {
-		v.viewport.Width = width
-		v.viewport.Height = viewportHeight
+		// Update dimensions for all tab viewports
+		for i := range v.tabViewports {
+			v.tabViewports[i].Width = width
+			v.tabViewports[i].Height = viewportHeight
+		}
 	}
 
 	if v.details != nil {
@@ -407,18 +489,53 @@ func (v *InstanceDetailsView) applySize(width, height int) {
 	}
 }
 
-// updateViewportContent renders the details content into the viewport
+// updateViewportContent renders the content for the active tab's viewport
 func (v *InstanceDetailsView) updateViewportContent() {
 	if v.details == nil || !v.ready {
 		return
 	}
 
-	content := v.renderContent()
-	v.viewport.SetContent(content)
+	activeIdx := v.tabs.ActiveIndex()
+	if activeIdx < 0 || activeIdx >= len(v.tabViewports) {
+		return
+	}
+
+	var content string
+	switch v.tabs.ActiveTab().ID {
+	case tabIDDetails:
+		// Populate disk links from instance details
+		v.populateDiskLinks()
+		content = v.renderDetailsTab()
+	case tabIDObservability:
+		content = v.renderObservabilityTab()
+	default:
+		content = v.renderDetailsTab()
+	}
+
+	v.tabViewports[activeIdx].SetContent(content)
 }
 
-// renderContent generates the full details content
-func (v *InstanceDetailsView) renderContent() string {
+// populateDiskLinks creates link items from the instance's attached disks
+func (v *InstanceDetailsView) populateDiskLinks() {
+	if v.details == nil || len(v.details.Disks) == 0 {
+		v.diskLinks.SetItems(nil)
+		return
+	}
+
+	items := make([]links.Link, len(v.details.Disks))
+	for i, disk := range v.details.Disks {
+		items[i] = links.Link{
+			ID:    disk.Name,
+			Label: disk.Name,
+			Type:  "disk",
+			Data:  disk, // Store the DiskInfo for navigation
+		}
+	}
+	v.diskLinks.SetItems(items)
+}
+
+// renderDetailsTab generates the Details tab content
+func (v *InstanceDetailsView) renderDetailsTab() string {
 	d := v.details
 	var b strings.Builder
 
@@ -513,24 +630,32 @@ func (v *InstanceDetailsView) renderContent() string {
 	}
 	b.WriteString("\n")
 
-	// Storage
+	// Storage - with navigable disk links
 	b.WriteString(sectionStyle.Render("Storage"))
 	b.WriteString("\n")
 	if len(d.Disks) > 0 {
-		b.WriteString(fmt.Sprintf("  %-25s %-10s %-12s %-12s %-10s\n",
-			"Name", "Size", "Type", "Mode", "Boot"))
-		b.WriteString("  " + strings.Repeat("─", 72) + "\n")
-		for _, disk := range d.Disks {
+		// Render header using links component
+		header := fmt.Sprintf("%-25s %-10s %-12s %-12s %-10s",
+			"Name", "Size", "Type", "Mode", "Boot")
+		b.WriteString(v.diskLinks.RenderHeader(header))
+		b.WriteString("\n")
+		b.WriteString(v.diskLinks.RenderDivider(72))
+		b.WriteString("\n")
+
+		// Render each disk row with link highlighting
+		for i, disk := range d.Disks {
 			bootStr := "—"
 			if disk.Boot {
 				bootStr = "Yes"
 			}
-			b.WriteString(fmt.Sprintf("  %-25s %-10s %-12s %-12s %-10s\n",
+			row := fmt.Sprintf("%-25s %-10s %-12s %-12s %-10s",
 				truncate(disk.Name, 25),
 				fmt.Sprintf("%d GB", disk.SizeGB),
 				defaultIfEmpty(disk.Type, "—"),
 				disk.Mode,
-				bootStr))
+				bootStr)
+			b.WriteString(v.diskLinks.RenderRow(i, row))
+			b.WriteString("\n")
 		}
 	} else {
 		b.WriteString("  No disks attached\n")
@@ -575,6 +700,47 @@ func (v *InstanceDetailsView) renderContent() string {
 	return b.String()
 }
 
+// renderObservabilityTab generates the Observability tab content
+// Placeholder for future metrics/monitoring integration
+func (v *InstanceDetailsView) renderObservabilityTab() string {
+	d := v.details
+	var b strings.Builder
+
+	// Styles
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#4285F4"))
+	sectionStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).MarginTop(1)
+	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
+
+	// Header with status
+	statusIcon := getStatusIcon(d.Status)
+	b.WriteString(titleStyle.Render(fmt.Sprintf("Instance: %s  %s %s", d.Name, statusIcon, d.Status)))
+	b.WriteString("\n")
+	b.WriteString(strings.Repeat("─", min(v.width-4, 60)))
+	b.WriteString("\n\n")
+
+	// Observability section
+	b.WriteString(sectionStyle.Render("Observability"))
+	b.WriteString("\n\n")
+
+	b.WriteString(mutedStyle.Render("  Metrics and monitoring data will be available in a future update."))
+	b.WriteString("\n\n")
+
+	b.WriteString(mutedStyle.Render("  Planned features:"))
+	b.WriteString("\n")
+	b.WriteString(mutedStyle.Render("  • CPU utilization"))
+	b.WriteString("\n")
+	b.WriteString(mutedStyle.Render("  • Memory usage"))
+	b.WriteString("\n")
+	b.WriteString(mutedStyle.Render("  • Network traffic"))
+	b.WriteString("\n")
+	b.WriteString(mutedStyle.Render("  • Disk I/O"))
+	b.WriteString("\n")
+	b.WriteString(mutedStyle.Render("  • Recent logs"))
+	b.WriteString("\n")
+
+	return b.String()
+}
+
 // Helper functions
 // Shared helpers (renderRow, defaultIfEmpty, min) are now in helpers.go
 
@@ -615,6 +781,32 @@ func truncate(s string, maxLen int) string {
 		return s[:maxLen]
 	}
 	return s[:maxLen-3] + "..."
+}
+
+// extractDiskInfoFromSource parses a disk source URL and returns disk name and zone
+// Source format: projects/{project}/zones/{zone}/disks/{diskName}
+func extractDiskInfoFromSource(source string) (diskName, zone string) {
+	parts := strings.Split(source, "/")
+	// Need at least: projects/X/zones/Y/disks/Z (6 parts)
+	if len(parts) < 6 {
+		return "", ""
+	}
+
+	// Find the indices for zones and disks
+	for i := 0; i < len(parts)-1; i++ {
+		if parts[i] == "zones" && i+1 < len(parts) {
+			zone = parts[i+1]
+		}
+		if parts[i] == "disks" && i+1 < len(parts) {
+			diskName = parts[i+1]
+		}
+	}
+	return diskName, zone
+}
+
+// GetComputeClient returns the compute client for reuse in other detail views
+func (v *InstanceDetailsView) GetComputeClient() *gcp.ComputeClient {
+	return v.computeClient
 }
 
 // renderLoading renders a loading message
