@@ -385,6 +385,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case views.SnapshotSelectedMsg:
 		return a, a.handleSnapshotSelected(msg)
 
+	case views.SnapshotSourceDiskSelectedMsg:
+		return a, a.handleSnapshotSourceDiskSelected(msg)
+
 	case views.ImageSelectedMsg:
 		return a, a.handleImageSelected(msg)
 

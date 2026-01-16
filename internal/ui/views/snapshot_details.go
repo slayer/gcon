@@ -12,10 +12,17 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
+	"github.com/slayer/gcon/internal/ui/components/links"
 	"github.com/slayer/gcon/internal/ui/context"
 	"github.com/slayer/gcon/internal/ui/symbols"
 	"github.com/slayer/gcon/internal/ui/timeutil"
 )
+
+// SnapshotSourceDiskSelectedMsg is sent when the source disk link is selected
+type SnapshotSourceDiskSelectedMsg struct {
+	DiskName string
+	Zone     string
+}
 
 // snapshotDetailsLoadedMsg contains the fetched snapshot details
 type snapshotDetailsLoadedMsg struct {
@@ -42,6 +49,7 @@ type SnapshotDetailsView struct {
 	height        int
 	keys          snapshotDetailsKeyMap
 	ready         bool
+	diskLink      *links.Links
 }
 
 type snapshotDetailsKeyMap struct {
@@ -85,6 +93,7 @@ func NewSnapshotDetailsView(projectID, snapshotName string, computeClient *gcp.C
 		spinner:       s,
 		loading:       true,
 		keys:          defaultSnapshotDetailsKeyMap(),
+		diskLink:      links.New(),
 	}
 }
 
@@ -113,6 +122,7 @@ func (v *SnapshotDetailsView) Update(msg tea.Msg) tea.Cmd {
 	case snapshotDetailsLoadedMsg:
 		v.loading = false
 		v.details = msg.details
+		v.populateSourceDiskLink()
 		v.updateViewportContent()
 		return nil
 
@@ -129,7 +139,29 @@ func (v *SnapshotDetailsView) Update(msg tea.Msg) tea.Cmd {
 		}
 		return nil
 
+	case links.LinkSelectedMsg:
+		// Handle disk link selection - navigate to disk details
+		if msg.Link.Type == "disk" {
+			if details, ok := msg.Link.Data.(*gcp.SnapshotDetails); ok {
+				return func() tea.Msg {
+					return SnapshotSourceDiskSelectedMsg{
+						DiskName: details.SourceDisk,
+						Zone:     details.SourceDiskZone,
+					}
+				}
+			}
+		}
+		return nil
+
 	case tea.KeyMsg:
+		if v.diskLink.HasItems() {
+			if links.HandleKey(msg) {
+				cmd := v.diskLink.Update(msg)
+				v.updateViewportContent()
+				return cmd
+			}
+		}
+
 		if key.Matches(msg, v.keys.Refresh) {
 			v.loading = true
 			v.err = nil
@@ -155,6 +187,22 @@ func (v *SnapshotDetailsView) Update(msg tea.Msg) tea.Cmd {
 	}
 
 	return nil
+}
+
+// populateSourceDiskLink creates a navigable link for the source disk
+func (v *SnapshotDetailsView) populateSourceDiskLink() {
+	if v.details == nil || v.details.SourceDisk == "" || v.details.SourceDiskZone == "" {
+		v.diskLink.SetItems(nil)
+		return
+	}
+
+	diskLink := links.Link{
+		ID:    v.details.SourceDisk,
+		Label: v.details.SourceDisk,
+		Type:  "disk",
+		Data:  v.details,
+	}
+	v.diskLink.SetItems([]links.Link{diskLink})
 }
 
 // DeleteSnapshotConfirmMsg is emitted when user requests snapshot deletion
@@ -184,7 +232,13 @@ func (v *SnapshotDetailsView) View() string {
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
 	scrollStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#4285F4"))
 	scrollInfo := scrollStyle.Render(fmt.Sprintf("%.0f%%", v.viewport.ScrollPercent()*100))
-	help := helpStyle.Render("\n  ↑/↓: scroll • D: delete • r: refresh • esc: back") + " " + scrollInfo
+	var helpText string
+	if v.diskLink.HasItems() {
+		helpText = "\n  enter: view disk • D: delete • r: refresh • esc: back"
+	} else {
+		helpText = "\n  ↑/↓: scroll • D: delete • r: refresh • esc: back"
+	}
+	help := helpStyle.Render(helpText) + " " + scrollInfo
 
 	return v.viewport.View() + help
 }
@@ -277,7 +331,13 @@ func (v *SnapshotDetailsView) renderContent() string {
 	// Source Information
 	b.WriteString(sectionStyle.Render("Source"))
 	b.WriteString("\n")
-	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Source Disk", defaultIfEmpty(d.SourceDisk, "Unknown")))
+	if v.diskLink.HasItems() {
+		row := v.diskLink.RenderRow(0, v.details.SourceDisk)
+		b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Source Disk", row))
+	} else {
+		b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Source Disk", defaultIfEmpty(d.SourceDisk, "Unknown")))
+	}
+
 	if d.SourceDiskZone != "" {
 		b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Source Disk Zone", d.SourceDiskZone))
 	}
@@ -358,4 +418,9 @@ func (v *SnapshotDetailsView) renderLoading(msg string) string {
 // GetSnapshotName returns the snapshot name for use in breadcrumbs
 func (v *SnapshotDetailsView) GetSnapshotName() string {
 	return v.snapshotName
+}
+
+// GetComputeClient returns the compute client for reuse in other detail views
+func (v *SnapshotDetailsView) GetComputeClient() *gcp.ComputeClient {
+	return v.computeClient
 }
