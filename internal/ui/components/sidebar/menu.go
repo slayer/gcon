@@ -17,6 +17,7 @@ const (
 	ViewDisks
 	ViewSnapshots
 	ViewImages
+	ViewProjectMetadata
 	ViewBuckets
 	ViewNetworks
 	ViewFirewall
@@ -34,6 +35,7 @@ const (
 	IconVM       = "■" // VM instances
 	IconDisk     = "●" // Disks
 	IconImage    = "◉" // Images
+	IconMetadata = "◐" // Metadata
 	IconBucket   = "▪" // Buckets
 	IconVPC      = "◆" // VPC networks
 	IconFirewall = "▲" // Firewall
@@ -62,6 +64,7 @@ func DefaultMenu() []MenuItem {
 				{ID: "disks", Label: "Disks", Icon: IconDisk, Type: MenuItemLeaf, ViewType: ViewDisks},
 				{ID: "snapshots", Label: "Snapshots", Icon: IconDisk, Type: MenuItemLeaf, ViewType: ViewSnapshots},
 				{ID: "images", Label: "Images", Icon: IconImage, Type: MenuItemLeaf, ViewType: ViewImages},
+				{ID: "metadata", Label: "Metadata", Icon: IconMetadata, Type: MenuItemLeaf, ViewType: ViewProjectMetadata},
 			},
 		},
 		{
