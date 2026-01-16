@@ -1414,7 +1414,7 @@ func (a *App) renderTaskStatus() (string, lipgloss.Color) {
 	case context.TaskRunning:
 		text := "⠋ " + displayTask.Description
 		if runningCount > 1 {
-			text += " (+" + string(rune('0'+runningCount-1)) + ")"
+			text += fmt.Sprintf(" (+%d)", runningCount-1)
 		}
 		status = taskRunningStyle.Render(text)
 		bg = ColorPrimary

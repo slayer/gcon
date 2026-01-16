@@ -206,24 +206,23 @@ func (v *InstancesView) Update(msg tea.Msg) tea.Cmd {
 		v.loading = false
 		v.actionLoading = false
 		v.err = msg.err
-		// Mark task as error
-		v.failTask("load-instances", msg.err)
-		return nil
+		// Mark task as error and schedule cleanup
+		return v.failTask("load-instances", msg.err)
 
 	case instanceActionMsg:
 		v.actionLoading = false
 		if msg.err != nil {
 			v.err = msg.err
-			v.failTask("action-"+msg.instance, msg.err)
-			return nil
+			// Mark task as error and schedule cleanup
+			return v.failTask("action-"+msg.instance, msg.err)
 		}
 		v.actionMsg = fmt.Sprintf("%s %s: success", msg.action, msg.instance)
-		// Mark action as successful
-		v.finishTask("action-"+msg.instance, msg.action+" "+msg.instance)
+		// Mark action as successful and schedule cleanup
+		clearCmd := v.finishTask("action-"+msg.instance, msg.action+" "+msg.instance)
 		// Refresh the list after action
 		v.loading = true
 		v.registerTask("load-instances", "Refreshing...")
-		return tea.Batch(v.spinner.Tick, v.loadInstances())
+		return tea.Batch(clearCmd, v.spinner.Tick, v.loadInstances())
 
 	case spinner.TickMsg:
 		if v.loading || v.actionLoading {
@@ -415,7 +414,8 @@ func (v *InstancesView) clearTask(id string) {
 	}
 }
 
-func (v *InstancesView) finishTask(id, description string) {
+// finishTask marks a task as finished and returns a command to clear it after a delay
+func (v *InstancesView) finishTask(id, description string) tea.Cmd {
 	if v.ctx != nil {
 		v.ctx.Tasks[id] = context.Task{
 			ID:          id,
@@ -423,9 +423,14 @@ func (v *InstancesView) finishTask(id, description string) {
 			State:       context.TaskFinished,
 		}
 	}
+	// Schedule task removal after 2 seconds to prevent memory leaks
+	return tea.Tick(2*time.Second, func(t time.Time) tea.Msg {
+		return context.TaskClearMsg{TaskID: id}
+	})
 }
 
-func (v *InstancesView) failTask(id string, err error) {
+// failTask marks a task as failed and returns a command to clear it after a delay
+func (v *InstancesView) failTask(id string, err error) tea.Cmd {
 	if v.ctx != nil {
 		v.ctx.Tasks[id] = context.Task{
 			ID:          id,
@@ -434,4 +439,8 @@ func (v *InstancesView) failTask(id string, err error) {
 			Error:       err,
 		}
 	}
+	// Schedule task removal after 5 seconds to give user time to see the error
+	return tea.Tick(5*time.Second, func(t time.Time) tea.Msg {
+		return context.TaskClearMsg{TaskID: id}
+	})
 }
