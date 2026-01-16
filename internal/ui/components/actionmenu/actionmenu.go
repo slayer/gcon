@@ -70,7 +70,7 @@ func defaultKeyMap() keyMap {
 // New creates a new action menu
 func New(title string, actions []Action) *ActionMenu {
 	// Calculate width based on longest action label
-	maxWidth := len(title) + 4
+	maxWidth := len(title) + 6
 	for _, a := range actions {
 		// Format: "  x  Label  " = 5 + len(label)
 		w := 5 + len(a.Label)
@@ -78,8 +78,8 @@ func New(title string, actions []Action) *ActionMenu {
 			maxWidth = w
 		}
 	}
-	// Add padding for border
-	maxWidth += 4
+	// Add padding for border and extra breathing room
+	maxWidth += 10
 
 	return &ActionMenu{
 		title:   title,

@@ -455,8 +455,8 @@ func (v *InstancesView) View() string {
 func (v *InstancesView) renderWithActionMenu(content string) string {
 	menuView := v.actionMenu.View()
 
-	// Get content dimensions
-	contentWidth := lipgloss.Width(content)
+	// Use context width for consistent centering (like command palette)
+	contentWidth := v.ctx.ContentWidth
 	contentHeight := lipgloss.Height(content)
 
 	// Use overlay helper to composite menu on top of content
