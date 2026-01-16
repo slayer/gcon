@@ -330,10 +330,28 @@ func (v *ProjectMetadataView) renderWarning() string {
 		Bold(true)
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
 
-	warning := warningStyle.Render("⚠️  WARNING: This will affect ALL instances in " + v.projectID)
-	help := helpStyle.Render("\n\nAre you sure you want to save?\n\nctrl+s: confirm save • esc: cancel\n")
+	warning := warningStyle.Render("⚠️  WARNING")
+	message := "\n\nThis will affect ALL instances in project: " + v.projectID
+	question := "\n\nAre you sure you want to save these changes?"
+	help := helpStyle.Render("\n\nctrl+s: confirm and save • esc: cancel")
 
-	return "\n  " + warning + help
+	content := "\n\n  " + warning + message + question + help + "\n"
+
+	// Add vertical padding to center the dialog
+	// Calculate how many newlines we need to center it
+	contentLines := strings.Count(content, "\n")
+	targetHeight := v.height
+	if targetHeight < 10 {
+		targetHeight = 10
+	}
+
+	// Add padding above to center vertically
+	paddingAbove := (targetHeight - contentLines) / 2
+	if paddingAbove > 0 {
+		content = strings.Repeat("\n", paddingAbove) + content
+	}
+
+	return content
 }
 
 // renderEditMode renders the metadata editor
