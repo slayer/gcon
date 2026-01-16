@@ -1240,7 +1240,7 @@ func (a *App) renderPlaceholder(name string) string {
 	return a.styles.Muted.Render("\n  " + name + " view - not implemented yet\n\n  Use sidebar to navigate to VM instances.")
 }
 
-// renderFooter creates the help footer
+// renderFooter creates the help footer with optional task status
 func (a *App) renderFooter() string {
 	if a.showHelp {
 		return a.help.View(a.keys)
@@ -1260,7 +1260,89 @@ func (a *App) renderFooter() string {
 	if a.sidebarActive() {
 		helpText = "tab focus • [ sidebar • " + helpText
 	}
+
+	// Add task status if any tasks are active
+	taskStatus := a.renderTaskStatus()
+	if taskStatus != "" {
+		// Calculate spacing to right-align task status
+		helpWidth := lipgloss.Width(helpText)
+		taskWidth := lipgloss.Width(taskStatus)
+		spacing := a.width - helpWidth - taskWidth - 2 // -2 for some padding
+		if spacing < 1 {
+			spacing = 1
+		}
+		return a.styles.Help.Render(helpText) + strings.Repeat(" ", spacing) + taskStatus
+	}
+
 	return a.styles.Help.Render(helpText)
+}
+
+// Task status styles with colored backgrounds
+var (
+	taskRunningStyle = lipgloss.NewStyle().
+				Background(ColorPrimary).
+				Foreground(lipgloss.Color("#FFFFFF")).
+				Padding(0, 1)
+
+	taskSuccessStyle = lipgloss.NewStyle().
+				Background(ColorSecondary).
+				Foreground(lipgloss.Color("#FFFFFF")).
+				Padding(0, 1)
+
+	taskErrorStyle = lipgloss.NewStyle().
+			Background(ColorError).
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Padding(0, 1)
+)
+
+// renderTaskStatus returns styled task status text, or empty string if no tasks
+func (a *App) renderTaskStatus() string {
+	if len(a.ctx.Tasks) == 0 {
+		return ""
+	}
+
+	// Find the most relevant task to display (prefer running, then most recent)
+	var displayTask *context.Task
+	var runningCount int
+
+	for _, task := range a.ctx.Tasks {
+		t := task
+		if t.State == context.TaskRunning {
+			runningCount++
+		}
+		if displayTask == nil {
+			displayTask = &t
+			continue
+		}
+		// Prefer running tasks over finished/error
+		if t.State == context.TaskRunning && displayTask.State != context.TaskRunning {
+			displayTask = &t
+		}
+	}
+
+	if displayTask == nil {
+		return ""
+	}
+
+	var status string
+	switch displayTask.State {
+	case context.TaskRunning:
+		text := "⠋ " + displayTask.Description
+		if runningCount > 1 {
+			text += " (+" + string(rune('0'+runningCount-1)) + ")"
+		}
+		status = taskRunningStyle.Render(text)
+	case context.TaskFinished:
+		status = taskSuccessStyle.Render("✓ " + displayTask.Description)
+	case context.TaskError:
+		errMsg := displayTask.Description
+		if displayTask.Error != nil {
+			errMsg = displayTask.Error.Error()
+		}
+		status = taskErrorStyle.Render("✗ " + errMsg)
+	}
+
+	return status
 }
 
 // truncateToHeight truncates content to exactly maxLines by splitting on newlines.
