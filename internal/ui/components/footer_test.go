@@ -131,7 +131,7 @@ func TestFooter_View_StyledRight(t *testing.T) {
 		Padding(0, 1).
 		Render("✓ Done")
 
-	f.SetRight2Styled(styledContent)
+	f.SetRight2Styled(styledContent, lipgloss.Color("#34A853"))
 
 	view := f.View()
 
@@ -336,7 +336,7 @@ func TestFooter_View_PrerenderedTaskStatus(t *testing.T) {
 		Padding(0, 1).
 		Render("⠋ Loading instances...")
 
-	f.SetRight2Styled(taskStatus)
+	f.SetRight2Styled(taskStatus, lipgloss.Color("#4285F4"))
 
 	view := f.View()
 

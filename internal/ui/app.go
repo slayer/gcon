@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -1282,20 +1283,82 @@ func (a *App) syncFooter() {
 	// Center: Clear for now (can be used for view-specific info)
 	a.footer.ClearCenter()
 
-	// Right1: Project info (if selected)
+	// Right1: Project info (if selected) with color based on project ID
 	if a.selectedProject != nil {
-		a.footer.SetRight1(a.selectedProject.ID)
+		bg := colorFromString(a.selectedProject.ID)
+		projectStyle := lipgloss.NewStyle().
+			Background(bg).
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Padding(0, 1)
+		a.footer.SetRight1Styled(projectStyle.Render(a.selectedProject.ID), bg)
 	} else {
-		a.footer.ClearRight1()
+		a.footer.ClearRight1Styled()
 	}
 
 	// Right2/Right3: Task status (pre-rendered with custom styles)
-	taskStatus := a.renderTaskStatus()
+	taskStatus, taskBg := a.renderTaskStatus()
 	if taskStatus != "" {
-		a.footer.SetRight2Styled(taskStatus)
+		a.footer.SetRight2Styled(taskStatus, taskBg)
 	} else {
 		a.footer.ClearRight2Styled()
 	}
+}
+
+// colorFromString generates a consistent color based on string hash.
+// Uses HSL color space for visually distinct, saturated colors.
+func colorFromString(s string) lipgloss.Color {
+	// Simple hash using FNV-1a algorithm
+	var hash uint32 = 2166136261
+	for i := 0; i < len(s); i++ {
+		hash ^= uint32(s[i])
+		hash *= 16777619
+	}
+
+	// Generate hue from hash (0-360), keep saturation and lightness fixed
+	// for readable text on white foreground
+	hue := float64(hash%360) / 360.0
+	sat := 0.65 // Good saturation for vibrant colors
+	lum := 0.45 // Darker for white text readability
+
+	// HSL to RGB conversion
+	var r, g, b float64
+	if sat == 0 {
+		r, g, b = lum, lum, lum
+	} else {
+		var q float64
+		if lum < 0.5 {
+			q = lum * (1 + sat)
+		} else {
+			q = lum + sat - lum*sat
+		}
+		p := 2*lum - q
+		r = hueToRGB(p, q, hue+1.0/3.0)
+		g = hueToRGB(p, q, hue)
+		b = hueToRGB(p, q, hue-1.0/3.0)
+	}
+
+	return lipgloss.Color(fmt.Sprintf("#%02X%02X%02X",
+		int(r*255), int(g*255), int(b*255)))
+}
+
+// hueToRGB is a helper for HSL to RGB conversion
+func hueToRGB(p, q, t float64) float64 {
+	if t < 0 {
+		t += 1
+	}
+	if t > 1 {
+		t -= 1
+	}
+	if t < 1.0/6.0 {
+		return p + (q-p)*6*t
+	}
+	if t < 1.0/2.0 {
+		return q
+	}
+	if t < 2.0/3.0 {
+		return p + (q-p)*(2.0/3.0-t)*6
+	}
+	return p
 }
 
 // Task status styles with colored backgrounds
@@ -1316,10 +1379,10 @@ var (
 			Padding(0, 1)
 )
 
-// renderTaskStatus returns styled task status text, or empty string if no tasks
-func (a *App) renderTaskStatus() string {
+// renderTaskStatus returns styled task status text and background color, or empty string if no tasks
+func (a *App) renderTaskStatus() (string, lipgloss.Color) {
 	if len(a.ctx.Tasks) == 0 {
-		return ""
+		return "", ""
 	}
 
 	// Find the most relevant task to display (prefer running, then most recent)
@@ -1342,10 +1405,11 @@ func (a *App) renderTaskStatus() string {
 	}
 
 	if displayTask == nil {
-		return ""
+		return "", ""
 	}
 
 	var status string
+	var bg lipgloss.Color
 	switch displayTask.State {
 	case context.TaskRunning:
 		text := "⠋ " + displayTask.Description
@@ -1353,17 +1417,20 @@ func (a *App) renderTaskStatus() string {
 			text += " (+" + string(rune('0'+runningCount-1)) + ")"
 		}
 		status = taskRunningStyle.Render(text)
+		bg = ColorPrimary
 	case context.TaskFinished:
 		status = taskSuccessStyle.Render("✓ " + displayTask.Description)
+		bg = ColorSecondary
 	case context.TaskError:
 		errMsg := displayTask.Description
 		if displayTask.Error != nil {
 			errMsg = displayTask.Error.Error()
 		}
 		status = taskErrorStyle.Render("✗ " + errMsg)
+		bg = ColorError
 	}
 
-	return status
+	return status, bg
 }
 
 // truncateToHeight truncates content to exactly maxLines by splitting on newlines.

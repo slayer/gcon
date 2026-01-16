@@ -85,8 +85,12 @@ type Footer struct {
 	Right3  *string
 
 	// Pre-rendered right sections (already styled, for task status)
-	Right2Rendered string
-	Right3Rendered string
+	Right1Rendered   string
+	Right1RenderedBg lipgloss.Color // Background color for separator styling
+	Right2Rendered   string
+	Right2RenderedBg lipgloss.Color
+	Right3Rendered   string
+	Right3RenderedBg lipgloss.Color
 }
 
 // NewFooter creates a new footer with default styles
@@ -157,6 +161,19 @@ func (f *Footer) ClearCenter() {
 // ClearRight1 hides the first right slot
 func (f *Footer) ClearRight1() { f.Right1 = nil }
 
+// SetRight1Styled sets pre-rendered content for right1 (bypasses default styling)
+// The bg color is used for powerline separator styling
+func (f *Footer) SetRight1Styled(rendered string, bg lipgloss.Color) {
+	f.Right1Rendered = rendered
+	f.Right1RenderedBg = bg
+}
+
+// ClearRight1Styled clears the pre-rendered right1 content
+func (f *Footer) ClearRight1Styled() {
+	f.Right1Rendered = ""
+	f.Right1RenderedBg = ""
+}
+
 // ClearRight2 hides the second right slot
 func (f *Footer) ClearRight2() { f.Right2 = nil }
 
@@ -164,23 +181,29 @@ func (f *Footer) ClearRight2() { f.Right2 = nil }
 func (f *Footer) ClearRight3() { f.Right3 = nil }
 
 // SetRight2Styled sets pre-rendered content for right2 (bypasses default styling)
-func (f *Footer) SetRight2Styled(rendered string) {
+// The bg color is used for powerline separator styling
+func (f *Footer) SetRight2Styled(rendered string, bg lipgloss.Color) {
 	f.Right2Rendered = rendered
+	f.Right2RenderedBg = bg
 }
 
 // SetRight3Styled sets pre-rendered content for right3 (bypasses default styling)
-func (f *Footer) SetRight3Styled(rendered string) {
+// The bg color is used for powerline separator styling
+func (f *Footer) SetRight3Styled(rendered string, bg lipgloss.Color) {
 	f.Right3Rendered = rendered
+	f.Right3RenderedBg = bg
 }
 
 // ClearRight2Styled clears the pre-rendered right2 content
 func (f *Footer) ClearRight2Styled() {
 	f.Right2Rendered = ""
+	f.Right2RenderedBg = ""
 }
 
 // ClearRight3Styled clears the pre-rendered right3 content
 func (f *Footer) ClearRight3Styled() {
 	f.Right3Rendered = ""
+	f.Right3RenderedBg = ""
 }
 
 // View renders the footer
@@ -438,18 +461,34 @@ func (f *Footer) renderRightGroup() string {
 
 	var sections []section
 
-	if f.Right1 != nil {
-		sections = append(sections, section{*f.Right1, f.styles.Right1Bg, f.styles.Right1Fg, ""})
+	if f.Right1 != nil || f.Right1Rendered != "" {
+		bg := f.styles.Right1Bg
+		if f.Right1RenderedBg != "" {
+			bg = f.Right1RenderedBg // Use custom bg for separator styling
+		}
+		s := section{bg: bg, fg: f.styles.Right1Fg, rendered: f.Right1Rendered}
+		if f.Right1 != nil {
+			s.content = *f.Right1
+		}
+		sections = append(sections, s)
 	}
 	if f.Right2 != nil || f.Right2Rendered != "" {
-		s := section{bg: f.styles.Right2Bg, fg: f.styles.Right2Fg, rendered: f.Right2Rendered}
+		bg := f.styles.Right2Bg
+		if f.Right2RenderedBg != "" {
+			bg = f.Right2RenderedBg
+		}
+		s := section{bg: bg, fg: f.styles.Right2Fg, rendered: f.Right2Rendered}
 		if f.Right2 != nil {
 			s.content = *f.Right2
 		}
 		sections = append(sections, s)
 	}
 	if f.Right3 != nil || f.Right3Rendered != "" {
-		s := section{bg: f.styles.Right3Bg, fg: f.styles.Right3Fg, rendered: f.Right3Rendered}
+		bg := f.styles.Right3Bg
+		if f.Right3RenderedBg != "" {
+			bg = f.Right3RenderedBg
+		}
+		s := section{bg: bg, fg: f.styles.Right3Fg, rendered: f.Right3Rendered}
 		if f.Right3 != nil {
 			s.content = *f.Right3
 		}
