@@ -108,7 +108,10 @@ func isWideEmoji(r rune) bool {
 
 		// Geometric shapes used as icons
 		'□', '○', '◇', // Category icons (hollow)
-		'■', '●', '▪', '◆', '▲', '◌': // Status and leaf icons
+		'■', '●', '▪', '◆', '▲', '◌', // Status and leaf icons
+
+		// Powerline symbols (Private Use Area)
+		'\ue0b0', '\ue0b1', '\ue0b2', '\ue0b3': // Powerline arrows
 		return true
 	}
 
