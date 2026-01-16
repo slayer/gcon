@@ -324,11 +324,12 @@ func (v *SnapshotDetailsView) renderContent() string {
 	// Render source disk as navigable link if available
 	if v.diskLink.HasItems() {
 		diskName := defaultIfEmpty(d.SourceDisk, "Unknown")
-		b.WriteString(labelStyle.Render("Source Disk"))
-		b.WriteString("\n")
-		// Render as navigable link with cursor indicator
-		b.WriteString(v.diskLink.RenderRow(0, diskName))
-		b.WriteString("\n")
+		// Render label with proper formatting
+		label := labelStyle.Render("Source Disk:")
+		// Get link rendering (includes cursor and highlighting)
+		linkRendered := v.diskLink.RenderRow(0, diskName)
+		// Combine label and link on same line
+		b.WriteString(label + " " + linkRendered + "\n")
 	} else {
 		b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Source Disk", defaultIfEmpty(d.SourceDisk, "Unknown")))
 	}
