@@ -3,6 +3,7 @@ package views
 import (
 	gocontext "context"
 	"fmt"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -808,25 +809,17 @@ func truncate(s string, maxLen int) string {
 	return s[:maxLen-3] + "..."
 }
 
+var diskSourceRegex = regexp.MustCompile(`projects/[^/]+/zones/([^/]+)/disks/([^/]+)`)
+
 // extractDiskInfoFromSource parses a disk source URL and returns disk name and zone
 // Source format: projects/{project}/zones/{zone}/disks/{diskName}
 func extractDiskInfoFromSource(source string) (diskName, zone string) {
-	parts := strings.Split(source, "/")
-	// Need at least: projects/X/zones/Y/disks/Z (6 parts)
-	if len(parts) < 6 {
-		return "", ""
+	matches := diskSourceRegex.FindStringSubmatch(source)
+	if len(matches) == 3 {
+		// matches[0] is the full string, [1] is the first group (zone), [2] is the second (diskName)
+		return matches[2], matches[1]
 	}
-
-	// Find the indices for zones and disks
-	for i := 0; i < len(parts)-1; i++ {
-		if parts[i] == "zones" && i+1 < len(parts) {
-			zone = parts[i+1]
-		}
-		if parts[i] == "disks" && i+1 < len(parts) {
-			diskName = parts[i+1]
-		}
-	}
-	return diskName, zone
+	return "", ""
 }
 
 // GetComputeClient returns the compute client for reuse in other detail views

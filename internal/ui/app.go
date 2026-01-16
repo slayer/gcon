@@ -61,7 +61,7 @@ type App struct {
 
 	// Current view state
 	currentView         ViewType
-	previousView        ViewType // Track previous view for back navigation
+	viewStack           []ViewType // For back navigation
 	projectView         *views.ProjectsView
 	instancesView       *views.InstancesView
 	instanceDetailsView *views.InstanceDetailsView
@@ -164,28 +164,49 @@ func (a *App) sidebarActive() bool {
 	return a.selectedProject != nil && a.currentView != ViewProjects
 }
 
-// isViewMenuOpen checks if any view has an action menu open
+// isViewMenuOpen checks if the current view has an action menu open.
 func (a *App) isViewMenuOpen() bool {
-	switch a.currentView {
-	case ViewInstances:
-		return a.instancesView != nil && a.instancesView.IsMenuOpen()
-	case ViewInstanceDetails:
-		return a.instanceDetailsView != nil && a.instanceDetailsView.IsMenuOpen()
+	if model := a.getCurrentViewModel(); model != nil {
+		if menuOpener, ok := model.(views.MenuOpener); ok {
+			return menuOpener.IsMenuOpen()
+		}
 	}
 	return false
 }
 
 // updateCurrentView sends a message to the current view and returns its command
 func (a *App) updateCurrentView(msg tea.Msg) tea.Cmd {
+	if model := a.getCurrentViewModel(); model != nil {
+		return model.Update(msg)
+	}
+	return nil
+}
+
+// getCurrentViewModel returns the model for the currently active view.
+func (a *App) getCurrentViewModel() views.View {
 	switch a.currentView {
+	case ViewProjects:
+		return a.projectView
 	case ViewInstances:
-		if a.instancesView != nil {
-			return a.instancesView.Update(msg)
-		}
+		return a.instancesView
 	case ViewInstanceDetails:
-		if a.instanceDetailsView != nil {
-			return a.instanceDetailsView.Update(msg)
-		}
+		return a.instanceDetailsView
+	case ViewDisks:
+		return a.disksView
+	case ViewDiskDetails:
+		return a.diskDetailsView
+	case ViewSnapshots:
+		return a.snapshotsView
+	case ViewSnapshotDetails:
+		return a.snapshotDetailsView
+	case ViewImages:
+		return a.imagesView
+	case ViewImageDetails:
+		return a.imageDetailsView
+	case ViewBuckets:
+		return a.bucketsView
+	case ViewObjects:
+		return a.objectsView
 	}
 	return nil
 }
@@ -224,61 +245,54 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, nil
 			}
 
-			switch a.currentView {
-			case ViewInstanceDetails:
-				// Go back to instances list
-				a.currentView = ViewInstances
-				a.instanceDetailsView = nil
-				a.selectedInstance = nil
-				a.updateSidebarActiveView()
-				return a, nil
-			case ViewDiskDetails:
-				// Go back to previous view (could be disks list or instance details)
-				if a.previousView == ViewInstanceDetails {
-					a.currentView = ViewInstanceDetails
-				} else {
-					a.currentView = ViewDisks
+			// If view stack is not empty, pop and go back
+			if len(a.viewStack) > 0 {
+				leavingView := a.currentView
+
+				// Pop the last view from the stack
+				lastViewIndex := len(a.viewStack) - 1
+				a.currentView = a.viewStack[lastViewIndex]
+				a.viewStack = a.viewStack[:lastViewIndex]
+
+				// Clean up the view model we are navigating away from
+				switch leavingView {
+				case ViewInstanceDetails:
+					a.instanceDetailsView = nil
+					a.selectedInstance = nil
+				case ViewDiskDetails:
+					a.diskDetailsView = nil
+					a.selectedDisk = nil
+				case ViewSnapshotDetails:
+					a.snapshotDetailsView = nil
+					a.selectedSnapshot = nil
+				case ViewImageDetails:
+					a.imageDetailsView = nil
+					a.selectedImage = nil
+				case ViewObjects:
+					a.objectsView = nil
+					a.selectedBucket = nil
 				}
-				a.diskDetailsView = nil
-				a.selectedDisk = nil
-				a.previousView = ViewNone // Clear previous view
+
 				a.updateSidebarActiveView()
 				return a, nil
-			case ViewSnapshotDetails:
-				// Go back to snapshots list
-				a.currentView = ViewSnapshots
-				a.snapshotDetailsView = nil
-				a.selectedSnapshot = nil
-				a.updateSidebarActiveView()
-				return a, nil
-			case ViewImageDetails:
-				// Go back to images list
-				a.currentView = ViewImages
-				a.imageDetailsView = nil
-				a.selectedImage = nil
-				a.updateSidebarActiveView()
-				return a, nil
+			}
+
+			// If stack is empty, check for special internal back navigation (e.g. Objects view)
+			// or quit from top-level views
+			switch a.currentView {
 			case ViewObjects:
-				// Check if we can go up a folder, otherwise go back to buckets
 				if a.objectsView != nil {
+					// Handle internal back navigation (e.g., going up a folder)
 					handled, cmd := a.objectsView.HandleBack()
 					if handled {
 						return a, cmd
 					}
 				}
-				// Go back to buckets list
-				a.currentView = ViewBuckets
-				a.objectsView = nil
-				a.selectedBucket = nil
-				a.updateSidebarActiveView()
-				return a, nil
-			case ViewInstances, ViewDisks, ViewSnapshots, ViewImages, ViewBuckets, ViewNetworks, ViewFirewall:
-				// Once a project is selected, there's no going back to project selector
-				// Esc from these views quits the application
-				a.cleanup()
-				return a, tea.Quit
-			case ViewProjects:
-				// On projects view, Esc quits the application
+				// If not handled, fall through to quit
+				fallthrough
+
+			case ViewInstances, ViewDisks, ViewSnapshots, ViewImages, ViewBuckets, ViewNetworks, ViewFirewall, ViewProjects:
+				// Quit from top-level views or if stack is empty
 				a.cleanup()
 				return a, tea.Quit
 			}
@@ -362,8 +376,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Navigate to instance details view
 		inst := msg.Instance
 		a.selectedInstance = &inst
-		// Track recent instance access
-		a.recentTracker.Track(commandpalette.RecentTypeInstance, inst.Name, inst.Name)
+		// Push current view onto stack for back navigation
+		a.viewStack = append(a.viewStack, a.currentView)
 		a.currentView = ViewInstanceDetails
 		// Pass compute client from instances view to avoid re-initialization
 		a.instanceDetailsView = views.NewInstanceDetailsView(
@@ -382,6 +396,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.selectedDisk = &disk
 		// Track recent disk access
 		a.recentTracker.Track(commandpalette.RecentTypeDisk, disk.Name, disk.Name)
+		// Push current view onto stack for back navigation
+		a.viewStack = append(a.viewStack, a.currentView)
 		a.currentView = ViewDiskDetails
 		// Pass compute client from disks view to avoid re-initialization
 		a.diskDetailsView = views.NewDiskDetailsView(
@@ -398,8 +414,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Navigate to disk details from instance details view
 		// Track recent disk access
 		a.recentTracker.Track(commandpalette.RecentTypeDisk, msg.DiskName, msg.DiskName)
-		// Save previous view for back navigation
-		a.previousView = a.currentView
+		// Push current view onto stack for back navigation
+		a.viewStack = append(a.viewStack, a.currentView)
 		a.currentView = ViewDiskDetails
 		// Pass compute client from instance details view
 		a.diskDetailsView = views.NewDiskDetailsView(
@@ -418,6 +434,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.selectedSnapshot = &snapshot
 		// Track recent snapshot access
 		a.recentTracker.Track(commandpalette.RecentTypeSnapshot, snapshot.Name, snapshot.Name)
+		// Push current view onto stack for back navigation
+		a.viewStack = append(a.viewStack, a.currentView)
 		a.currentView = ViewSnapshotDetails
 		// Pass compute client from snapshots view to avoid re-initialization
 		a.snapshotDetailsView = views.NewSnapshotDetailsView(
@@ -435,6 +453,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.selectedImage = &image
 		// Track recent image access
 		a.recentTracker.Track(commandpalette.RecentTypeImage, image.Name, image.Name)
+		// Push current view onto stack for back navigation
+		a.viewStack = append(a.viewStack, a.currentView)
 		a.currentView = ViewImageDetails
 		// Pass compute client from images view to avoid re-initialization
 		a.imageDetailsView = views.NewImageDetailsView(
@@ -481,6 +501,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.selectedBucket = &bucket
 		// Track recent bucket access
 		a.recentTracker.Track(commandpalette.RecentTypeBucket, bucket.Name, bucket.Name)
+		// Push current view onto stack for back navigation
+		a.viewStack = append(a.viewStack, a.currentView)
 		a.currentView = ViewObjects
 		a.objectsView = views.NewObjectsView(bucket.Name, storageClient)
 		a.updateSidebarActiveView()
@@ -491,49 +513,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Delegate to current view (only if content is focused)
 	var cmd tea.Cmd
 	if a.focusedPanel == FocusContent || !a.sidebarActive() {
-		switch a.currentView {
-		case ViewProjects:
-			cmd = a.projectView.Update(msg)
-		case ViewInstances:
-			if a.instancesView != nil {
-				cmd = a.instancesView.Update(msg)
-			}
-		case ViewInstanceDetails:
-			if a.instanceDetailsView != nil {
-				cmd = a.instanceDetailsView.Update(msg)
-			}
-		case ViewDisks:
-			if a.disksView != nil {
-				cmd = a.disksView.Update(msg)
-			}
-		case ViewDiskDetails:
-			if a.diskDetailsView != nil {
-				cmd = a.diskDetailsView.Update(msg)
-			}
-		case ViewSnapshots:
-			if a.snapshotsView != nil {
-				cmd = a.snapshotsView.Update(msg)
-			}
-		case ViewSnapshotDetails:
-			if a.snapshotDetailsView != nil {
-				cmd = a.snapshotDetailsView.Update(msg)
-			}
-		case ViewImages:
-			if a.imagesView != nil {
-				cmd = a.imagesView.Update(msg)
-			}
-		case ViewImageDetails:
-			if a.imageDetailsView != nil {
-				cmd = a.imageDetailsView.Update(msg)
-			}
-		case ViewBuckets:
-			if a.bucketsView != nil {
-				cmd = a.bucketsView.Update(msg)
-			}
-		case ViewObjects:
-			if a.objectsView != nil {
-				cmd = a.objectsView.Update(msg)
-			}
+		if model := a.getCurrentViewModel(); model != nil {
+			cmd = model.Update(msg)
 		}
 	}
 
