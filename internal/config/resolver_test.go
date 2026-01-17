@@ -233,15 +233,71 @@ func TestResolveAccount(t *testing.T) {
 
 func TestResolveActiveConfigName(t *testing.T) {
 	t.Run("returns env var when set", func(t *testing.T) {
-		t.Setenv("CLOUDSDK_ACTIVE_CONFIG_NAME", "my-config")
+		t.Setenv("CLOUDSDK_ACTIVE_CONFIG_NAME", "production")
 		result := ResolveActiveConfigName()
-		assert.Equal(t, "my-config", result)
+		assert.Equal(t, "production", result)
 	})
 
-	t.Run("returns empty when not set", func(t *testing.T) {
+	t.Run("reads from gcloud config when env var not set", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		t.Setenv("CLOUDSDK_CONFIG", tmpDir)
 		t.Setenv("CLOUDSDK_ACTIVE_CONFIG_NAME", "")
+
+		// Create active_config file (gcloud stores active config name here)
+		require.NoError(t, os.WriteFile(
+			filepath.Join(tmpDir, "active_config"),
+			[]byte("staging\n"),
+			0644,
+		))
+
+		// Create the staging config file
+		configDir := filepath.Join(tmpDir, "configurations")
+		require.NoError(t, os.MkdirAll(configDir, 0755))
+		require.NoError(t, os.WriteFile(
+			filepath.Join(configDir, "config_staging"),
+			[]byte("[core]\nproject = staging-project\n"),
+			0644,
+		))
+
 		result := ResolveActiveConfigName()
-		assert.Equal(t, "", result)
+		assert.Equal(t, "staging", result)
+	})
+
+	t.Run("defaults to 'default' when no config found", func(t *testing.T) {
+		t.Setenv("CLOUDSDK_CONFIG", "/nonexistent/path")
+		t.Setenv("CLOUDSDK_ACTIVE_CONFIG_NAME", "")
+
+		result := ResolveActiveConfigName()
+		assert.Equal(t, "default", result)
+	})
+
+	t.Run("defaults to 'default' when config dir exists but no active_config file", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		t.Setenv("CLOUDSDK_CONFIG", tmpDir)
+		t.Setenv("CLOUDSDK_ACTIVE_CONFIG_NAME", "")
+
+		// Create config directory but no active_config file
+		configDir := filepath.Join(tmpDir, "configurations")
+		require.NoError(t, os.MkdirAll(configDir, 0755))
+
+		result := ResolveActiveConfigName()
+		assert.Equal(t, "default", result)
+	})
+
+	t.Run("env var takes precedence over config file", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		t.Setenv("CLOUDSDK_CONFIG", tmpDir)
+		t.Setenv("CLOUDSDK_ACTIVE_CONFIG_NAME", "production")
+
+		// Create active_config file with different config
+		require.NoError(t, os.WriteFile(
+			filepath.Join(tmpDir, "active_config"),
+			[]byte("staging\n"),
+			0644,
+		))
+
+		result := ResolveActiveConfigName()
+		assert.Equal(t, "production", result)
 	})
 }
 

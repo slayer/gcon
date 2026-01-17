@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/slayer/gcon/internal/config"
 	"google.golang.org/api/cloudresourcemanager/v1"
 	"google.golang.org/api/option"
 )
@@ -16,6 +17,8 @@ type Client struct {
 	monitoringClientProjID string
 	loggingClient          *LoggingClient
 	loggingClientProjID    string
+	authenticatedIdentity  string              // Email of authenticated user or service account
+	identityType           config.IdentityType // Type of authenticated identity (user or service account)
 }
 
 // NewClient creates a new GCP client using Application Default Credentials
@@ -30,9 +33,14 @@ func NewClient() (*Client, error) {
 		return nil, fmt.Errorf("failed to create resource manager client: %w", err)
 	}
 
+	// Retrieve authenticated identity and type (non-critical, ignore errors)
+	identity, identityType, _ := config.GetAuthenticatedIdentity()
+
 	return &Client{
-		ctx:        ctx,
-		crmService: crmService,
+		ctx:                   ctx,
+		crmService:            crmService,
+		authenticatedIdentity: identity,
+		identityType:          identityType,
 	}, nil
 }
 
@@ -90,4 +98,15 @@ func (c *Client) GetLoggingClient(projectID string) (*LoggingClient, error) {
 		c.loggingClientProjID = projectID
 	}
 	return c.loggingClient, nil
+}
+
+// GetAuthenticatedIdentity returns the email of the authenticated user or service account.
+// Returns empty string if unable to determine identity.
+func (c *Client) GetAuthenticatedIdentity() string {
+	return c.authenticatedIdentity
+}
+
+// GetIdentityType returns the type of the authenticated identity (user or service account).
+func (c *Client) GetIdentityType() config.IdentityType {
+	return c.identityType
 }

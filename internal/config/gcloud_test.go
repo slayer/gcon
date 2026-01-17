@@ -123,11 +123,8 @@ func TestLoadGcloudConfig(t *testing.T) {
 		tmpDir := t.TempDir()
 		t.Setenv("CLOUDSDK_CONFIG", tmpDir)
 
-		// Create properties file indicating active config
-		propertiesContent := `[core]
-config = prod
-`
-		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "properties"), []byte(propertiesContent), 0644))
+		// Create active_config file indicating active config
+		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "active_config"), []byte("prod\n"), 0644))
 
 		// Create configurations directory and config file
 		configDir := filepath.Join(tmpDir, "configurations")
@@ -188,16 +185,13 @@ project = default-project
 		assert.Nil(t, config)
 	})
 
-	t.Run("CLOUDSDK_ACTIVE_CONFIG_NAME overrides properties file", func(t *testing.T) {
+	t.Run("CLOUDSDK_ACTIVE_CONFIG_NAME overrides active_config file", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		t.Setenv("CLOUDSDK_CONFIG", tmpDir)
 		t.Setenv("CLOUDSDK_ACTIVE_CONFIG_NAME", "staging")
 
-		// Create properties file indicating different active config
-		propertiesContent := `[core]
-config = prod
-`
-		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "properties"), []byte(propertiesContent), 0644))
+		// Create active_config file indicating different active config
+		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "active_config"), []byte("prod\n"), 0644))
 
 		// Create configurations directory with both configs
 		configDir := filepath.Join(tmpDir, "configurations")

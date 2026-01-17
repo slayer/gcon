@@ -3,6 +3,7 @@ package views
 import (
 	gocontext "context"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -12,7 +13,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
+	"github.com/slayer/gcon/internal/ui/components/links"
 	"github.com/slayer/gcon/internal/ui/context"
+	"github.com/slayer/gcon/internal/ui/focus"
 	"github.com/slayer/gcon/internal/ui/symbols"
 	"github.com/slayer/gcon/internal/ui/timeutil"
 )
@@ -26,6 +29,18 @@ type snapshotDetailsLoadedMsg struct {
 type snapshotDetailsErrorMsg struct {
 	err error
 }
+
+// SnapshotDiskSelectedMsg is sent when a disk link is selected in snapshot details
+type SnapshotDiskSelectedMsg struct {
+	DiskName string
+	Zone     string
+}
+
+// Focus region IDs for snapshot details view
+const (
+	snapshotRegionIDLinks    = "links"
+	snapshotRegionIDViewport = "viewport"
+)
 
 // SnapshotDetailsView displays comprehensive snapshot information
 type SnapshotDetailsView struct {
@@ -42,6 +57,8 @@ type SnapshotDetailsView struct {
 	height        int
 	keys          snapshotDetailsKeyMap
 	ready         bool
+	diskLink      *links.Links   // Navigable link to source disk
+	focusMgr      *focus.Manager // Focus management for routing keys between regions
 }
 
 type snapshotDetailsKeyMap struct {
@@ -78,6 +95,13 @@ func NewSnapshotDetailsView(projectID, snapshotName string, computeClient *gcp.C
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#4285F4"))
 
+	// Initialize focus manager - links region starts disabled until disk info loads
+	fm := focus.NewManager()
+	fm.SetRegions([]focus.Region{
+		focus.NewDisabledRegion(snapshotRegionIDLinks, focus.RegionLinks, "Source Disk"),
+		focus.NewRegion(snapshotRegionIDViewport, focus.RegionViewport, "Content"),
+	})
+
 	return &SnapshotDetailsView{
 		computeClient: computeClient,
 		projectID:     projectID,
@@ -85,6 +109,8 @@ func NewSnapshotDetailsView(projectID, snapshotName string, computeClient *gcp.C
 		spinner:       s,
 		loading:       true,
 		keys:          defaultSnapshotDetailsKeyMap(),
+		diskLink:      links.New(),
+		focusMgr:      fm,
 	}
 }
 
@@ -129,7 +155,52 @@ func (v *SnapshotDetailsView) Update(msg tea.Msg) tea.Cmd {
 		}
 		return nil
 
+	case links.LinkSelectedMsg:
+		// Handle disk link selection - navigate to disk details
+		if msg.Link.Type == "disk" {
+			// Extract zone and disk name from the link data
+			if diskInfo, ok := msg.Link.Data.(diskLinkData); ok {
+				if diskInfo.DiskName != "" && diskInfo.Zone != "" {
+					return func() tea.Msg {
+						return SnapshotDiskSelectedMsg(diskInfo)
+					}
+				}
+			}
+		}
+		return nil
+
+	case focus.FocusChangedMsg:
+		// Focus changed between regions - update rendering
+		v.updateViewportContent()
+		return nil
+
 	case tea.KeyMsg:
+		// Handle Tab/Shift+Tab for cycling between focus regions
+		if focusMsg := v.focusMgr.HandleKey(msg); focusMsg != nil {
+			v.updateViewportContent()
+			return func() tea.Msg { return focusMsg }
+		}
+
+		// Route keys based on currently focused region
+		switch v.focusMgr.ActiveType() {
+		case focus.RegionLinks:
+			// When links region is focused, j/k navigate links
+			if v.diskLink.HasItems() && links.HandleKey(msg) {
+				cmd := v.diskLink.Update(msg)
+				v.updateViewportContent()
+				return cmd
+			}
+
+		case focus.RegionViewport:
+			// When viewport region is focused, j/k scroll content
+			if v.ready {
+				var cmd tea.Cmd
+				v.viewport, cmd = v.viewport.Update(msg)
+				return cmd
+			}
+		}
+
+		// View-specific action keys (work regardless of focus)
 		if key.Matches(msg, v.keys.Refresh) {
 			v.loading = true
 			v.err = nil
@@ -145,13 +216,6 @@ func (v *SnapshotDetailsView) Update(msg tea.Msg) tea.Cmd {
 				}
 			}
 		}
-	}
-
-	// Handle viewport scrolling
-	if v.ready {
-		var cmd tea.Cmd
-		v.viewport, cmd = v.viewport.Update(msg)
-		return cmd
 	}
 
 	return nil
@@ -180,11 +244,13 @@ func (v *SnapshotDetailsView) View() string {
 		return v.renderLoading("Initializing view...")
 	}
 
-	// Help text
+	// Help text - context-sensitive based on focused region
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
 	scrollStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#4285F4"))
 	scrollInfo := scrollStyle.Render(fmt.Sprintf("%.0f%%", v.viewport.ScrollPercent()*100))
-	help := helpStyle.Render("\n  ↑/↓: scroll • D: delete • r: refresh • esc: back") + " " + scrollInfo
+
+	helpText := v.buildHelpText()
+	help := helpStyle.Render(helpText) + " " + scrollInfo
 
 	return v.viewport.View() + help
 }
@@ -225,6 +291,12 @@ func (v *SnapshotDetailsView) updateViewportContent() {
 	if v.details == nil || !v.ready {
 		return
 	}
+
+	// Populate disk link from snapshot details
+	v.populateDiskLink()
+
+	// Update links focus state based on focus manager
+	v.diskLink.SetRegionFocused(v.focusMgr.IsActive(snapshotRegionIDLinks))
 
 	content := v.renderContent()
 	v.viewport.SetContent(content)
@@ -277,7 +349,20 @@ func (v *SnapshotDetailsView) renderContent() string {
 	// Source Information
 	b.WriteString(sectionStyle.Render("Source"))
 	b.WriteString("\n")
-	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Source Disk", defaultIfEmpty(d.SourceDisk, "Unknown")))
+
+	// Render source disk as navigable link if available
+	if v.diskLink.HasItems() {
+		diskName := defaultIfEmpty(d.SourceDisk, "Unknown")
+		// Render label with proper formatting
+		label := labelStyle.Render("Source Disk:")
+		// Get link rendering (includes cursor and highlighting)
+		linkRendered := v.diskLink.RenderRow(0, diskName)
+		// Combine label and link on same line
+		b.WriteString(label + " " + linkRendered + "\n")
+	} else {
+		b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Source Disk", defaultIfEmpty(d.SourceDisk, "Unknown")))
+	}
+
 	if d.SourceDiskZone != "" {
 		b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Source Disk Zone", d.SourceDiskZone))
 	}
@@ -358,4 +443,76 @@ func (v *SnapshotDetailsView) renderLoading(msg string) string {
 // GetSnapshotName returns the snapshot name for use in breadcrumbs
 func (v *SnapshotDetailsView) GetSnapshotName() string {
 	return v.snapshotName
+}
+
+// GetComputeClient returns the compute client for reuse in other detail views
+func (v *SnapshotDetailsView) GetComputeClient() *gcp.ComputeClient {
+	return v.computeClient
+}
+
+// diskLinkData holds disk information for navigation
+type diskLinkData struct {
+	DiskName string
+	Zone     string
+}
+
+var snapshotDiskSourceRegex = regexp.MustCompile(`projects/[^/]+/zones/([^/]+)/disks/([^/]+)`)
+
+// extractDiskInfoFromSnapshotSource parses a source disk URL and returns disk name and zone
+// Source format: projects/{project}/zones/{zone}/disks/{diskName}
+func extractDiskInfoFromSnapshotSource(source string) (diskName, zone string) {
+	matches := snapshotDiskSourceRegex.FindStringSubmatch(source)
+	if len(matches) == 3 {
+		// matches[0] is the full string, [1] is zone, [2] is diskName
+		return matches[2], matches[1]
+	}
+	return "", ""
+}
+
+// populateDiskLink creates a link item from the snapshot's source disk if available
+// and enables/disables the links focus region accordingly
+func (v *SnapshotDetailsView) populateDiskLink() {
+	if v.details == nil || v.details.SourceDiskID == "" {
+		v.diskLink.SetItems(nil)
+		v.focusMgr.DisableRegion(snapshotRegionIDLinks)
+		return
+	}
+
+	// Extract disk name and zone from source disk URL
+	diskName, zone := extractDiskInfoFromSnapshotSource(v.details.SourceDiskID)
+	if diskName == "" || zone == "" {
+		v.diskLink.SetItems(nil)
+		v.focusMgr.DisableRegion(snapshotRegionIDLinks)
+		return
+	}
+
+	// Create single link item for the source disk
+	items := []links.Link{
+		{
+			ID:    diskName,
+			Label: diskName, // Will be formatted in renderContent
+			Type:  "disk",
+			Data: diskLinkData{
+				DiskName: diskName,
+				Zone:     zone,
+			},
+		},
+	}
+	v.diskLink.SetItems(items)
+	v.focusMgr.EnableRegion(snapshotRegionIDLinks)
+}
+
+// buildHelpText generates context-sensitive help text based on the focused region
+func (v *SnapshotDetailsView) buildHelpText() string {
+	bindings := focus.HelpForRegion(v.focusMgr.ActiveType(), v.getRegionLabel())
+	helpStr := focus.FormatHelp(bindings)
+	return "\n  " + helpStr + " • D: delete • r: refresh"
+}
+
+// getRegionLabel returns a descriptive label for the current focus context
+func (v *SnapshotDetailsView) getRegionLabel() string {
+	if v.focusMgr.ActiveType() == focus.RegionLinks {
+		return "disk"
+	}
+	return ""
 }

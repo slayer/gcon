@@ -26,11 +26,12 @@ type LinkSelectedMsg struct {
 
 // Links manages a list of focusable links within content
 type Links struct {
-	items   []Link
-	focused int
-	width   int
-	keys    keyMap
-	styles  Styles
+	items         []Link
+	focused       int
+	width         int
+	keys          keyMap
+	styles        Styles
+	regionFocused bool // Whether this region currently has focus from parent
 }
 
 // keyMap defines link navigation key bindings
@@ -121,13 +122,15 @@ func (l *Links) Update(msg tea.Msg) tea.Cmd {
 
 // RenderRow renders a single link row with optional focus highlighting
 // The row parameter should be the pre-formatted content (e.g., table row)
-// Returns the rendered row with cursor and highlighting if focused
+// Returns the rendered row with cursor and highlighting if focused.
+// Cursor only shown when both the region has focus AND this row is focused.
 func (l *Links) RenderRow(index int, row string) string {
 	if index < 0 || index >= len(l.items) {
 		return row
 	}
 
-	isFocused := index == l.focused
+	// Only show focus indicator when this region has focus from parent
+	isFocused := l.regionFocused && index == l.focused
 
 	// Add cursor indicator
 	cursor := "  " // 2 spaces for alignment
@@ -172,6 +175,17 @@ func (l *Links) SetFocused(index int) {
 	if index >= 0 && index < len(l.items) {
 		l.focused = index
 	}
+}
+
+// SetRegionFocused sets whether this links region currently has focus.
+// When false, the cursor indicator is hidden even though items are present.
+func (l *Links) SetRegionFocused(focused bool) {
+	l.regionFocused = focused
+}
+
+// IsRegionFocused returns whether this links region currently has focus.
+func (l *Links) IsRegionFocused() bool {
+	return l.regionFocused
 }
 
 // Count returns the number of links
