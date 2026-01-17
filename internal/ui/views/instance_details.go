@@ -18,6 +18,7 @@ import (
 	"github.com/slayer/gcon/internal/ui/components/links"
 	"github.com/slayer/gcon/internal/ui/components/tabs"
 	"github.com/slayer/gcon/internal/ui/context"
+	"github.com/slayer/gcon/internal/ui/focus"
 	"github.com/slayer/gcon/internal/ui/overlay"
 	"github.com/slayer/gcon/internal/ui/symbols"
 	"github.com/slayer/gcon/internal/ui/timeutil"
@@ -51,6 +52,13 @@ const (
 	tabIDObservability = "observability"
 )
 
+// Focus region IDs for instance details view
+const (
+	regionIDTabs     = "tabs"
+	regionIDLinks    = "links"
+	regionIDViewport = "viewport"
+)
+
 // Layout constants for viewport height calculation
 const (
 	// Lines reserved for: optional header (max 2) + tab bar (1) + separator (1) + help text (1)
@@ -82,6 +90,8 @@ type InstanceDetailsView struct {
 	tabViewports []viewport.Model // Separate viewport per tab to preserve scroll
 	// Navigable links (e.g., disks)
 	diskLinks *links.Links
+	// Focus management for routing keys between regions
+	focusMgr *focus.Manager
 }
 
 type instanceDetailsKeyMap struct {
@@ -139,6 +149,15 @@ func NewInstanceDetailsView(projectID, zone, instanceName string, computeClient 
 		{ID: tabIDObservability, Label: "Observability"},
 	})
 
+	// Initialize focus manager with default regions
+	// Links region starts disabled until we know disks exist
+	fm := focus.NewManager()
+	fm.SetRegions([]focus.Region{
+		focus.NewRegion(regionIDTabs, focus.RegionTabs, "Tabs"),
+		focus.NewDisabledRegion(regionIDLinks, focus.RegionLinks, "Disks"),
+		focus.NewRegion(regionIDViewport, focus.RegionViewport, "Content"),
+	})
+
 	return &InstanceDetailsView{
 		computeClient: computeClient,
 		projectID:     projectID,
@@ -150,6 +169,7 @@ func NewInstanceDetailsView(projectID, zone, instanceName string, computeClient 
 		tabs:          tabsComponent,
 		tabViewports:  make([]viewport.Model, 2), // One viewport per tab
 		diskLinks:     links.New(),
+		focusMgr:      fm,
 	}
 }
 
@@ -237,6 +257,11 @@ func (v *InstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 		}
 		return nil
 
+	case focus.FocusChangedMsg:
+		// Focus changed between regions - update rendering
+		v.updateViewportContent()
+		return nil
+
 	case tea.KeyMsg:
 		if v.actionLoading {
 			return nil
@@ -247,24 +272,44 @@ func (v *InstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 			return v.actionMenu.Update(msg)
 		}
 
-		// Handle tab navigation keys first
-		if tabs.HandleKey(msg) {
-			return v.tabs.Update(msg)
+		// Handle Tab/Shift+Tab for cycling between focus regions
+		if focusMsg := v.focusMgr.HandleKey(msg); focusMsg != nil {
+			v.updateViewportContent()
+			return func() tea.Msg { return focusMsg }
 		}
 
-		// In Details tab, route j/k/Enter to disk links if available
-		if v.tabs.ActiveTab().ID == tabIDDetails && v.diskLinks.HasItems() {
-			if links.HandleKey(msg) {
-				cmd := v.diskLinks.Update(msg)
-				// Re-render content to update highlighting
-				v.updateViewportContent()
+		// Route keys based on currently focused region
+		switch v.focusMgr.ActiveType() {
+		case focus.RegionTabs:
+			// When tabs region is focused, h/l/1-9 switch tabs
+			if tabs.HandleKey(msg) {
+				return v.tabs.Update(msg)
+			}
+
+		case focus.RegionLinks:
+			// When links region is focused, j/k navigate links
+			// Only available in Details tab with disk links
+			if v.tabs.ActiveTab().ID == tabIDDetails && v.diskLinks.HasItems() {
+				if links.HandleKey(msg) {
+					cmd := v.diskLinks.Update(msg)
+					v.updateViewportContent()
+					return cmd
+				}
+			}
+
+		case focus.RegionViewport:
+			// When viewport region is focused, j/k scroll content
+			activeIdx := v.tabs.ActiveIndex()
+			if activeIdx >= 0 && activeIdx < len(v.tabViewports) {
+				var cmd tea.Cmd
+				v.tabViewports[activeIdx], cmd = v.tabViewports[activeIdx].Update(msg)
 				return cmd
 			}
 		}
 
+		// View-specific action keys (work regardless of focus)
 		switch {
 		case key.Matches(msg, v.keys.ActionMenu):
-			// Toggle action menu
 			if v.details != nil {
 				v.actionMenu = actionmenu.New("Instance Actions", v.buildActions())
 				v.menuOpen = true
@@ -425,18 +470,12 @@ func (v *InstanceDetailsView) View() string {
 		scrollPercent = v.tabViewports[activeIdx].ScrollPercent()
 	}
 
-	// Help text - context-sensitive based on active tab and available links
+	// Help text - context-sensitive based on focused region
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
 	scrollStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#4285F4"))
 	scrollInfo := scrollStyle.Render(fmt.Sprintf("%.0f%%", scrollPercent*100))
 
-	var helpText string
-	if v.tabs.ActiveTab().ID == tabIDDetails && v.diskLinks.HasItems() {
-		// Details tab with disk links - show disk navigation hint
-		helpText = "\n  j/k: select disk • enter: view disk • tab: switch tabs • .: actions"
-	} else {
-		helpText = "\n  tab/1-2: switch tabs • .: actions • r: refresh"
-	}
+	helpText := v.buildHelpText()
 	help := helpStyle.Render(helpText) + " " + scrollInfo
 
 	mainContent := header + tabBar + "\n" + viewportContent + help
@@ -514,6 +553,9 @@ func (v *InstanceDetailsView) updateViewportContent() {
 		return
 	}
 
+	// Update links focus state based on focus manager
+	v.diskLinks.SetRegionFocused(v.focusMgr.IsActive(regionIDLinks))
+
 	var content string
 	switch v.tabs.ActiveTab().ID {
 	case tabIDDetails:
@@ -521,6 +563,8 @@ func (v *InstanceDetailsView) updateViewportContent() {
 		v.populateDiskLinks()
 		content = v.renderDetailsTab()
 	case tabIDObservability:
+		// Disable links region when not on Details tab
+		v.focusMgr.DisableRegion(regionIDLinks)
 		content = v.renderObservabilityTab()
 	default:
 		content = v.renderDetailsTab()
@@ -530,9 +574,11 @@ func (v *InstanceDetailsView) updateViewportContent() {
 }
 
 // populateDiskLinks creates link items from the instance's attached disks
+// and enables/disables the links focus region accordingly
 func (v *InstanceDetailsView) populateDiskLinks() {
 	if v.details == nil || len(v.details.Disks) == 0 {
 		v.diskLinks.SetItems(nil)
+		v.focusMgr.DisableRegion(regionIDLinks)
 		return
 	}
 
@@ -546,6 +592,10 @@ func (v *InstanceDetailsView) populateDiskLinks() {
 		}
 	}
 	v.diskLinks.SetItems(items)
+	// Enable links region when in Details tab
+	if v.tabs.ActiveTab().ID == tabIDDetails {
+		v.focusMgr.EnableRegion(regionIDLinks)
+	}
 }
 
 // renderDetailsTab generates the Details tab content
@@ -825,6 +875,21 @@ func extractDiskInfoFromSource(source string) (diskName, zone string) {
 // GetComputeClient returns the compute client for reuse in other detail views
 func (v *InstanceDetailsView) GetComputeClient() *gcp.ComputeClient {
 	return v.computeClient
+}
+
+// buildHelpText generates context-sensitive help text based on the focused region
+func (v *InstanceDetailsView) buildHelpText() string {
+	bindings := focus.HelpForRegion(v.focusMgr.ActiveType(), v.getRegionLabel())
+	helpStr := focus.FormatHelp(bindings)
+	return "\n  " + helpStr + " • .: actions"
+}
+
+// getRegionLabel returns a descriptive label for the current focus context
+func (v *InstanceDetailsView) getRegionLabel() string {
+	if v.focusMgr.ActiveType() == focus.RegionLinks {
+		return "disk"
+	}
+	return ""
 }
 
 // renderLoading renders a loading message

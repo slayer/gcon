@@ -170,9 +170,17 @@ func TestRenderRow(t *testing.T) {
 		{ID: "disk2", Label: "disk2", Type: "disk"},
 	})
 
-	// Focused row (index 0) should have cursor
+	// Without region focus, no cursor should appear
+	row0NoFocus := l.RenderRow(0, "boot-disk  100GB  pd-ssd")
+	assert.NotContains(t, row0NoFocus, "▶", "Row should not have cursor when region not focused")
+	assert.Contains(t, row0NoFocus, "boot-disk")
+
+	// Enable region focus
+	l.SetRegionFocused(true)
+
+	// Focused row (index 0) should have cursor when region is focused
 	row0 := l.RenderRow(0, "boot-disk  100GB  pd-ssd")
-	assert.Contains(t, row0, "▶", "Focused row should have cursor")
+	assert.Contains(t, row0, "▶", "Focused row should have cursor when region focused")
 	assert.Contains(t, row0, "boot-disk")
 
 	// Non-focused row should not have cursor
