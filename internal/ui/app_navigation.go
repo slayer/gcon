@@ -248,3 +248,22 @@ func (a *App) handleBucketSelected(msg views.BucketSelectedMsg) tea.Cmd {
 	a.updateViewSizes()
 	return a.objectsView.Init()
 }
+
+// handleSnapshotDiskSelected processes disk selection from snapshot details view
+func (a *App) handleSnapshotDiskSelected(msg views.SnapshotDiskSelectedMsg) tea.Cmd {
+	// Track recent disk access
+	a.recentTracker.Track("disk", msg.DiskName, msg.DiskName)
+	// Push current view onto stack for back navigation
+	a.viewStack = append(a.viewStack, a.currentView)
+	a.currentView = ViewDiskDetails
+	// Pass compute client from snapshot details view
+	a.diskDetailsView = views.NewDiskDetailsView(
+		a.selectedProject.ID,
+		msg.Zone,
+		msg.DiskName,
+		a.snapshotDetailsView.GetComputeClient(),
+	)
+	a.updateSidebarActiveView()
+	a.updateViewSizes()
+	return a.diskDetailsView.Init()
+}
