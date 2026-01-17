@@ -141,6 +141,7 @@ func (a *App) handleInstanceSelected(msg views.InstanceSelectedMsg) tea.Cmd {
 		inst.Zone,
 		inst.Name,
 		a.instancesView.GetComputeClient(),
+		a.gcpClient,
 	)
 	a.updateSidebarActiveView()
 	a.updateViewSizes()

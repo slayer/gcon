@@ -48,7 +48,7 @@ func TestApp_InstanceDetailsRenderingHeight(t *testing.T) {
 	app.currentView = ViewInstanceDetails
 
 	// Create instance details view (will be in loading state)
-	app.instanceDetailsView = views.NewInstanceDetailsView("test-project", "us-central1-a", "test-vm", nil)
+	app.instanceDetailsView = views.NewInstanceDetailsView("test-project", "us-central1-a", "test-vm", nil, nil)
 	app.layout.SetSize(app.width, app.height)
 	app.updateViewSizes()
 

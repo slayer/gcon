@@ -10,8 +10,10 @@ import (
 
 // Client wraps GCP API clients and provides unified access
 type Client struct {
-	ctx        context.Context
-	crmService *cloudresourcemanager.Service // Cloud Resource Manager for projects
+	ctx              context.Context
+	crmService       *cloudresourcemanager.Service // Cloud Resource Manager for projects
+	monitoringClient *MonitoringClient
+	loggingClient    *LoggingClient
 }
 
 // NewClient creates a new GCP client using Application Default Credentials
@@ -34,11 +36,44 @@ func NewClient() (*Client, error) {
 
 // Close cleans up any resources
 func (c *Client) Close() error {
-	// Currently no persistent connections to close
+	if c.monitoringClient != nil {
+		if err := c.monitoringClient.Close(); err != nil {
+			return fmt.Errorf("failed to close monitoring client: %w", err)
+		}
+	}
+	if c.loggingClient != nil {
+		if err := c.loggingClient.Close(); err != nil {
+			return fmt.Errorf("failed to close logging client: %w", err)
+		}
+	}
 	return nil
 }
 
 // Context returns the client's context
 func (c *Client) Context() context.Context {
 	return c.ctx
+}
+
+// GetMonitoringClient returns or initializes the monitoring client
+func (c *Client) GetMonitoringClient(projectID string) (*MonitoringClient, error) {
+	if c.monitoringClient == nil {
+		client, err := NewMonitoringClient(c.ctx, projectID)
+		if err != nil {
+			return nil, err
+		}
+		c.monitoringClient = client
+	}
+	return c.monitoringClient, nil
+}
+
+// GetLoggingClient returns or initializes the logging client
+func (c *Client) GetLoggingClient(projectID string) (*LoggingClient, error) {
+	if c.loggingClient == nil {
+		client, err := NewLoggingClient(c.ctx, projectID)
+		if err != nil {
+			return nil, err
+		}
+		c.loggingClient = client
+	}
+	return c.loggingClient, nil
 }
