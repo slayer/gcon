@@ -187,26 +187,52 @@ func (c *MonitoringClient) GetDiskIO(ctx context.Context, instanceID, zone strin
 		DiskName: "boot-disk",
 	}
 
+	// Use deltas over the requested duration for per-second rates where possible.
+	// Fall back to the latest value if we cannot compute a meaningful rate.
+	durationSeconds := duration.Seconds()
+
 	if len(readOpsData) > 0 {
-		diskMetric.ReadOpsPerSec = readOpsData[len(readOpsData)-1].Value
+		last := readOpsData[len(readOpsData)-1].Value
+		if len(readOpsData) > 1 && durationSeconds > 0 {
+			first := readOpsData[0].Value
+			diskMetric.ReadOpsPerSec = (last - first) / durationSeconds
+		} else {
+			diskMetric.ReadOpsPerSec = last
+		}
 	}
 
 	if len(writeOpsData) > 0 {
-		diskMetric.WriteOpsPerSec = writeOpsData[len(writeOpsData)-1].Value
+		last := writeOpsData[len(writeOpsData)-1].Value
+		if len(writeOpsData) > 1 && durationSeconds > 0 {
+			first := writeOpsData[0].Value
+			diskMetric.WriteOpsPerSec = (last - first) / durationSeconds
+		} else {
+			diskMetric.WriteOpsPerSec = last
+		}
 	}
 
 	if len(readBytesData) > 0 {
-		diskMetric.ReadBytesPerSec = readBytesData[len(readBytesData)-1].Value
-		for _, dp := range readBytesData {
-			diskMetric.TotalReadBytes += dp.Value
+		last := readBytesData[len(readBytesData)-1].Value
+		if len(readBytesData) > 1 && durationSeconds > 0 {
+			first := readBytesData[0].Value
+			diskMetric.ReadBytesPerSec = (last - first) / durationSeconds
+		} else {
+			diskMetric.ReadBytesPerSec = last
 		}
+		// For cumulative counters, the total is the latest value, not the sum of all points.
+		diskMetric.TotalReadBytes = last
 	}
 
 	if len(writeBytesData) > 0 {
-		diskMetric.WriteBytesPerSec = writeBytesData[len(writeBytesData)-1].Value
-		for _, dp := range writeBytesData {
-			diskMetric.TotalWriteBytes += dp.Value
+		last := writeBytesData[len(writeBytesData)-1].Value
+		if len(writeBytesData) > 1 && durationSeconds > 0 {
+			first := writeBytesData[0].Value
+			diskMetric.WriteBytesPerSec = (last - first) / durationSeconds
+		} else {
+			diskMetric.WriteBytesPerSec = last
 		}
+		// For cumulative counters, the total is the latest value, not the sum of all points.
+		diskMetric.TotalWriteBytes = last
 	}
 
 	metrics = append(metrics, diskMetric)

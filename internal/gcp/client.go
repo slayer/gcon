@@ -60,6 +60,10 @@ func (c *Client) Context() context.Context {
 // Reinitializes if projectID changes to prevent querying wrong project
 func (c *Client) GetMonitoringClient(projectID string) (*MonitoringClient, error) {
 	if c.monitoringClient == nil || c.monitoringClientProjID != projectID {
+		// Close old client before replacing to prevent resource leak
+		if c.monitoringClient != nil {
+			_ = c.monitoringClient.Close()
+		}
 		client, err := NewMonitoringClient(c.ctx, projectID)
 		if err != nil {
 			return nil, err
@@ -74,6 +78,10 @@ func (c *Client) GetMonitoringClient(projectID string) (*MonitoringClient, error
 // Reinitializes if projectID changes to prevent querying wrong project
 func (c *Client) GetLoggingClient(projectID string) (*LoggingClient, error) {
 	if c.loggingClient == nil || c.loggingClientProjID != projectID {
+		// Close old client before replacing to prevent resource leak
+		if c.loggingClient != nil {
+			_ = c.loggingClient.Close()
+		}
 		client, err := NewLoggingClient(c.ctx, projectID)
 		if err != nil {
 			return nil, err

@@ -311,15 +311,29 @@ func (v *InstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 	case tabs.TabChangedMsg:
 		// Tab changed - update active viewport content
 		v.updateViewportContent()
-		// Load metrics/logs and start auto-refresh when switching to observability tab
-		if v.tabs.ActiveTab().ID == tabIDObservability && v.metrics == nil && !v.metricsLoading {
-			cmds := []tea.Cmd{v.loadMetrics(), v.loadLogs()}
-			// Start auto-refresh ticker if enabled by default
-			if v.autoRefresh && v.autoRefreshTicker == nil {
-				v.autoRefreshTicker = time.NewTicker(30 * time.Second)
+		// Handle metrics/logs loading and auto-refresh when switching tabs
+		if v.tabs.ActiveTab().ID == tabIDObservability {
+			var cmds []tea.Cmd
+			// Load metrics/logs when first switching to observability tab
+			if v.metrics == nil && !v.metricsLoading {
+				cmds = append(cmds, v.loadMetrics(), v.loadLogs())
+			}
+			// Start or continue auto-refresh ticker when auto-refresh is enabled
+			if v.autoRefresh {
+				if v.autoRefreshTicker == nil {
+					v.autoRefreshTicker = time.NewTicker(30 * time.Second)
+				}
 				cmds = append(cmds, v.tickAutoRefresh())
 			}
-			return tea.Batch(cmds...)
+			if len(cmds) > 0 {
+				return tea.Batch(cmds...)
+			}
+			return nil
+		}
+		// When leaving the observability tab, stop any running auto-refresh ticker
+		if v.autoRefreshTicker != nil {
+			v.autoRefreshTicker.Stop()
+			v.autoRefreshTicker = nil
 		}
 		return nil
 
@@ -639,10 +653,20 @@ func (v *InstanceDetailsView) loadLogs() tea.Cmd {
 // tickAutoRefresh creates a command for auto-refresh ticker
 func (v *InstanceDetailsView) tickAutoRefresh() tea.Cmd {
 	return func() tea.Msg {
-		if v.autoRefreshTicker == nil {
+		// If auto-refresh is disabled or the ticker is not available, do nothing.
+		if v.autoRefreshTicker == nil || !v.autoRefresh {
 			return nil
 		}
+
+		// Block until the next tick. If the ticker has been stopped, this command
+		// should not be scheduled again when auto-refresh is turned off.
 		<-v.autoRefreshTicker.C
+
+		// Auto-refresh may have been turned off while waiting; in that case,
+		// do not emit a refresh tick message.
+		if !v.autoRefresh {
+			return nil
+		}
 		return refreshTickMsg{}
 	}
 }
