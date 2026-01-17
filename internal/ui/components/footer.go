@@ -84,7 +84,9 @@ type Footer struct {
 	Right2  *string
 	Right3  *string
 
-	// Pre-rendered right sections (already styled, for task status)
+	// Pre-rendered sections (already styled, for custom styling)
+	CenterRendered   string
+	CenterRenderedBg lipgloss.Color // Background color for separator styling
 	Right1Rendered   string
 	Right1RenderedBg lipgloss.Color // Background color for separator styling
 	Right2Rendered   string
@@ -156,6 +158,15 @@ func (f *Footer) ClearCenter() {
 	f.Center1 = nil
 	f.Center2 = nil
 	f.Center3 = nil
+	f.CenterRendered = ""
+	f.CenterRenderedBg = ""
+}
+
+// SetCenterStyled sets pre-rendered content for center (bypasses default styling)
+// The bg color is used for powerline separator styling
+func (f *Footer) SetCenterStyled(rendered string, bg lipgloss.Color) {
+	f.CenterRendered = rendered
+	f.CenterRenderedBg = bg
 }
 
 // ClearRight1 hides the first right slot
@@ -401,11 +412,39 @@ func (f *Footer) renderLeftGroup() string {
 	return strings.Join(parts, "")
 }
 
-// renderCenterGroup renders center1 | center2 | center3
+// renderCenterGroup renders center1 | center2 | center3 or pre-rendered content
 func (f *Footer) renderCenterGroup() string {
 	var parts []string
 
-	// Separator from spacer
+	// Check if we have pre-rendered content
+	if f.CenterRendered != "" {
+		// Use custom background color for separators
+		centerBg := f.styles.CenterBg
+		if f.CenterRenderedBg != "" {
+			centerBg = f.CenterRenderedBg
+		}
+
+		// Separator from spacer
+		sep := lipgloss.NewStyle().
+			Foreground(f.styles.SpacerBg).
+			Background(centerBg).
+			Render(SepRight)
+		parts = append(parts, sep)
+
+		// Add pre-rendered content
+		parts = append(parts, f.CenterRendered)
+
+		// Final separator to spacer
+		sep = lipgloss.NewStyle().
+			Foreground(centerBg).
+			Background(f.styles.SpacerBg).
+			Render(SepRight)
+		parts = append(parts, sep)
+
+		return strings.Join(parts, "")
+	}
+
+	// Otherwise render normal center slots
 	hasParts := f.Center1 != nil || f.Center2 != nil || f.Center3 != nil
 	if hasParts {
 		sep := lipgloss.NewStyle().

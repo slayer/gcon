@@ -32,10 +32,28 @@ func (a *App) syncFooter() {
 	// Left3: Help shortcuts
 	a.footer.SetLeft3(": cmd • ? help • q quit")
 
-	// Center: Clear for now (can be used for view-specific info)
-	a.footer.ClearCenter()
+	// Center: Task status (pre-rendered with custom styles)
+	taskStatus, taskBg := a.renderTaskStatus()
+	if taskStatus != "" {
+		a.footer.SetCenterStyled(taskStatus, taskBg)
+	} else {
+		a.footer.ClearCenter()
+	}
 
-	// Right1: Authenticated identity (email of user or service account) with type icon
+	// Right1: GCloud configuration (only if not "default")
+	if a.configProfile != "" && a.configProfile != "default" {
+		// Generate color from configuration name
+		bg := colorFromString(a.configProfile)
+		configStyle := lipgloss.NewStyle().
+			Background(bg).
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Padding(0, 1)
+		a.footer.SetRight1Styled(configStyle.Render(fmt.Sprintf("[%s]", a.configProfile)), bg)
+	} else {
+		a.footer.ClearRight1Styled()
+	}
+
+	// Right2: Authenticated identity (email of user or service account) with type icon
 	if a.authenticatedIdentity != "" {
 		// Get identity type icon
 		var icon string
@@ -51,17 +69,12 @@ func (a *App) syncFooter() {
 		// Truncate long emails to fit in footer (account for icon + space)
 		truncated := truncateEmail(a.authenticatedIdentity, 23)
 
-		// Style with different background color based on identity type
-		var bgColor lipgloss.Color
-		if a.identityType == config.IdentityUser {
-			bgColor = lipgloss.Color("#1a2332") // Darker blue tint for users
-		} else {
-			bgColor = lipgloss.Color("#2a1f1a") // Darker orange tint for SA
-		}
+		// Generate color from identity (email/service account name)
+		bgColor := colorFromString(a.authenticatedIdentity)
 
 		identityStyle := lipgloss.NewStyle().
 			Background(bgColor).
-			Foreground(lipgloss.Color("#E8EAED")).
+			Foreground(lipgloss.Color("#FFFFFF")).
 			Padding(0, 1)
 
 		// Render icon + email
@@ -72,27 +85,19 @@ func (a *App) syncFooter() {
 			content = truncated
 		}
 
-		a.footer.SetRight1Styled(identityStyle.Render(content), bgColor)
+		a.footer.SetRight2Styled(identityStyle.Render(content), bgColor)
 	} else {
-		a.footer.ClearRight1Styled()
+		a.footer.ClearRight2Styled()
 	}
 
-	// Right2: Project info (if selected) with color based on project ID
+	// Right3: Project info (if selected) with color based on project ID
 	if a.selectedProject != nil {
 		bg := colorFromString(a.selectedProject.ID)
 		projectStyle := lipgloss.NewStyle().
 			Background(bg).
 			Foreground(lipgloss.Color("#FFFFFF")).
 			Padding(0, 1)
-		a.footer.SetRight2Styled(projectStyle.Render(a.selectedProject.ID), bg)
-	} else {
-		a.footer.ClearRight2Styled()
-	}
-
-	// Right3: Task status (pre-rendered with custom styles)
-	taskStatus, taskBg := a.renderTaskStatus()
-	if taskStatus != "" {
-		a.footer.SetRight3Styled(taskStatus, taskBg)
+		a.footer.SetRight3Styled(projectStyle.Render(a.selectedProject.ID), bg)
 	} else {
 		a.footer.ClearRight3Styled()
 	}
