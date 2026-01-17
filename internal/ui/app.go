@@ -104,6 +104,9 @@ type App struct {
 
 	// Footer
 	footer *components.Footer
+
+	// Authenticated identity (email of user or service account)
+	authenticatedIdentity string
 }
 
 // AppOptions configures the application
@@ -116,22 +119,29 @@ type AppOptions struct {
 func NewApp(client *gcp.Client, opts AppOptions) *App {
 	ctx := context.New()
 
+	// Get authenticated identity if client is available
+	var authenticatedIdentity string
+	if client != nil {
+		authenticatedIdentity = client.GetAuthenticatedIdentity()
+	}
+
 	a := &App{
-		gcpClient:        client,
-		ctx:              ctx,
-		styles:           DefaultStyles(),
-		keys:             DefaultKeyMap(),
-		help:             help.New(),
-		layout:           layout.New(),
-		currentView:      ViewProjects,
-		viewStack:        []ViewType{},
-		projectView:      views.NewProjectsView(client),
-		initialProjectID: opts.InitialProjectID,
-		sidebar:          sidebar.New(),
-		focusedPanel:     FocusContent,
-		commandPalette:   commandpalette.New(),
-		recentTracker:    commandpalette.NewRecentTracker(),
-		footer:           components.NewFooter(),
+		gcpClient:             client,
+		ctx:                   ctx,
+		styles:                DefaultStyles(),
+		keys:                  DefaultKeyMap(),
+		help:                  help.New(),
+		layout:                layout.New(),
+		currentView:           ViewProjects,
+		viewStack:             []ViewType{},
+		projectView:           views.NewProjectsView(client),
+		initialProjectID:      opts.InitialProjectID,
+		sidebar:               sidebar.New(),
+		focusedPanel:          FocusContent,
+		commandPalette:        commandpalette.New(),
+		recentTracker:         commandpalette.NewRecentTracker(),
+		footer:                components.NewFooter(),
+		authenticatedIdentity: authenticatedIdentity,
 	}
 
 	// Set up the StartTask callback for async operation tracking

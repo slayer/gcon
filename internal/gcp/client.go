@@ -4,14 +4,16 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/slayer/gcon/internal/config"
 	"google.golang.org/api/cloudresourcemanager/v1"
 	"google.golang.org/api/option"
 )
 
 // Client wraps GCP API clients and provides unified access
 type Client struct {
-	ctx        context.Context
-	crmService *cloudresourcemanager.Service // Cloud Resource Manager for projects
+	ctx                   context.Context
+	crmService            *cloudresourcemanager.Service // Cloud Resource Manager for projects
+	authenticatedIdentity string                        // Email of authenticated user or service account
 }
 
 // NewClient creates a new GCP client using Application Default Credentials
@@ -26,9 +28,13 @@ func NewClient() (*Client, error) {
 		return nil, fmt.Errorf("failed to create resource manager client: %w", err)
 	}
 
+	// Retrieve authenticated identity (non-critical, ignore errors)
+	identity, _ := config.GetAuthenticatedIdentity()
+
 	return &Client{
-		ctx:        ctx,
-		crmService: crmService,
+		ctx:                   ctx,
+		crmService:            crmService,
+		authenticatedIdentity: identity,
 	}, nil
 }
 
@@ -41,4 +47,10 @@ func (c *Client) Close() error {
 // Context returns the client's context
 func (c *Client) Context() context.Context {
 	return c.ctx
+}
+
+// GetAuthenticatedIdentity returns the email of the authenticated user or service account.
+// Returns empty string if unable to determine identity.
+func (c *Client) GetAuthenticatedIdentity() string {
+	return c.authenticatedIdentity
 }
