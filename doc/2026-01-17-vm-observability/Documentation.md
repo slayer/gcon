@@ -104,8 +104,9 @@ January 17, 2026
 - 30 days (30d)
 
 ### 3. Auto-Refresh
+- Enabled by default
 - Toggle with 'a' key
-- Refreshes metrics every 15 seconds
+- Refreshes metrics every 30 seconds
 - Only active when observability tab is visible
 
 ### 4. Intelligent Recommendations

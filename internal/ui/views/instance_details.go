@@ -195,7 +195,7 @@ func NewInstanceDetailsView(projectID, zone, instanceName string, computeClient 
 		tabViewports:  make([]viewport.Model, 2), // One viewport per tab
 		diskLinks:     links.New(),
 		timeRange:     6 * time.Hour, // Default to 6 hours
-		autoRefresh:   false,
+		autoRefresh:   true,          // Auto-refresh enabled by default
 	}
 }
 
@@ -311,9 +311,15 @@ func (v *InstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 	case tabs.TabChangedMsg:
 		// Tab changed - update active viewport content
 		v.updateViewportContent()
-		// Load metrics/logs when switching to observability tab
+		// Load metrics/logs and start auto-refresh when switching to observability tab
 		if v.tabs.ActiveTab().ID == tabIDObservability && v.metrics == nil && !v.metricsLoading {
-			return tea.Batch(v.loadMetrics(), v.loadLogs())
+			cmds := []tea.Cmd{v.loadMetrics(), v.loadLogs()}
+			// Start auto-refresh ticker if enabled by default
+			if v.autoRefresh && v.autoRefreshTicker == nil {
+				v.autoRefreshTicker = time.NewTicker(30 * time.Second)
+				cmds = append(cmds, v.tickAutoRefresh())
+			}
+			return tea.Batch(cmds...)
 		}
 		return nil
 
@@ -399,7 +405,7 @@ func (v *InstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 				v.autoRefresh = !v.autoRefresh
 				if v.autoRefresh {
 					// Start auto-refresh ticker
-					v.autoRefreshTicker = time.NewTicker(15 * time.Second)
+					v.autoRefreshTicker = time.NewTicker(30 * time.Second)
 					return v.tickAutoRefresh()
 				} else if v.autoRefreshTicker != nil {
 					// Stop auto-refresh ticker. We intentionally do not set
