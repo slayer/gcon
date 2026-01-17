@@ -5,7 +5,9 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/slayer/gcon/internal/config"
 	"github.com/slayer/gcon/internal/ui/context"
+	"github.com/slayer/gcon/internal/ui/symbols"
 )
 
 // syncFooter updates all footer slots based on current application state
@@ -33,15 +35,44 @@ func (a *App) syncFooter() {
 	// Center: Clear for now (can be used for view-specific info)
 	a.footer.ClearCenter()
 
-	// Right1: Authenticated identity (email of user or service account)
+	// Right1: Authenticated identity (email of user or service account) with type icon
 	if a.authenticatedIdentity != "" {
-		// Truncate long emails to fit in footer
-		truncated := truncateEmail(a.authenticatedIdentity, 25)
+		// Get identity type icon
+		var icon string
+		switch a.identityType {
+		case config.IdentityUser:
+			icon = symbols.IdentityUser()
+		case config.IdentityServiceAccount:
+			icon = symbols.IdentityService()
+		default:
+			icon = ""
+		}
+
+		// Truncate long emails to fit in footer (account for icon + space)
+		truncated := truncateEmail(a.authenticatedIdentity, 23)
+
+		// Style with different background color based on identity type
+		var bgColor lipgloss.Color
+		if a.identityType == config.IdentityUser {
+			bgColor = lipgloss.Color("#1a2332") // Darker blue tint for users
+		} else {
+			bgColor = lipgloss.Color("#2a1f1a") // Darker orange tint for SA
+		}
+
 		identityStyle := lipgloss.NewStyle().
-			Background(lipgloss.Color("#303134")).
-			Foreground(lipgloss.Color("#9AA0A6")).
+			Background(bgColor).
+			Foreground(lipgloss.Color("#E8EAED")).
 			Padding(0, 1)
-		a.footer.SetRight1Styled(identityStyle.Render(truncated), lipgloss.Color("#303134"))
+
+		// Render icon + email
+		var content string
+		if icon != "" {
+			content = icon + " " + truncated
+		} else {
+			content = truncated
+		}
+
+		a.footer.SetRight1Styled(identityStyle.Render(content), bgColor)
 	} else {
 		a.footer.ClearRight1Styled()
 	}

@@ -23,6 +23,8 @@ var (
 	colorRed    = lipgloss.NewStyle().Foreground(lipgloss.Color("#EA4335"))
 	colorYellow = lipgloss.NewStyle().Foreground(lipgloss.Color("#FBBC04"))
 	colorGray   = lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
+	colorBlue   = lipgloss.NewStyle().Foreground(lipgloss.Color("#4285F4"))
+	colorOrange = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF6D00"))
 )
 
 // SymbolSet contains all symbols for a display mode
@@ -40,6 +42,8 @@ type SymbolSet struct {
 	Folder           string
 	File             string
 	Divider          string
+	IdentityUser     string
+	IdentityService  string
 }
 
 // Symbol sets for each mode
@@ -58,6 +62,8 @@ var (
 		Folder:           "📁",
 		File:             "📄",
 		Divider:          "─",
+		IdentityUser:     "👤",
+		IdentityService:  "🔧",
 	}
 
 	unicodeSet = SymbolSet{
@@ -74,6 +80,8 @@ var (
 		Folder:           "▪",
 		File:             "·",
 		Divider:          "─",
+		IdentityUser:     colorBlue.Render("◉"),
+		IdentityService:  colorOrange.Render("⚙"),
 	}
 
 	asciiSet = SymbolSet{
@@ -90,6 +98,8 @@ var (
 		Folder:           "[D]",
 		File:             "[F]",
 		Divider:          "-",
+		IdentityUser:     colorBlue.Render("[U]"),
+		IdentityService:  colorOrange.Render("[SA]"),
 	}
 )
 
@@ -169,6 +179,10 @@ func File() string   { return activeSet.File }
 
 // Divider character for sidebar
 func Divider() string { return activeSet.Divider }
+
+// Identity type symbols
+func IdentityUser() string    { return activeSet.IdentityUser }
+func IdentityService() string { return activeSet.IdentityService }
 
 // StatusSymbolWidth returns the display width of status symbols in current mode
 // Emoji: 2 (🟢), Unicode: 1 (●), ASCII: 4 ([OK])

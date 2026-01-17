@@ -10,6 +10,8 @@ import (
 )
 
 func TestGetAuthenticatedIdentity_UserCredentials(t *testing.T) {
+	// Clear cache before test
+	ClearIdentityCache()
 	// Create temporary gcloud config directory
 	tmpDir := t.TempDir()
 
@@ -56,12 +58,15 @@ project = test-project
 	_ = os.Unsetenv("GOOGLE_APPLICATION_CREDENTIALS")
 
 	// Test
-	identity, err := GetAuthenticatedIdentity()
+	identity, identityType, err := GetAuthenticatedIdentity()
 	assert.NoError(t, err)
 	assert.Equal(t, "user@example.com", identity)
+	assert.Equal(t, IdentityUser, identityType)
 }
 
 func TestGetAuthenticatedIdentity_ServiceAccount(t *testing.T) {
+	// Clear cache before test
+	ClearIdentityCache()
 	// Create temporary service account JSON file
 	tmpDir := t.TempDir()
 	credFile := filepath.Join(tmpDir, "sa-key.json")
@@ -101,12 +106,15 @@ func TestGetAuthenticatedIdentity_ServiceAccount(t *testing.T) {
 	_ = os.Setenv("CLOUDSDK_CONFIG", filepath.Join(tmpDir, "nonexistent"))
 
 	// Test
-	identity, err := GetAuthenticatedIdentity()
+	identity, identityType, err := GetAuthenticatedIdentity()
 	assert.NoError(t, err)
 	assert.Equal(t, "test-sa@test-project.iam.gserviceaccount.com", identity)
+	assert.Equal(t, IdentityServiceAccount, identityType)
 }
 
 func TestGetAuthenticatedIdentity_NoCredentials(t *testing.T) {
+	// Clear cache before test
+	ClearIdentityCache()
 	// Clear all credential sources
 	tmpDir := t.TempDir()
 
@@ -137,9 +145,10 @@ func TestGetAuthenticatedIdentity_NoCredentials(t *testing.T) {
 	_ = os.Unsetenv("CLOUDSDK_CORE_ACCOUNT")
 
 	// Test
-	identity, err := GetAuthenticatedIdentity()
+	identity, identityType, err := GetAuthenticatedIdentity()
 	assert.Error(t, err)
 	assert.Empty(t, identity)
+	assert.Equal(t, IdentityUnknown, identityType)
 	assert.Contains(t, err.Error(), "unable to determine authenticated identity")
 }
 
@@ -192,6 +201,8 @@ func TestExtractServiceAccountEmail_FileNotFound(t *testing.T) {
 }
 
 func TestGetAuthenticatedIdentity_EnvVarAccount(t *testing.T) {
+	// Clear cache before test
+	ClearIdentityCache()
 	// Set CLOUDSDK_CORE_ACCOUNT env var (takes precedence over gcloud config)
 	oldCoreAccount := os.Getenv("CLOUDSDK_CORE_ACCOUNT")
 	oldGoogleCreds := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
@@ -212,7 +223,8 @@ func TestGetAuthenticatedIdentity_EnvVarAccount(t *testing.T) {
 	_ = os.Setenv("CLOUDSDK_CORE_ACCOUNT", "envvar@example.com")
 	_ = os.Unsetenv("GOOGLE_APPLICATION_CREDENTIALS")
 
-	identity, err := GetAuthenticatedIdentity()
+	identity, identityType, err := GetAuthenticatedIdentity()
 	assert.NoError(t, err)
 	assert.Equal(t, "envvar@example.com", identity)
+	assert.Equal(t, IdentityUser, identityType)
 }
