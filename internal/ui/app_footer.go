@@ -33,27 +33,7 @@ func (a *App) syncFooter() {
 	// Center: Clear for now (can be used for view-specific info)
 	a.footer.ClearCenter()
 
-	// Right1: Project info (if selected) with color based on project ID
-	if a.selectedProject != nil {
-		bg := colorFromString(a.selectedProject.ID)
-		projectStyle := lipgloss.NewStyle().
-			Background(bg).
-			Foreground(lipgloss.Color("#FFFFFF")).
-			Padding(0, 1)
-		a.footer.SetRight1Styled(projectStyle.Render(a.selectedProject.ID), bg)
-	} else {
-		a.footer.ClearRight1Styled()
-	}
-
-	// Right2: Task status (pre-rendered with custom styles)
-	taskStatus, taskBg := a.renderTaskStatus()
-	if taskStatus != "" {
-		a.footer.SetRight2Styled(taskStatus, taskBg)
-	} else {
-		a.footer.ClearRight2Styled()
-	}
-
-	// Right3: Authenticated identity (email of user or service account)
+	// Right1: Authenticated identity (email of user or service account)
 	if a.authenticatedIdentity != "" {
 		// Truncate long emails to fit in footer
 		truncated := truncateEmail(a.authenticatedIdentity, 25)
@@ -61,7 +41,27 @@ func (a *App) syncFooter() {
 			Background(lipgloss.Color("#303134")).
 			Foreground(lipgloss.Color("#9AA0A6")).
 			Padding(0, 1)
-		a.footer.SetRight3Styled(identityStyle.Render(truncated), lipgloss.Color("#303134"))
+		a.footer.SetRight1Styled(identityStyle.Render(truncated), lipgloss.Color("#303134"))
+	} else {
+		a.footer.ClearRight1Styled()
+	}
+
+	// Right2: Project info (if selected) with color based on project ID
+	if a.selectedProject != nil {
+		bg := colorFromString(a.selectedProject.ID)
+		projectStyle := lipgloss.NewStyle().
+			Background(bg).
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Padding(0, 1)
+		a.footer.SetRight2Styled(projectStyle.Render(a.selectedProject.ID), bg)
+	} else {
+		a.footer.ClearRight2Styled()
+	}
+
+	// Right3: Task status (pre-rendered with custom styles)
+	taskStatus, taskBg := a.renderTaskStatus()
+	if taskStatus != "" {
+		a.footer.SetRight3Styled(taskStatus, taskBg)
 	} else {
 		a.footer.ClearRight3Styled()
 	}

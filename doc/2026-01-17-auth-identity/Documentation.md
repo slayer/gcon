@@ -41,9 +41,10 @@ The identity retrieval is non-critical and errors are silently ignored to avoid 
 - Handles nil client gracefully for tests
 
 **Footer Display:**
-- Added identity display in footer Right3 slot
+- Added identity display in footer Right1 slot (leftmost in right group)
 - Implements smart email truncation for long addresses
 - Uses muted styling (dark gray background, light gray text) to avoid distraction
+- Order: User Identity → Project → Task Status (left to right)
 
 **Email Truncation:**
 - Preserves beginning of username and end of domain
@@ -55,15 +56,15 @@ The identity retrieval is non-critical and errors are silently ignored to avoid 
 
 ```
 ┌──────────────────────┬─────────────┬───────────────────────────┐
-│ esc back│[ sidebar│help│             │ project-id│task│user@ex...│
+│ esc back│[ sidebar│help│             │user@ex...│project-id│task│
 └──────────────────────┴─────────────┴───────────────────────────┘
  LEFT GROUP              CENTER         RIGHT GROUP
-                                        (R1)   (R2) (R3)
+                                        (R1)      (R2)    (R3)
 ```
 
-- **Right1**: Project ID (colored badge)
-- **Right2**: Task status (spinner/success/error)
-- **Right3**: Authenticated identity (NEW)
+- **Right1**: Authenticated identity (NEW)
+- **Right2**: Project ID (colored badge)
+- **Right3**: Task status (spinner/success/error)
 
 ## Files Created
 
@@ -148,12 +149,13 @@ $ export GOOGLE_APPLICATION_CREDENTIALS=/path/to/sa-key.json
 - **SA JSON**: Required for production/CI/CD
 - Together they cover 95%+ of ADC usage patterns
 
-### Why Footer Right3?
+### Why Footer Right1 (First Position)?
 - Already implemented powerline-separated footer
 - Always visible on every screen
-- Non-intrusive placement
-- Complements existing info (project in R1, tasks in R2)
+- First position emphasizes authentication context
+- Natural reading order: User → Project → Task Status
 - Helps verify correct account in multi-account workflows
+- Most important context appears first
 
 ### Error Handling
 - Identity detection is informational, not critical
