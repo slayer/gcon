@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/slayer/gcon/internal/config"
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/commandpalette"
@@ -104,6 +105,10 @@ type App struct {
 
 	// Footer
 	footer *components.Footer
+
+	// Authenticated identity (email of user or service account)
+	authenticatedIdentity string
+	identityType          config.IdentityType
 }
 
 // AppOptions configures the application
@@ -116,22 +121,32 @@ type AppOptions struct {
 func NewApp(client *gcp.Client, opts AppOptions) *App {
 	ctx := context.New()
 
+	// Get authenticated identity and type if client is available
+	var authenticatedIdentity string
+	var identityType config.IdentityType
+	if client != nil {
+		authenticatedIdentity = client.GetAuthenticatedIdentity()
+		identityType = client.GetIdentityType()
+	}
+
 	a := &App{
-		gcpClient:        client,
-		ctx:              ctx,
-		styles:           DefaultStyles(),
-		keys:             DefaultKeyMap(),
-		help:             help.New(),
-		layout:           layout.New(),
-		currentView:      ViewProjects,
-		viewStack:        []ViewType{},
-		projectView:      views.NewProjectsView(client),
-		initialProjectID: opts.InitialProjectID,
-		sidebar:          sidebar.New(),
-		focusedPanel:     FocusContent,
-		commandPalette:   commandpalette.New(),
-		recentTracker:    commandpalette.NewRecentTracker(),
-		footer:           components.NewFooter(),
+		gcpClient:             client,
+		ctx:                   ctx,
+		styles:                DefaultStyles(),
+		keys:                  DefaultKeyMap(),
+		help:                  help.New(),
+		layout:                layout.New(),
+		currentView:           ViewProjects,
+		viewStack:             []ViewType{},
+		projectView:           views.NewProjectsView(client),
+		initialProjectID:      opts.InitialProjectID,
+		sidebar:               sidebar.New(),
+		focusedPanel:          FocusContent,
+		commandPalette:        commandpalette.New(),
+		recentTracker:         commandpalette.NewRecentTracker(),
+		footer:                components.NewFooter(),
+		authenticatedIdentity: authenticatedIdentity,
+		identityType:          identityType,
 	}
 
 	// Set up the StartTask callback for async operation tracking
