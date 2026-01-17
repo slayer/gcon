@@ -16,7 +16,9 @@ type KeyMap struct {
 	Search         key.Binding
 	Tab            key.Binding
 	ShiftTab       key.Binding
-	ToggleSidebar  key.Binding
+	SelectSidebar  key.Binding // '[' - focus sidebar
+	SelectContent  key.Binding // ']' - focus content
+	ToggleSidebar  key.Binding // '{' - show/hide sidebar
 	ActionMenu     key.Binding
 	CommandPalette key.Binding
 }
@@ -66,15 +68,23 @@ func DefaultKeyMap() KeyMap {
 		),
 		Tab: key.NewBinding(
 			key.WithKeys("tab"),
-			key.WithHelp("tab", "next panel"),
+			key.WithHelp("tab", "next region"),
 		),
 		ShiftTab: key.NewBinding(
 			key.WithKeys("shift+tab"),
-			key.WithHelp("shift+tab", "prev panel"),
+			key.WithHelp("S-tab", "prev region"),
+		),
+		SelectSidebar: key.NewBinding(
+			key.WithKeys("["),
+			key.WithHelp("[", "sidebar"),
+		),
+		SelectContent: key.NewBinding(
+			key.WithKeys("]"),
+			key.WithHelp("]", "content"),
 		),
 		ToggleSidebar: key.NewBinding(
-			key.WithKeys("["),
-			key.WithHelp("[", "toggle sidebar"),
+			key.WithKeys("{"),
+			key.WithHelp("{", "hide sidebar"),
 		),
 		ActionMenu: key.NewBinding(
 			key.WithKeys("."),
@@ -98,6 +108,6 @@ func (k KeyMap) FullHelp() [][]key.Binding {
 		{k.Up, k.Down, k.Left, k.Right},
 		{k.Select, k.Back, k.Refresh},
 		{k.Search, k.Tab, k.ShiftTab},
-		{k.ToggleSidebar, k.CommandPalette, k.Help, k.Quit},
+		{k.SelectSidebar, k.SelectContent, k.ToggleSidebar, k.CommandPalette, k.Help, k.Quit},
 	}
 }

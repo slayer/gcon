@@ -340,20 +340,22 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, a.keys.Help):
 			a.showHelp = !a.showHelp
 			return a, nil
-		case key.Matches(msg, a.keys.Tab):
-			// Switch focus between sidebar and content
-			if a.sidebarActive() {
-				a.toggleFocus()
+		case key.Matches(msg, a.keys.SelectSidebar):
+			// '[' - Focus sidebar (if visible)
+			if a.sidebarActive() && a.focusedPanel != FocusSidebar {
+				a.focusedPanel = FocusSidebar
+				a.sidebar.SetFocused(true)
 			}
 			return a, nil
-		case key.Matches(msg, a.keys.ShiftTab):
-			// Same as Tab for now (toggle)
-			if a.sidebarActive() {
-				a.toggleFocus()
+		case key.Matches(msg, a.keys.SelectContent):
+			// ']' - Focus content
+			if a.focusedPanel != FocusContent {
+				a.focusedPanel = FocusContent
+				a.sidebar.SetFocused(false)
 			}
 			return a, nil
 		case key.Matches(msg, a.keys.ToggleSidebar):
-			// Toggle sidebar collapsed/expanded
+			// '{' - Show/hide sidebar
 			if a.sidebarActive() {
 				a.sidebar.Toggle()
 				a.updateViewSizes()
