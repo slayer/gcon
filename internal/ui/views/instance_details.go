@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -14,6 +15,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
+	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/actionmenu"
 	"github.com/slayer/gcon/internal/ui/components/links"
 	"github.com/slayer/gcon/internal/ui/components/tabs"
@@ -44,6 +46,36 @@ type instanceDetailsLoadedMsg struct {
 // instanceDetailsErrorMsg indicates an error loading details
 type instanceDetailsErrorMsg struct {
 	err error
+}
+
+// metricsLoadedMsg contains fetched observability metrics
+type metricsLoadedMsg struct {
+	metrics *gcp.ObservabilityMetrics
+}
+
+// metricsErrorMsg indicates an error loading metrics
+type metricsErrorMsg struct {
+	err error
+}
+
+// logsLoadedMsg contains fetched log entries
+type logsLoadedMsg struct {
+	logs []gcp.LogEntry
+}
+
+// logsErrorMsg indicates an error loading logs
+type logsErrorMsg struct {
+	err error
+}
+
+// refreshTickMsg triggers auto-refresh of metrics
+type refreshTickMsg struct{}
+
+// Recommendation represents an actionable insight based on metrics
+type Recommendation struct {
+	Severity string // "warning", "critical"
+	Message  string
+	Action   string
 }
 
 // Tab IDs for instance details view
@@ -92,6 +124,17 @@ type InstanceDetailsView struct {
 	diskLinks *links.Links
 	// Focus management for routing keys between regions
 	focusMgr *focus.Manager
+	// Observability tab state
+	metrics           *gcp.ObservabilityMetrics
+	logs              []gcp.LogEntry
+	metricsLoading    bool
+	logsLoading       bool
+	metricsError      error
+	logsError         error
+	timeRange         time.Duration
+	autoRefresh       bool
+	autoRefreshTicker *time.Ticker
+	gcpClient         *gcp.Client
 }
 
 type instanceDetailsKeyMap struct {
@@ -138,7 +181,7 @@ func defaultInstanceDetailsKeyMap() instanceDetailsKeyMap {
 }
 
 // NewInstanceDetailsView creates a new instance details view
-func NewInstanceDetailsView(projectID, zone, instanceName string, computeClient *gcp.ComputeClient) *InstanceDetailsView {
+func NewInstanceDetailsView(projectID, zone, instanceName string, computeClient *gcp.ComputeClient, gcpClient *gcp.Client) *InstanceDetailsView {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#4285F4"))
@@ -160,6 +203,7 @@ func NewInstanceDetailsView(projectID, zone, instanceName string, computeClient 
 
 	return &InstanceDetailsView{
 		computeClient: computeClient,
+		gcpClient:     gcpClient,
 		projectID:     projectID,
 		zone:          zone,
 		instanceName:  instanceName,
@@ -170,6 +214,8 @@ func NewInstanceDetailsView(projectID, zone, instanceName string, computeClient 
 		tabViewports:  make([]viewport.Model, 2), // One viewport per tab
 		diskLinks:     links.New(),
 		focusMgr:      fm,
+		timeRange:     6 * time.Hour, // Default to 6 hours
+		autoRefresh:   true,          // Auto-refresh enabled by default
 	}
 }
 
@@ -179,6 +225,18 @@ func (v *InstanceDetailsView) Init() tea.Cmd {
 		v.spinner.Tick,
 		v.loadDetails(),
 	)
+}
+
+// Close releases resources associated with the InstanceDetailsView.
+// Should be called when the view is no longer active to prevent resource leaks.
+func (v *InstanceDetailsView) Close() {
+	if v == nil {
+		return
+	}
+	if v.autoRefreshTicker != nil {
+		v.autoRefreshTicker.Stop()
+		v.autoRefreshTicker = nil
+	}
 }
 
 // loadDetails fetches instance details from GCP
@@ -207,6 +265,39 @@ func (v *InstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 		v.loading = false
 		v.actionLoading = false
 		v.err = msg.err
+		return nil
+
+	case metricsLoadedMsg:
+		v.metricsLoading = false
+		v.metrics = msg.metrics
+		v.metricsError = nil
+		v.updateViewportContent()
+		return nil
+
+	case metricsErrorMsg:
+		v.metricsLoading = false
+		v.metricsError = msg.err
+		v.updateViewportContent()
+		return nil
+
+	case logsLoadedMsg:
+		v.logsLoading = false
+		v.logs = msg.logs
+		v.logsError = nil
+		v.updateViewportContent()
+		return nil
+
+	case logsErrorMsg:
+		v.logsLoading = false
+		v.logsError = msg.err
+		v.updateViewportContent()
+		return nil
+
+	case refreshTickMsg:
+		// Auto-refresh triggered - schedule next tick to continue the cycle
+		if v.autoRefresh && v.tabs.ActiveTab().ID == tabIDObservability {
+			return tea.Batch(v.loadMetrics(), v.loadLogs(), v.tickAutoRefresh())
+		}
 		return nil
 
 	case instanceActionMsg:
@@ -240,6 +331,30 @@ func (v *InstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 	case tabs.TabChangedMsg:
 		// Tab changed - update active viewport content
 		v.updateViewportContent()
+		// Handle metrics/logs loading and auto-refresh when switching tabs
+		if v.tabs.ActiveTab().ID == tabIDObservability {
+			var cmds []tea.Cmd
+			// Load metrics/logs when first switching to observability tab
+			if v.metrics == nil && !v.metricsLoading {
+				cmds = append(cmds, v.loadMetrics(), v.loadLogs())
+			}
+			// Start or continue auto-refresh ticker when auto-refresh is enabled
+			if v.autoRefresh {
+				if v.autoRefreshTicker == nil {
+					v.autoRefreshTicker = time.NewTicker(30 * time.Second)
+				}
+				cmds = append(cmds, v.tickAutoRefresh())
+			}
+			if len(cmds) > 0 {
+				return tea.Batch(cmds...)
+			}
+			return nil
+		}
+		// When leaving the observability tab, stop any running auto-refresh ticker
+		if v.autoRefreshTicker != nil {
+			v.autoRefreshTicker.Stop()
+			v.autoRefreshTicker = nil
+		}
 		return nil
 
 	case links.LinkSelectedMsg:
@@ -307,6 +422,61 @@ func (v *InstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 			}
 		}
 
+		// In Observability tab, handle time range and refresh keys
+		if v.tabs.ActiveTab().ID == tabIDObservability {
+			switch msg.String() {
+			case "1":
+				v.timeRange = 1 * time.Hour
+				v.metricsError = nil
+				v.logsError = nil
+				v.metricsLoading = true
+				v.logsLoading = true
+				return tea.Batch(v.spinner.Tick, v.loadMetrics(), v.loadLogs())
+			case "2":
+				v.timeRange = 6 * time.Hour
+				v.metricsError = nil
+				v.logsError = nil
+				v.metricsLoading = true
+				v.logsLoading = true
+				return tea.Batch(v.spinner.Tick, v.loadMetrics(), v.loadLogs())
+			case "3":
+				v.timeRange = 24 * time.Hour
+				v.metricsError = nil
+				v.logsError = nil
+				v.metricsLoading = true
+				v.logsLoading = true
+				return tea.Batch(v.spinner.Tick, v.loadMetrics(), v.loadLogs())
+			case "4":
+				v.timeRange = 7 * 24 * time.Hour
+				v.metricsError = nil
+				v.logsError = nil
+				v.metricsLoading = true
+				v.logsLoading = true
+				return tea.Batch(v.spinner.Tick, v.loadMetrics(), v.loadLogs())
+			case "5":
+				v.timeRange = 30 * time.Hour
+				v.metricsError = nil
+				v.logsError = nil
+				v.metricsLoading = true
+				v.logsLoading = true
+				return tea.Batch(v.spinner.Tick, v.loadMetrics(), v.loadLogs())
+			case "a":
+				v.autoRefresh = !v.autoRefresh
+				if v.autoRefresh {
+					// Start auto-refresh ticker
+					v.autoRefreshTicker = time.NewTicker(30 * time.Second)
+					return v.tickAutoRefresh()
+				} else if v.autoRefreshTicker != nil {
+					// Stop auto-refresh ticker. We intentionally do not set
+					// v.autoRefreshTicker to nil here to avoid a race with the
+					// tickAutoRefresh goroutine that may still read from it.
+					v.autoRefreshTicker.Stop()
+				}
+				v.updateViewportContent()
+				return nil
+			}
+		}
+
 		// View-specific action keys (work regardless of focus)
 		switch {
 		case key.Matches(msg, v.keys.ActionMenu):
@@ -317,6 +487,14 @@ func (v *InstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 			return nil
 
 		case key.Matches(msg, v.keys.Refresh):
+			// In observability tab, refresh metrics instead of details
+			if v.tabs.ActiveTab().ID == tabIDObservability {
+				v.metricsLoading = true
+				v.logsLoading = true
+				v.metricsError = nil
+				v.logsError = nil
+				return tea.Batch(v.spinner.Tick, v.loadMetrics(), v.loadLogs())
+			}
 			v.loading = true
 			v.err = nil
 			return tea.Batch(v.spinner.Tick, v.loadDetails())
@@ -426,6 +604,115 @@ func (v *InstanceDetailsView) resetInstance() tea.Cmd {
 	return func() tea.Msg {
 		err := v.computeClient.ResetInstance(gocontext.Background(), v.projectID, v.zone, v.instanceName)
 		return instanceActionMsg{action: "Reset", instance: v.instanceName, err: err}
+	}
+}
+
+// loadMetrics fetches observability metrics from Cloud Monitoring
+func (v *InstanceDetailsView) loadMetrics() tea.Cmd {
+	return func() tea.Msg {
+		if v.gcpClient == nil || v.details == nil {
+			return metricsErrorMsg{err: fmt.Errorf("client or details not available")}
+		}
+
+		ctx, cancel := gocontext.WithTimeout(gocontext.Background(), 30*time.Second)
+		defer cancel()
+
+		monitoringClient, err := v.gcpClient.GetMonitoringClient(v.projectID)
+		if err != nil {
+			return metricsErrorMsg{err: fmt.Errorf("failed to initialize monitoring client: %w", err)}
+		}
+
+		// Extract instance ID from self link
+		instanceID := fmt.Sprintf("%d", v.details.ID)
+
+		// Fetch metrics
+		metrics := &gcp.ObservabilityMetrics{
+			LastFetch: time.Now(),
+		}
+
+		// CPU utilization
+		cpuData, err := monitoringClient.GetCPUUtilization(ctx, instanceID, v.zone, v.timeRange)
+		if err != nil {
+			return metricsErrorMsg{err: fmt.Errorf("failed to fetch CPU metrics: %w", err)}
+		}
+		metrics.CPU = cpuData
+
+		// Memory utilization (optional - requires Ops Agent)
+		memData, _ := monitoringClient.GetMemoryUtilization(ctx, instanceID, v.zone, v.timeRange)
+		metrics.Memory = memData
+
+		// Network traffic
+		networkData, err := monitoringClient.GetNetworkTraffic(ctx, instanceID, v.zone, v.timeRange)
+		if err != nil {
+			return metricsErrorMsg{err: fmt.Errorf("failed to fetch network metrics: %w", err)}
+		}
+		metrics.Network = networkData
+
+		// Disk I/O
+		diskData, err := monitoringClient.GetDiskIO(ctx, instanceID, v.zone, v.timeRange)
+		if err != nil {
+			return metricsErrorMsg{err: fmt.Errorf("failed to fetch disk metrics: %w", err)}
+		}
+		metrics.Disks = diskData
+
+		// Calculate uptime (use CreatedAt as approximation if instance is running)
+		if v.details.CreatedAt != "" && v.details.Status == "RUNNING" {
+			startTime, err := time.Parse(time.RFC3339, v.details.CreatedAt)
+			if err == nil {
+				metrics.Uptime = time.Since(startTime)
+			}
+		}
+
+		return metricsLoadedMsg{metrics: metrics}
+	}
+}
+
+// loadLogs fetches recent logs from Cloud Logging
+func (v *InstanceDetailsView) loadLogs() tea.Cmd {
+	return func() tea.Msg {
+		if v.gcpClient == nil || v.details == nil {
+			return logsErrorMsg{err: fmt.Errorf("client or details not available")}
+		}
+
+		ctx, cancel := gocontext.WithTimeout(gocontext.Background(), 30*time.Second)
+		defer cancel()
+
+		loggingClient, err := v.gcpClient.GetLoggingClient(v.projectID)
+		if err != nil {
+			return logsErrorMsg{err: fmt.Errorf("failed to initialize logging client: %w", err)}
+		}
+
+		// Extract instance ID from self link
+		instanceID := fmt.Sprintf("%d", v.details.ID)
+
+		// Fetch recent warning/error logs
+		logs, err := loggingClient.GetRecentLogs(ctx, instanceID, v.zone, "WARNING", 10)
+		if err != nil {
+			return logsErrorMsg{err: fmt.Errorf("failed to fetch logs: %w", err)}
+		}
+
+		return logsLoadedMsg{logs: logs}
+	}
+}
+
+// tickAutoRefresh creates a command for auto-refresh ticker
+func (v *InstanceDetailsView) tickAutoRefresh() tea.Cmd {
+	return func() tea.Msg {
+		// If auto-refresh is disabled or the ticker is not available, do nothing.
+		if v.autoRefreshTicker == nil || !v.autoRefresh {
+			return nil
+		}
+
+		// Block until the next tick. If the ticker has been stopped, this command
+		// should not be scheduled again when auto-refresh is turned off.
+		<-v.autoRefreshTicker.C
+
+		// Auto-refresh may have been turned off while waiting; in that case,
+		// do not emit a refresh tick message.
+		if !v.autoRefresh {
+			return nil
+		}
+		return refreshTickMsg{}
 	}
 }
 
@@ -776,8 +1063,7 @@ func (v *InstanceDetailsView) renderDetailsTab() string {
 	return b.String()
 }
 
-// renderObservabilityTab generates the Observability tab content
-// Placeholder for future metrics/monitoring integration
+// renderObservabilityTab generates the Observability tab content with real-time metrics
 func (v *InstanceDetailsView) renderObservabilityTab() string {
 	d := v.details
 	var b strings.Builder
@@ -786,6 +1072,8 @@ func (v *InstanceDetailsView) renderObservabilityTab() string {
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#4285F4"))
 	sectionStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).MarginTop(1)
 	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
+	errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#EA4335")).Bold(true)
+	warningStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FBBC04")).Bold(true)
 
 	// Header with status
 	statusIcon := getStatusIcon(d.Status)
@@ -794,31 +1082,310 @@ func (v *InstanceDetailsView) renderObservabilityTab() string {
 	b.WriteString(strings.Repeat("─", min(v.width-4, 60)))
 	b.WriteString("\n\n")
 
-	// Observability section
-	b.WriteString(sectionStyle.Render("Observability"))
-	b.WriteString("\n\n")
+	// Time range selector
+	if v.metrics != nil {
+		selector := components.RenderTimeRangeSelector(v.timeRange, v.autoRefresh, v.metrics.LastFetch)
+		b.WriteString(selector)
+		b.WriteString("\n\n")
+	}
 
-	b.WriteString(mutedStyle.Render("  Metrics and monitoring data will be available in a future update."))
-	b.WriteString("\n\n")
+	// Show loading state
+	if v.metricsLoading {
+		b.WriteString(fmt.Sprintf("  %s Loading metrics...\n\n", v.spinner.View()))
+		return b.String()
+	}
 
-	b.WriteString(mutedStyle.Render("  Planned features:"))
+	// Show error state
+	if v.metricsError != nil {
+		b.WriteString(errorStyle.Render(fmt.Sprintf("  ✗ Error loading metrics: %s", v.metricsError.Error())))
+		b.WriteString("\n\n")
+		b.WriteString(mutedStyle.Render("  Press 'r' to retry"))
+		b.WriteString("\n")
+		return b.String()
+	}
+
+	// No metrics loaded yet
+	if v.metrics == nil {
+		b.WriteString(mutedStyle.Render("  Loading metrics for the first time..."))
+		b.WriteString("\n")
+		return b.String()
+	}
+
+	// Render metrics sections
+	m := v.metrics
+
+	// CPU utilization section
+	b.WriteString(sectionStyle.Render("CPU Usage"))
 	b.WriteString("\n")
-	b.WriteString(mutedStyle.Render("  • CPU utilization"))
+	b.WriteString(strings.Repeat("━", min(v.width-4, 60)))
 	b.WriteString("\n")
-	b.WriteString(mutedStyle.Render("  • Memory usage"))
+	if len(m.CPU) > 0 {
+		// Extract values for sparkline
+		cpuValues := make([]float64, len(m.CPU))
+		for i, dp := range m.CPU {
+			cpuValues[i] = dp.Value * 100 // Convert to percentage
+		}
+
+		// Calculate stats
+		current := cpuValues[len(cpuValues)-1]
+		avg, peak, peakTime := calculateStats(m.CPU)
+		avg *= 100
+		peak *= 100
+
+		// Render sparkline
+		sparkline := components.RenderSparkline(cpuValues, min(v.width-12, 50))
+		b.WriteString(fmt.Sprintf("  Trend (%s): %s\n", formatDuration(v.timeRange), sparkline))
+
+		// Render bar
+		bar := components.RenderMetricBar("", current, avg, peak, peakTime, v.width-4)
+		b.WriteString("  ")
+		b.WriteString(bar)
+		b.WriteString("\n")
+	} else {
+		b.WriteString(mutedStyle.Render("  No CPU data available"))
+		b.WriteString("\n")
+	}
 	b.WriteString("\n")
-	b.WriteString(mutedStyle.Render("  • Network traffic"))
+
+	// Memory utilization section
+	b.WriteString(sectionStyle.Render("Memory Usage"))
 	b.WriteString("\n")
-	b.WriteString(mutedStyle.Render("  • Disk I/O"))
+	b.WriteString(strings.Repeat("━", min(v.width-4, 60)))
 	b.WriteString("\n")
-	b.WriteString(mutedStyle.Render("  • Recent logs"))
+	if len(m.Memory) > 0 {
+		// Extract values for sparkline
+		memValues := make([]float64, len(m.Memory))
+		for i, dp := range m.Memory {
+			memValues[i] = dp.Value
+		}
+
+		// Calculate stats
+		current := memValues[len(memValues)-1]
+		avg, peak, peakTime := calculateStats(m.Memory)
+
+		// Render sparkline
+		sparkline := components.RenderSparkline(memValues, min(v.width-12, 50))
+		b.WriteString(fmt.Sprintf("  Trend (%s): %s\n", formatDuration(v.timeRange), sparkline))
+
+		// Render bar
+		bar := components.RenderMetricBar("", current, avg, peak, peakTime, v.width-4)
+		b.WriteString("  ")
+		b.WriteString(bar)
+		b.WriteString("\n")
+	} else {
+		b.WriteString(warningStyle.Render("  ⚠ Cloud Monitoring (Ops) Agent not installed"))
+		b.WriteString("\n\n")
+		b.WriteString(mutedStyle.Render("  To enable memory metrics, install the Ops Agent:"))
+		b.WriteString("\n")
+		b.WriteString(mutedStyle.Render("    gcloud compute instances ops-agents policies create \\"))
+		b.WriteString("\n")
+		b.WriteString(mutedStyle.Render("      --agent-rules=\"type=ops-agent,version=latest,enable-autoupgrade=true\""))
+		b.WriteString("\n\n")
+		b.WriteString(mutedStyle.Render("  Learn more: https://cloud.google.com/stackdriver/docs/solutions/agents/ops-agent"))
+		b.WriteString("\n")
+	}
 	b.WriteString("\n")
+
+	// Network traffic section
+	b.WriteString(sectionStyle.Render("Network Traffic"))
+	b.WriteString("\n")
+	b.WriteString(strings.Repeat("━", min(v.width-4, 60)))
+	b.WriteString("\n")
+	b.WriteString(fmt.Sprintf("  ▲ Sent:     %.2f MB/s  |  Total: %.2f GB\n",
+		m.Network.SentBytesPerSec/1024/1024, m.Network.TotalSentBytes/1024/1024/1024))
+	b.WriteString(fmt.Sprintf("  ▼ Received: %.2f MB/s  |  Total: %.2f GB\n",
+		m.Network.ReceivedBytesPerSec/1024/1024, m.Network.TotalReceivedBytes/1024/1024/1024))
+	b.WriteString("\n")
+
+	// Disk I/O section
+	b.WriteString(sectionStyle.Render("Disk I/O"))
+	b.WriteString("\n")
+	b.WriteString(strings.Repeat("━", min(v.width-4, 60)))
+	b.WriteString("\n")
+	if len(m.Disks) > 0 {
+		for _, disk := range m.Disks {
+			b.WriteString(fmt.Sprintf("  %s\n", disk.DiskName))
+			b.WriteString(fmt.Sprintf("    Read:  %.0f ops/s  |  %.2f MB/s  |  Total: %.2f GB\n",
+				disk.ReadOpsPerSec, disk.ReadBytesPerSec/1024/1024, disk.TotalReadBytes/1024/1024/1024))
+			b.WriteString(fmt.Sprintf("    Write: %.0f ops/s  |  %.2f MB/s  |  Total: %.2f GB\n",
+				disk.WriteOpsPerSec, disk.WriteBytesPerSec/1024/1024, disk.TotalWriteBytes/1024/1024/1024))
+		}
+	} else {
+		b.WriteString(mutedStyle.Render("  No disk data available"))
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+
+	// Instance health section
+	b.WriteString(sectionStyle.Render("Instance Health"))
+	b.WriteString("\n")
+	b.WriteString(strings.Repeat("━", min(v.width-4, 60)))
+	b.WriteString("\n")
+	b.WriteString(fmt.Sprintf("  Status:       %s %s\n", statusIcon, d.Status))
+	if m.Uptime > 0 {
+		b.WriteString(fmt.Sprintf("  Uptime:       %s\n", formatUptime(m.Uptime)))
+	}
+	if d.CreatedAt != "" {
+		b.WriteString(fmt.Sprintf("  Created:      %s\n", formatTimestamp(d.CreatedAt)))
+	}
+	b.WriteString("\n")
+
+	// Recommendations section
+	recommendations := v.analyzeMetrics()
+	if len(recommendations) > 0 {
+		b.WriteString(sectionStyle.Render("Recommendations"))
+		b.WriteString("\n")
+		b.WriteString(strings.Repeat("━", min(v.width-4, 60)))
+		b.WriteString("\n")
+		for _, rec := range recommendations {
+			if rec.Severity == "critical" {
+				b.WriteString(errorStyle.Render("  ⚠ " + rec.Message))
+			} else {
+				b.WriteString(warningStyle.Render("  ⚠ " + rec.Message))
+			}
+			b.WriteString("\n")
+			b.WriteString(mutedStyle.Render(fmt.Sprintf("    → %s", rec.Action)))
+			b.WriteString("\n")
+		}
+		b.WriteString("\n")
+	}
+
+	// Recent logs section
+	b.WriteString(sectionStyle.Render("Recent Logs (warnings/errors)"))
+	b.WriteString("\n")
+	b.WriteString(strings.Repeat("━", min(v.width-4, 60)))
+	b.WriteString("\n")
+	switch {
+	case v.logsLoading:
+		b.WriteString(fmt.Sprintf("  %s Loading logs...\n", v.spinner.View()))
+	case v.logsError != nil:
+		b.WriteString(errorStyle.Render(fmt.Sprintf("  ✗ Error loading logs: %s", v.logsError.Error())))
+		b.WriteString("\n")
+	case len(v.logs) > 0:
+		for _, log := range v.logs {
+			var severityColor string
+			switch log.Severity {
+			case "ERROR", "CRITICAL":
+				severityColor = "#EA4335"
+			case "WARNING":
+				severityColor = "#FBBC04"
+			default:
+				severityColor = "#9AA0A6"
+			}
+			severityStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(severityColor)).Bold(true)
+			b.WriteString(fmt.Sprintf("  %s [%s] %s\n",
+				log.Timestamp.Format("15:04:05"),
+				severityStyle.Render(log.Severity),
+				truncate(log.Message, v.width-30)))
+		}
+		b.WriteString("\n")
+		b.WriteString(mutedStyle.Render("  Showing severity >= WARNING"))
+		b.WriteString("\n")
+	default:
+		b.WriteString(mutedStyle.Render("  No recent warnings or errors"))
+		b.WriteString("\n")
+	}
 
 	return b.String()
 }
 
+// analyzeMetrics generates recommendations based on metric patterns
+func (v *InstanceDetailsView) analyzeMetrics() []Recommendation {
+	if v.metrics == nil {
+		return nil
+	}
+
+	var recommendations []Recommendation
+	m := v.metrics
+
+	// Check CPU usage
+	if len(m.CPU) > 0 {
+		avg, _, _ := calculateStats(m.CPU)
+		avg *= 100
+		if avg > 80 {
+			recommendations = append(recommendations, Recommendation{
+				Severity: "warning",
+				Message:  fmt.Sprintf("High CPU usage detected (avg %.0f%% over %s)", avg, formatDuration(v.timeRange)),
+				Action:   "Consider upgrading to a larger machine type",
+			})
+		}
+	}
+
+	// Check memory usage
+	if len(m.Memory) > 0 {
+		avg, _, _ := calculateStats(m.Memory)
+		if avg > 85 {
+			recommendations = append(recommendations, Recommendation{
+				Severity: "warning",
+				Message:  fmt.Sprintf("High memory usage detected (avg %.0f%% over %s)", avg, formatDuration(v.timeRange)),
+				Action:   "Increase memory or add swap space",
+			})
+		}
+	}
+
+	return recommendations
+}
+
 // Helper functions
 // Shared helpers (renderRow, defaultIfEmpty, min) are now in helpers.go
+
+// calculateStats calculates average, peak value and peak time from data points
+func calculateStats(data []gcp.DataPoint) (avg, peak float64, peakTime time.Time) {
+	if len(data) == 0 {
+		return 0, 0, time.Time{}
+	}
+
+	sum := 0.0
+	peak = data[0].Value
+	peakTime = data[0].Timestamp
+
+	for _, dp := range data {
+		sum += dp.Value
+		if dp.Value > peak {
+			peak = dp.Value
+			peakTime = dp.Timestamp
+		}
+	}
+
+	avg = sum / float64(len(data))
+	return avg, peak, peakTime
+}
+
+// formatDuration formats a time duration in human-readable form
+func formatDuration(d time.Duration) string {
+	if d < time.Hour {
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	}
+	if d < 24*time.Hour {
+		return fmt.Sprintf("%dh", int(d.Hours()))
+	}
+	days := int(d.Hours() / 24)
+	return fmt.Sprintf("%dd", days)
+}
+
+// formatUptime formats an uptime duration
+func formatUptime(d time.Duration) string {
+	days := int(d.Hours() / 24)
+	hours := int(d.Hours()) % 24
+	minutes := int(d.Minutes()) % 60
+
+	if days > 0 {
+		return fmt.Sprintf("%dd %dh %dm", days, hours, minutes)
+	}
+	if hours > 0 {
+		return fmt.Sprintf("%dh %dm", hours, minutes)
+	}
+	return fmt.Sprintf("%dm", minutes)
+}
+
+// formatTimestamp formats an RFC3339 timestamp in human-readable form
+func formatTimestamp(ts string) string {
+	t, err := time.Parse(time.RFC3339, ts)
+	if err != nil {
+		return ts
+	}
+	return t.Format("Jan 02, 2006 at 3:04 PM")
+}
 
 func getStatusIcon(status string) string {
 	return symbols.GetStatusSymbol(status)
