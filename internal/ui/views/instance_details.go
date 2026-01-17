@@ -553,6 +553,9 @@ func (v *InstanceDetailsView) updateViewportContent() {
 		return
 	}
 
+	// Update links focus state based on focus manager
+	v.diskLinks.SetRegionFocused(v.focusMgr.IsActive(regionIDLinks))
+
 	var content string
 	switch v.tabs.ActiveTab().ID {
 	case tabIDDetails:
