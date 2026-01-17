@@ -294,7 +294,7 @@ func (m *Model) SetSize(width, height int) {
 | `3` | Set time range to 24 hours |
 | `4` | Set time range to 7 days |
 | `5` | Set time range to 30 days |
-| `a` | Toggle auto-refresh (30s interval) |
+| `a` | Toggle auto-refresh (15s interval) |
 | `r` | Manual refresh metrics |
 
 ### Images View

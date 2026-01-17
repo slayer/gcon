@@ -105,7 +105,7 @@ January 17, 2026
 
 ### 3. Auto-Refresh
 - Toggle with 'a' key
-- Refreshes metrics every 30 seconds
+- Refreshes metrics every 15 seconds
 - Only active when observability tab is visible
 
 ### 4. Intelligent Recommendations

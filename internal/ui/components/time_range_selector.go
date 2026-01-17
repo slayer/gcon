@@ -55,7 +55,7 @@ func RenderTimeRangeSelector(activeRange time.Duration, autoRefresh bool, lastUp
 	// Auto-refresh status
 	autoRefreshStr := "OFF"
 	if autoRefresh {
-		autoRefreshStr = "ON (30s)"
+		autoRefreshStr = "ON (15s)"
 	}
 
 	return fmt.Sprintf("%s  |  Last updated: %s  |  Auto-refresh: %s",

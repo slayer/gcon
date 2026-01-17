@@ -399,7 +399,7 @@ func (v *InstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 				v.autoRefresh = !v.autoRefresh
 				if v.autoRefresh {
 					// Start auto-refresh ticker
-					v.autoRefreshTicker = time.NewTicker(30 * time.Second)
+					v.autoRefreshTicker = time.NewTicker(15 * time.Second)
 					return v.tickAutoRefresh()
 				} else if v.autoRefreshTicker != nil {
 					// Stop auto-refresh ticker. We intentionally do not set
