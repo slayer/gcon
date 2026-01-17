@@ -20,12 +20,9 @@ func TestGetAuthenticatedIdentity_UserCredentials(t *testing.T) {
 	configsDir := filepath.Join(configDir, "configurations")
 	require.NoError(t, os.MkdirAll(configsDir, 0755))
 
-	// Write properties file
-	propertiesPath := filepath.Join(configDir, "properties")
-	propertiesContent := `[core]
-config = default
-`
-	require.NoError(t, os.WriteFile(propertiesPath, []byte(propertiesContent), 0644))
+	// Write active_config file
+	activeConfigPath := filepath.Join(configDir, "active_config")
+	require.NoError(t, os.WriteFile(activeConfigPath, []byte("default\n"), 0644))
 
 	// Write config_default file with account
 	configPath := filepath.Join(configsDir, "config_default")

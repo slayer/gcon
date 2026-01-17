@@ -96,8 +96,18 @@ func ResolveActiveConfigName() string {
 	if envConfig := os.Getenv("CLOUDSDK_ACTIVE_CONFIG_NAME"); envConfig != "" {
 		return envConfig
 	}
-	// Falls back to reading from properties file in LoadGcloudConfig
-	return ""
+
+	// Fall back to reading from gcloud config
+	config, err := LoadGcloudConfig()
+	if err != nil || config == nil {
+		return "default"
+	}
+
+	if config.ActiveConfig != "" {
+		return config.ActiveConfig
+	}
+
+	return "default"
 }
 
 // ResolveCredentialsFile returns the path to service account credentials JSON.

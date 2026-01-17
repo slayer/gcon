@@ -83,12 +83,13 @@ func getConfigDir() string {
 	return filepath.Join(homeDir, ".config", "gcloud")
 }
 
-// getActiveConfig reads which configuration is active from properties file.
-// The properties file contains [core] section with config = <name>
+// getActiveConfig reads which configuration is active.
+// Gcloud stores the active config name in the 'active_config' file.
 func getActiveConfig(configDir string) (string, error) {
-	propertiesPath := filepath.Join(configDir, "properties")
+	activeConfigPath := filepath.Join(configDir, "active_config")
 
-	data, err := parseConfigFile(propertiesPath)
+	// Read the active_config file (contains just the config name)
+	data, err := os.ReadFile(activeConfigPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return "", nil
@@ -96,11 +97,9 @@ func getActiveConfig(configDir string) (string, error) {
 		return "", err
 	}
 
-	if core, ok := data["core"]; ok {
-		return core["config"], nil
-	}
-
-	return "", nil
+	// The file contains just the config name, possibly with trailing newline
+	configName := strings.TrimSpace(string(data))
+	return configName, nil
 }
 
 // parseConfigFile parses an INI-style gcloud config file.

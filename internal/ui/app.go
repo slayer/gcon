@@ -109,6 +109,9 @@ type App struct {
 	// Authenticated identity (email of user or service account)
 	authenticatedIdentity string
 	identityType          config.IdentityType
+
+	// GCloud configuration profile name
+	configProfile string
 }
 
 // AppOptions configures the application
@@ -129,6 +132,9 @@ func NewApp(client *gcp.Client, opts AppOptions) *App {
 		identityType = client.GetIdentityType()
 	}
 
+	// Get gcloud config profile
+	configProfile := config.ResolveActiveConfigName()
+
 	a := &App{
 		gcpClient:             client,
 		ctx:                   ctx,
@@ -147,6 +153,7 @@ func NewApp(client *gcp.Client, opts AppOptions) *App {
 		footer:                components.NewFooter(),
 		authenticatedIdentity: authenticatedIdentity,
 		identityType:          identityType,
+		configProfile:         configProfile,
 	}
 
 	// Set up the StartTask callback for async operation tracking

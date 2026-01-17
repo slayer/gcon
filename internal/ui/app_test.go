@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"os"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -34,6 +35,63 @@ func TestNewApp(t *testing.T) {
 	assert.NotNil(t, app.sidebar)
 	assert.Equal(t, ViewProjects, app.currentView)
 	assert.Equal(t, FocusContent, app.focusedPanel)
+}
+
+func TestNewApp_StoresConfigProfile(t *testing.T) {
+	// Set up test environment with known profile
+	oldEnv := os.Getenv("CLOUDSDK_ACTIVE_CONFIG_NAME")
+	t.Cleanup(func() {
+		if oldEnv != "" {
+			_ = os.Setenv("CLOUDSDK_ACTIVE_CONFIG_NAME", oldEnv)
+		} else {
+			_ = os.Unsetenv("CLOUDSDK_ACTIVE_CONFIG_NAME")
+		}
+	})
+
+	tests := []struct {
+		name          string
+		envValue      string
+		expectedValue string
+	}{
+		{
+			name:          "stores profile from env var",
+			envValue:      "test-profile",
+			expectedValue: "test-profile",
+		},
+		{
+			name:          "defaults to 'default' when no config",
+			envValue:      "",
+			expectedValue: "default",
+		},
+		{
+			name:          "stores production profile",
+			envValue:      "production",
+			expectedValue: "production",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.envValue != "" {
+				_ = os.Setenv("CLOUDSDK_ACTIVE_CONFIG_NAME", tt.envValue)
+			} else {
+				_ = os.Unsetenv("CLOUDSDK_ACTIVE_CONFIG_NAME")
+				// Also clear CLOUDSDK_CONFIG to ensure we get "default"
+				oldConfig := os.Getenv("CLOUDSDK_CONFIG")
+				_ = os.Setenv("CLOUDSDK_CONFIG", "/nonexistent/path")
+				t.Cleanup(func() {
+					if oldConfig != "" {
+						_ = os.Setenv("CLOUDSDK_CONFIG", oldConfig)
+					} else {
+						_ = os.Unsetenv("CLOUDSDK_CONFIG")
+					}
+				})
+			}
+
+			app := NewApp(nil, AppOptions{})
+			assert.Equal(t, tt.expectedValue, app.configProfile)
+		})
+	}
 }
 
 func TestToggleFocus(t *testing.T) {
