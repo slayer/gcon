@@ -135,12 +135,17 @@ func (a *App) handleInstanceSelected(msg views.InstanceSelectedMsg) tea.Cmd {
 	// Push current view onto stack for back navigation
 	a.viewStack = append(a.viewStack, a.currentView)
 	a.currentView = ViewInstanceDetails
+	// Clean up old instance details view to stop any running tickers
+	if a.instanceDetailsView != nil {
+		a.instanceDetailsView.Close()
+	}
 	// Pass compute client from instances view to avoid re-initialization
 	a.instanceDetailsView = views.NewInstanceDetailsView(
 		a.selectedProject.ID,
 		inst.Zone,
 		inst.Name,
 		a.instancesView.GetComputeClient(),
+		a.gcpClient,
 	)
 	a.updateSidebarActiveView()
 	a.updateViewSizes()

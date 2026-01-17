@@ -285,6 +285,18 @@ func (m *Model) SetSize(width, height int) {
 | `x` | Stop running instance |
 | `R` | Reset (hard reboot) |
 
+### Instance Details - Observability Tab
+
+| Key | Action |
+|-----|--------|
+| `1` | Set time range to 1 hour |
+| `2` | Set time range to 6 hours |
+| `3` | Set time range to 24 hours |
+| `4` | Set time range to 7 days |
+| `5` | Set time range to 30 days |
+| `a` | Toggle auto-refresh (30s interval, on by default) |
+| `r` | Manual refresh metrics |
+
 ### Images View
 
 | Key | Action |
@@ -367,6 +379,16 @@ Spin up multiple subagents for each task to ensure parallel development. Each su
 - [x] Project selector with search/filter
 - [x] Compute Engine instances list
 - [x] Compute Engine instance details view
+- [x] Compute Engine instance observability tab with real-time metrics
+  - CPU utilization with sparkline trends
+  - Memory usage with sparkline trends (requires Ops Agent)
+  - Network traffic statistics
+  - Disk I/O metrics
+  - Instance health and uptime
+  - Automated recommendations based on metrics
+  - Recent logs (warnings/errors)
+  - Time range selection (1h/6h/24h/7d/30d)
+  - Auto-refresh capability
 - [x] Compute Engine persistent disks list
 - [x] Compute Engine disk details view
 - [x] Compute Engine disk images list
