@@ -10,10 +10,12 @@ import (
 
 // Client wraps GCP API clients and provides unified access
 type Client struct {
-	ctx              context.Context
-	crmService       *cloudresourcemanager.Service // Cloud Resource Manager for projects
-	monitoringClient *MonitoringClient
-	loggingClient    *LoggingClient
+	ctx                    context.Context
+	crmService             *cloudresourcemanager.Service // Cloud Resource Manager for projects
+	monitoringClient       *MonitoringClient
+	monitoringClientProjID string
+	loggingClient          *LoggingClient
+	loggingClientProjID    string
 }
 
 // NewClient creates a new GCP client using Application Default Credentials
@@ -55,25 +57,29 @@ func (c *Client) Context() context.Context {
 }
 
 // GetMonitoringClient returns or initializes the monitoring client
+// Reinitializes if projectID changes to prevent querying wrong project
 func (c *Client) GetMonitoringClient(projectID string) (*MonitoringClient, error) {
-	if c.monitoringClient == nil {
+	if c.monitoringClient == nil || c.monitoringClientProjID != projectID {
 		client, err := NewMonitoringClient(c.ctx, projectID)
 		if err != nil {
 			return nil, err
 		}
 		c.monitoringClient = client
+		c.monitoringClientProjID = projectID
 	}
 	return c.monitoringClient, nil
 }
 
 // GetLoggingClient returns or initializes the logging client
+// Reinitializes if projectID changes to prevent querying wrong project
 func (c *Client) GetLoggingClient(projectID string) (*LoggingClient, error) {
-	if c.loggingClient == nil {
+	if c.loggingClient == nil || c.loggingClientProjID != projectID {
 		client, err := NewLoggingClient(c.ctx, projectID)
 		if err != nil {
 			return nil, err
 		}
 		c.loggingClient = client
+		c.loggingClientProjID = projectID
 	}
 	return c.loggingClient, nil
 }

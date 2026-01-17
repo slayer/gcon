@@ -118,18 +118,18 @@ func (c *MonitoringClient) GetNetworkTraffic(ctx context.Context, instanceID, zo
 	}
 
 	// Calculate rates and totals
+	// Note: sent_bytes_count and received_bytes_count are cumulative counters
+	// The latest value represents the total since instance start
 	if len(sentData) > 0 {
-		metrics.SentBytesPerSec = sentData[len(sentData)-1].Value
-		for _, dp := range sentData {
-			metrics.TotalSentBytes += dp.Value
-		}
+		lastSent := sentData[len(sentData)-1].Value
+		metrics.SentBytesPerSec = lastSent
+		metrics.TotalSentBytes = lastSent
 	}
 
 	if len(recvData) > 0 {
-		metrics.ReceivedBytesPerSec = recvData[len(recvData)-1].Value
-		for _, dp := range recvData {
-			metrics.TotalReceivedBytes += dp.Value
-		}
+		lastRecv := recvData[len(recvData)-1].Value
+		metrics.ReceivedBytesPerSec = lastRecv
+		metrics.TotalReceivedBytes = lastRecv
 	}
 
 	return metrics, nil
@@ -189,24 +189,24 @@ func (c *MonitoringClient) GetDiskIO(ctx context.Context, instanceID, zone strin
 
 	if len(readOpsData) > 0 {
 		diskMetric.ReadOpsPerSec = readOpsData[len(readOpsData)-1].Value
-		for _, dp := range readOpsData {
-			diskMetric.TotalReadBytes += dp.Value
-		}
 	}
 
 	if len(writeOpsData) > 0 {
 		diskMetric.WriteOpsPerSec = writeOpsData[len(writeOpsData)-1].Value
-		for _, dp := range writeOpsData {
-			diskMetric.TotalWriteBytes += dp.Value
-		}
 	}
 
 	if len(readBytesData) > 0 {
 		diskMetric.ReadBytesPerSec = readBytesData[len(readBytesData)-1].Value
+		for _, dp := range readBytesData {
+			diskMetric.TotalReadBytes += dp.Value
+		}
 	}
 
 	if len(writeBytesData) > 0 {
 		diskMetric.WriteBytesPerSec = writeBytesData[len(writeBytesData)-1].Value
+		for _, dp := range writeBytesData {
+			diskMetric.TotalWriteBytes += dp.Value
+		}
 	}
 
 	metrics = append(metrics, diskMetric)

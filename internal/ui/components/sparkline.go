@@ -100,18 +100,29 @@ func findMinMax(data []float64) (float64, float64) {
 		return 0, 0
 	}
 
-	min := data[0]
-	max := data[0]
-
-	for _, v := range data[1:] {
+	// Find first valid value to initialize min/max
+	var min, max float64
+	initialized := false
+	for _, v := range data {
 		if !math.IsNaN(v) && !math.IsInf(v, 0) {
-			if v < min {
+			if !initialized {
 				min = v
-			}
-			if v > max {
 				max = v
+				initialized = true
+			} else {
+				if v < min {
+					min = v
+				}
+				if v > max {
+					max = v
+				}
 			}
 		}
+	}
+
+	// If no valid values found, return 0
+	if !initialized {
+		return 0, 0
 	}
 
 	return min, max

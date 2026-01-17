@@ -207,6 +207,18 @@ func (v *InstanceDetailsView) Init() tea.Cmd {
 	)
 }
 
+// Close releases resources associated with the InstanceDetailsView.
+// Should be called when the view is no longer active to prevent resource leaks.
+func (v *InstanceDetailsView) Close() {
+	if v == nil {
+		return
+	}
+	if v.autoRefreshTicker != nil {
+		v.autoRefreshTicker.Stop()
+		v.autoRefreshTicker = nil
+	}
+}
+
 // loadDetails fetches instance details from GCP
 func (v *InstanceDetailsView) loadDetails() tea.Cmd {
 	return func() tea.Msg {
@@ -262,9 +274,9 @@ func (v *InstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 		return nil
 
 	case refreshTickMsg:
-		// Auto-refresh triggered
+		// Auto-refresh triggered - schedule next tick to continue the cycle
 		if v.autoRefresh && v.tabs.ActiveTab().ID == tabIDObservability {
-			return tea.Batch(v.loadMetrics(), v.loadLogs())
+			return tea.Batch(v.loadMetrics(), v.loadLogs(), v.tickAutoRefresh())
 		}
 		return nil
 
@@ -350,26 +362,36 @@ func (v *InstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 			switch msg.String() {
 			case "1":
 				v.timeRange = 1 * time.Hour
+				v.metricsError = nil
+				v.logsError = nil
 				v.metricsLoading = true
 				v.logsLoading = true
 				return tea.Batch(v.spinner.Tick, v.loadMetrics(), v.loadLogs())
 			case "2":
 				v.timeRange = 6 * time.Hour
+				v.metricsError = nil
+				v.logsError = nil
 				v.metricsLoading = true
 				v.logsLoading = true
 				return tea.Batch(v.spinner.Tick, v.loadMetrics(), v.loadLogs())
 			case "3":
 				v.timeRange = 24 * time.Hour
+				v.metricsError = nil
+				v.logsError = nil
 				v.metricsLoading = true
 				v.logsLoading = true
 				return tea.Batch(v.spinner.Tick, v.loadMetrics(), v.loadLogs())
 			case "4":
 				v.timeRange = 7 * 24 * time.Hour
+				v.metricsError = nil
+				v.logsError = nil
 				v.metricsLoading = true
 				v.logsLoading = true
 				return tea.Batch(v.spinner.Tick, v.loadMetrics(), v.loadLogs())
 			case "5":
 				v.timeRange = 30 * 24 * time.Hour
+				v.metricsError = nil
+				v.logsError = nil
 				v.metricsLoading = true
 				v.logsLoading = true
 				return tea.Batch(v.spinner.Tick, v.loadMetrics(), v.loadLogs())
@@ -380,9 +402,10 @@ func (v *InstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 					v.autoRefreshTicker = time.NewTicker(30 * time.Second)
 					return v.tickAutoRefresh()
 				} else if v.autoRefreshTicker != nil {
-					// Stop auto-refresh ticker
+					// Stop auto-refresh ticker. We intentionally do not set
+					// v.autoRefreshTicker to nil here to avoid a race with the
+					// tickAutoRefresh goroutine that may still read from it.
 					v.autoRefreshTicker.Stop()
-					v.autoRefreshTicker = nil
 				}
 				v.updateViewportContent()
 				return nil
@@ -1251,7 +1274,7 @@ func calculateStats(data []gcp.DataPoint) (avg, peak float64, peakTime time.Time
 // formatDuration formats a time duration in human-readable form
 func formatDuration(d time.Duration) string {
 	if d < time.Hour {
-		return fmt.Sprintf("%dh", int(d.Hours()))
+		return fmt.Sprintf("%dm", int(d.Minutes()))
 	}
 	if d < 24*time.Hour {
 		return fmt.Sprintf("%dh", int(d.Hours()))
