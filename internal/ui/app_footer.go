@@ -19,9 +19,13 @@ func (a *App) syncFooter() {
 		a.footer.ClearLeft1()
 	}
 
-	// Left2: Sidebar toggle hint (only when sidebar is active)
+	// Left2: Sidebar focus hint (only when sidebar is active)
 	if a.sidebarActive() {
-		a.footer.SetLeft2("[ sidebar")
+		if a.focusedPanel == FocusSidebar {
+			a.footer.SetLeft2("] content")
+		} else {
+			a.footer.SetLeft2("[ sidebar")
+		}
 	} else {
 		a.footer.ClearLeft2()
 	}
