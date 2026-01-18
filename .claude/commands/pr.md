@@ -10,5 +10,6 @@ Create a new PR or update an existing one for the current branch.
 4. If no PR exists: create a new PR with:
    - Title derived from branch name or commit messages
    - Description summarizing all commits on the branch
+   - NEVER ADD "🤖 Generated with Claude Code" or similar"
    - Base branch: master
 5. Report the PR URL
