@@ -6,6 +6,34 @@ import (
 	"github.com/slayer/gcon/internal/ui/views"
 )
 
+// handleMouseEvent processes mouse events and routes them to appropriate components.
+// Mouse coordinates are screen-absolute, so we need to calculate offsets for
+// sidebar vs content area.
+func (a *App) handleMouseEvent(msg tea.MouseMsg) tea.Cmd {
+	// Calculate sidebar offset for content area coordinates
+	sidebarWidth := 0
+	if a.sidebarActive() {
+		sidebarWidth = a.sidebar.Width()
+	}
+
+	// If sidebar is active and mouse is in sidebar region, route to sidebar
+	if a.sidebarActive() && msg.X < sidebarWidth {
+		cmd := a.sidebar.Update(msg)
+		return cmd
+	}
+
+	// Otherwise route to current view with adjusted coordinates
+	// Adjust X coordinate to be relative to content area
+	adjustedMsg := msg
+	adjustedMsg.X -= sidebarWidth
+
+	if model := a.getCurrentViewModel(); model != nil {
+		return model.Update(adjustedMsg)
+	}
+
+	return nil
+}
+
 // handleSidebarNavigation processes sidebar navigation messages and initializes views
 func (a *App) handleSidebarNavigation(msg sidebar.NavigateMsg) tea.Cmd {
 	var cmd tea.Cmd

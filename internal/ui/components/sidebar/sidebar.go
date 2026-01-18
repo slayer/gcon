@@ -72,6 +72,7 @@ type Sidebar struct {
 	activeView   ViewType   // Currently active view (for highlighting)
 	styles       Styles
 	keys         KeyMap
+	hoverIndex   int // Index of item being hovered (-1 if none)
 }
 
 // New creates a new sidebar with the default GCP menu
@@ -88,6 +89,7 @@ func New() *Sidebar {
 		styles:       DefaultStyles(),
 		keys:         DefaultKeyMap(),
 		activeView:   ViewInstances,
+		hoverIndex:   -1,
 	}
 }
 
@@ -96,38 +98,88 @@ func (s *Sidebar) Init() tea.Cmd {
 	return nil
 }
 
-// Update handles keyboard input when sidebar is focused
+// handleMouseEvent processes mouse interactions with the sidebar
+func (s *Sidebar) handleMouseEvent(msg tea.MouseMsg) tea.Cmd {
+	// Calculate Y offset for header and divider
+	// Header: 1 line
+	// Divider: 1 line
+	yOffset := 2
+
+	// Add "Back" link if present
+	if len(s.path) > 0 {
+		yOffset += 1
+	}
+
+	// Check if click is within menu items area
+	if msg.Y < yOffset {
+		return nil
+	}
+
+	// Calculate which item was clicked
+	itemY := msg.Y - yOffset
+	if itemY < 0 || itemY >= len(s.currentItems) {
+		s.hoverIndex = -1
+		return nil
+	}
+
+	switch msg.Action {
+	case tea.MouseActionPress:
+		if msg.Button == tea.MouseButtonLeft {
+			// Update cursor and select item
+			s.cursor = itemY
+			return s.selectItem()
+		}
+
+	case tea.MouseActionRelease:
+		// Handle wheel scroll
+		switch msg.Button {
+		case tea.MouseButtonWheelUp:
+			s.moveUp()
+		case tea.MouseButtonWheelDown:
+			s.moveDown()
+		}
+
+	case tea.MouseActionMotion:
+		// Track hover state
+		s.hoverIndex = itemY
+	}
+
+	return nil
+}
+
+// Update handles keyboard and mouse input when sidebar is focused
 func (s *Sidebar) Update(msg tea.Msg) tea.Cmd {
-	if !s.focused {
-		return nil
-	}
+	switch msg := msg.(type) {
+	case tea.MouseMsg:
+		return s.handleMouseEvent(msg)
 
-	keyMsg, ok := msg.(tea.KeyMsg)
-	if !ok {
-		return nil
-	}
+	case tea.KeyMsg:
+		if !s.focused {
+			return nil
+		}
 
-	// Handle number shortcuts (1-9)
-	if num := s.getNumberKey(keyMsg); num > 0 && num <= len(s.currentItems) {
-		s.cursor = num - 1
-		return s.selectItem()
-	}
+		// Handle number shortcuts (1-9)
+		if num := s.getNumberKey(msg); num > 0 && num <= len(s.currentItems) {
+			s.cursor = num - 1
+			return s.selectItem()
+		}
 
-	// Handle letter hotkeys (case-sensitive)
-	if idx := s.findItemByHotkey(keyMsg.String()); idx >= 0 {
-		s.cursor = idx
-		return s.selectItem()
-	}
+		// Handle letter hotkeys (case-sensitive)
+		if idx := s.findItemByHotkey(msg.String()); idx >= 0 {
+			s.cursor = idx
+			return s.selectItem()
+		}
 
-	switch {
-	case key.Matches(keyMsg, s.keys.Up):
-		s.moveUp()
-	case key.Matches(keyMsg, s.keys.Down):
-		s.moveDown()
-	case key.Matches(keyMsg, s.keys.Select):
-		return s.selectItem()
-	case key.Matches(keyMsg, s.keys.Back):
-		s.goBack()
+		switch {
+		case key.Matches(msg, s.keys.Up):
+			s.moveUp()
+		case key.Matches(msg, s.keys.Down):
+			s.moveDown()
+		case key.Matches(msg, s.keys.Select):
+			return s.selectItem()
+		case key.Matches(msg, s.keys.Back):
+			s.goBack()
+		}
 	}
 	return nil
 }

@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // Tab represents a single tab in the tab bar
@@ -23,11 +24,12 @@ type TabChangedMsg struct {
 
 // Tabs is the tab bar component
 type Tabs struct {
-	tabs   []Tab
-	active int
-	width  int
-	keys   keyMap
-	styles Styles
+	tabs       []Tab
+	active     int
+	width      int
+	keys       keyMap
+	styles     Styles
+	hoverIndex int // Index of tab being hovered (-1 if none)
 }
 
 // keyMap defines tab navigation key bindings
@@ -62,10 +64,11 @@ func defaultKeyMap() keyMap {
 // New creates a new tab bar with the given tabs
 func New(tabs []Tab) *Tabs {
 	return &Tabs{
-		tabs:   tabs,
-		active: 0,
-		keys:   defaultKeyMap(),
-		styles: DefaultStyles(),
+		tabs:       tabs,
+		active:     0,
+		keys:       defaultKeyMap(),
+		styles:     DefaultStyles(),
+		hoverIndex: -1,
 	}
 }
 
@@ -77,38 +80,85 @@ func (t *Tabs) Init() tea.Cmd {
 // Update handles input for tab navigation.
 // Returns a TabChangedMsg command when the active tab changes.
 func (t *Tabs) Update(msg tea.Msg) tea.Cmd {
-	keyMsg, ok := msg.(tea.KeyMsg)
-	if !ok {
+	switch msg := msg.(type) {
+	case tea.MouseMsg:
+		return t.handleMouseEvent(msg)
+
+	case tea.KeyMsg:
+		// Handle number keys 1-9 for direct tab selection
+		keyStr := msg.String()
+		if len(keyStr) == 1 && keyStr[0] >= '1' && keyStr[0] <= '9' {
+			idx := int(keyStr[0] - '1') // '1' -> 0, '2' -> 1, etc.
+			if idx < len(t.tabs) && idx != t.active {
+				t.active = idx
+				return t.emitTabChanged()
+			}
+			return nil
+		}
+
+		switch {
+		case key.Matches(msg, t.keys.Next), key.Matches(msg, t.keys.Right):
+			if t.active < len(t.tabs)-1 {
+				t.active++
+				return t.emitTabChanged()
+			}
+			return nil
+
+		case key.Matches(msg, t.keys.Prev), key.Matches(msg, t.keys.Left):
+			if t.active > 0 {
+				t.active--
+				return t.emitTabChanged()
+			}
+			return nil
+		}
+	}
+
+	return nil
+}
+
+// handleMouseEvent processes mouse interactions with tabs
+func (t *Tabs) handleMouseEvent(msg tea.MouseMsg) tea.Cmd {
+	// Tabs are rendered horizontally, calculate which tab was clicked
+	// based on X coordinate
+	if msg.Y != 0 {
+		// Click not on tab bar row
 		return nil
 	}
 
-	// Handle number keys 1-9 for direct tab selection
-	keyStr := keyMsg.String()
-	if len(keyStr) == 1 && keyStr[0] >= '1' && keyStr[0] <= '9' {
-		idx := int(keyStr[0] - '1') // '1' -> 0, '2' -> 1, etc.
-		if idx < len(t.tabs) && idx != t.active {
-			t.active = idx
-			return t.emitTabChanged()
+	// Calculate tab positions based on rendered widths
+	// Each tab is either "[Label]" (active) or " Label " (inactive)
+	// with " " separator between tabs
+	x := 0
+	for i, tab := range t.tabs {
+		var tabWidth int
+		if i == t.active {
+			// Active: "[" + label + "]"
+			tabWidth = lipgloss.Width(t.styles.Active.Render("[" + tab.Label + "]"))
+		} else {
+			// Inactive: " " + label + " "
+			tabWidth = lipgloss.Width(t.styles.Inactive.Render(" " + tab.Label + " "))
 		}
-		return nil
+
+		// Check if click is within this tab
+		if msg.X >= x && msg.X < x+tabWidth {
+			switch msg.Action {
+			case tea.MouseActionPress:
+				if msg.Button == tea.MouseButtonLeft && i != t.active {
+					t.active = i
+					return t.emitTabChanged()
+				}
+			case tea.MouseActionMotion:
+				t.hoverIndex = i
+			}
+			return nil
+		}
+
+		// Add separator width (2 spaces)
+		x += tabWidth + 1
 	}
 
-	switch {
-	case key.Matches(keyMsg, t.keys.Next), key.Matches(keyMsg, t.keys.Right):
-		if t.active < len(t.tabs)-1 {
-			t.active++
-			return t.emitTabChanged()
-		}
-		return nil
-
-	case key.Matches(keyMsg, t.keys.Prev), key.Matches(keyMsg, t.keys.Left):
-		if t.active > 0 {
-			t.active--
-			return t.emitTabChanged()
-		}
-		return nil
-	}
-
+	// Click outside all tabs
+	t.hoverIndex = -1
 	return nil
 }
 

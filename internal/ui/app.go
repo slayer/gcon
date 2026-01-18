@@ -262,6 +262,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg := msg.(type) {
+	case tea.MouseMsg:
+		// Handle mouse events
+		return a, a.handleMouseEvent(msg)
+
 	case tea.KeyMsg:
 		// Handle back navigation first (before view-specific handlers)
 		// But skip if a view has an action menu open - let the view handle Esc

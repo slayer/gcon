@@ -5,6 +5,7 @@ package table
 import (
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/table"
@@ -94,6 +95,11 @@ type Model struct {
 	loading     bool
 	loadingText string
 	emptyText   string
+
+	// Mouse support
+	hoverIndex    int   // Index of row being hovered (-1 if none)
+	lastClickTime int64 // Unix timestamp of last click for double-click detection
+	lastClickRow  int   // Row index of last click
 }
 
 // New creates a new table model (backward compatible)
@@ -113,16 +119,17 @@ func New(columns []table.Column, title string) Model {
 	ti.Width = 30
 
 	return Model{
-		table:     t,
-		styles:    styles,
-		columns:   columns,
-		allRows:   []Row{},
-		rows:      []Row{},
-		filter:    ti,
-		focused:   true,
-		title:     title,
-		keys:      DefaultKeyMap(),
-		emptyText: "No items",
+		table:      t,
+		styles:     styles,
+		columns:    columns,
+		allRows:    []Row{},
+		rows:       []Row{},
+		filter:     ti,
+		focused:    true,
+		title:      title,
+		keys:       DefaultKeyMap(),
+		emptyText:  "No items",
+		hoverIndex: -1,
 	}
 }
 
@@ -155,17 +162,18 @@ func NewWithColumns(cols []Column, title string) Model {
 	ti.Width = 30
 
 	return Model{
-		table:     t,
-		styles:    styles,
-		columns:   tableCols,
-		colDefs:   cols,
-		allRows:   []Row{},
-		rows:      []Row{},
-		filter:    ti,
-		focused:   true,
-		title:     title,
-		keys:      DefaultKeyMap(),
-		emptyText: "No items",
+		table:      t,
+		styles:     styles,
+		columns:    tableCols,
+		colDefs:    cols,
+		allRows:    []Row{},
+		rows:       []Row{},
+		filter:     ti,
+		focused:    true,
+		title:      title,
+		keys:       DefaultKeyMap(),
+		emptyText:  "No items",
+		hoverIndex: -1,
 	}
 }
 
@@ -417,14 +425,82 @@ func (m *Model) TotalRowCount() int {
 	return len(m.allRows)
 }
 
+// handleMouseEvent processes mouse interactions with the table
+func (m Model) handleMouseEvent(msg tea.MouseMsg) (Model, tea.Cmd) {
+	// Calculate the Y offset to account for title and filter bar
+	// Title: 2 lines (text + newline)
+	// Filter: 2 lines if active or 1 line if showing filter value
+	yOffset := 2 // Title
+	if m.filtering || m.filter.Value() != "" {
+		yOffset += 2 // Filter bar
+	}
+	// Add 2 more for table header
+	yOffset += 2
+
+	// Check if click is within the table rows area
+	if msg.Y < yOffset {
+		return m, nil
+	}
+
+	// Calculate which row was clicked (relative to first visible row)
+	rowY := msg.Y - yOffset
+	if rowY < 0 || rowY >= len(m.rows) {
+		m.hoverIndex = -1
+		return m, nil
+	}
+
+	switch msg.Action {
+	case tea.MouseActionPress:
+		if msg.Button == tea.MouseButtonLeft {
+			// Check for double-click (within 500ms)
+			now := time.Now().UnixMilli()
+			doubleClick := false
+			if m.lastClickRow == rowY && now-m.lastClickTime < 500 {
+				doubleClick = true
+			}
+			m.lastClickTime = now
+			m.lastClickRow = rowY
+
+			// Update cursor to clicked row
+			m.table.SetCursor(rowY)
+
+			// If double-click, trigger selection (simulated Enter key)
+			if doubleClick {
+				var cmd tea.Cmd
+				m.table, cmd = m.table.Update(tea.KeyMsg{Type: tea.KeyEnter})
+				return m, cmd
+			}
+		}
+
+	case tea.MouseActionRelease:
+		// Handle wheel scroll
+		switch msg.Button {
+		case tea.MouseButtonWheelUp:
+			m.table.MoveUp(1)
+		case tea.MouseButtonWheelDown:
+			m.table.MoveDown(1)
+		}
+
+	case tea.MouseActionMotion:
+		// Track hover state (for future hover styling)
+		m.hoverIndex = rowY
+	}
+
+	return m, nil
+}
+
 // Update handles messages
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
-	if keyMsg, ok := msg.(tea.KeyMsg); ok {
+	switch msg := msg.(type) {
+	case tea.MouseMsg:
+		return m.handleMouseEvent(msg)
+
+	case tea.KeyMsg:
 		if m.filtering {
 			// Handle filter input
-			switch keyMsg.String() {
+			switch msg.String() {
 			case "esc", "enter":
 				m.filtering = false
 				m.filter.Blur()
@@ -433,14 +509,14 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 				return m, nil
 			default:
 				var cmd tea.Cmd
-				m.filter, cmd = m.filter.Update(keyMsg)
+				m.filter, cmd = m.filter.Update(msg)
 				m.applyFilter()
 				return m, cmd
 			}
 		}
 
 		// Table navigation - enter filter mode on '/'
-		if key.Matches(keyMsg, m.keys.Filter) {
+		if key.Matches(msg, m.keys.Filter) {
 			m.filtering = true
 			m.filter.Focus()
 			m.table.Blur()

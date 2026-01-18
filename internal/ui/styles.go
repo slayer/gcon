@@ -19,6 +19,7 @@ type Styles struct {
 	Title        lipgloss.Style
 	Subtitle     lipgloss.Style
 	Selected     lipgloss.Style
+	Hover        lipgloss.Style // Mouse hover state
 	Normal       lipgloss.Style
 	Muted        lipgloss.Style
 	Error        lipgloss.Style
@@ -49,6 +50,11 @@ func DefaultStyles() Styles {
 			Bold(true).
 			Foreground(lipgloss.Color("#FFFFFF")).
 			Background(ColorPrimary).
+			Padding(0, 1),
+
+		Hover: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Background(ColorBgLight).
 			Padding(0, 1),
 
 		Normal: lipgloss.NewStyle().
