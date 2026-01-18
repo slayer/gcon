@@ -144,6 +144,13 @@ Required scopes:
 - Use consistent color scheme via Lip Gloss styles (GCP colors)
 - Status indicators: ● green (running), ● red (stopped), ○ yellow (transitioning)
 
+## Feature Development Guidelines
+
+On developing or updating a new feature keep in mind the following guidelines:
+- Ensure what any asynchronous operations (like reload, etc) should be displayed in footer (status bar) with spinner
+- Add new key bindings to global key bindings list in `internal/ui/keys.go` and document them in README.md, navigation.md, etc.
+- For view related actions - add them to context menu (ActionMenu) if applicable.
+
 ## Bubble Tea Rendering Guidelines
 
 ### lipgloss Height() and Newline Counting
