@@ -3,6 +3,8 @@
 package table
 
 import (
+	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -13,6 +15,29 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
+
+var debugFile *os.File
+var debugEnabled bool
+
+func init() {
+	// Enable debug logging if GCON_DEBUG env is set
+	if os.Getenv("GCON_DEBUG") != "" {
+		debugEnabled = true
+		var err error
+		debugFile, err = os.OpenFile("/tmp/gcon-table-debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		if err != nil {
+			debugEnabled = false
+		}
+	}
+}
+
+func debugLog(format string, args ...interface{}) {
+	if !debugEnabled || debugFile == nil {
+		return
+	}
+	_, _ = fmt.Fprintf(debugFile, format+"\n", args...)
+	_ = debugFile.Sync()
+}
 
 // Row represents a table row with filterable content
 type Row struct {
@@ -430,10 +455,14 @@ func (m Model) handleMouseEvent(msg tea.MouseMsg) (Model, tea.Cmd) {
 	// Calculate the Y offset to account for title and filter bar
 	// Note: msg.Y is already adjusted for app header at this point
 
+	// DEBUG: Log the incoming coordinates
+	debugLog("MOUSE Table: msg.Y=%d, filtering=%v, filter.Value=%q", msg.Y, m.filtering, m.filter.Value())
+
 	// Count actual rendered lines:
-	// 1. Title text (1 line)
-	// 2. Newline after title (1 line)
-	yOffset := 2
+	// titleStyle has MarginBottom(1) which renders as Height=2 (title text + blank line)
+	// Then we add b.WriteString("\n") which adds one more line
+	// Total: 3 lines for title section
+	yOffset := 3
 
 	// Filter bar if present (either active or showing filter value)
 	if m.filtering || m.filter.Value() != "" {
@@ -441,9 +470,11 @@ func (m Model) handleMouseEvent(msg tea.MouseMsg) (Model, tea.Cmd) {
 		yOffset += 2
 	}
 
+	// DEBUG: Log the calculated offset
+	debugLog("MOUSE Table: yOffset=%d", yOffset)
+
 	// Now we're at the start of m.table.View()
-	// The bubbles/table renders: header line, then data rows
-	// So the first data row is at yOffset + 1 (after header)
+	// The bubbles/table renders: header line (position 0), then data rows (position 1+)
 
 	// Check if click is within the table area
 	if msg.Y < yOffset {
@@ -453,13 +484,24 @@ func (m Model) handleMouseEvent(msg tea.MouseMsg) (Model, tea.Cmd) {
 	// Adjust for table start position
 	tableRelativeY := msg.Y - yOffset
 
-	// First line of table is the header (row -1), skip it
+	// DEBUG: Log table-relative coordinate
+	debugLog("MOUSE Table: tableRelativeY=%d", tableRelativeY)
+
+	// Position 0 is the table header, skip it
+	// Position 1 is first data row (index 0)
+	// Position 2 is second data row (index 1), etc.
 	if tableRelativeY < 1 {
+		// Clicked on header
 		return m, nil
 	}
 
 	// Calculate which data row was clicked (0-indexed)
+	// tableRelativeY=1 -> rowY=0 (first row)
+	// tableRelativeY=2 -> rowY=1 (second row)
 	rowY := tableRelativeY - 1
+
+	// DEBUG: Log final row calculation
+	debugLog("MOUSE Table: rowY=%d (will set cursor to this)", rowY)
 
 	if rowY < 0 || rowY >= len(m.rows) {
 		m.hoverIndex = -1

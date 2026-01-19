@@ -105,9 +105,11 @@ func (s *Sidebar) handleMouseEvent(msg tea.MouseMsg) tea.Cmd {
 	// Divider: 1 line
 	yOffset := 2
 
-	// Add "Back" link if present
+	// Add "Back" link if present (in submenu)
 	if len(s.path) > 0 {
-		yOffset += 1
+		// "< Back" line: 1 line
+		// Empty separator: 1 line
+		yOffset += 2
 	}
 
 	// Check if click is within menu items area

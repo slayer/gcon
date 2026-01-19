@@ -13,13 +13,20 @@ func (a *App) handleMouseEvent(msg tea.MouseMsg) tea.Cmd {
 	// Get header height to adjust Y coordinate
 	_, headerHeight := a.layout.HeaderSize()
 
+	// DEBUG: Log original coordinates
+	debugLog("MOUSE App: ENTRY original msg.Y=%d, headerHeight=%d, action=%v", msg.Y, headerHeight, msg.Action)
+
 	// Adjust Y coordinate to be relative to content area (below header)
 	if msg.Y < headerHeight {
 		// Click is in header area, ignore
+		debugLog("MOUSE App: Click in header, ignoring")
 		return nil
 	}
 	adjustedMsg := msg
 	adjustedMsg.Y -= headerHeight
+
+	// DEBUG: Log adjusted coordinates
+	debugLog("MOUSE App: AFTER ADJUSTMENT adjusted msg.Y=%d", adjustedMsg.Y)
 
 	// Calculate sidebar offset for X coordinate
 	sidebarWidth := 0
