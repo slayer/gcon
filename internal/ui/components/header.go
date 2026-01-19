@@ -162,15 +162,8 @@ func (h *Header) renderBreadcrumbs() string {
 	var parts []string
 	var lastBg lipgloss.Color
 
-	// Add opening separator before first segment
-	// Background = project color, foreground = terminal background (for inverted effect)
-	projectBg := lipgloss.Color("#4285F4") // Blue
-	openingSep := lipgloss.NewStyle().
-		Background(projectBg).
-		Render(symbols.HeaderSepRight())
-	parts = append(parts, openingSep)
-
 	// Project segment (blue background)
+	projectBg := lipgloss.Color("#4285F4") // Blue
 	project := h.styles.BreadcrumbProject.Render(h.projectID)
 	parts = append(parts, project)
 	lastBg = projectBg
