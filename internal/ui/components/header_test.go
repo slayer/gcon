@@ -333,9 +333,9 @@ func TestHeaderEmptyResources(t *testing.T) {
 	assert.Contains(t, breadcrumbs, "my-project")
 	assert.Contains(t, breadcrumbs, "Compute Engine")
 
-	// Should not have extra separators for empty resources
+	// Should have opening separator, separator between project and category, plus closing separator
 	sepCount := strings.Count(breadcrumbs, symbols.HeaderSepRight())
-	assert.Equal(t, 1, sepCount, "should only have separator between project and category")
+	assert.Equal(t, 3, sepCount, "should have opening separator, separator between segments, and closing separator")
 }
 
 func TestHeaderGoogleRainbowColors(t *testing.T) {
