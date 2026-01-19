@@ -760,7 +760,7 @@ func (v *ObjectDetailsView) renderDetailsTab() string {
 	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6")).Width(24)
 	valueStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF"))
 	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#6B6B6B"))
-	urlStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#4285F4")).Italic(true)
+	urlStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#8AB4F8")) // Light blue for URLs
 
 	// Header
 	b.WriteString(titleStyle.Render(fmt.Sprintf("Object: %s", v.displayName)))
