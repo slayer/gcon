@@ -1444,6 +1444,11 @@ func (v *InstanceDetailsView) GetComputeClient() *gcp.ComputeClient {
 	return v.computeClient
 }
 
+// GetInstanceName returns the instance name for use in breadcrumbs
+func (v *InstanceDetailsView) GetInstanceName() string {
+	return v.instanceName
+}
+
 // buildHelpText generates context-sensitive help text based on the focused region
 func (v *InstanceDetailsView) buildHelpText() string {
 	bindings := focus.HelpForRegion(v.focusMgr.ActiveType(), v.getRegionLabel())
