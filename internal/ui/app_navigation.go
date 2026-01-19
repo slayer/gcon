@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"path/filepath"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/slayer/gcon/internal/ui/components/sidebar"
 	"github.com/slayer/gcon/internal/ui/views"
@@ -282,6 +284,9 @@ func (a *App) handleObjectSelected(msg views.ObjectSelectedMsg) tea.Cmd {
 	if storageClient == nil {
 		return nil
 	}
+	if a.selectedBucket == nil {
+		return nil
+	}
 
 	obj := msg.Object
 	a.selectedObject = &obj
@@ -294,15 +299,7 @@ func (a *App) handleObjectSelected(msg views.ObjectSelectedMsg) tea.Cmd {
 	a.currentView = ViewObjectDetails
 
 	// Get the display name (file name only, not full path)
-	displayName := obj.Name
-	if idx := len(obj.Name) - 1; idx >= 0 {
-		for i := idx; i >= 0; i-- {
-			if obj.Name[i] == '/' && i < len(obj.Name)-1 {
-				displayName = obj.Name[i+1:]
-				break
-			}
-		}
-	}
+	displayName := filepath.Base(obj.Name)
 
 	a.objectDetailsView = views.NewObjectDetailsView(
 		a.selectedBucket.Name,

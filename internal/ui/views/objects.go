@@ -36,8 +36,6 @@ type objectKeyMap struct {
 	Upload     key.Binding
 	Delete     key.Binding
 	ActionMenu key.Binding
-	Preview    key.Binding
-	Open       key.Binding
 }
 
 func defaultObjectKeyMap() objectKeyMap {
@@ -73,14 +71,6 @@ func defaultObjectKeyMap() objectKeyMap {
 		ActionMenu: key.NewBinding(
 			key.WithKeys("."),
 			key.WithHelp(".", "actions"),
-		),
-		Preview: key.NewBinding(
-			key.WithKeys("v"),
-			key.WithHelp("v", "preview"),
-		),
-		Open: key.NewBinding(
-			key.WithKeys("o"),
-			key.WithHelp("o", "open"),
 		),
 	}
 }

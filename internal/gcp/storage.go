@@ -389,7 +389,7 @@ type ObjectMetadata struct {
 	StorageClass string
 
 	// Technical details
-	MD5Hash        string // Base64 encoded
+	MD5Hash        string // Hex encoded
 	CRC32C         uint32
 	Etag           string
 	Generation     int64
@@ -426,7 +426,7 @@ func (c *StorageClient) GetObjectMetadata(ctx context.Context, bucketName, objec
 		owner = attrs.Owner
 	}
 
-	// Build MD5 hash as base64 string
+	// Build MD5 hash as hex string
 	var md5Hash string
 	if len(attrs.MD5) > 0 {
 		md5Hash = fmt.Sprintf("%x", attrs.MD5)
@@ -475,30 +475,19 @@ func encodeObjectPath(objectName string) string {
 func (c *StorageClient) GetObjectContent(ctx context.Context, bucketName, objectName string, maxBytes int64) ([]byte, error) {
 	obj := c.client.Bucket(bucketName).Object(objectName)
 
-	// Get object attributes to check size
-	attrs, err := obj.Attrs(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get object attributes: %w", err)
-	}
-
-	// Limit read size
-	readSize := attrs.Size
-	if readSize > maxBytes {
-		readSize = maxBytes
-	}
-
-	// Create a range reader to read only the needed bytes
-	reader, err := obj.NewRangeReader(ctx, 0, readSize)
+	// Create a range reader to read up to maxBytes
+	// NewRangeReader handles size limits internally - it reads from offset 0 up to length bytes
+	reader, err := obj.NewRangeReader(ctx, 0, maxBytes)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create reader: %w", err)
 	}
 	defer func() { _ = reader.Close() }()
 
-	content := make([]byte, readSize)
-	n, err := io.ReadFull(reader, content)
-	if err != nil && err != io.ErrUnexpectedEOF {
+	// ReadAll will read up to the smaller of maxBytes or actual object size
+	content, err := io.ReadAll(reader)
+	if err != nil {
 		return nil, fmt.Errorf("failed to read object content: %w", err)
 	}
 
-	return content[:n], nil
+	return content, nil
 }

@@ -230,7 +230,8 @@ func (v *ObjectDetailsView) loadMetadata() tea.Cmd {
 }
 
 // loadPreview fetches object content for preview
-func (v *ObjectDetailsView) loadPreview() tea.Cmd {
+// Takes objectSize as parameter to avoid race condition with v.metadata access
+func (v *ObjectDetailsView) loadPreview(objectSize int64) tea.Cmd {
 	return func() tea.Msg {
 		content, err := v.storageClient.GetObjectContent(
 			gocontext.Background(),
@@ -242,7 +243,7 @@ func (v *ObjectDetailsView) loadPreview() tea.Cmd {
 			return objectPreviewErrorMsg{err: err}
 		}
 
-		truncated := v.metadata != nil && v.metadata.Size > maxPreviewBytes
+		truncated := objectSize > maxPreviewBytes
 		return objectPreviewLoadedMsg{content: content, truncated: truncated}
 	}
 }
@@ -265,7 +266,7 @@ func (v *ObjectDetailsView) Update(msg tea.Msg) tea.Cmd {
 				if v.isPreviewable() {
 					v.tabs.SetActiveByID(objectTabIDPreview)
 					v.previewLoading = true
-					return v.loadPreview()
+					return v.loadPreview(msg.metadata.Size)
 				}
 			case ObjectActionOpen:
 				// Immediately open with default app
@@ -327,9 +328,9 @@ func (v *ObjectDetailsView) Update(msg tea.Msg) tea.Cmd {
 		v.updateViewportContent()
 		// Load preview when switching to preview tab
 		if msg.TabID == objectTabIDPreview && v.previewContent == nil && !v.previewLoading {
-			if v.isPreviewable() {
+			if v.isPreviewable() && v.metadata != nil {
 				v.previewLoading = true
-				return v.loadPreview()
+				return v.loadPreview(v.metadata.Size)
 			}
 		}
 		return nil
@@ -416,7 +417,7 @@ func (v *ObjectDetailsView) Update(msg tea.Msg) tea.Cmd {
 				v.tabs.SetActiveByID(objectTabIDPreview)
 				if v.previewContent == nil && !v.previewLoading {
 					v.previewLoading = true
-					return v.loadPreview()
+					return v.loadPreview(v.metadata.Size)
 				}
 			}
 			return nil
@@ -463,11 +464,11 @@ func (v *ObjectDetailsView) buildActions() []actionmenu.Action {
 func (v *ObjectDetailsView) executeAction(actionKey rune) tea.Cmd {
 	switch actionKey {
 	case 'v':
-		if v.isPreviewable() {
+		if v.isPreviewable() && v.metadata != nil {
 			v.tabs.SetActiveByID(objectTabIDPreview)
 			if v.previewContent == nil && !v.previewLoading {
 				v.previewLoading = true
-				return v.loadPreview()
+				return v.loadPreview(v.metadata.Size)
 			}
 		}
 	case 'o':
@@ -490,37 +491,8 @@ func (v *ObjectDetailsView) isPreviewable() bool {
 	if v.metadata == nil {
 		return false
 	}
-
-	// Check size limit
-	if v.metadata.Size > maxPreviewBytes {
-		return false
-	}
-
-	// Check content type
-	ct := strings.ToLower(v.metadata.ContentType)
-	if strings.HasPrefix(ct, "text/") {
-		return true
-	}
-	if ct == "application/json" || ct == "application/xml" ||
-		ct == "application/javascript" || ct == "application/x-yaml" {
-		return true
-	}
-
-	// Check file extension
-	name := strings.ToLower(v.metadata.Name)
-	previewableExts := []string{
-		".txt", ".md", ".log", ".yaml", ".yml", ".json", ".xml",
-		".html", ".css", ".js", ".ts", ".go", ".py", ".sh", ".bash",
-		".rb", ".rs", ".java", ".c", ".cpp", ".h", ".hpp",
-		".sql", ".csv", ".toml", ".ini", ".cfg", ".conf",
-	}
-	for _, ext := range previewableExts {
-		if strings.HasSuffix(name, ext) {
-			return true
-		}
-	}
-
-	return false
+	// Delegate to shared helper function
+	return isFilePreviewable(v.metadata.ContentType, v.metadata.Size, v.metadata.Name)
 }
 
 // downloadObject downloads the object to the current directory
@@ -569,6 +541,8 @@ func (v *ObjectDetailsView) openObject() tea.Cmd {
 			nil,
 		)
 		if err != nil {
+			// Clean up temp file on download failure
+			_ = os.Remove(tempPath)
 			return objectOpenCompleteMsg{err: err}
 		}
 
@@ -582,10 +556,12 @@ func (v *ObjectDetailsView) openObject() tea.Cmd {
 		case "windows":
 			cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", tempPath)
 		default:
+			_ = os.Remove(tempPath)
 			return objectOpenCompleteMsg{err: fmt.Errorf("unsupported operating system: %s", runtime.GOOS)}
 		}
 
 		if err := cmd.Start(); err != nil {
+			_ = os.Remove(tempPath)
 			return objectOpenCompleteMsg{err: fmt.Errorf("failed to open file: %w", err)}
 		}
 
