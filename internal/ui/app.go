@@ -36,7 +36,8 @@ const (
 	ViewImages
 	ViewImageDetails
 	ViewBuckets
-	ViewObjects // Browsing objects within a bucket
+	ViewObjects       // Browsing objects within a bucket
+	ViewObjectDetails // Viewing object details
 	ViewNetworks
 	ViewFirewall
 	ViewLogs
@@ -77,6 +78,7 @@ type App struct {
 	imageDetailsView    *views.ImageDetailsView
 	bucketsView         *views.BucketsView
 	objectsView         *views.ObjectsView
+	objectDetailsView   *views.ObjectDetailsView
 
 	// Selected context
 	selectedProject  *gcp.Project
@@ -85,6 +87,7 @@ type App struct {
 	selectedSnapshot *gcp.Snapshot
 	selectedImage    *gcp.Image
 	selectedBucket   *gcp.Bucket
+	selectedObject   *gcp.StorageObject
 
 	// UI state
 	showHelp              bool
@@ -240,6 +243,8 @@ func (a *App) getCurrentViewModel() views.View {
 		return a.bucketsView
 	case ViewObjects:
 		return a.objectsView
+	case ViewObjectDetails:
+		return a.objectDetailsView
 	}
 	return nil
 }
@@ -304,6 +309,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case ViewObjects:
 					a.objectsView = nil
 					a.selectedBucket = nil
+				case ViewObjectDetails:
+					a.objectDetailsView = nil
+					a.selectedObject = nil
 				}
 
 				a.updateSidebarActiveView()
@@ -439,6 +447,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case views.BucketSelectedMsg:
 		return a, a.handleBucketSelected(msg)
+
+	case views.ObjectSelectedMsg:
+		return a, a.handleObjectSelected(msg)
+
+	case views.ObjectDeletedMsg:
+		// Object was deleted, go back to objects list and refresh
+		return a, a.handleObjectDeleted(msg)
 	}
 
 	// Delegate to current view (only if content is focused)
@@ -586,6 +601,9 @@ func (a *App) updateViewSizes() {
 	}
 	if a.objectsView != nil {
 		a.objectsView.SetContext(a.ctx)
+	}
+	if a.objectDetailsView != nil {
+		a.objectDetailsView.SetContext(a.ctx)
 	}
 }
 
