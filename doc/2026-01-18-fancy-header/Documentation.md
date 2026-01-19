@@ -25,7 +25,7 @@ The implementation follows the footer component pattern, creating a self-contain
 
 2. **Symbol System** (`internal/ui/symbols/symbols.go`)
    - Added `HeaderSepRight` and `HeaderSepLeft` to SymbolSet
-   - Powerline thin arrows (`\ue0b1`, `\ue0b3`) for all modes
+   - Powerline solid arrows (`\ue0b0`, `\ue0b2`) for all modes
    - ASCII fallback: `>` and `<`
 
 3. **App Integration** (`internal/ui/app.go`, `internal/ui/app_render.go`)
@@ -74,8 +74,8 @@ func (h *Header) terminalWidth(s string) int {
     base := lipgloss.Width(s)
     extra := 0
     for _, r := range s {
-        // Cloud symbol, powerline arrows count as 2-wide
-        if r == '☁' || r == '\ue0b1' || r == '\ue0b3' {
+        // Cloud symbol, powerline arrows (both solid and thin) count as 2-wide
+        if r == '☁' || r == '\ue0b0' || r == '\ue0b1' || r == '\ue0b2' || r == '\ue0b3' {
             extra++
         }
     }
@@ -89,8 +89,8 @@ This prevents layout glitches where powerline symbols overflow the available wid
 
 All powerline symbols have ASCII fallbacks for terminals without Unicode support:
 
-- Thin right arrow `\ue0b1` → `>`
-- Thin left arrow `\ue0b3` → `<`
+- Solid right arrow `\ue0b0` → `>`
+- Solid left arrow `\ue0b2` → `<`
 - Cloud symbol `☁` → `#`
 
 Enable ASCII mode with: `./gcon --ascii`

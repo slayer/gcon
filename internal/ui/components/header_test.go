@@ -199,8 +199,8 @@ func TestHeaderTerminalWidth(t *testing.T) {
 		},
 		{
 			name:     "with powerline arrow",
-			input:    "\ue0b1text",
-			expected: lipgloss.Width("\ue0b1text") + 1, // Arrow counts as 2-wide
+			input:    "\ue0b0text",
+			expected: lipgloss.Width("\ue0b0text") + 1, // Solid arrow counts as 2-wide
 		},
 	}
 
