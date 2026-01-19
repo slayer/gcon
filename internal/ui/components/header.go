@@ -163,10 +163,9 @@ func (h *Header) renderBreadcrumbs() string {
 	var lastBg lipgloss.Color
 
 	// Project segment (blue background)
-	projectBg := lipgloss.Color("#4285F4") // Blue
 	project := h.styles.BreadcrumbProject.Render(h.projectID)
 	parts = append(parts, project)
-	lastBg = projectBg
+	lastBg = lipgloss.Color("#4285F4") // Blue
 
 	// Category segment (green background)
 	if h.category != "" {
@@ -200,13 +199,6 @@ func (h *Header) renderBreadcrumbs() string {
 		parts = append(parts, res)
 		lastBg = resourceBg
 	}
-
-	// Add closing separator to complete the powerline effect
-	// Foreground = last segment's background, no background (terminal default)
-	closingSep := lipgloss.NewStyle().
-		Foreground(lastBg).
-		Render(symbols.HeaderSepRight())
-	parts = append(parts, closingSep)
 
 	return strings.Join(parts, "")
 }
