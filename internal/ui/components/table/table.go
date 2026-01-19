@@ -428,25 +428,39 @@ func (m *Model) TotalRowCount() int {
 // handleMouseEvent processes mouse interactions with the table
 func (m Model) handleMouseEvent(msg tea.MouseMsg) (Model, tea.Cmd) {
 	// Calculate the Y offset to account for title and filter bar
-	// Title line + newline after MarginBottom(1)
+	// Note: msg.Y is already adjusted for app header at this point
+
+	// Count actual rendered lines:
+	// 1. Title text (1 line)
+	// 2. Newline after title (1 line)
 	yOffset := 2
 
 	// Filter bar if present (either active or showing filter value)
 	if m.filtering || m.filter.Value() != "" {
-		yOffset += 1 // Filter line
+		// Filter text + newline
+		yOffset += 2
 	}
 
-	// The bubbles/table renders its own header, which is 1 line
-	// We need to account for it
-	yOffset += 1
+	// Now we're at the start of m.table.View()
+	// The bubbles/table renders: header line, then data rows
+	// So the first data row is at yOffset + 1 (after header)
 
-	// Check if click is within the table rows area
+	// Check if click is within the table area
 	if msg.Y < yOffset {
 		return m, nil
 	}
 
-	// Calculate which row was clicked (relative to first visible row)
-	rowY := msg.Y - yOffset
+	// Adjust for table start position
+	tableRelativeY := msg.Y - yOffset
+
+	// First line of table is the header (row -1), skip it
+	if tableRelativeY < 1 {
+		return m, nil
+	}
+
+	// Calculate which data row was clicked (0-indexed)
+	rowY := tableRelativeY - 1
+
 	if rowY < 0 || rowY >= len(m.rows) {
 		m.hoverIndex = -1
 		return m, nil
