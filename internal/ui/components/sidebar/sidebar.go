@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/slayer/gcon/internal/ui/mouse"
 	"github.com/slayer/gcon/internal/ui/symbols"
 )
 
@@ -72,7 +73,8 @@ type Sidebar struct {
 	activeView   ViewType   // Currently active view (for highlighting)
 	styles       Styles
 	keys         KeyMap
-	hoverIndex   int // Index of item being hovered (-1 if none)
+	hoverIndex   int                  // Index of item being hovered (-1 if none)
+	regionMgr    *mouse.RegionManager // Manages clickable regions for mouse events
 }
 
 // New creates a new sidebar with the default GCP menu
@@ -90,6 +92,7 @@ func New() *Sidebar {
 		keys:         DefaultKeyMap(),
 		activeView:   ViewInstances,
 		hoverIndex:   -1,
+		regionMgr:    mouse.NewRegionManager(),
 	}
 }
 
@@ -99,39 +102,10 @@ func (s *Sidebar) Init() tea.Cmd {
 }
 
 // handleMouseEvent processes mouse interactions with the sidebar
+// This is kept for backward compatibility and handles wheel scroll and hover.
+// Click handling is now done via the Clickable interface (HandleRegionClick).
 func (s *Sidebar) handleMouseEvent(msg tea.MouseMsg) tea.Cmd {
-	// Calculate Y offset for header and divider
-	// Header: 1 line
-	// Divider: 1 line
-	yOffset := 2
-
-	// Add "Back" link if present (in submenu)
-	if len(s.path) > 0 {
-		// "< Back" line: 1 line
-		// Empty separator: 1 line
-		yOffset += 2
-	}
-
-	// Check if click is within menu items area
-	if msg.Y < yOffset {
-		return nil
-	}
-
-	// Calculate which item was clicked
-	itemY := msg.Y - yOffset
-	if itemY < 0 || itemY >= len(s.currentItems) {
-		s.hoverIndex = -1
-		return nil
-	}
-
 	switch msg.Action {
-	case tea.MouseActionPress:
-		if msg.Button == tea.MouseButtonLeft {
-			// Update cursor and select item
-			s.cursor = itemY
-			return s.selectItem()
-		}
-
 	case tea.MouseActionRelease:
 		// Handle wheel scroll
 		switch msg.Button {
@@ -143,10 +117,95 @@ func (s *Sidebar) handleMouseEvent(msg tea.MouseMsg) tea.Cmd {
 
 	case tea.MouseActionMotion:
 		// Track hover state
-		s.hoverIndex = itemY
+		// Calculate Y offset for header and divider
+		yOffset := 2
+		if len(s.path) > 0 {
+			yOffset += 2 // Add "Back" link
+		}
+
+		if msg.Y >= yOffset {
+			itemY := msg.Y - yOffset
+			if itemY >= 0 && itemY < len(s.currentItems) {
+				s.hoverIndex = itemY
+			} else {
+				s.hoverIndex = -1
+			}
+		}
 	}
 
 	return nil
+}
+
+// UpdateRegions recalculates clickable regions based on current state.
+// Implements the Clickable interface.
+func (s *Sidebar) UpdateRegions(offsetX, offsetY int) {
+	s.regionMgr.Clear()
+
+	// Calculate Y offset for header and divider
+	// Header: 1 line
+	// Divider: 1 line
+	yOffset := offsetY + 2
+
+	// Add "Back" link region if present (in submenu)
+	if len(s.path) > 0 {
+		s.regionMgr.Add(
+			"back",
+			mouse.Rect{
+				X:      offsetX,
+				Y:      yOffset,
+				Width:  s.Width(),
+				Height: 1,
+			},
+			nil,
+		)
+		// "< Back" line: 1 line
+		// Empty separator: 1 line
+		yOffset += 2
+	}
+
+	// Add region for each menu item
+	for i := range s.currentItems {
+		s.regionMgr.Add(
+			fmt.Sprintf("item-%d", i),
+			mouse.Rect{
+				X:      offsetX,
+				Y:      yOffset + i,
+				Width:  s.Width(),
+				Height: 1,
+			},
+			i, // Item index as metadata
+		)
+	}
+}
+
+// GetRegions returns current clickable regions.
+// Implements the Clickable interface.
+func (s *Sidebar) GetRegions() []mouse.Region {
+	return s.regionMgr.GetRegions()
+}
+
+// HandleRegionClick processes a click on a specific region.
+// Implements the Clickable interface.
+func (s *Sidebar) HandleRegionClick(regionID string) tea.Cmd {
+	// Handle back button
+	if regionID == "back" {
+		s.goBack()
+		return nil
+	}
+
+	// Parse region ID to get item index
+	var itemIdx int
+	if _, err := fmt.Sscanf(regionID, "item-%d", &itemIdx); err != nil {
+		return nil
+	}
+
+	if itemIdx < 0 || itemIdx >= len(s.currentItems) {
+		return nil
+	}
+
+	// Update cursor and select item
+	s.cursor = itemIdx
+	return s.selectItem()
 }
 
 // Update handles keyboard and mouse input when sidebar is focused

@@ -17,6 +17,7 @@ var (
 	noEmojisFlag bool
 	asciiFlag    bool
 	noMouseFlag  bool
+	debugFlag    bool
 )
 
 func init() {
@@ -26,6 +27,7 @@ func init() {
 	flag.BoolVar(&noEmojisFlag, "unicode", false, "Use Unicode symbols instead of emojis (alias for --no-emojis)")
 	flag.BoolVar(&asciiFlag, "ascii", false, "Use ASCII-only characters (no Unicode or emojis)")
 	flag.BoolVar(&noMouseFlag, "no-mouse", false, "Disable mouse support (for accessibility or unsupported terminals)")
+	flag.BoolVar(&debugFlag, "debug", false, "Enable debug logging to /tmp/gcon-debug.log (slow!)")
 }
 
 func main() {
@@ -44,6 +46,11 @@ func run() error {
 		symbols.SetMode(symbols.ModeASCII)
 	} else if noEmojisFlag {
 		symbols.SetMode(symbols.ModeUnicode)
+	}
+
+	// Enable debug logging if --debug flag is set
+	if debugFlag {
+		ui.EnableDebug()
 	}
 
 	// Initialize GCP client using Application Default Credentials

@@ -4,7 +4,6 @@ package table
 
 import (
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -14,36 +13,21 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/slayer/gcon/internal/ui/mouse"
 )
-
-var debugFile *os.File
-var debugEnabled bool
-
-func init() {
-	// Enable debug logging if GCON_DEBUG env is set
-	if os.Getenv("GCON_DEBUG") != "" {
-		debugEnabled = true
-		var err error
-		debugFile, err = os.OpenFile("/tmp/gcon-table-debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-		if err != nil {
-			debugEnabled = false
-		}
-	}
-}
-
-func debugLog(format string, args ...interface{}) {
-	if !debugEnabled || debugFile == nil {
-		return
-	}
-	_, _ = fmt.Fprintf(debugFile, format+"\n", args...)
-	_ = debugFile.Sync()
-}
 
 // Row represents a table row with filterable content
 type Row struct {
 	Data        []string // Column values
 	FilterValue string   // String used for filtering
 	ID          string   // Unique identifier for the row
+}
+
+// RowDoubleClickedMsg is emitted when a row is double-clicked.
+// Views should handle this to perform the default action (e.g., open details).
+type RowDoubleClickedMsg struct {
+	RowID string // ID of the double-clicked row
+	Index int    // Index of the double-clicked row
 }
 
 // Column defines a table column with enhanced properties.
@@ -122,9 +106,10 @@ type Model struct {
 	emptyText   string
 
 	// Mouse support
-	hoverIndex    int   // Index of row being hovered (-1 if none)
-	lastClickTime int64 // Unix timestamp of last click for double-click detection
-	lastClickRow  int   // Row index of last click
+	hoverIndex    int                  // Index of row being hovered (-1 if none)
+	lastClickTime int64                // Unix timestamp of last click for double-click detection
+	lastClickRow  int                  // Row index of last click
+	regionMgr     *mouse.RegionManager // Manages clickable regions for mouse events
 }
 
 // New creates a new table model (backward compatible)
@@ -155,6 +140,7 @@ func New(columns []table.Column, title string) Model {
 		keys:       DefaultKeyMap(),
 		emptyText:  "No items",
 		hoverIndex: -1,
+		regionMgr:  mouse.NewRegionManager(),
 	}
 }
 
@@ -199,6 +185,7 @@ func NewWithColumns(cols []Column, title string) Model {
 		keys:       DefaultKeyMap(),
 		emptyText:  "No items",
 		hoverIndex: -1,
+		regionMgr:  mouse.NewRegionManager(),
 	}
 }
 
@@ -451,86 +438,10 @@ func (m *Model) TotalRowCount() int {
 }
 
 // handleMouseEvent processes mouse interactions with the table
+// This is kept for backward compatibility and handles wheel scroll and hover.
+// Click handling is now done via the Clickable interface (HandleRegionClick).
 func (m Model) handleMouseEvent(msg tea.MouseMsg) (Model, tea.Cmd) {
-	// Calculate the Y offset to account for title and filter bar
-	// Note: msg.Y is already adjusted for app header at this point
-
-	// DEBUG: Log the incoming coordinates
-	debugLog("MOUSE Table: msg.Y=%d, filtering=%v, filter.Value=%q", msg.Y, m.filtering, m.filter.Value())
-
-	// Count actual rendered lines:
-	// titleStyle has MarginBottom(1) which renders as Height=2 (title text + blank line)
-	// Then we add b.WriteString("\n") which adds one more line
-	// Total: 3 lines for title section
-	yOffset := 3
-
-	// Filter bar if present (either active or showing filter value)
-	if m.filtering || m.filter.Value() != "" {
-		// Filter text + newline
-		yOffset += 2
-	}
-
-	// DEBUG: Log the calculated offset
-	debugLog("MOUSE Table: yOffset=%d", yOffset)
-
-	// Now we're at the start of m.table.View()
-	// The bubbles/table renders: header line (position 0), then data rows (position 1+)
-
-	// Check if click is within the table area
-	if msg.Y < yOffset {
-		return m, nil
-	}
-
-	// Adjust for table start position
-	tableRelativeY := msg.Y - yOffset
-
-	// DEBUG: Log table-relative coordinate
-	debugLog("MOUSE Table: tableRelativeY=%d", tableRelativeY)
-
-	// Position 0 is the table header, skip it
-	// Position 1 is first data row (index 0)
-	// Position 2 is second data row (index 1), etc.
-	if tableRelativeY < 1 {
-		// Clicked on header
-		return m, nil
-	}
-
-	// Calculate which data row was clicked (0-indexed)
-	// tableRelativeY=1 -> rowY=0 (first row)
-	// tableRelativeY=2 -> rowY=1 (second row)
-	rowY := tableRelativeY - 1
-
-	// DEBUG: Log final row calculation
-	debugLog("MOUSE Table: rowY=%d (will set cursor to this)", rowY)
-
-	if rowY < 0 || rowY >= len(m.rows) {
-		m.hoverIndex = -1
-		return m, nil
-	}
-
 	switch msg.Action {
-	case tea.MouseActionPress:
-		if msg.Button == tea.MouseButtonLeft {
-			// Check for double-click (within 500ms)
-			now := time.Now().UnixMilli()
-			doubleClick := false
-			if m.lastClickRow == rowY && now-m.lastClickTime < 500 {
-				doubleClick = true
-			}
-			m.lastClickTime = now
-			m.lastClickRow = rowY
-
-			// Update cursor to clicked row
-			m.table.SetCursor(rowY)
-
-			// If double-click, trigger selection (simulated Enter key)
-			if doubleClick {
-				var cmd tea.Cmd
-				m.table, cmd = m.table.Update(tea.KeyMsg{Type: tea.KeyEnter})
-				return m, cmd
-			}
-		}
-
 	case tea.MouseActionRelease:
 		// Handle wheel scroll
 		switch msg.Button {
@@ -542,10 +453,106 @@ func (m Model) handleMouseEvent(msg tea.MouseMsg) (Model, tea.Cmd) {
 
 	case tea.MouseActionMotion:
 		// Track hover state (for future hover styling)
-		m.hoverIndex = rowY
+		// Calculate Y offset for title and filter sections
+		yOffset := 3
+		if m.filtering || m.filter.Value() != "" {
+			yOffset += 2
+		}
+		yOffset += 1 // Skip header row
+
+		if msg.Y >= yOffset {
+			rowY := msg.Y - yOffset
+			if rowY >= 0 && rowY < len(m.rows) {
+				m.hoverIndex = rowY
+			} else {
+				m.hoverIndex = -1
+			}
+		}
 	}
 
 	return m, nil
+}
+
+// UpdateRegions recalculates clickable regions based on current state.
+// Implements the Clickable interface.
+func (m *Model) UpdateRegions(offsetX, offsetY int) {
+	m.regionMgr.Clear()
+
+	// Calculate Y offset for title and filter sections
+	// titleStyle has MarginBottom(1) which renders as Height=2 (title text + blank line)
+	// Then we add b.WriteString("\n") which adds one more line
+	// Total: 3 lines for title section
+	yOffset := offsetY + 3
+
+	// Filter bar if present (either active or showing filter value)
+	if m.filtering || m.filter.Value() != "" {
+		yOffset += 2 // Filter text + newline
+	}
+
+	// The bubbles/table renders: header line (position 0), then data rows (position 1+)
+	// Skip the header line by adding 1
+	yOffset += 1
+
+	// Add region for each visible row
+	visibleRows := m.height - 1 // Subtract header row
+	if visibleRows > len(m.rows) {
+		visibleRows = len(m.rows)
+	}
+
+	for i := 0; i < visibleRows; i++ {
+		m.regionMgr.Add(
+			fmt.Sprintf("row-%d", i),
+			mouse.Rect{
+				X:      offsetX,
+				Y:      yOffset + i,
+				Width:  m.width,
+				Height: 1,
+			},
+			i, // Row index as metadata
+		)
+	}
+}
+
+// GetRegions returns current clickable regions.
+// Implements the Clickable interface.
+func (m *Model) GetRegions() []mouse.Region {
+	return m.regionMgr.GetRegions()
+}
+
+// HandleRegionClick processes a click on a specific region.
+// Implements the Clickable interface.
+func (m *Model) HandleRegionClick(regionID string) tea.Cmd {
+	// Parse region ID to get row index
+	var rowIdx int
+	if _, err := fmt.Sscanf(regionID, "row-%d", &rowIdx); err != nil {
+		return nil
+	}
+
+	if rowIdx < 0 || rowIdx >= len(m.rows) {
+		return nil
+	}
+
+	// Check for double-click (within 500ms)
+	now := time.Now().UnixMilli()
+	isDoubleClick := m.lastClickRow == rowIdx && now-m.lastClickTime < 500
+	m.lastClickTime = now
+	m.lastClickRow = rowIdx
+
+	// Update cursor to clicked row
+	m.table.SetCursor(rowIdx)
+
+	// Emit double-click message for views to handle
+	if isDoubleClick {
+		row := m.rows[rowIdx]
+		return func() tea.Msg {
+			return RowDoubleClickedMsg{
+				RowID: row.ID,
+				Index: rowIdx,
+			}
+		}
+	}
+
+	return nil
 }
 
 // Update handles messages

@@ -2,49 +2,89 @@ package ui
 
 import (
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/sidebar"
 	"github.com/slayer/gcon/internal/ui/views"
 )
 
 // handleMouseEvent processes mouse events and routes them to appropriate components.
-// Mouse coordinates are screen-absolute, so we need to calculate offsets for
-// sidebar vs content area, and also for the app header.
+// Uses region-based click handling for better maintainability and correctness.
 func (a *App) handleMouseEvent(msg tea.MouseMsg) tea.Cmd {
+	// Fast path: ignore motion events entirely - they're too frequent and cause lag
+	if msg.Action == tea.MouseActionMotion {
+		return nil
+	}
+
 	// Get header height to adjust Y coordinate
 	_, headerHeight := a.layout.HeaderSize()
 
-	// DEBUG: Log original coordinates
-	debugLog("MOUSE App: ENTRY original msg.Y=%d, headerHeight=%d, action=%v", msg.Y, headerHeight, msg.Action)
-
-	// Adjust Y coordinate to be relative to content area (below header)
+	// Check if click is in header area
 	if msg.Y < headerHeight {
-		// Click is in header area, ignore
-		debugLog("MOUSE App: Click in header, ignoring")
 		return nil
 	}
-	adjustedMsg := msg
-	adjustedMsg.Y -= headerHeight
 
-	// DEBUG: Log adjusted coordinates
-	debugLog("MOUSE App: AFTER ADJUSTMENT adjusted msg.Y=%d", adjustedMsg.Y)
-
-	// Calculate sidebar offset for X coordinate
+	// Calculate sidebar offset
 	sidebarWidth := 0
 	if a.sidebarActive() {
 		sidebarWidth = a.sidebar.Width()
 	}
 
-	// If sidebar is active and mouse is in sidebar region, route to sidebar
-	if a.sidebarActive() && adjustedMsg.X < sidebarWidth {
-		cmd := a.sidebar.Update(adjustedMsg)
-		return cmd
+	// Handle mouse clicks using region-based system
+	// Only use regions for left-click press events to avoid performance overhead
+	if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+		// Check sidebar first (if active and click is in sidebar area)
+		if a.sidebarActive() && msg.X < sidebarWidth {
+			if clickable, ok := interface{}(a.sidebar).(components.Clickable); ok {
+				// Update regions with sidebar position (x=0, y=headerHeight)
+				clickable.UpdateRegions(0, headerHeight)
+
+				// Find which region was clicked
+				regions := clickable.GetRegions()
+				for _, region := range regions {
+					if region.Bounds.Contains(msg.X, msg.Y) {
+						return clickable.HandleRegionClick(region.ID)
+					}
+				}
+			}
+		} else {
+			// Check content area
+			if model := a.getCurrentViewModel(); model != nil {
+				if clickable, ok := model.(components.Clickable); ok {
+					// Update regions with content area position
+					offsetX := sidebarWidth
+					offsetY := headerHeight
+					clickable.UpdateRegions(offsetX, offsetY)
+
+					// Find which region was clicked
+					regions := clickable.GetRegions()
+					for _, region := range regions {
+						if region.Bounds.Contains(msg.X, msg.Y) {
+							return clickable.HandleRegionClick(region.ID)
+						}
+					}
+				}
+			}
+		}
 	}
 
-	// Otherwise route to current view with adjusted X coordinate
-	adjustedMsg.X -= sidebarWidth
+	// Only pass wheel scroll events to components, ignore motion events
+	// Motion events are too frequent and cause performance issues
+	if msg.Action == tea.MouseActionRelease {
+		switch msg.Button {
+		case tea.MouseButtonWheelUp, tea.MouseButtonWheelDown:
+			// Pass wheel scroll to components with adjusted coordinates
+			adjustedMsg := msg
+			adjustedMsg.Y -= headerHeight
 
-	if model := a.getCurrentViewModel(); model != nil {
-		return model.Update(adjustedMsg)
+			if a.sidebarActive() && adjustedMsg.X < sidebarWidth {
+				return a.sidebar.Update(adjustedMsg)
+			}
+
+			adjustedMsg.X -= sidebarWidth
+			if model := a.getCurrentViewModel(); model != nil {
+				return model.Update(adjustedMsg)
+			}
+		}
 	}
 
 	return nil

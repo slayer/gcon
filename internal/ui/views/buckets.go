@@ -10,8 +10,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
+	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/table"
 	"github.com/slayer/gcon/internal/ui/context"
+	"github.com/slayer/gcon/internal/ui/mouse"
 	"github.com/slayer/gcon/internal/ui/timeutil"
 )
 
@@ -161,6 +163,16 @@ func (v *BucketsView) Update(msg tea.Msg) tea.Cmd {
 		v.err = msg.err
 		return nil
 
+	case table.RowDoubleClickedMsg:
+		// Handle double-click on table row - navigate to bucket contents
+		bucket := v.findBucketByName(msg.RowID)
+		if bucket != nil {
+			return func() tea.Msg {
+				return BucketSelectedMsg{Bucket: *bucket}
+			}
+		}
+		return nil
+
 	case spinner.TickMsg:
 		if v.loading {
 			var cmd tea.Cmd
@@ -266,4 +278,30 @@ func (v *BucketsView) Close() error {
 // Height enforcement is handled by the app's View() method using lipgloss.MaxHeight()
 func (v *BucketsView) renderLoading(msg string) string {
 	return fmt.Sprintf("\n  %s %s\n", v.spinner.View(), msg)
+}
+
+// UpdateRegions delegates to the table component.
+// Implements the components.Clickable interface.
+func (v *BucketsView) UpdateRegions(offsetX, offsetY int) {
+	if clickable, ok := interface{}(&v.table).(components.Clickable); ok {
+		clickable.UpdateRegions(offsetX, offsetY)
+	}
+}
+
+// GetRegions delegates to the table component.
+// Implements the components.Clickable interface.
+func (v *BucketsView) GetRegions() []mouse.Region {
+	if clickable, ok := interface{}(&v.table).(components.Clickable); ok {
+		return clickable.GetRegions()
+	}
+	return nil
+}
+
+// HandleRegionClick delegates to the table component.
+// Implements the components.Clickable interface.
+func (v *BucketsView) HandleRegionClick(regionID string) tea.Cmd {
+	if clickable, ok := interface{}(&v.table).(components.Clickable); ok {
+		return clickable.HandleRegionClick(regionID)
+	}
+	return nil
 }

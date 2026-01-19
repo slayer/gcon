@@ -3,11 +3,13 @@
 package tabs
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/slayer/gcon/internal/ui/mouse"
 )
 
 // Tab represents a single tab in the tab bar
@@ -29,7 +31,8 @@ type Tabs struct {
 	width      int
 	keys       keyMap
 	styles     Styles
-	hoverIndex int // Index of tab being hovered (-1 if none)
+	hoverIndex int                  // Index of tab being hovered (-1 if none)
+	regionMgr  *mouse.RegionManager // Manages clickable regions for mouse events
 }
 
 // keyMap defines tab navigation key bindings
@@ -69,6 +72,7 @@ func New(tabs []Tab) *Tabs {
 		keys:       defaultKeyMap(),
 		styles:     DefaultStyles(),
 		hoverIndex: -1,
+		regionMgr:  mouse.NewRegionManager(),
 	}
 }
 
@@ -117,18 +121,43 @@ func (t *Tabs) Update(msg tea.Msg) tea.Cmd {
 }
 
 // handleMouseEvent processes mouse interactions with tabs
+// This is kept for backward compatibility and handles hover tracking.
+// Click handling is now done via the Clickable interface (HandleRegionClick).
 func (t *Tabs) handleMouseEvent(msg tea.MouseMsg) tea.Cmd {
-	// Tabs are rendered horizontally, calculate which tab was clicked
-	// based on X coordinate
-	if msg.Y != 0 {
-		// Click not on tab bar row
-		return nil
+	// Track hover state
+	if msg.Action == tea.MouseActionMotion && msg.Y == 0 {
+		// Calculate tab positions based on rendered widths
+		x := 0
+		for i, tab := range t.tabs {
+			var tabWidth int
+			if i == t.active {
+				tabWidth = lipgloss.Width(t.styles.Active.Render("[" + tab.Label + "]"))
+			} else {
+				tabWidth = lipgloss.Width(t.styles.Inactive.Render(" " + tab.Label + " "))
+			}
+
+			if msg.X >= x && msg.X < x+tabWidth {
+				t.hoverIndex = i
+				return nil
+			}
+
+			x += tabWidth + 1
+		}
+
+		t.hoverIndex = -1
 	}
 
-	// Calculate tab positions based on rendered widths
-	// Each tab is either "[Label]" (active) or " Label " (inactive)
-	// with " " separator between tabs
-	x := 0
+	return nil
+}
+
+// UpdateRegions recalculates clickable regions based on current state.
+// Implements the Clickable interface.
+func (t *Tabs) UpdateRegions(offsetX, offsetY int) {
+	t.regionMgr.Clear()
+
+	// Tabs are rendered on a single row at offsetY
+	// Calculate each tab's horizontal position
+	x := offsetX
 	for i, tab := range t.tabs {
 		var tabWidth int
 		if i == t.active {
@@ -139,27 +168,43 @@ func (t *Tabs) handleMouseEvent(msg tea.MouseMsg) tea.Cmd {
 			tabWidth = lipgloss.Width(t.styles.Inactive.Render(" " + tab.Label + " "))
 		}
 
-		// Check if click is within this tab
-		if msg.X >= x && msg.X < x+tabWidth {
-			switch msg.Action {
-			case tea.MouseActionPress:
-				if msg.Button == tea.MouseButtonLeft && i != t.active {
-					t.active = i
-					return t.emitTabChanged()
-				}
-			case tea.MouseActionMotion:
-				t.hoverIndex = i
-			}
-			return nil
-		}
+		t.regionMgr.Add(
+			fmt.Sprintf("tab-%d", i),
+			mouse.Rect{
+				X:      x,
+				Y:      offsetY,
+				Width:  tabWidth,
+				Height: 1,
+			},
+			i, // Tab index as metadata
+		)
 
-		// Add separator width (2 spaces)
-		x += tabWidth + 1
+		x += tabWidth + 1 // Add separator width
+	}
+}
+
+// GetRegions returns current clickable regions.
+// Implements the Clickable interface.
+func (t *Tabs) GetRegions() []mouse.Region {
+	return t.regionMgr.GetRegions()
+}
+
+// HandleRegionClick processes a click on a specific region.
+// Implements the Clickable interface.
+func (t *Tabs) HandleRegionClick(regionID string) tea.Cmd {
+	// Parse region ID to get tab index
+	var tabIdx int
+	if _, err := fmt.Sscanf(regionID, "tab-%d", &tabIdx); err != nil {
+		return nil
 	}
 
-	// Click outside all tabs
-	t.hoverIndex = -1
-	return nil
+	if tabIdx < 0 || tabIdx >= len(t.tabs) || tabIdx == t.active {
+		return nil
+	}
+
+	// Change active tab
+	t.active = tabIdx
+	return t.emitTabChanged()
 }
 
 // emitTabChanged returns a command that sends TabChangedMsg
