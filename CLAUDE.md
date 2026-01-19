@@ -150,6 +150,7 @@ On developing or updating a new feature keep in mind the following guidelines:
 - Ensure what any asynchronous operations (like reload, etc) should be displayed in footer (status bar) with spinner
 - Add new key bindings to global key bindings list in `internal/ui/keys.go` and document them in README.md, navigation.md, etc.
 - For view related actions - add them to context menu (ActionMenu) if applicable.
+- Ensure that breadcrumbs are updated properly when navigating between views.
 
 ## Bubble Tea Rendering Guidelines
 
