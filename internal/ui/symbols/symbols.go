@@ -44,6 +44,8 @@ type SymbolSet struct {
 	Divider          string
 	IdentityUser     string
 	IdentityService  string
+	HeaderSepRight   string // Powerline thin right arrow for header breadcrumbs
+	HeaderSepLeft    string // Powerline thin left arrow for header breadcrumbs
 }
 
 // Symbol sets for each mode
@@ -64,6 +66,8 @@ var (
 		Divider:          "─",
 		IdentityUser:     "👤",
 		IdentityService:  "🔧",
+		HeaderSepRight:   "\ue0b0", // Solid right arrow (fat)
+		HeaderSepLeft:    "\ue0b2", // Solid left arrow (fat)
 	}
 
 	unicodeSet = SymbolSet{
@@ -82,6 +86,8 @@ var (
 		Divider:          "─",
 		IdentityUser:     colorBlue.Render("◉"),
 		IdentityService:  colorOrange.Render("⚙"),
+		HeaderSepRight:   "\ue0b0", // Solid right arrow (fat)
+		HeaderSepLeft:    "\ue0b2", // Solid left arrow (fat)
 	}
 
 	asciiSet = SymbolSet{
@@ -100,6 +106,8 @@ var (
 		Divider:          "-",
 		IdentityUser:     colorBlue.Render("[U]"),
 		IdentityService:  colorOrange.Render("[SA]"),
+		HeaderSepRight:   ">", // ASCII fallback
+		HeaderSepLeft:    "<", // ASCII fallback
 	}
 )
 
@@ -196,3 +204,7 @@ func StatusSymbolWidth() int {
 		return 1
 	}
 }
+
+// Header breadcrumb separators
+func HeaderSepRight() string { return activeSet.HeaderSepRight }
+func HeaderSepLeft() string  { return activeSet.HeaderSepLeft }
