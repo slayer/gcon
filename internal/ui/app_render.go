@@ -5,56 +5,88 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
-	"github.com/slayer/gcon/internal/ui/symbols"
 )
 
 // renderHeader creates the header with breadcrumb navigation
 func (a *App) renderHeader() string {
-	header := a.styles.Title.Render(symbols.Cloud() + " gcon")
+	// Update header state based on current view
 	if a.selectedProject != nil {
-		header += a.styles.Muted.Render(" • " + a.selectedProject.ID)
+		a.header.SetProject(a.selectedProject.ID)
+	} else {
+		a.header.SetProject("")
+	}
 
-		// Show current category from sidebar if drilled down
-		if category := a.sidebar.GetCurrentCategory(); category != "" {
-			header += a.styles.Muted.Render(" • " + category)
-		} else {
-			// Show category based on current view
-			switch a.currentView {
-			case ViewInstances, ViewInstanceDetails, ViewDisks, ViewDiskDetails, ViewSnapshots, ViewSnapshotDetails, ViewImages, ViewImageDetails:
-				header += a.styles.Muted.Render(" • Compute Engine")
-			case ViewBuckets, ViewObjects, ViewObjectDetails:
-				header += a.styles.Muted.Render(" • Cloud Storage")
-			case ViewNetworks, ViewFirewall:
-				header += a.styles.Muted.Render(" • VPC Network")
-			}
-		}
-
-		if a.currentView == ViewInstanceDetails && a.selectedInstance != nil {
-			header += a.styles.Muted.Render(" • " + a.selectedInstance.Name)
-		}
-
-		if a.currentView == ViewDiskDetails && a.selectedDisk != nil {
-			header += a.styles.Muted.Render(" • " + a.selectedDisk.Name)
-		}
-
-		if a.currentView == ViewImageDetails && a.selectedImage != nil {
-			header += a.styles.Muted.Render(" • " + a.selectedImage.Name)
-		}
-
-		// Show bucket name and path when browsing objects
-		if a.currentView == ViewObjects && a.objectsView != nil {
-			header += a.styles.Muted.Render(" • " + a.objectsView.GetBucketName())
-			if path := a.objectsView.GetCurrentPath(); path != "" {
-				header += a.styles.Muted.Render(" / " + path)
-			}
-		}
-
-		// Show bucket name and object name when viewing object details
-		if a.currentView == ViewObjectDetails && a.objectDetailsView != nil {
-			header += a.styles.Muted.Render(" • " + a.objectDetailsView.GetBucketName())
+	// Determine category
+	category := ""
+	if cat := a.sidebar.GetCurrentCategory(); cat != "" {
+		category = cat
+	} else {
+		// Determine category based on current view
+		switch a.currentView {
+		case ViewInstances, ViewInstanceDetails, ViewDisks, ViewDiskDetails, ViewSnapshots, ViewSnapshotDetails, ViewImages, ViewImageDetails:
+			category = "Compute Engine"
+		case ViewBuckets, ViewObjects, ViewObjectDetails:
+			category = "Cloud Storage"
+		case ViewNetworks, ViewFirewall:
+			category = "VPC Network"
 		}
 	}
-	return header
+	a.header.SetCategory(category)
+
+	// Build resources list based on current view
+	// This creates hierarchical breadcrumbs showing navigation context
+	resources := []string{}
+	switch a.currentView {
+	case ViewInstanceDetails:
+		if a.selectedInstance != nil {
+			resources = append(resources, a.selectedInstance.Name)
+		}
+	case ViewDiskDetails:
+		// Show parent instance if we came from instance details
+		if a.instanceDetailsView != nil && len(a.viewStack) > 0 {
+			lastView := a.viewStack[len(a.viewStack)-1]
+			if lastView == ViewInstanceDetails {
+				// Show: instance-name → disk-name
+				resources = append(resources, a.instanceDetailsView.GetInstanceName())
+			}
+		}
+		// Always add disk name from the view (whether navigated from instance or directly)
+		if a.diskDetailsView != nil {
+			resources = append(resources, a.diskDetailsView.GetDiskName())
+		}
+	case ViewSnapshotDetails:
+		// Show parent disk if we came from disk details
+		if a.diskDetailsView != nil && len(a.viewStack) > 0 {
+			lastView := a.viewStack[len(a.viewStack)-1]
+			if lastView == ViewDiskDetails {
+				// Show: disk-name → snapshot-name
+				resources = append(resources, a.diskDetailsView.GetDiskName())
+			}
+		}
+		// Always add snapshot name from the view
+		if a.snapshotDetailsView != nil {
+			resources = append(resources, a.snapshotDetailsView.GetSnapshotName())
+		}
+	case ViewImageDetails:
+		if a.selectedImage != nil {
+			resources = append(resources, a.selectedImage.Name)
+		}
+	case ViewObjects:
+		if a.objectsView != nil {
+			resources = append(resources, a.objectsView.GetBucketName())
+			if path := a.objectsView.GetCurrentPath(); path != "" {
+				resources = append(resources, path)
+			}
+		}
+	case ViewObjectDetails:
+		// Show bucket name and object name when viewing object details
+		if a.objectDetailsView != nil {
+			resources = append(resources, a.objectDetailsView.GetBucketName())
+		}
+	}
+	a.header.SetResources(resources)
+
+	return a.header.View()
 }
 
 // renderCurrentView renders the content area based on current view

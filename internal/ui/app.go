@@ -106,6 +106,9 @@ type App struct {
 	showCommandPalette bool
 	recentTracker      *commandpalette.RecentTracker
 
+	// Header
+	header *components.Header
+
 	// Footer
 	footer *components.Footer
 
@@ -153,6 +156,7 @@ func NewApp(client *gcp.Client, opts AppOptions) *App {
 		focusedPanel:          FocusContent,
 		commandPalette:        commandpalette.New(),
 		recentTracker:         commandpalette.NewRecentTracker(),
+		header:                components.NewHeader(),
 		footer:                components.NewFooter(),
 		authenticatedIdentity: authenticatedIdentity,
 		identityType:          identityType,
@@ -388,6 +392,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.help.Width = msg.Width
 		// Update layout with new terminal dimensions
 		a.layout.SetSize(msg.Width, msg.Height)
+		a.header.SetSize(msg.Width)
 		a.footer.SetWidth(msg.Width)
 		a.updateViewSizes()
 		a.syncContext()
