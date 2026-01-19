@@ -428,14 +428,17 @@ func (m *Model) TotalRowCount() int {
 // handleMouseEvent processes mouse interactions with the table
 func (m Model) handleMouseEvent(msg tea.MouseMsg) (Model, tea.Cmd) {
 	// Calculate the Y offset to account for title and filter bar
-	// Title: 2 lines (text + newline)
-	// Filter: 2 lines if active or 1 line if showing filter value
-	yOffset := 2 // Title
+	// Title line + newline after MarginBottom(1)
+	yOffset := 2
+
+	// Filter bar if present (either active or showing filter value)
 	if m.filtering || m.filter.Value() != "" {
-		yOffset += 2 // Filter bar
+		yOffset += 1 // Filter line
 	}
-	// Add 2 more for table header
-	yOffset += 2
+
+	// The bubbles/table renders its own header, which is 1 line
+	// We need to account for it
+	yOffset += 1
 
 	// Check if click is within the table rows area
 	if msg.Y < yOffset {

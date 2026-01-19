@@ -8,23 +8,32 @@ import (
 
 // handleMouseEvent processes mouse events and routes them to appropriate components.
 // Mouse coordinates are screen-absolute, so we need to calculate offsets for
-// sidebar vs content area.
+// sidebar vs content area, and also for the app header.
 func (a *App) handleMouseEvent(msg tea.MouseMsg) tea.Cmd {
-	// Calculate sidebar offset for content area coordinates
+	// Get header height to adjust Y coordinate
+	_, headerHeight := a.layout.HeaderSize()
+
+	// Adjust Y coordinate to be relative to content area (below header)
+	if msg.Y < headerHeight {
+		// Click is in header area, ignore
+		return nil
+	}
+	adjustedMsg := msg
+	adjustedMsg.Y -= headerHeight
+
+	// Calculate sidebar offset for X coordinate
 	sidebarWidth := 0
 	if a.sidebarActive() {
 		sidebarWidth = a.sidebar.Width()
 	}
 
 	// If sidebar is active and mouse is in sidebar region, route to sidebar
-	if a.sidebarActive() && msg.X < sidebarWidth {
-		cmd := a.sidebar.Update(msg)
+	if a.sidebarActive() && adjustedMsg.X < sidebarWidth {
+		cmd := a.sidebar.Update(adjustedMsg)
 		return cmd
 	}
 
-	// Otherwise route to current view with adjusted coordinates
-	// Adjust X coordinate to be relative to content area
-	adjustedMsg := msg
+	// Otherwise route to current view with adjusted X coordinate
 	adjustedMsg.X -= sidebarWidth
 
 	if model := a.getCurrentViewModel(); model != nil {
