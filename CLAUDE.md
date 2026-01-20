@@ -317,12 +317,27 @@ func (m *Model) SetSize(width, height int) {
 
 | Key | Action |
 |-----|--------|
-| `Enter` | Open folder |
+| `Enter` | Open folder / View file details |
 | `d` | Download file/folder |
 | `u` | Upload files |
 | `D` | Delete file/folder (with confirmation) |
+| `.` | Open action menu |
 | `n` | Next page |
 | `p` | Previous page |
+
+### Object Details View
+
+| Key | Action |
+|-----|--------|
+| `v` | Preview text file (< 500KB) |
+| `o` | Download and open with default app |
+| `d` | Download to current directory |
+| `D` | Delete (with confirmation) |
+| `.` | Open action menu |
+| `r` | Refresh metadata |
+| `Tab` | Switch between tabs and content |
+| `h/l` or `1-2` | Switch tabs (Details/Preview) |
+| `Esc` | Back to objects list |
 
 
 ## _IMPORTANT NOTICES_
