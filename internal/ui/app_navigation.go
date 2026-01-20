@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"path/filepath"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/sidebar"
@@ -187,7 +189,7 @@ func (a *App) updateSidebarActiveView() {
 		a.sidebar.SetActiveView(sidebar.ViewSnapshots)
 	case ViewImages, ViewImageDetails:
 		a.sidebar.SetActiveView(sidebar.ViewImages)
-	case ViewBuckets, ViewObjects:
+	case ViewBuckets, ViewObjects, ViewObjectDetails:
 		a.sidebar.SetActiveView(sidebar.ViewBuckets)
 	case ViewNetworks:
 		a.sidebar.SetActiveView(sidebar.ViewNetworks)
@@ -355,4 +357,64 @@ func (a *App) handleSnapshotDiskSelected(msg views.SnapshotDiskSelectedMsg) tea.
 	a.updateSidebarActiveView()
 	a.updateViewSizes()
 	return a.diskDetailsView.Init()
+}
+
+// handleObjectSelected processes object selection and navigates to details view
+func (a *App) handleObjectSelected(msg views.ObjectSelectedMsg) tea.Cmd {
+	if a.objectsView == nil {
+		return nil
+	}
+	storageClient := a.objectsView.GetStorageClient()
+	if storageClient == nil {
+		return nil
+	}
+	if a.selectedBucket == nil {
+		return nil
+	}
+
+	obj := msg.Object
+	a.selectedObject = &obj
+
+	// Track recent object access
+	a.recentTracker.Track("object", obj.Name, obj.Name)
+
+	// Push current view onto stack for back navigation
+	a.viewStack = append(a.viewStack, a.currentView)
+	a.currentView = ViewObjectDetails
+
+	// Get the display name (file name only, not full path)
+	displayName := filepath.Base(obj.Name)
+
+	a.objectDetailsView = views.NewObjectDetailsView(
+		a.selectedBucket.Name,
+		obj.Name,
+		displayName,
+		storageClient,
+		msg.Action,
+	)
+	a.updateSidebarActiveView()
+	a.updateViewSizes()
+	return a.objectDetailsView.Init()
+}
+
+// handleObjectDeleted processes object deletion and refreshes the objects list
+func (a *App) handleObjectDeleted(_ views.ObjectDeletedMsg) tea.Cmd {
+	// Navigate back to objects list
+	if len(a.viewStack) > 0 {
+		lastViewIndex := len(a.viewStack) - 1
+		a.currentView = a.viewStack[lastViewIndex]
+		a.viewStack = a.viewStack[:lastViewIndex]
+	}
+
+	// Clean up object details view
+	a.objectDetailsView = nil
+	a.selectedObject = nil
+
+	a.updateSidebarActiveView()
+
+	// Refresh objects list if available
+	if a.objectsView != nil {
+		return a.objectsView.Init()
+	}
+	return nil
 }
