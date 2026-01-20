@@ -8,10 +8,14 @@ import (
 
 // Powerline separator characters (Unicode code points for powerline fonts)
 const (
-	SepRight     = "\ue0b0" // Powerline right arrow (solid)
-	SepRightThin = "\ue0b1" // Powerline right arrow (thin)
-	SepLeft      = "\ue0b2" // Powerline left arrow (solid)
-	SepLeftThin  = "\ue0b3" // Powerline left arrow (thin)
+	SepRight          = "\ue0b0" // Powerline right arrow (solid)
+	SepRightThin      = "\ue0b1" // Powerline right arrow (thin)
+	SepLeft           = "\ue0b2" // Powerline left arrow (solid)
+	SepLeftThin       = "\ue0b3" // Powerline left arrow (thin)
+	SepDiagonalRight  = "\ue0bc" // Powerline diagonal right (bottom-left to top-right)
+	SepDiagonalLeft   = "\ue0ba" // Powerline diagonal left (top-left to bottom-right)
+	SepDiagonalRightR = "\ue0be" // Powerline diagonal right reverse
+	SepDiagonalLeftR  = "\ue0b8" // Powerline diagonal left reverse
 )
 
 // FooterStyles defines colors for each section slot
@@ -303,7 +307,8 @@ func (f *Footer) terminalWidth(s string) int {
 	extra := 0
 	for _, r := range s {
 		// Powerline symbols render as 2-wide in most terminals
-		if r == '\ue0b0' || r == '\ue0b1' || r == '\ue0b2' || r == '\ue0b3' {
+		if r == '\ue0b0' || r == '\ue0b1' || r == '\ue0b2' || r == '\ue0b3' ||
+			r == '\ue0bc' || r == '\ue0ba' || r == '\ue0be' || r == '\ue0b8' {
 			extra++
 		}
 	}
@@ -334,7 +339,8 @@ func (f *Footer) truncateToWidth(s string, maxWidth int) string {
 
 		// Calculate width of this rune
 		runeWidth := 1
-		if r == '\ue0b0' || r == '\ue0b1' || r == '\ue0b2' || r == '\ue0b3' {
+		if r == '\ue0b0' || r == '\ue0b1' || r == '\ue0b2' || r == '\ue0b3' ||
+			r == '\ue0bc' || r == '\ue0ba' || r == '\ue0be' || r == '\ue0b8' {
 			runeWidth = 2 // Powerline symbols render as 2-wide
 		}
 
@@ -471,8 +477,8 @@ func (f *Footer) renderCenterGroup() string {
 	}
 
 	if len(centerParts) > 0 {
-		// Join center parts with thin separators
-		content := strings.Join(centerParts, " "+SepRightThin+" ")
+		// Join center parts with diagonal separators for visual interest
+		content := strings.Join(centerParts, " "+SepDiagonalRight+" ")
 		parts = append(parts, style.Render(content))
 
 		// Final separator to spacer
