@@ -505,6 +505,23 @@ func (v *ObjectDetailsView) downloadObject() tea.Cmd {
 
 		localPath := filepath.Join(cwd, v.displayName)
 
+		// Check if file already exists
+		if _, err := os.Stat(localPath); err == nil {
+			// File exists - append a suffix
+			baseName := v.displayName
+			ext := filepath.Ext(baseName)
+			nameWithoutExt := strings.TrimSuffix(baseName, ext)
+
+			// Try to find an available filename
+			for i := 1; i < 1000; i++ {
+				newPath := filepath.Join(cwd, fmt.Sprintf("%s (%d)%s", nameWithoutExt, i, ext))
+				if _, err := os.Stat(newPath); os.IsNotExist(err) {
+					localPath = newPath
+					break
+				}
+			}
+		}
+
 		err = v.storageClient.DownloadObject(
 			gocontext.Background(),
 			v.bucketName,
@@ -521,6 +538,9 @@ func (v *ObjectDetailsView) downloadObject() tea.Cmd {
 }
 
 // openObject downloads the object to a temp file and opens it with the default app
+// Note: Temp files are left in the OS temp directory and rely on OS cleanup.
+// This is acceptable as the files remain accessible while the app that opened them runs.
+// Users can manually clean up /tmp/gcon-* files if needed.
 func (v *ObjectDetailsView) openObject() tea.Cmd {
 	return func() tea.Msg {
 		// Create temp file with appropriate extension
@@ -547,6 +567,8 @@ func (v *ObjectDetailsView) openObject() tea.Cmd {
 		}
 
 		// Open with default app based on OS
+		// Note: exec.Command automatically handles proper argument quoting/escaping
+		// for spaces and special characters in paths across all platforms
 		var cmd *exec.Cmd
 		switch runtime.GOOS {
 		case "darwin":
