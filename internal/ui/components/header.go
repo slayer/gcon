@@ -133,7 +133,7 @@ func (h *Header) View() string {
 	return result
 }
 
-// renderAppName renders "gcon - Google Console Platform TUI" with rainbow Google
+// renderAppName renders "gcon - Google Console Platform TUI Console" with rainbow Google
 func (h *Header) renderAppName() string {
 	cloud := symbols.Cloud()
 	gcon := h.styles.Title.Render("gcon")
@@ -148,7 +148,7 @@ func (h *Header) renderAppName() string {
 	e := h.styles.GoogleColors.E.Render("e")
 	google := g + o1 + o2 + g2 + l + e
 
-	rest := h.styles.Title.Render(" Console Platform TUI")
+	rest := h.styles.Title.Render(" Console Platform TUI Console")
 
 	return cloud + " " + gcon + dash + google + rest
 }
@@ -162,10 +162,18 @@ func (h *Header) renderBreadcrumbs() string {
 	var parts []string
 	var lastBg lipgloss.Color
 
+	// Leading separator with blue background and black foreground
+	projectBg := lipgloss.Color("#4285F4") // Blue
+	leadingSep := lipgloss.NewStyle().
+		Background(projectBg).
+		Foreground(lipgloss.Color("#000000")).
+		Render(symbols.HeaderSepRight())
+	parts = append(parts, leadingSep)
+
 	// Project segment (blue background)
 	project := h.styles.BreadcrumbProject.Render(h.projectID)
 	parts = append(parts, project)
-	lastBg = lipgloss.Color("#4285F4") // Blue
+	lastBg = projectBg
 
 	// Category segment (green background)
 	if h.category != "" {
@@ -200,6 +208,12 @@ func (h *Header) renderBreadcrumbs() string {
 		lastBg = resourceBg
 	}
 
+	// Add trailing separator
+	trailingSep := lipgloss.NewStyle().
+		Foreground(lastBg).
+		Render(symbols.HeaderSepRight())
+	parts = append(parts, trailingSep)
+
 	return strings.Join(parts, "")
 }
 
@@ -209,8 +223,8 @@ func (h *Header) terminalWidth(s string) int {
 	extra := 0
 	for _, r := range s {
 		// Count wide symbols that render as 2-wide but lipgloss counts as 1-wide
-		// Cloud symbol, powerline arrows (both thin and solid), etc.
-		if r == '☁' || r == '\ue0b0' || r == '\ue0b1' || r == '\ue0b2' || r == '\ue0b3' {
+		// Cloud symbol, powerline arrows (solid, thin, diagonal), etc.
+		if r == '☁' || r == '\ue0b0' || r == '\ue0b1' || r == '\ue0b2' || r == '\ue0b3' || r == '\ue0ba' || r == '\ue0bc' {
 			extra++
 		}
 	}
@@ -241,7 +255,7 @@ func (h *Header) truncateToWidth(s string, maxWidth int) string {
 
 		// Calculate width of this rune
 		runeWidth := 1
-		if r == '☁' || r == '\ue0b0' || r == '\ue0b1' || r == '\ue0b2' || r == '\ue0b3' {
+		if r == '☁' || r == '\ue0b0' || r == '\ue0b1' || r == '\ue0b2' || r == '\ue0b3' || r == '\ue0ba' || r == '\ue0bc' {
 			runeWidth = 2 // Wide symbols
 		}
 

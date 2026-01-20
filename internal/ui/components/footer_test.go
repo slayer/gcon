@@ -170,8 +170,8 @@ func TestFooter_View_CenterGroupWithThinSeparators(t *testing.T) {
 
 	view := f.View()
 
-	// Center group items should be separated by thin separators
-	assert.Contains(t, view, SepRightThin)
+	// Center group items should be separated by diagonal separators
+	assert.Contains(t, view, SepDiagonalRight)
 }
 
 func TestFooter_View_NoOverlap(t *testing.T) {
@@ -212,9 +212,11 @@ func TestFooter_terminalWidth(t *testing.T) {
 	}{
 		{"empty string", "", 0},
 		{"plain text", "hello", 5},
-		{"text with powerline right", "hello" + SepRight + "world", 12}, // 5+1+5 + 1 extra for powerline
-		{"multiple powerlines", SepRight + SepLeft, 4},                  // 2 chars + 2 extra
-		{"all powerline types", SepRight + SepRightThin + SepLeft + SepLeftThin, 8},
+		{"text with powerline right", "hello" + SepRight + "world", 12},                                          // 5+1+5 + 1 extra for powerline
+		{"multiple powerlines", SepRight + SepLeft, 4},                                                           // 2 chars + 2 extra
+		{"all powerline types", SepRight + SepRightThin + SepLeft + SepLeftThin, 8},                              // 4 chars + 4 extra
+		{"diagonal separators", SepDiagonalRight + SepDiagonalLeft + SepDiagonalRightR + SepDiagonalLeftR, 8},    // 4 chars + 4 extra
+		{"mixed powerline and diagonal", "test" + SepRight + "a" + SepDiagonalRight + "b" + SepLeft + "end", 15}, // test(4) + sep(2 visual) + a(1) + sep(2 visual) + b(1) + sep(2 visual) + end(3) = 15
 	}
 
 	for _, tt := range tests {

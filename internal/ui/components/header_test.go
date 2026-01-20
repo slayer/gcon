@@ -57,7 +57,7 @@ func TestHeaderRenderAppName(t *testing.T) {
 
 	// Check that it contains expected components
 	assert.Contains(t, appName, "gcon")
-	assert.Contains(t, appName, "Console Platform TUI")
+	assert.Contains(t, appName, "Console Platform TUI Console")
 
 	// Should not be empty
 	assert.NotEmpty(t, appName)
@@ -159,7 +159,7 @@ func TestHeaderView_AppNameOnly(t *testing.T) {
 
 	// Should contain app name
 	assert.Contains(t, view, "gcon")
-	assert.Contains(t, view, "Console Platform TUI")
+	assert.Contains(t, view, "Console Platform TUI Console")
 	assert.NotEmpty(t, view)
 }
 
@@ -302,7 +302,7 @@ func TestHeaderWidthHandling(t *testing.T) {
 			verify: func(t *testing.T, view string, width int) {
 				assert.NotEmpty(t, view)
 				assert.Contains(t, view, "gcon")
-				assert.Contains(t, view, "Console Platform TUI")
+				assert.Contains(t, view, "Console Platform TUI Console")
 			},
 		},
 	}
@@ -335,7 +335,7 @@ func TestHeaderEmptyResources(t *testing.T) {
 
 	// Should not have extra separators for empty resources
 	sepCount := strings.Count(breadcrumbs, symbols.HeaderSepRight())
-	assert.Equal(t, 1, sepCount, "should only have separator between project and category")
+	assert.Equal(t, 3, sepCount, "should have leading separator (inverted), separator between segments, and trailing separator")
 }
 
 func TestHeaderGoogleRainbowColors(t *testing.T) {
