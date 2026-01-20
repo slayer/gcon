@@ -2,9 +2,93 @@ package ui
 
 import (
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/sidebar"
 	"github.com/slayer/gcon/internal/ui/views"
 )
+
+// handleMouseEvent processes mouse events and routes them to appropriate components.
+// Uses region-based click handling for better maintainability and correctness.
+func (a *App) handleMouseEvent(msg tea.MouseMsg) tea.Cmd {
+	// Fast path: ignore motion events entirely - they're too frequent and cause lag
+	if msg.Action == tea.MouseActionMotion {
+		return nil
+	}
+
+	// Get header height to adjust Y coordinate
+	_, headerHeight := a.layout.HeaderSize()
+
+	// Check if click is in header area
+	if msg.Y < headerHeight {
+		return nil
+	}
+
+	// Calculate sidebar offset
+	sidebarWidth := 0
+	if a.sidebarActive() {
+		sidebarWidth = a.sidebar.Width()
+	}
+
+	// Handle mouse clicks using region-based system
+	// Only use regions for left-click press events to avoid performance overhead
+	if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+		// Check sidebar first (if active and click is in sidebar area)
+		if a.sidebarActive() && msg.X < sidebarWidth {
+			if clickable, ok := interface{}(a.sidebar).(components.Clickable); ok {
+				// Update regions with sidebar position (x=0, y=headerHeight)
+				clickable.UpdateRegions(0, headerHeight)
+
+				// Find which region was clicked
+				regions := clickable.GetRegions()
+				for _, region := range regions {
+					if region.Bounds.Contains(msg.X, msg.Y) {
+						return clickable.HandleRegionClick(region.ID)
+					}
+				}
+			}
+		} else {
+			// Check content area
+			if model := a.getCurrentViewModel(); model != nil {
+				if clickable, ok := model.(components.Clickable); ok {
+					// Update regions with content area position
+					offsetX := sidebarWidth
+					offsetY := headerHeight
+					clickable.UpdateRegions(offsetX, offsetY)
+
+					// Find which region was clicked
+					regions := clickable.GetRegions()
+					for _, region := range regions {
+						if region.Bounds.Contains(msg.X, msg.Y) {
+							return clickable.HandleRegionClick(region.ID)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Only pass wheel scroll events to components, ignore motion events
+	// Motion events are too frequent and cause performance issues
+	if msg.Action == tea.MouseActionRelease {
+		switch msg.Button {
+		case tea.MouseButtonWheelUp, tea.MouseButtonWheelDown:
+			// Pass wheel scroll to components with adjusted coordinates
+			adjustedMsg := msg
+			adjustedMsg.Y -= headerHeight
+
+			if a.sidebarActive() && adjustedMsg.X < sidebarWidth {
+				return a.sidebar.Update(adjustedMsg)
+			}
+
+			adjustedMsg.X -= sidebarWidth
+			if model := a.getCurrentViewModel(); model != nil {
+				return model.Update(adjustedMsg)
+			}
+		}
+	}
+
+	return nil
+}
 
 // handleSidebarNavigation processes sidebar navigation messages and initializes views
 func (a *App) handleSidebarNavigation(msg sidebar.NavigateMsg) tea.Cmd {

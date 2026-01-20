@@ -13,6 +13,7 @@ import (
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/table"
 	"github.com/slayer/gcon/internal/ui/context"
+	"github.com/slayer/gcon/internal/ui/mouse"
 	"github.com/slayer/gcon/internal/ui/symbols"
 	"github.com/slayer/gcon/internal/ui/timeutil"
 )
@@ -211,6 +212,16 @@ func (v *SnapshotsView) Update(msg tea.Msg) tea.Cmd {
 		v.err = msg.err
 		return nil
 
+	case table.RowDoubleClickedMsg:
+		// Handle double-click on table row - navigate to details
+		snapshot := v.findSnapshotByName(msg.RowID)
+		if snapshot != nil {
+			return func() tea.Msg {
+				return SnapshotSelectedMsg{Snapshot: *snapshot}
+			}
+		}
+		return nil
+
 	case spinner.TickMsg:
 		if v.loading {
 			var cmd tea.Cmd
@@ -323,4 +334,30 @@ func (v *SnapshotsView) SetContext(ctx *context.ProgramContext) {
 // renderLoading renders a loading message
 func (v *SnapshotsView) renderLoading(msg string) string {
 	return fmt.Sprintf("\n  %s %s\n", v.spinner.View(), msg)
+}
+
+// UpdateRegions delegates to the table component.
+// Implements the components.Clickable interface.
+func (v *SnapshotsView) UpdateRegions(offsetX, offsetY int) {
+	if clickable, ok := interface{}(&v.table).(components.Clickable); ok {
+		clickable.UpdateRegions(offsetX, offsetY)
+	}
+}
+
+// GetRegions delegates to the table component.
+// Implements the components.Clickable interface.
+func (v *SnapshotsView) GetRegions() []mouse.Region {
+	if clickable, ok := interface{}(&v.table).(components.Clickable); ok {
+		return clickable.GetRegions()
+	}
+	return nil
+}
+
+// HandleRegionClick delegates to the table component.
+// Implements the components.Clickable interface.
+func (v *SnapshotsView) HandleRegionClick(regionID string) tea.Cmd {
+	if clickable, ok := interface{}(&v.table).(components.Clickable); ok {
+		return clickable.HandleRegionClick(regionID)
+	}
+	return nil
 }

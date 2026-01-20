@@ -12,17 +12,16 @@ import (
 var debugFile *os.File
 var debugEnabled bool
 
-func init() {
-	// Enable debug logging if GCON_DEBUG env is set
-	if os.Getenv("GCON_DEBUG") != "" {
-		debugEnabled = true
-		var err error
-		debugPath := filepath.Join(os.TempDir(), "gcon-debug.log")
-		debugFile, err = os.Create(debugPath)
-		if err != nil {
-			// Silently disable debug if we can't create the file
-			debugEnabled = false
-		}
+// EnableDebug enables debug logging to /tmp/gcon-debug.log.
+// Warning: This significantly impacts performance due to disk sync on every log.
+func EnableDebug() {
+	debugEnabled = true
+	var err error
+	debugPath := filepath.Join(os.TempDir(), "gcon-debug.log")
+	debugFile, err = os.Create(debugPath)
+	if err != nil {
+		// Silently disable debug if we can't create the file
+		debugEnabled = false
 	}
 }
 
