@@ -15,6 +15,7 @@ import (
 	"github.com/slayer/gcon/internal/ui/components/actionmenu"
 	"github.com/slayer/gcon/internal/ui/components/table"
 	"github.com/slayer/gcon/internal/ui/context"
+	"github.com/slayer/gcon/internal/ui/mouse"
 	"github.com/slayer/gcon/internal/ui/overlay"
 	"github.com/slayer/gcon/internal/ui/symbols"
 )
@@ -240,6 +241,16 @@ func (v *InstancesView) Update(msg tea.Msg) tea.Cmd {
 
 	case actionmenu.ActionMenuClosedMsg:
 		v.menuOpen = false
+		return nil
+
+	case table.RowDoubleClickedMsg:
+		// Handle double-click on table row - navigate to details
+		inst := v.findInstanceByName(msg.RowID)
+		if inst != nil {
+			return func() tea.Msg {
+				return InstanceSelectedMsg{Instance: *inst}
+			}
+		}
 		return nil
 
 	case spinner.TickMsg:
@@ -559,4 +570,30 @@ func (v *InstancesView) failTask(id string, err error) tea.Cmd {
 	return tea.Tick(5*time.Second, func(t time.Time) tea.Msg {
 		return context.TaskClearMsg{TaskID: id}
 	})
+}
+
+// UpdateRegions delegates to the table component.
+// Implements the components.Clickable interface.
+func (v *InstancesView) UpdateRegions(offsetX, offsetY int) {
+	if clickable, ok := interface{}(&v.table).(components.Clickable); ok {
+		clickable.UpdateRegions(offsetX, offsetY)
+	}
+}
+
+// GetRegions delegates to the table component.
+// Implements the components.Clickable interface.
+func (v *InstancesView) GetRegions() []mouse.Region {
+	if clickable, ok := interface{}(&v.table).(components.Clickable); ok {
+		return clickable.GetRegions()
+	}
+	return nil
+}
+
+// HandleRegionClick delegates to the table component.
+// Implements the components.Clickable interface.
+func (v *InstancesView) HandleRegionClick(regionID string) tea.Cmd {
+	if clickable, ok := interface{}(&v.table).(components.Clickable); ok {
+		return clickable.HandleRegionClick(regionID)
+	}
+	return nil
 }
