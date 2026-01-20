@@ -64,6 +64,8 @@ func (a *App) handleNavigationCommand(cmd commandpalette.Command) (tea.Model, te
 // handleActionCommand executes the selected action from command palette
 func (a *App) handleActionCommand(cmd commandpalette.Command) (tea.Model, tea.Cmd) {
 	switch cmd.ID {
+	case "action:switch-project":
+		return a, a.openProjectDialog(true) // canCancel=true since user explicitly requested
 	case "action:refresh":
 		return a, func() tea.Msg { return RefreshMsg{} }
 	case "action:toggle-sidebar":

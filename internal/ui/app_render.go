@@ -155,6 +155,9 @@ func (a *App) renderCurrentView() string {
 		return a.renderPlaceholder("VPC Networks")
 	case ViewFirewall:
 		return a.renderPlaceholder("Firewall Rules")
+	case ViewNone:
+		// No view selected - waiting for project selection
+		return ""
 	}
 	return "View not implemented"
 }
@@ -287,6 +290,86 @@ func (a *App) renderWithCommandPalette(background string) string {
 			paletteLineWidth := lipgloss.Width(paletteLine)
 			if paletteLineWidth < maxPaletteWidth {
 				newLine.WriteString(strings.Repeat(" ", maxPaletteWidth-paletteLineWidth))
+			}
+
+			// Right part: skip first rightStart characters of background
+			if rightStart < bgWidth {
+				rightPart := truncateLeft(bgLine, rightStart)
+				newLine.WriteString(rightPart)
+			}
+
+			result[bgIndex] = newLine.String()
+		}
+	}
+
+	return strings.Join(result, "\n")
+}
+
+// renderWithProjectDialog overlays the project dialog on top of the content
+func (a *App) renderWithProjectDialog(background string) string {
+	// Get the project dialog view
+	dialogView := a.projectDialog.View()
+
+	// Split background into lines
+	bgLines := strings.Split(background, "\n")
+
+	// Split dialog into lines
+	dialogLines := strings.Split(dialogView, "\n")
+
+	// Find max dialog width for consistent positioning
+	maxDialogWidth := 0
+	for _, line := range dialogLines {
+		w := lipgloss.Width(line)
+		if w > maxDialogWidth {
+			maxDialogWidth = w
+		}
+	}
+
+	// Calculate position (centered horizontally, 1/4 down vertically)
+	leftPad := (a.width - maxDialogWidth) / 2
+	if leftPad < 0 {
+		leftPad = 0
+	}
+	topPad := a.height / 5 // Slightly higher than command palette
+	if topPad < 2 {
+		topPad = 2
+	}
+
+	// Overlay the dialog on the background, preserving content on both sides
+	result := make([]string, len(bgLines))
+	copy(result, bgLines)
+
+	// Right side always starts at the same position for alignment
+	rightStart := leftPad + maxDialogWidth
+
+	for i, dialogLine := range dialogLines {
+		bgIndex := topPad + i
+		if bgIndex < len(result) {
+			bgLine := result[bgIndex]
+			bgWidth := lipgloss.Width(bgLine)
+
+			// Build the overlayed line:
+			// 1. Left part of background (truncated to leftPad width)
+			// 2. Dialog line (padded to maxDialogWidth)
+			// 3. Right part of background (from rightStart onwards)
+			var newLine strings.Builder
+
+			// Left part: truncate background to leftPad characters
+			if leftPad > 0 {
+				leftPart := truncateRight(bgLine, leftPad)
+				newLine.WriteString(leftPart)
+				// Pad if background was shorter than leftPad
+				leftWidth := lipgloss.Width(leftPart)
+				if leftWidth < leftPad {
+					newLine.WriteString(strings.Repeat(" ", leftPad-leftWidth))
+				}
+			}
+
+			// Middle: the dialog line, padded to consistent width
+			newLine.WriteString(dialogLine)
+			dialogLineWidth := lipgloss.Width(dialogLine)
+			if dialogLineWidth < maxDialogWidth {
+				newLine.WriteString(strings.Repeat(" ", maxDialogWidth-dialogLineWidth))
 			}
 
 			// Right part: skip first rightStart characters of background

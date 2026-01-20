@@ -4,7 +4,9 @@ import (
 	"path/filepath"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components"
+	"github.com/slayer/gcon/internal/ui/components/projectdialog"
 	"github.com/slayer/gcon/internal/ui/components/sidebar"
 	"github.com/slayer/gcon/internal/ui/views"
 )
@@ -19,9 +21,22 @@ func (a *App) handleMouseEvent(msg tea.MouseMsg) tea.Cmd {
 
 	// Get header height to adjust Y coordinate
 	_, headerHeight := a.layout.HeaderSize()
+	contentHeight := a.layout.ContentHeight()
+	footerY := headerHeight + contentHeight
 
 	// Check if click is in header area
 	if msg.Y < headerHeight {
+		return nil
+	}
+
+	// Check if click is in footer area (for project switcher)
+	if msg.Y >= footerY && msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+		// Check if click is on the project section (right side of footer)
+		// Project is typically rendered in the rightmost section
+		// We'll check if it's in the right 1/3 of the screen as a rough approximation
+		if a.selectedProject != nil && msg.X > a.width*2/3 {
+			return a.openProjectDialog(true)
+		}
 		return nil
 	}
 
@@ -196,6 +211,74 @@ func (a *App) updateSidebarActiveView() {
 	case ViewFirewall:
 		a.sidebar.SetActiveView(sidebar.ViewFirewall)
 	}
+}
+
+// handleProjectDialogSelected handles project selection from the modal dialog.
+// This resets all view state and navigates to the instances view with the new project.
+func (a *App) handleProjectDialogSelected(msg projectdialog.ProjectDialogSelectedMsg) tea.Cmd {
+	a.showProjectDialog = false
+	a.projectDialog.Reset()
+
+	project := msg.Project
+	return a.switchToProject(project)
+}
+
+// switchToProject changes the current project, resetting all views.
+// Used by both the project dialog and any other project switching mechanisms.
+func (a *App) switchToProject(project gcp.Project) tea.Cmd {
+	// Reset all views - they'll be recreated with the new project ID
+	a.resetAllViews()
+
+	// Set the new project
+	a.selectedProject = &project
+
+	// Track recent project access
+	a.recentTracker.Track("project", project.ID, project.Name)
+
+	// Navigate to instances view with sidebar
+	a.currentView = ViewInstances
+	a.viewStack = []ViewType{} // Clear navigation stack
+	a.instancesView = views.NewInstancesView(project.ID)
+	a.focusedPanel = FocusContent
+	a.updateSidebarActiveView()
+	a.updateViewSizes()
+	a.syncContext()
+	return a.instancesView.Init()
+}
+
+// resetAllViews clears all view instances to force recreation with new context.
+// Called when switching projects to ensure views reload with new project data.
+func (a *App) resetAllViews() {
+	// Clean up views that need explicit cleanup
+	if a.instanceDetailsView != nil {
+		a.instanceDetailsView.Close()
+	}
+	if a.bucketsView != nil {
+		_ = a.bucketsView.Close()
+	}
+
+	// Nil out all view references
+	a.instancesView = nil
+	a.instanceDetailsView = nil
+	a.metadataView = nil
+	a.projectMetadataView = nil
+	a.disksView = nil
+	a.diskDetailsView = nil
+	a.snapshotsView = nil
+	a.snapshotDetailsView = nil
+	a.imagesView = nil
+	a.imageDetailsView = nil
+	a.bucketsView = nil
+	a.objectsView = nil
+	a.objectDetailsView = nil
+
+	// Clear selected items
+	a.selectedInstance = nil
+	a.selectedDisk = nil
+	a.selectedSnapshot = nil
+	a.selectedImage = nil
+	a.selectedBucket = nil
+	a.selectedObject = nil
 }
 
 // handleProjectSelected processes project selection and navigates to instances view

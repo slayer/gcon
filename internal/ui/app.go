@@ -12,6 +12,7 @@ import (
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/commandpalette"
+	"github.com/slayer/gcon/internal/ui/components/projectdialog"
 	"github.com/slayer/gcon/internal/ui/components/sidebar"
 	"github.com/slayer/gcon/internal/ui/context"
 	"github.com/slayer/gcon/internal/ui/layout"
@@ -106,6 +107,10 @@ type App struct {
 	showCommandPalette bool
 	recentTracker      *commandpalette.RecentTracker
 
+	// Project dialog (modal for switching projects)
+	projectDialog     *projectdialog.ProjectDialog
+	showProjectDialog bool
+
 	// Header
 	header *components.Header
 
@@ -148,7 +153,7 @@ func NewApp(client *gcp.Client, opts AppOptions) *App {
 		keys:                  DefaultKeyMap(),
 		help:                  help.New(),
 		layout:                layout.New(),
-		currentView:           ViewProjects,
+		currentView:           ViewNone, // Start with no view, project dialog will show
 		viewStack:             []ViewType{},
 		projectView:           views.NewProjectsView(client),
 		initialProjectID:      opts.InitialProjectID,
@@ -156,6 +161,7 @@ func NewApp(client *gcp.Client, opts AppOptions) *App {
 		focusedPanel:          FocusContent,
 		commandPalette:        commandpalette.New(),
 		recentTracker:         commandpalette.NewRecentTracker(),
+		projectDialog:         projectdialog.New(client),
 		header:                components.NewHeader(),
 		footer:                components.NewFooter(),
 		authenticatedIdentity: authenticatedIdentity,
@@ -171,12 +177,13 @@ func NewApp(client *gcp.Client, opts AppOptions) *App {
 
 // Init implements tea.Model
 func (a *App) Init() tea.Cmd {
-	// If initial project is set, load it directly instead of showing selector
+	// If initial project is set, load it directly instead of showing dialog
 	if a.initialProjectID != "" {
 		a.loadingInitialProject = true
 		return a.loadInitialProject()
 	}
-	return a.projectView.Init()
+	// No initial project - show project dialog (mandatory, cannot cancel)
+	return a.openProjectDialog(false)
 }
 
 // loadInitialProject switches directly to instances view using the configured project ID.
@@ -195,9 +202,22 @@ func (a *App) loadInitialProject() tea.Cmd {
 	}
 }
 
+// openProjectDialog opens the project selection dialog
+func (a *App) openProjectDialog(canCancel bool) tea.Cmd {
+	a.showProjectDialog = true
+	a.projectDialog.SetCanCancel(canCancel)
+	if a.selectedProject != nil {
+		a.projectDialog.SetCurrentProject(a.selectedProject.ID)
+	} else {
+		a.projectDialog.SetCurrentProject("")
+	}
+	a.projectDialog.SetSize(a.width, a.height)
+	return a.projectDialog.Init()
+}
+
 // sidebarActive returns true if sidebar should be shown
 func (a *App) sidebarActive() bool {
-	return a.selectedProject != nil && a.currentView != ViewProjects
+	return a.selectedProject != nil && a.currentView != ViewNone
 }
 
 // isViewMenuOpen checks if the current view has an action menu open.
@@ -255,7 +275,26 @@ func (a *App) getCurrentViewModel() views.View {
 
 // Update implements tea.Model
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// Handle command palette messages first (highest priority when active)
+	// Handle project dialog messages first (highest priority when active)
+	if a.showProjectDialog {
+		switch msg := msg.(type) {
+		case tea.KeyMsg:
+			cmd := a.projectDialog.Update(msg)
+			return a, cmd
+		case projectdialog.ProjectDialogSelectedMsg:
+			return a, a.handleProjectDialogSelected(msg)
+		case projectdialog.ProjectDialogClosedMsg:
+			a.showProjectDialog = false
+			a.projectDialog.Reset()
+			return a, nil
+		default:
+			// Pass other messages (like spinner ticks) to the dialog
+			cmd := a.projectDialog.Update(msg)
+			return a, cmd
+		}
+	}
+
+	// Handle command palette messages (second priority when active)
 	if a.showCommandPalette {
 		switch msg := msg.(type) {
 		case tea.KeyMsg:
@@ -444,11 +483,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, a.instancesView.Init()
 
 	case InitialProjectErrorMsg:
-		// Failed to load initial project, fall back to selector with error displayed
+		// Failed to load initial project, fall back to project dialog with error displayed
 		a.loadingInitialProject = false
 		a.err = msg.Err
 		a.initialProjectID = ""
-		return a, a.projectView.Init()
+		// Show project dialog (mandatory, cannot cancel)
+		return a, a.openProjectDialog(false)
 
 	case sidebar.NavigateMsg:
 		// Handle sidebar navigation
@@ -573,7 +613,9 @@ func (a *App) updateViewSizes() {
 	}
 
 	// Propagate context to all views - they read dimensions from ctx
-	a.projectView.SetContext(a.ctx)
+	if a.projectView != nil {
+		a.projectView.SetContext(a.ctx)
+	}
 
 	if a.instancesView != nil {
 		a.instancesView.SetContext(a.ctx)
@@ -709,6 +751,11 @@ func (a *App) View() string {
 		}
 	}
 	debugLog("")
+
+	// Render project dialog overlay if active (highest priority)
+	if a.showProjectDialog {
+		result = a.renderWithProjectDialog(result)
+	}
 
 	// Render command palette overlay if active
 	if a.showCommandPalette {

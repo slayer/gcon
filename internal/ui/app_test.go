@@ -33,7 +33,7 @@ func TestNewApp(t *testing.T) {
 
 	assert.NotNil(t, app)
 	assert.NotNil(t, app.sidebar)
-	assert.Equal(t, ViewProjects, app.currentView)
+	assert.Equal(t, ViewNone, app.currentView) // Starts with no view, project dialog will show
 	assert.Equal(t, FocusContent, app.focusedPanel)
 }
 
@@ -119,9 +119,9 @@ func TestSidebarActive(t *testing.T) {
 	// No project selected - sidebar should not be active
 	assert.False(t, app.sidebarActive())
 
-	// Project selected but still on projects view
+	// Project selected but still on ViewNone (initial state) - sidebar should not be active
 	app.selectedProject = &gcp.Project{ID: "test"}
-	app.currentView = ViewProjects
+	app.currentView = ViewNone
 	assert.False(t, app.sidebarActive())
 
 	// Project selected and on instances view - sidebar should be active

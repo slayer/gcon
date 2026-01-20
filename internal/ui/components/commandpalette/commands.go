@@ -132,9 +132,21 @@ func NavigationCommands() []Command {
 	}
 }
 
+// Icons for project commands
+const (
+	IconProject = "☁"
+)
+
 // ActionCommands returns the action commands
 func ActionCommands() []Command {
 	return []Command{
+		{
+			ID:      "action:switch-project",
+			Label:   "Switch Project",
+			Icon:    IconProject,
+			Type:    CommandTypeAction,
+			Enabled: true,
+		},
 		{
 			ID:      "action:refresh",
 			Label:   "Refresh",
