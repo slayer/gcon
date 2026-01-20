@@ -14,11 +14,13 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
+	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/confirm"
 	"github.com/slayer/gcon/internal/ui/components/filepicker"
 	"github.com/slayer/gcon/internal/ui/components/progress"
 	"github.com/slayer/gcon/internal/ui/components/table"
 	"github.com/slayer/gcon/internal/ui/context"
+	"github.com/slayer/gcon/internal/ui/mouse"
 	"github.com/slayer/gcon/internal/ui/symbols"
 	"github.com/slayer/gcon/internal/ui/timeutil"
 )
@@ -305,6 +307,19 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 	case objectsErrorMsg:
 		v.loading = false
 		v.err = msg.err
+		return nil
+
+	case table.RowDoubleClickedMsg:
+		// Handle double-click on table row - navigate into folder
+		obj := v.findObjectByName(msg.RowID)
+		if obj != nil && obj.IsFolder {
+			// Push current prefix to stack and navigate into folder
+			v.prefixStack = append(v.prefixStack, v.currentPrefix)
+			v.currentPrefix = obj.Name
+			v.resetPagination()
+			v.loading = true
+			return tea.Batch(v.spinner.Tick, v.loadObjects(""))
+		}
 		return nil
 
 	case spinner.TickMsg:
@@ -1413,4 +1428,30 @@ func (v *ObjectsView) overlayDeleteProgress(content string) string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// UpdateRegions delegates to the table component.
+// Implements the components.Clickable interface.
+func (v *ObjectsView) UpdateRegions(offsetX, offsetY int) {
+	if clickable, ok := interface{}(&v.table).(components.Clickable); ok {
+		clickable.UpdateRegions(offsetX, offsetY)
+	}
+}
+
+// GetRegions delegates to the table component.
+// Implements the components.Clickable interface.
+func (v *ObjectsView) GetRegions() []mouse.Region {
+	if clickable, ok := interface{}(&v.table).(components.Clickable); ok {
+		return clickable.GetRegions()
+	}
+	return nil
+}
+
+// HandleRegionClick delegates to the table component.
+// Implements the components.Clickable interface.
+func (v *ObjectsView) HandleRegionClick(regionID string) tea.Cmd {
+	if clickable, ok := interface{}(&v.table).(components.Clickable); ok {
+		return clickable.HandleRegionClick(regionID)
+	}
+	return nil
 }

@@ -16,6 +16,8 @@ var (
 	projectFlag  string
 	noEmojisFlag bool
 	asciiFlag    bool
+	noMouseFlag  bool
+	debugFlag    bool
 )
 
 func init() {
@@ -24,6 +26,8 @@ func init() {
 	flag.BoolVar(&noEmojisFlag, "no-emojis", false, "Use Unicode symbols instead of emojis (e.g., colored ● instead of 🟢)")
 	flag.BoolVar(&noEmojisFlag, "unicode", false, "Use Unicode symbols instead of emojis (alias for --no-emojis)")
 	flag.BoolVar(&asciiFlag, "ascii", false, "Use ASCII-only characters (no Unicode or emojis)")
+	flag.BoolVar(&noMouseFlag, "no-mouse", false, "Disable mouse support (for accessibility or unsupported terminals)")
+	flag.BoolVar(&debugFlag, "debug", false, "Enable debug logging to /tmp/gcon-debug.log (slow!)")
 }
 
 func main() {
@@ -44,6 +48,11 @@ func run() error {
 		symbols.SetMode(symbols.ModeUnicode)
 	}
 
+	// Enable debug logging if --debug flag is set
+	if debugFlag {
+		ui.EnableDebug()
+	}
+
 	// Initialize GCP client using Application Default Credentials
 	gcpClient, err := gcp.NewClient()
 	if err != nil {
@@ -59,7 +68,13 @@ func run() error {
 	app := ui.NewApp(gcpClient, ui.AppOptions{
 		InitialProjectID: projectID,
 	})
-	p := tea.NewProgram(app, tea.WithAltScreen())
+
+	// Configure program options
+	opts := []tea.ProgramOption{tea.WithAltScreen()}
+	if !noMouseFlag {
+		opts = append(opts, tea.WithMouseCellMotion())
+	}
+	p := tea.NewProgram(app, opts...)
 
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("running application: %w", err)
