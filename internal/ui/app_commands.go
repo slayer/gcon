@@ -5,6 +5,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/slayer/gcon/internal/ui/components/commandpalette"
+	"github.com/slayer/gcon/internal/ui/components/projectselector"
 	"github.com/slayer/gcon/internal/ui/components/sidebar"
 )
 
@@ -77,6 +78,13 @@ func (a *App) handleActionCommand(cmd commandpalette.Command) (tea.Model, tea.Cm
 		return a, nil
 	case "action:quit":
 		return a, tea.Quit
+	case "action:switch-project":
+		// Update project selector with current project ID for highlighting
+		if a.selectedProject != nil {
+			a.projectSelector = projectselector.New(a.gcpClient, a.selectedProject.ID)
+		}
+		a.showProjectSelector = true
+		return a, a.projectSelector.Init()
 	}
 	return a, nil
 }

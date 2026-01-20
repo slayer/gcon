@@ -12,6 +12,7 @@ import (
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/commandpalette"
+	"github.com/slayer/gcon/internal/ui/components/projectselector"
 	"github.com/slayer/gcon/internal/ui/components/sidebar"
 	"github.com/slayer/gcon/internal/ui/context"
 	"github.com/slayer/gcon/internal/ui/layout"
@@ -106,6 +107,10 @@ type App struct {
 	showCommandPalette bool
 	recentTracker      *commandpalette.RecentTracker
 
+	// Project selector modal
+	projectSelector     *projectselector.Model
+	showProjectSelector bool
+
 	// Header
 	header *components.Header
 
@@ -156,6 +161,7 @@ func NewApp(client *gcp.Client, opts AppOptions) *App {
 		focusedPanel:          FocusContent,
 		commandPalette:        commandpalette.New(),
 		recentTracker:         commandpalette.NewRecentTracker(),
+		projectSelector:       projectselector.New(client, opts.InitialProjectID),
 		header:                components.NewHeader(),
 		footer:                components.NewFooter(),
 		authenticatedIdentity: authenticatedIdentity,
@@ -169,8 +175,18 @@ func NewApp(client *gcp.Client, opts AppOptions) *App {
 	return a
 }
 
+// ShowProjectSelectorOnStartup configures the app to show project selector on startup
+func (a *App) ShowProjectSelectorOnStartup() {
+	a.showProjectSelector = true
+	// Sidebar will be hidden automatically since selectedProject is nil
+}
+
 // Init implements tea.Model
 func (a *App) Init() tea.Cmd {
+	// If project selector should be shown on startup
+	if a.showProjectSelector {
+		return a.projectSelector.Init()
+	}
 	// If initial project is set, load it directly instead of showing selector
 	if a.initialProjectID != "" {
 		a.loadingInitialProject = true
@@ -255,7 +271,22 @@ func (a *App) getCurrentViewModel() views.View {
 
 // Update implements tea.Model
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// Handle command palette messages first (highest priority when active)
+	// Handle project selector messages first (highest priority when active)
+	if a.showProjectSelector {
+		switch msg := msg.(type) {
+		case projectselector.ProjectSelectedMsg:
+			return a, a.handleProjectSwitch(&msg.Project)
+		case projectselector.ProjectSelectorCanceledMsg:
+			a.showProjectSelector = false
+			return a, nil
+		default:
+			// Pass all other messages to project selector (including spinner ticks, key msgs, etc)
+			cmd := a.projectSelector.Update(msg)
+			return a, cmd
+		}
+	}
+
+	// Handle command palette messages (second priority when active)
 	if a.showCommandPalette {
 		switch msg := msg.(type) {
 		case tea.KeyMsg:
@@ -709,6 +740,11 @@ func (a *App) View() string {
 		}
 	}
 	debugLog("")
+
+	// Render project selector overlay if active (highest priority)
+	if a.showProjectSelector {
+		result = a.renderWithProjectSelector(result)
+	}
 
 	// Render command palette overlay if active
 	if a.showCommandPalette {

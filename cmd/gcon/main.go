@@ -69,6 +69,11 @@ func run() error {
 		InitialProjectID: projectID,
 	})
 
+	// Show project selector on startup if no default project
+	if projectID == "" {
+		app.ShowProjectSelectorOnStartup()
+	}
+
 	// Configure program options
 	opts := []tea.ProgramOption{tea.WithAltScreen()}
 	if !noMouseFlag {

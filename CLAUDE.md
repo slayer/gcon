@@ -285,6 +285,27 @@ func (m *Model) SetSize(width, height int) {
 | `Enter` | Select/Confirm |
 | `:` or `Ctrl+K` | Open command palette |
 
+### Command Palette
+
+| Command | Description |
+|---------|-------------|
+| Switch Project | Open project selector modal to switch between GCP projects |
+| Refresh | Refresh current view |
+| Toggle sidebar | Show/hide sidebar navigation |
+| Help | Toggle help display |
+| Quit | Exit application |
+
+### Project Selector Modal
+
+| Key | Action |
+|-----|--------|
+| `↑`/`k` or `Ctrl-P` | Move up |
+| `↓`/`j` or `Ctrl-N` | Move down |
+| `Enter` | Select project |
+| `Esc` | Cancel |
+| Type to filter | Filter projects by name or ID |
+| `r` | Retry loading (if error) |
+
 ### Instances View
 
 | Key | Action |
@@ -425,6 +446,12 @@ Spin up multiple subagents for each task to ensure parallel development. Each su
 - [x] Command palette with fuzzy search
 - [x] Recent items tracking
 - [x] Sidebar navigation
+- [x] Project selector modal for quick project switching
+  - Trigger via command palette ("Switch Project")
+  - Real-time filtering by project name or ID
+  - Async project loading with spinner
+  - Shows automatically on startup if no default project
+  - Reloads all views when switching projects
 
 ## Planned Features
 

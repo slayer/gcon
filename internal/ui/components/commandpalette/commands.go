@@ -40,6 +40,7 @@ const (
 	IconSidebar  = "☰"
 	IconHelp     = "?"
 	IconRecent   = "⏱"
+	IconProject  = "◎"
 	IconQuit     = "✕"
 )
 
@@ -135,6 +136,13 @@ func NavigationCommands() []Command {
 // ActionCommands returns the action commands
 func ActionCommands() []Command {
 	return []Command{
+		{
+			ID:      "action:switch-project",
+			Label:   "Switch Project",
+			Icon:    IconProject,
+			Type:    CommandTypeAction,
+			Enabled: true,
+		},
 		{
 			ID:      "action:refresh",
 			Label:   "Refresh",
