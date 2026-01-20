@@ -32,10 +32,30 @@ func (a *App) handleMouseEvent(msg tea.MouseMsg) tea.Cmd {
 		sidebarWidth = a.sidebar.Width()
 	}
 
+	// Get footer position (at bottom of screen)
+	_, footerHeight := a.layout.FooterSize()
+	footerY := a.height - footerHeight
+
 	// Handle mouse clicks using region-based system
 	// Only use regions for left-click press events to avoid performance overhead
 	if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
-		// Check sidebar first (if active and click is in sidebar area)
+		// Check footer first (if click is in footer area)
+		if msg.Y >= footerY {
+			if clickable, ok := interface{}(a.footer).(components.Clickable); ok {
+				// Update regions with footer position (x=0, y=footerY)
+				clickable.UpdateRegions(0, footerY)
+
+				// Find which region was clicked
+				regions := clickable.GetRegions()
+				for _, region := range regions {
+					if region.Bounds.Contains(msg.X, msg.Y) {
+						return clickable.HandleRegionClick(region.ID)
+					}
+				}
+			}
+		}
+
+		// Check sidebar (if active and click is in sidebar area)
 		if a.sidebarActive() && msg.X < sidebarWidth {
 			if clickable, ok := interface{}(a.sidebar).(components.Clickable); ok {
 				// Update regions with sidebar position (x=0, y=headerHeight)

@@ -494,6 +494,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case views.ObjectDeletedMsg:
 		// Object was deleted, go back to objects list and refresh
 		return a, a.handleObjectDeleted(msg)
+
+	case components.FooterProjectClickedMsg:
+		// Project section in footer was clicked, show project selector
+		if a.selectedProject != nil {
+			a.projectSelector = projectselector.New(a.gcpClient, a.selectedProject.ID)
+		}
+		a.showProjectSelector = true
+		return a, a.projectSelector.Init()
 	}
 
 	// Delegate to current view (only if content is focused)
