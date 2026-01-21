@@ -1,17 +1,22 @@
 package ui
 
 import (
+	"context"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components/commandpalette"
 	"github.com/slayer/gcon/internal/ui/components/sidebar"
+	"github.com/slayer/gcon/internal/ui/views"
 )
 
 // openCommandPalette shows the command palette and configures it based on current state
 func (a *App) openCommandPalette(showPrefix bool) {
 	a.showCommandPalette = true
+	a.showCommandPalette = true
 	a.commandPalette.Reset()
+	a.commandPalette.SetMode(commandpalette.ModeCommand)
 	a.commandPalette.SetShowPrefix(showPrefix)
 	a.commandPalette.SetProjectSelected(a.selectedProject != nil)
 
@@ -31,6 +36,48 @@ func (a *App) openCommandPalette(showPrefix bool) {
 	a.commandPalette.SetSize(paletteWidth, a.height)
 }
 
+// openProjectPalette shows the project selection palette
+func (a *App) openProjectPalette() tea.Cmd {
+	a.showCommandPalette = true
+	a.commandPalette.Reset()
+	a.commandPalette.SetMode(commandpalette.ModeProject)
+	// Don't show prefix for project selection
+	a.commandPalette.SetShowPrefix(false)
+
+	// Set size
+	paletteWidth := a.width * 6 / 10
+	if paletteWidth < 50 {
+		paletteWidth = 50
+	}
+	if paletteWidth > 80 {
+		paletteWidth = 80
+	}
+	a.commandPalette.SetSize(paletteWidth, a.height)
+
+	// Trigger project load
+	return a.loadProjectsForPalette()
+}
+
+// loadProjectsForPalette fetches projects and updates the palette
+func (a *App) loadProjectsForPalette() tea.Cmd {
+	return func() tea.Msg {
+		if a.gcpClient == nil {
+			return nil
+		}
+		projects, err := a.gcpClient.ListProjects(context.Background())
+		if err != nil {
+			// For now just ignore error in palette, maybe show empty
+			return nil
+		}
+		return projectsLoadedForPaletteMsg{projects: projects}
+	}
+}
+
+// projectsLoadedForPaletteMsg carries loaded projects for the palette
+type projectsLoadedForPaletteMsg struct {
+	projects []gcp.Project
+}
+
 // handleCommandSelected processes a selected command from the palette
 func (a *App) handleCommandSelected(cmd commandpalette.Command) (tea.Model, tea.Cmd) {
 	a.showCommandPalette = false
@@ -43,6 +90,8 @@ func (a *App) handleCommandSelected(cmd commandpalette.Command) (tea.Model, tea.
 		return a.handleActionCommand(cmd)
 	case commandpalette.CommandTypeRecent:
 		return a.handleRecentCommand(cmd)
+	case commandpalette.CommandTypeProject:
+		return a.handleProjectCommand(cmd)
 	}
 
 	return a, nil
@@ -64,6 +113,8 @@ func (a *App) handleNavigationCommand(cmd commandpalette.Command) (tea.Model, te
 // handleActionCommand executes the selected action from command palette
 func (a *App) handleActionCommand(cmd commandpalette.Command) (tea.Model, tea.Cmd) {
 	switch cmd.ID {
+	case "action:switch-project":
+		return a, a.openProjectPalette()
 	case "action:refresh":
 		return a, func() tea.Msg { return RefreshMsg{} }
 	case "action:toggle-sidebar":
@@ -121,4 +172,28 @@ func (a *App) handleRecentCommand(cmd commandpalette.Command) (tea.Model, tea.Cm
 	}
 
 	return a, nil
+}
+
+// handleProjectCommand processes project selection from palette
+func (a *App) handleProjectCommand(cmd commandpalette.Command) (tea.Model, tea.Cmd) {
+	// Extract project ID from command ID "project:<id>"
+	parts := strings.SplitN(cmd.ID, ":", 2)
+	if len(parts) != 2 {
+		return a, nil
+	}
+	projectID := parts[1]
+
+	// Create a minimal project struct (we don't have full details here unless we passed them)
+	// But ListProjects returns full details.
+	// We can find the project in the palette's list if we want, but ID is enough for navigation.
+	// Better to emit ProjectSelectedMsg which App handles exactly like from ProjectsView.
+
+	project := gcp.Project{
+		ID:   projectID,
+		Name: projectID, // Fallback
+	}
+
+	return a, func() tea.Msg {
+		return views.ProjectSelectedMsg{Project: project}
+	}
 }

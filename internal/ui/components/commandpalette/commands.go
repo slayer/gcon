@@ -11,6 +11,7 @@ const (
 	CommandTypeNavigation CommandType = iota // Navigate to a view
 	CommandTypeAction                        // Execute an action (refresh, toggle)
 	CommandTypeRecent                        // Recently accessed item
+	CommandTypeProject                       // Switch project
 )
 
 // ViewType mirrors ui.ViewType to avoid import cycle
@@ -40,6 +41,7 @@ const (
 	IconSidebar  = "☰"
 	IconHelp     = "?"
 	IconRecent   = "⏱"
+	IconProject  = "⬢"
 	IconQuit     = "✕"
 )
 
@@ -135,6 +137,13 @@ func NavigationCommands() []Command {
 // ActionCommands returns the action commands
 func ActionCommands() []Command {
 	return []Command{
+		{
+			ID:      "action:switch-project",
+			Label:   "Switch Project",
+			Icon:    IconProject,
+			Type:    CommandTypeAction,
+			Enabled: true,
+		},
 		{
 			ID:      "action:refresh",
 			Label:   "Refresh",

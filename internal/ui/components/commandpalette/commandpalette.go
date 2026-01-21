@@ -7,11 +7,20 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/slayer/gcon/internal/gcp"
 )
 
 const (
 	maxVisibleItems = 10
 	minWidth        = 40
+)
+
+// PaletteMode determines what items are shown in the palette
+type PaletteMode int
+
+const (
+	ModeCommand PaletteMode = iota
+	ModeProject
 )
 
 // paletteKeyMap defines key bindings for the command palette
@@ -65,6 +74,9 @@ type CommandPalette struct {
 	keys            paletteKeyMap
 	showPrefix      bool // Show ":" prefix (when opened with :)
 	projectSelected bool // Whether a project is selected (enables nav commands)
+	mode            PaletteMode
+	baseCommands    []Command // Cache for standard commands
+	projectCommands []Command // Cache for project items
 }
 
 // New creates a new command palette
@@ -87,6 +99,8 @@ func New() *CommandPalette {
 		keys:            defaultKeyMap(),
 		showPrefix:      true,
 		projectSelected: false,
+		mode:            ModeCommand,
+		baseCommands:    commands,
 	}
 }
 
@@ -102,10 +116,51 @@ func (p *CommandPalette) SetSize(width, height int) {
 	p.input.Width = inputWidth
 }
 
-// SetCommands sets the available commands
+// SetCommands sets the available commands (updates base list)
 func (p *CommandPalette) SetCommands(commands []Command) {
-	p.commands = commands
-	p.filtered = Filter(commands, p.input.Value())
+	p.baseCommands = commands
+	if p.mode == ModeCommand {
+		p.commands = commands
+		p.filtered = Filter(commands, p.input.Value())
+	}
+}
+
+// SetProjects sets the available projects and updates project list
+func (p *CommandPalette) SetProjects(projects []gcp.Project) {
+	cmds := make([]Command, len(projects))
+	for i, proj := range projects {
+		cmds[i] = Command{
+			ID:      "project:" + proj.ID,
+			Label:   proj.Name + " (" + proj.ID + ")",
+			Icon:    IconProject,
+			Type:    CommandTypeProject,
+			Enabled: proj.State == "ACTIVE",
+		}
+	}
+	p.projectCommands = cmds
+
+	if p.mode == ModeProject {
+		p.commands = cmds
+		p.filtered = Filter(cmds, p.input.Value())
+	}
+}
+
+// SetMode switches between command and project selection modes
+func (p *CommandPalette) SetMode(mode PaletteMode) {
+	p.mode = mode
+	p.input.SetValue("")
+	p.cursor = 0
+
+	switch mode {
+	case ModeCommand:
+		p.commands = p.baseCommands
+		p.input.Placeholder = "Type a command..."
+	case ModeProject:
+		p.commands = p.projectCommands
+		p.input.Placeholder = "Select a project..."
+	}
+
+	p.filtered = Filter(p.commands, "")
 }
 
 // SetProjectSelected sets whether a project is selected (enables navigation commands)

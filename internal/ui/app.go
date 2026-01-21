@@ -176,7 +176,15 @@ func (a *App) Init() tea.Cmd {
 		a.loadingInitialProject = true
 		return a.loadInitialProject()
 	}
-	return a.projectView.Init()
+	// No initial project -> open project selection dialog immediately
+	// Use Task.Tick to delay it slightly so UI can render first
+	return tea.Batch(
+		a.projectView.Init(), // Init underlying view just in case
+		func() tea.Msg {
+			// Trigger palette open on next tick
+			return tea.BatchMsg{a.openProjectPalette()}
+		},
+	)
 }
 
 // loadInitialProject switches directly to instances view using the configured project ID.
@@ -463,6 +471,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case views.ObjectDeletedMsg:
 		// Object was deleted, go back to objects list and refresh
 		return a, a.handleObjectDeleted(msg)
+
+	case projectsLoadedForPaletteMsg:
+		a.commandPalette.SetProjects(msg.projects)
+		return a, nil
 	}
 
 	// Delegate to current view (only if content is focused)

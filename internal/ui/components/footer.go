@@ -3,8 +3,15 @@ package components
 import (
 	"strings"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/slayer/gcon/internal/ui/mouse"
 )
+
+// FooterClickMsg represents a click on a footer region
+type FooterClickMsg struct {
+	RegionID string
+}
 
 // Powerline separator characters (Unicode code points for powerline fonts)
 const (
@@ -97,12 +104,15 @@ type Footer struct {
 	Right2RenderedBg lipgloss.Color
 	Right3Rendered   string
 	Right3RenderedBg lipgloss.Color
+
+	regionManager *mouse.RegionManager
 }
 
 // NewFooter creates a new footer with default styles
 func NewFooter() *Footer {
 	return &Footer{
-		styles: DefaultFooterStyles(),
+		styles:        DefaultFooterStyles(),
+		regionManager: mouse.NewRegionManager(),
 	}
 }
 
@@ -298,6 +308,101 @@ func (f *Footer) View() string {
 	}
 
 	return result
+}
+
+// UpdateRegions implements Clickable interface
+func (f *Footer) UpdateRegions(offsetX, offsetY int) {
+	f.regionManager.Clear()
+
+	if f.width == 0 {
+		return
+	}
+
+	// Re-calculate layouts to find positions
+	leftGroup := f.renderLeftGroup()
+	centerGroup := f.renderCenterGroup()
+	rightGroup := f.renderRightGroup()
+
+	leftWidth := f.terminalWidth(leftGroup)
+	centerWidth := f.terminalWidth(centerGroup)
+	rightWidth := f.terminalWidth(rightGroup)
+
+	usedWidth := leftWidth + centerWidth + rightWidth
+
+	// Same logic as View()
+	hasCenter := true
+	if usedWidth > f.width && centerWidth > 0 {
+		hasCenter = false
+		centerWidth = 0
+		usedWidth = leftWidth + rightWidth
+	}
+
+	spacingTotal := f.width - usedWidth
+	var leftSpacing int
+	if hasCenter && centerWidth > 0 {
+		leftSpacing = spacingTotal / 2
+	} else {
+		leftSpacing = spacingTotal
+	}
+	if leftSpacing < 0 {
+		leftSpacing = 0
+	}
+
+	// Calculate Right Group Start X
+	var rightGroupStartX int
+	if hasCenter {
+		rightSpacing := spacingTotal - leftSpacing
+		if rightSpacing < 0 {
+			rightSpacing = 0
+		}
+		rightGroupStartX = offsetX + leftWidth + leftSpacing + centerWidth + rightSpacing
+	} else {
+		rightGroupStartX = offsetX + leftWidth + leftSpacing
+	}
+
+	// If Right3 is present, it's the LAST item in Right Group.
+	if f.Right3 != nil || f.Right3Rendered != "" {
+		// Calculate width of Right3 block
+		var content string
+
+		if f.Right3Rendered != "" {
+			content = f.Right3Rendered
+		} else if f.Right3 != nil {
+			style := lipgloss.NewStyle().
+				Background(f.styles.Right3Bg).
+				Foreground(f.styles.Right3Fg).
+				Padding(0, 1)
+			content = style.Render(*f.Right3)
+		}
+
+		r3Width := f.terminalWidth(content)
+
+		// The separator is before r3StartX.
+		// Just content width.
+
+		rightGroupEndX := rightGroupStartX + rightWidth
+		r3StartX := rightGroupEndX - r3Width
+
+		// Register region
+		f.regionManager.Add("right3", mouse.Rect{
+			X:      r3StartX,
+			Y:      offsetY,
+			Width:  r3Width,
+			Height: 1, // Footer is 1 line high
+		}, nil)
+	}
+}
+
+// GetRegions implements Clickable interface
+func (f *Footer) GetRegions() []mouse.Region {
+	return f.regionManager.GetRegions()
+}
+
+// HandleRegionClick implements Clickable interface
+func (f *Footer) HandleRegionClick(regionID string) tea.Cmd {
+	return func() tea.Msg {
+		return FooterClickMsg{RegionID: regionID}
+	}
 }
 
 // terminalWidth calculates actual terminal width, accounting for powerline symbols
