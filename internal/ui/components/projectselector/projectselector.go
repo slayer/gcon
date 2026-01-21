@@ -356,16 +356,18 @@ func (m *Model) View() string {
 		dividerWidth = 1
 	}
 	b.WriteString(m.styles.Divider.Render(strings.Repeat("─", dividerWidth)))
-	b.WriteString("\n")
 
-	// Help (plain text with muted foreground, explicitly no background)
+	// Render container content (everything except help text)
+	containerContent := m.styles.Container.Width(m.width).Render(b.String())
+
+	// Add help text after container (no background)
 	helpStyle := lipgloss.NewStyle().
 		Foreground(colorMuted).
 		Italic(true).
-		UnsetBackground()
-	b.WriteString(helpStyle.Render("j/k:nav  enter:select  esc:cancel"))
+		PaddingLeft(2)
+	helpText := helpStyle.Render("j/k:nav  enter:select  esc:cancel")
 
-	return m.styles.Container.Width(m.width).Render(b.String())
+	return containerContent + "\n" + helpText
 }
 
 // renderProject renders a single project line
