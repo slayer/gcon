@@ -38,15 +38,15 @@ Implement a modal project selection dialog for quick project switching without l
   - Add message handlers in main Update()
 
 ### Phase 4: Footer Click Integration
-- [ ] Modify `internal/ui/components/footer.go`
+- [x] Modify `internal/ui/components/footer.go`
   - Add mouse event handling for Right3 zone
   - Define FooterProjectClickedMsg
   - Track project text zone for click detection
-- [ ] Modify `internal/ui/app_footer.go`
+- [x] Modify `internal/ui/app_footer.go`
   - Handle FooterProjectClickedMsg to show selector
   - Update footer mouse zone tracking
 
-**Note**: Footer click integration deferred as optional feature. Core functionality works via command palette.
+**Note**: Footer click integration is implemented as an optional enhancement. Core functionality also works via the command palette.
 
 ### Phase 5: Rendering
 - [x] Modify `internal/ui/app.go` View() method
@@ -73,7 +73,7 @@ Implement a modal project selection dialog for quick project switching without l
 - [ ] Create Documentation.md summarizing changes
 
 ## Notes
-- Reuse ActionMenu modal styling pattern (60% width, centered)
+- Reuse ActionMenu modal styling pattern (fixed width: 80 characters, centered)
 - Similar UX to command palette filtering
 - Ensure view state cleanup on project switch
 - Handle permission errors gracefully

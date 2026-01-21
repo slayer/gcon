@@ -497,9 +497,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case components.FooterProjectClickedMsg:
 		// Project section in footer was clicked, show project selector
+		currentProjectID := ""
 		if a.selectedProject != nil {
-			a.projectSelector = projectselector.New(a.gcpClient, a.selectedProject.ID)
+			currentProjectID = a.selectedProject.ID
 		}
+		a.projectSelector = projectselector.New(a.gcpClient, currentProjectID)
 		a.showProjectSelector = true
 		return a, a.projectSelector.Init()
 	}

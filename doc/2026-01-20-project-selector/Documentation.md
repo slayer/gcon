@@ -23,7 +23,7 @@ Implemented a modal project selection dialog that allows users to quickly switch
   - Loading states with spinner
   - Error handling with retry functionality
   - Empty state messages
-  - Centered modal overlay (60% width, centered vertically)
+  - Centered modal overlay (fixed width of 80 characters, centered vertically)
 
 - **`styles.go`**: Lipgloss styles using GCP color palette
 

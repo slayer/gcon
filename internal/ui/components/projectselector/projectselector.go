@@ -214,17 +214,23 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 			return func() tea.Msg { return ProjectSelectorCanceledMsg{} }
 
 		case key.Matches(msg, m.keys.Select):
-			if m.cursor < len(m.filteredProjects) {
-				selectedProject := m.filteredProjects[m.cursor]
-				// If selecting the same project, just close modal
-				if selectedProject.ID == m.currentProject {
-					return func() tea.Msg { return ProjectSelectorCanceledMsg{} }
-				}
-				return func() tea.Msg {
-					return ProjectSelectedMsg{Project: selectedProject}
-				}
+			// If there are no projects to select, ignore the selection
+			if len(m.filteredProjects) == 0 {
+				return nil
 			}
-			return nil
+			// If the cursor is out of bounds, reset it safely and ignore the selection
+			if m.cursor < 0 || m.cursor >= len(m.filteredProjects) {
+				m.cursor = 0
+				return nil
+			}
+			selectedProject := m.filteredProjects[m.cursor]
+			// If selecting the same project, just close modal
+			if selectedProject.ID == m.currentProject {
+				return func() tea.Msg { return ProjectSelectorCanceledMsg{} }
+			}
+			return func() tea.Msg {
+				return ProjectSelectedMsg{Project: selectedProject}
+			}
 
 		default:
 			// Update text input and filter
@@ -270,9 +276,13 @@ func (m *Model) filterProjects() {
 	}
 	m.filteredProjects = filtered
 
-	// Reset cursor if out of bounds
+	// Cap cursor to last valid position instead of resetting to 0
 	if m.cursor >= len(m.filteredProjects) {
-		m.cursor = 0
+		if len(m.filteredProjects) > 0 {
+			m.cursor = len(m.filteredProjects) - 1
+		} else {
+			m.cursor = 0
+		}
 	}
 }
 

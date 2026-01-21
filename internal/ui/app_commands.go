@@ -79,10 +79,12 @@ func (a *App) handleActionCommand(cmd commandpalette.Command) (tea.Model, tea.Cm
 	case "action:quit":
 		return a, tea.Quit
 	case "action:switch-project":
-		// Update project selector with current project ID for highlighting
+		// Create new project selector with current project ID for highlighting
+		currentProjectID := ""
 		if a.selectedProject != nil {
-			a.projectSelector = projectselector.New(a.gcpClient, a.selectedProject.ID)
+			currentProjectID = a.selectedProject.ID
 		}
+		a.projectSelector = projectselector.New(a.gcpClient, currentProjectID)
 		a.showProjectSelector = true
 		return a, a.projectSelector.Init()
 	}

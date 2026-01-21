@@ -471,6 +471,7 @@ func (a *App) handleProjectSwitch(newProject *gcp.Project) tea.Cmd {
 
 // clearAllViews nils out all view instances to force reload with new project
 func (a *App) clearAllViews() {
+	a.projectView = nil
 	a.instancesView = nil
 	a.instanceDetailsView = nil
 	a.disksView = nil

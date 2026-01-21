@@ -292,8 +292,9 @@ func (f *Footer) View() string {
 		if f.Right3Rendered != "" {
 			f.right3Width = lipgloss.Width(f.Right3Rendered)
 		} else if f.Right3 != nil {
-			// Estimate: content + padding (0, 1 on each side) = content + 2
-			f.right3Width = len(*f.Right3) + 2
+			// Use lipgloss.Width to handle multi-byte UTF-8 characters correctly
+			// Add padding (0, 1 on each side) = content width + 2
+			f.right3Width = lipgloss.Width(*f.Right3) + 2
 		}
 	} else {
 		f.right3Width = 0
@@ -614,10 +615,11 @@ func (f *Footer) UpdateRegions(offsetX, offsetY int) {
 
 	// Only Right3 is clickable (project section)
 	if f.right3Width > 0 {
-		// The Right3 section is at the end of the right group
-		// We need to calculate its exact position by measuring the rendered right group
-		// Right3 is the rightmost section, so we calculate from the end
-		right3X := f.right3StartPos + (f.terminalWidth(f.renderRightGroup()) - f.right3Width)
+		// Right3 is the rightmost section in the right group
+		// Its position starts where the right group starts, since it renders from right to left
+		// The click region should cover the entire right group width minus the other sections
+		// For simplicity, use the precomputed starting position
+		right3X := f.width - f.right3Width
 
 		f.regionMgr.Add("right3-project", mouse.Rect{
 			X:      offsetX + right3X,
