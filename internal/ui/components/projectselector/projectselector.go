@@ -358,8 +358,12 @@ func (m *Model) View() string {
 	b.WriteString(m.styles.Divider.Render(strings.Repeat("─", dividerWidth)))
 	b.WriteString("\n")
 
-	// Help
-	b.WriteString(m.styles.Help.Render("j/k:nav  enter:select  esc:cancel"))
+	// Help (plain text with muted foreground, explicitly no background)
+	helpStyle := lipgloss.NewStyle().
+		Foreground(colorMuted).
+		Italic(true).
+		UnsetBackground()
+	b.WriteString(helpStyle.Render("j/k:nav  enter:select  esc:cancel"))
 
 	return m.styles.Container.Width(m.width).Render(b.String())
 }
