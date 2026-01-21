@@ -30,7 +30,8 @@ func DefaultStyles() Styles {
 		Container: lipgloss.NewStyle().
 			BorderStyle(lipgloss.RoundedBorder()).
 			BorderForeground(colorPrimary).
-			Padding(1, 2),
+			Padding(1, 2).
+			UnsetBackground(),
 
 		Title: lipgloss.NewStyle().
 			Bold(true).
