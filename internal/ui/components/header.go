@@ -148,7 +148,7 @@ func (h *Header) renderAppName() string {
 	e := h.styles.GoogleColors.E.Render("e")
 	google := g + o1 + o2 + g2 + l + e
 
-	rest := h.styles.Title.Render(" Console Platform TUI Console")
+	rest := h.styles.Title.Render(" Cloud Platform TUI Console")
 
 	return cloud + " " + gcon + dash + google + rest
 }

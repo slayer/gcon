@@ -57,7 +57,7 @@ func TestHeaderRenderAppName(t *testing.T) {
 
 	// Check that it contains expected components
 	assert.Contains(t, appName, "gcon")
-	assert.Contains(t, appName, "Console Platform TUI Console")
+	assert.Contains(t, appName, "Cloud Platform TUI Console")
 
 	// Should not be empty
 	assert.NotEmpty(t, appName)
@@ -159,7 +159,7 @@ func TestHeaderView_AppNameOnly(t *testing.T) {
 
 	// Should contain app name
 	assert.Contains(t, view, "gcon")
-	assert.Contains(t, view, "Console Platform TUI Console")
+	assert.Contains(t, view, "Cloud Platform TUI Console")
 	assert.NotEmpty(t, view)
 }
 
@@ -302,7 +302,7 @@ func TestHeaderWidthHandling(t *testing.T) {
 			verify: func(t *testing.T, view string, width int) {
 				assert.NotEmpty(t, view)
 				assert.Contains(t, view, "gcon")
-				assert.Contains(t, view, "Console Platform TUI Console")
+				assert.Contains(t, view, "Cloud Platform TUI Console")
 			},
 		},
 	}
