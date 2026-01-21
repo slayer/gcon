@@ -356,14 +356,12 @@ func (m *Model) View() string {
 		dividerWidth = 1
 	}
 	b.WriteString(m.styles.Divider.Render(strings.Repeat("─", dividerWidth)))
+	b.WriteString("\n")
 
-	// Render container content (everything except help text)
-	containerContent := m.styles.Container.Width(m.width).Render(b.String())
+	// Help text (plain text, no lipgloss styling to avoid background)
+	b.WriteString("j/k:nav  enter:select  esc:cancel")
 
-	// Add help text after container (no background, inline without style wrapper)
-	helpText := "  j/k:nav  enter:select  esc:cancel"
-
-	return containerContent + "\n" + helpText
+	return m.styles.Container.Width(m.width).Render(b.String())
 }
 
 // renderProject renders a single project line
