@@ -104,3 +104,12 @@ if a.showProjectSelector {
 ```
 
 **Status**: ✅ Fixed in commit
+
+### Issue: Help text background highlight
+**Problem**: Help text at bottom of modal (`j/k:nav  enter:select  esc:cancel`) showed gray background.
+
+**Root Cause**: Lipgloss styles (even with `UnsetBackground()`) were being wrapped by the Container style which added padding/background. When rendering with `.Width()`, lipgloss fills remaining space with background color.
+
+**Solution**: Render help text as plain string without any lipgloss styling, added directly to string builder before container renders.
+
+**Status**: ✅ Fixed - help text now displays without background inside modal border
