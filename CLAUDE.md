@@ -211,6 +211,7 @@ When using bubbles/list component, hide its built-in title with `l.SetShowTitle(
 2. Prefer 1-char Unicode symbols with lipgloss colors over emoji circles:
    - Instead of 🟢 🔴 🟡 → use ● with `lipgloss.Color("#34A853")` etc.
 3. Centralize symbols in `internal/ui/symbols` package with ASCII fallback support (`--ascii` flag)
+4. **For click regions and width calculations**: Always use `lipgloss.Width()` instead of `len()` to handle multi-byte UTF-8 characters correctly
 
 ```go
 // symbols/symbols.go - colored 1-char status indicators
@@ -222,6 +223,13 @@ func StatusRunning() string {
     }
     return colorGreen.Render("●")  // 1-char wide, colored
 }
+
+// Width calculations for click regions
+// Wrong - counts bytes, not visual width
+width := len(text) + padding
+
+// Correct - counts visual width, handles UTF-8
+width := lipgloss.Width(text) + padding
 ```
 
 ### Component Width Reporting
@@ -267,6 +275,112 @@ func (m *Model) SetSize(width, height int) {
         m.lastWidth = width
         m.columnsComputed = true
     }
+}
+```
+
+### Transparent Backgrounds with lipgloss
+**Critical**: `UnsetBackground()` on lipgloss styles doesn't always work when the style is wrapped by a Container with `.Width()`, because the Container fills remaining space with its background.
+
+**Solution**: For truly transparent text (no background box), use plain strings instead of lipgloss styles:
+
+```go
+// Wrong - will have background from Container
+helpStyle := lipgloss.NewStyle().
+    Foreground(colorMuted).
+    UnsetBackground()
+b.WriteString(helpStyle.Render("help text"))
+return m.styles.Container.Width(m.width).Render(b.String())
+
+// Correct - plain text, no background
+b.WriteString("help text")  // No lipgloss styling
+return m.styles.Container.Width(m.width).Render(b.String())
+```
+
+This applies to any text that should appear "inline" without a background box inside a styled container.
+
+## Component Patterns
+
+### Always Create Fresh Modal Instances
+When opening modals/overlays, always create a new instance with current state rather than reusing stale instances:
+
+```go
+// Wrong - reuses stale instance if selectedProject is nil
+if a.selectedProject != nil {
+    a.projectSelector = projectselector.New(a.gcpClient, a.selectedProject.ID)
+}
+a.showProjectSelector = true
+return a, a.projectSelector.Init()
+
+// Correct - always creates fresh instance
+currentProjectID := ""
+if a.selectedProject != nil {
+    currentProjectID = a.selectedProject.ID
+}
+a.projectSelector = projectselector.New(a.gcpClient, currentProjectID)
+a.showProjectSelector = true
+return a, a.projectSelector.Init()
+```
+
+### Defensive Bounds Checking for List Components
+Always validate list bounds before accessing elements, especially in user input handlers:
+
+```go
+// Handling Enter key on a filtered list
+case key.Matches(msg, m.keys.Select):
+    // Check for empty list first
+    if len(m.filteredProjects) == 0 {
+        return nil
+    }
+    // Check cursor bounds
+    if m.cursor < 0 || m.cursor >= len(m.filteredProjects) {
+        m.cursor = 0
+        return nil
+    }
+    // Safe to access now
+    selectedItem := m.filteredProjects[m.cursor]
+```
+
+### Cursor Position After Filtering
+Cap cursor to the last valid position instead of always resetting to 0 when filtering reduces list size:
+
+```go
+// Reset cursor if out of bounds after filtering
+if m.cursor >= len(m.filteredProjects) {
+    if len(m.filteredProjects) > 0 {
+        m.cursor = len(m.filteredProjects) - 1  // Preserve position
+    } else {
+        m.cursor = 0
+    }
+}
+```
+
+### Mouse Click Region Calculations
+For click regions, use simple geometry based on known dimensions rather than re-rendering components:
+
+```go
+// Wrong - calls render again, potentially inconsistent
+right3X := f.right3StartPos + (f.terminalWidth(f.renderRightGroup()) - f.right3Width)
+
+// Correct - use simple geometry
+right3X := f.width - f.right3Width  // Right-aligned section
+```
+
+### Complete State Cleanup on Context Switch
+When switching contexts (e.g., projects), ensure ALL view instances are cleared to prevent stale state:
+
+```go
+func (a *App) clearAllViews() {
+    a.projectView = nil           // Don't forget any views!
+    a.instancesView = nil
+    a.instanceDetailsView = nil
+    // ... clear ALL view instances
+
+    // Clear navigation state
+    a.viewStack = nil
+
+    // Clear selected resources
+    a.selectedInstance = nil
+    // ... clear ALL selected resources
 }
 ```
 
