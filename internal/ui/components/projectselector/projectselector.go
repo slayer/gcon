@@ -360,12 +360,8 @@ func (m *Model) View() string {
 	// Render container content (everything except help text)
 	containerContent := m.styles.Container.Width(m.width).Render(b.String())
 
-	// Add help text after container (no background)
-	helpStyle := lipgloss.NewStyle().
-		Foreground(colorMuted).
-		Italic(true).
-		PaddingLeft(2)
-	helpText := helpStyle.Render("j/k:nav  enter:select  esc:cancel")
+	// Add help text after container (no background, inline without style wrapper)
+	helpText := "  j/k:nav  enter:select  esc:cancel"
 
 	return containerContent + "\n" + helpText
 }
