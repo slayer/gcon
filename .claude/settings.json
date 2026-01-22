@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(make:*)",
+      "Bash(go:*)",
+      "Bash(go build:*)",
+      "Bash(go test:*)",
+      "Bash(go fmt:*)",
+      "Bash(make lint:*)",
+      "Bash(unset:*)",
+      "Bash(/tmp/gcon)",
+      "Bash(gh:*)"
+    ]
+  }
+}

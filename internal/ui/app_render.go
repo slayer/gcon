@@ -393,3 +393,83 @@ func truncateToHeight(content string, maxLines int) string {
 	// Take only the first maxLines lines
 	return strings.Join(lines[:maxLines], "\n")
 }
+
+// renderWithProjectSelector overlays the project selector modal on the background
+func (a *App) renderWithProjectSelector(background string) string {
+	// Get the project selector view
+	selectorView := a.projectSelector.View()
+
+	// Split background into lines
+	bgLines := strings.Split(background, "\n")
+
+	// Split selector into lines
+	selectorLines := strings.Split(selectorView, "\n")
+
+	// Find max selector width for consistent positioning
+	maxSelectorWidth := 0
+	for _, line := range selectorLines {
+		w := lipgloss.Width(line)
+		if w > maxSelectorWidth {
+			maxSelectorWidth = w
+		}
+	}
+
+	// Calculate position (centered horizontally and vertically)
+	leftPad := (a.width - maxSelectorWidth) / 2
+	if leftPad < 0 {
+		leftPad = 0
+	}
+	topPad := (a.height - len(selectorLines)) / 2
+	if topPad < 2 {
+		topPad = 2
+	}
+
+	// Overlay the selector on the background
+	result := make([]string, len(bgLines))
+	copy(result, bgLines)
+
+	// Right side always starts at the same position for alignment
+	rightStart := leftPad + maxSelectorWidth
+
+	for i, selectorLine := range selectorLines {
+		bgIndex := topPad + i
+		if bgIndex < len(result) {
+			bgLine := result[bgIndex]
+			bgWidth := lipgloss.Width(bgLine)
+
+			// Build the overlayed line:
+			// 1. Left part of background (truncated to leftPad width)
+			// 2. Selector line (padded to maxSelectorWidth)
+			// 3. Right part of background (from rightStart onwards)
+			var newLine strings.Builder
+
+			// Left part: truncate background to leftPad characters
+			if leftPad > 0 {
+				leftPart := truncateRight(bgLine, leftPad)
+				newLine.WriteString(leftPart)
+				// Pad if background was shorter than leftPad
+				leftWidth := lipgloss.Width(leftPart)
+				if leftWidth < leftPad {
+					newLine.WriteString(strings.Repeat(" ", leftPad-leftWidth))
+				}
+			}
+
+			// Middle: the selector line, padded to consistent width
+			newLine.WriteString(selectorLine)
+			selectorLineWidth := lipgloss.Width(selectorLine)
+			if selectorLineWidth < maxSelectorWidth {
+				newLine.WriteString(strings.Repeat(" ", maxSelectorWidth-selectorLineWidth))
+			}
+
+			// Right part: skip first rightStart characters of background
+			if rightStart < bgWidth {
+				rightPart := truncateLeft(bgLine, rightStart)
+				newLine.WriteString(rightPart)
+			}
+
+			result[bgIndex] = newLine.String()
+		}
+	}
+
+	return strings.Join(result, "\n")
+}

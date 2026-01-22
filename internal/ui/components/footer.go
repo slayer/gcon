@@ -3,7 +3,9 @@ package components
 import (
 	"strings"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/slayer/gcon/internal/ui/mouse"
 )
 
 // Powerline separator characters (Unicode code points for powerline fonts)
@@ -72,6 +74,9 @@ func DefaultFooterStyles() FooterStyles {
 	}
 }
 
+// FooterProjectClickedMsg is sent when the project section is clicked
+type FooterProjectClickedMsg struct{}
+
 // Footer displays a multi-section status bar with powerline separators
 type Footer struct {
 	width  int
@@ -97,12 +102,18 @@ type Footer struct {
 	Right2RenderedBg lipgloss.Color
 	Right3Rendered   string
 	Right3RenderedBg lipgloss.Color
+
+	// Mouse region tracking
+	regionMgr      *mouse.RegionManager
+	right3StartPos int // X position where Right3 section starts
+	right3Width    int // Width of Right3 section content
 }
 
 // NewFooter creates a new footer with default styles
 func NewFooter() *Footer {
 	return &Footer{
-		styles: DefaultFooterStyles(),
+		styles:    DefaultFooterStyles(),
+		regionMgr: mouse.NewRegionManager(),
 	}
 }
 
@@ -270,6 +281,24 @@ func (f *Footer) View() string {
 	spacerStyle := lipgloss.NewStyle().Background(f.styles.SpacerBg)
 	leftSpacer := spacerStyle.Render(strings.Repeat(" ", leftSpacing))
 	rightSpacer := spacerStyle.Render(strings.Repeat(" ", rightSpacing))
+
+	// Track Right3 position for click handling
+	// Calculate where the right group starts
+	f.right3StartPos = leftWidth + leftSpacing + centerWidth + rightSpacing
+
+	// Calculate Right3 width (it's the rightmost section in the right group)
+	// We need to measure the Right3 content width
+	if f.Right3 != nil || f.Right3Rendered != "" {
+		if f.Right3Rendered != "" {
+			f.right3Width = lipgloss.Width(f.Right3Rendered)
+		} else if f.Right3 != nil {
+			// Use lipgloss.Width to handle multi-byte UTF-8 characters correctly
+			// Add padding (0, 1 on each side) = content width + 2
+			f.right3Width = lipgloss.Width(*f.Right3) + 2
+		}
+	} else {
+		f.right3Width = 0
+	}
 
 	// Join everything
 	var parts []string
@@ -576,4 +605,42 @@ func (f *Footer) renderRightGroup() string {
 	}
 
 	return strings.Join(parts, "")
+}
+
+// Clickable interface implementation
+
+// UpdateRegions recalculates clickable regions based on footer state
+func (f *Footer) UpdateRegions(offsetX, offsetY int) {
+	f.regionMgr.Clear()
+
+	// Only Right3 is clickable (project section)
+	if f.right3Width > 0 {
+		// Right3 is the rightmost section in the right group
+		// Its position starts where the right group starts, since it renders from right to left
+		// The click region should cover the entire right group width minus the other sections
+		// For simplicity, use the precomputed starting position
+		right3X := f.width - f.right3Width
+
+		f.regionMgr.Add("right3-project", mouse.Rect{
+			X:      offsetX + right3X,
+			Y:      offsetY,
+			Width:  f.right3Width,
+			Height: 1, // Footer is always 1 line tall
+		}, nil)
+	}
+}
+
+// GetRegions returns current clickable regions
+func (f *Footer) GetRegions() []mouse.Region {
+	return f.regionMgr.GetRegions()
+}
+
+// HandleRegionClick processes a click on a footer region
+func (f *Footer) HandleRegionClick(regionID string) tea.Cmd {
+	if regionID == "right3-project" {
+		return func() tea.Msg {
+			return FooterProjectClickedMsg{}
+		}
+	}
+	return nil
 }
