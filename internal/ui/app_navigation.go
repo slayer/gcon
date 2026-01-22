@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/sidebar"
 	"github.com/slayer/gcon/internal/ui/views"
@@ -31,10 +32,30 @@ func (a *App) handleMouseEvent(msg tea.MouseMsg) tea.Cmd {
 		sidebarWidth = a.sidebar.Width()
 	}
 
+	// Get footer position (at bottom of screen)
+	_, footerHeight := a.layout.FooterSize()
+	footerY := a.height - footerHeight
+
 	// Handle mouse clicks using region-based system
 	// Only use regions for left-click press events to avoid performance overhead
 	if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
-		// Check sidebar first (if active and click is in sidebar area)
+		// Check footer first (if click is in footer area)
+		if msg.Y >= footerY {
+			if clickable, ok := interface{}(a.footer).(components.Clickable); ok {
+				// Update regions with footer position (x=0, y=footerY)
+				clickable.UpdateRegions(0, footerY)
+
+				// Find which region was clicked
+				regions := clickable.GetRegions()
+				for _, region := range regions {
+					if region.Bounds.Contains(msg.X, msg.Y) {
+						return clickable.HandleRegionClick(region.ID)
+					}
+				}
+			}
+		}
+
+		// Check sidebar (if active and click is in sidebar area)
 		if a.sidebarActive() && msg.X < sidebarWidth {
 			if clickable, ok := interface{}(a.sidebar).(components.Clickable); ok {
 				// Update regions with sidebar position (x=0, y=headerHeight)
@@ -417,4 +438,134 @@ func (a *App) handleObjectDeleted(_ views.ObjectDeletedMsg) tea.Cmd {
 		return a.objectsView.Init()
 	}
 	return nil
+}
+
+// handleProjectSwitch switches to a different project and reloads all state
+func (a *App) handleProjectSwitch(newProject *gcp.Project) tea.Cmd {
+	// Skip if selecting same project
+	if a.selectedProject != nil && a.selectedProject.ID == newProject.ID {
+		a.showProjectSelector = false
+		return nil
+	}
+
+	// Update selected project
+	a.selectedProject = newProject
+	a.recentTracker.Track("project", newProject.ID, newProject.Name)
+
+	// Clear all view instances to force reload
+	a.clearAllViews()
+
+	// Update context with new project
+	a.syncContext()
+
+	// Reload current view with new project
+	cmd := a.reloadCurrentView(newProject.ID)
+
+	// Close modal
+	a.showProjectSelector = false
+
+	// Sidebar will be activated automatically via sidebarActive() check
+
+	return cmd
+}
+
+// clearAllViews nils out all view instances to force reload with new project
+func (a *App) clearAllViews() {
+	a.projectView = nil
+	a.instancesView = nil
+	a.instanceDetailsView = nil
+	a.disksView = nil
+	a.diskDetailsView = nil
+	a.snapshotsView = nil
+	a.snapshotDetailsView = nil
+	a.imagesView = nil
+	a.imageDetailsView = nil
+	a.bucketsView = nil
+	a.objectsView = nil
+	a.objectDetailsView = nil
+	a.projectMetadataView = nil
+	a.metadataView = nil
+
+	// Clear view stack
+	a.viewStack = nil
+
+	// Clear selected resources
+	a.selectedInstance = nil
+	a.selectedDisk = nil
+	a.selectedSnapshot = nil
+	a.selectedImage = nil
+	a.selectedBucket = nil
+	a.selectedObject = nil
+}
+
+// reloadCurrentView recreates the current view with the new project ID
+func (a *App) reloadCurrentView(projectID string) tea.Cmd {
+	switch a.currentView {
+	case ViewInstances, ViewInstanceDetails:
+		// Return to instances list
+		a.currentView = ViewInstances
+		a.instancesView = views.NewInstancesView(projectID)
+		a.updateSidebarActiveView()
+		a.updateViewSizes()
+		return a.instancesView.Init()
+
+	case ViewDisks, ViewDiskDetails:
+		// Return to disks list
+		a.currentView = ViewDisks
+		a.disksView = views.NewDisksView(projectID)
+		a.updateSidebarActiveView()
+		a.updateViewSizes()
+		return a.disksView.Init()
+
+	case ViewSnapshots, ViewSnapshotDetails:
+		// Return to snapshots list
+		a.currentView = ViewSnapshots
+		a.snapshotsView = views.NewSnapshotsView(projectID)
+		a.updateSidebarActiveView()
+		a.updateViewSizes()
+		return a.snapshotsView.Init()
+
+	case ViewImages, ViewImageDetails:
+		// Return to images list
+		a.currentView = ViewImages
+		a.imagesView = views.NewImagesView(projectID)
+		a.updateSidebarActiveView()
+		a.updateViewSizes()
+		return a.imagesView.Init()
+
+	case ViewBuckets, ViewObjects, ViewObjectDetails:
+		// Return to buckets list
+		a.currentView = ViewBuckets
+		a.bucketsView = views.NewBucketsView(projectID)
+		a.updateSidebarActiveView()
+		a.updateViewSizes()
+		return a.bucketsView.Init()
+
+	case ViewProjectMetadata:
+		// Reload metadata view
+		a.currentView = ViewProjectMetadata
+		// Need compute client, so initialize instances view first if not present
+		if a.instancesView == nil {
+			a.instancesView = views.NewInstancesView(projectID)
+		}
+		a.projectMetadataView = views.NewProjectMetadataView(
+			projectID,
+			a.instancesView.GetComputeClient(),
+		)
+		a.updateSidebarActiveView()
+		a.updateViewSizes()
+		return a.projectMetadataView.Init()
+
+	case ViewProjects:
+		// Already on projects view, just close modal
+		return nil
+
+	default:
+		// Default to instances view
+		a.currentView = ViewInstances
+		a.instancesView = views.NewInstancesView(projectID)
+		a.updateSidebarActiveView()
+		a.updateViewSizes()
+		return a.instancesView.Init()
+	}
 }
