@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -372,4 +373,121 @@ func (c *StorageClient) DeleteObject(ctx context.Context, bucketName, objectName
 		return fmt.Errorf("failed to delete object %s: %w", objectName, err)
 	}
 	return nil
+}
+
+// ObjectMetadata contains full metadata for a GCS object
+type ObjectMetadata struct {
+	// Basic info
+	Name        string
+	Bucket      string
+	Size        int64
+	ContentType string
+	Created     time.Time
+	Updated     time.Time
+
+	// Storage
+	StorageClass string
+
+	// Technical details
+	MD5Hash        string // Hex encoded
+	CRC32C         uint32
+	Etag           string
+	Generation     int64
+	Metageneration int64
+
+	// Access control
+	Owner string
+
+	// Cache/content headers
+	CacheControl       string
+	ContentDisposition string
+	ContentEncoding    string
+	ContentLanguage    string
+
+	// Custom metadata
+	CustomMetadata map[string]string
+
+	// Computed URLs
+	PublicURL        string // https://storage.googleapis.com/{bucket}/{object}
+	AuthenticatedURL string // https://storage.cloud.google.com/{bucket}/{object}
+	GsutilURI        string // gs://{bucket}/{object}
+}
+
+// GetObjectMetadata fetches full metadata for an object
+func (c *StorageClient) GetObjectMetadata(ctx context.Context, bucketName, objectName string) (*ObjectMetadata, error) {
+	attrs, err := c.client.Bucket(bucketName).Object(objectName).Attrs(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get object metadata: %w", err)
+	}
+
+	// Extract owner email if available
+	owner := ""
+	if attrs.Owner != "" {
+		owner = attrs.Owner
+	}
+
+	// Build MD5 hash as hex string
+	var md5Hash string
+	if len(attrs.MD5) > 0 {
+		md5Hash = fmt.Sprintf("%x", attrs.MD5)
+	}
+
+	// URL-encode the object name path segments for valid URLs
+	// We encode each path segment separately to preserve "/" as path separators
+	encodedObjectName := encodeObjectPath(objectName)
+
+	return &ObjectMetadata{
+		Name:               attrs.Name,
+		Bucket:             attrs.Bucket,
+		Size:               attrs.Size,
+		ContentType:        attrs.ContentType,
+		Created:            attrs.Created,
+		Updated:            attrs.Updated,
+		StorageClass:       attrs.StorageClass,
+		MD5Hash:            md5Hash,
+		CRC32C:             attrs.CRC32C,
+		Etag:               attrs.Etag,
+		Generation:         attrs.Generation,
+		Metageneration:     attrs.Metageneration,
+		Owner:              owner,
+		CacheControl:       attrs.CacheControl,
+		ContentDisposition: attrs.ContentDisposition,
+		ContentEncoding:    attrs.ContentEncoding,
+		ContentLanguage:    attrs.ContentLanguage,
+		CustomMetadata:     attrs.Metadata,
+		PublicURL:          fmt.Sprintf("https://storage.googleapis.com/%s/%s", bucketName, encodedObjectName),
+		AuthenticatedURL:   fmt.Sprintf("https://storage.cloud.google.com/%s/%s", bucketName, encodedObjectName),
+		GsutilURI:          fmt.Sprintf("gs://%s/%s", bucketName, objectName),
+	}, nil
+}
+
+// encodeObjectPath URL-encodes each segment of an object path while preserving "/" separators
+func encodeObjectPath(objectName string) string {
+	segments := strings.Split(objectName, "/")
+	for i, seg := range segments {
+		segments[i] = url.PathEscape(seg)
+	}
+	return strings.Join(segments, "/")
+}
+
+// GetObjectContent downloads object content up to maxBytes
+// Returns the content bytes and an error if any
+func (c *StorageClient) GetObjectContent(ctx context.Context, bucketName, objectName string, maxBytes int64) ([]byte, error) {
+	obj := c.client.Bucket(bucketName).Object(objectName)
+
+	// Create a range reader to read up to maxBytes
+	// NewRangeReader handles size limits internally - it reads from offset 0 up to length bytes
+	reader, err := obj.NewRangeReader(ctx, 0, maxBytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create reader: %w", err)
+	}
+	defer func() { _ = reader.Close() }()
+
+	// ReadAll will read up to the smaller of maxBytes or actual object size
+	content, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read object content: %w", err)
+	}
+
+	return content, nil
 }

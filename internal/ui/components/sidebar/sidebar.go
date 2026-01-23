@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/slayer/gcon/internal/ui/mouse"
 	"github.com/slayer/gcon/internal/ui/symbols"
 )
 
@@ -72,6 +73,8 @@ type Sidebar struct {
 	activeView   ViewType   // Currently active view (for highlighting)
 	styles       Styles
 	keys         KeyMap
+	hoverIndex   int                  // Index of item being hovered (-1 if none)
+	regionMgr    *mouse.RegionManager // Manages clickable regions for mouse events
 }
 
 // New creates a new sidebar with the default GCP menu
@@ -88,6 +91,8 @@ func New() *Sidebar {
 		styles:       DefaultStyles(),
 		keys:         DefaultKeyMap(),
 		activeView:   ViewInstances,
+		hoverIndex:   -1,
+		regionMgr:    mouse.NewRegionManager(),
 	}
 }
 
@@ -96,38 +101,146 @@ func (s *Sidebar) Init() tea.Cmd {
 	return nil
 }
 
-// Update handles keyboard input when sidebar is focused
-func (s *Sidebar) Update(msg tea.Msg) tea.Cmd {
-	if !s.focused {
-		return nil
+// handleMouseEvent processes mouse interactions with the sidebar
+// This is kept for backward compatibility and handles wheel scroll and hover.
+// Click handling is now done via the Clickable interface (HandleRegionClick).
+func (s *Sidebar) handleMouseEvent(msg tea.MouseMsg) tea.Cmd {
+	switch msg.Action {
+	case tea.MouseActionRelease:
+		// Handle wheel scroll
+		switch msg.Button {
+		case tea.MouseButtonWheelUp:
+			s.moveUp()
+		case tea.MouseButtonWheelDown:
+			s.moveDown()
+		}
+
+	case tea.MouseActionMotion:
+		// Track hover state
+		// Calculate Y offset for header and divider
+		yOffset := 2
+		if len(s.path) > 0 {
+			yOffset += 2 // Add "Back" link
+		}
+
+		if msg.Y >= yOffset {
+			itemY := msg.Y - yOffset
+			if itemY >= 0 && itemY < len(s.currentItems) {
+				s.hoverIndex = itemY
+			} else {
+				s.hoverIndex = -1
+			}
+		}
 	}
 
-	keyMsg, ok := msg.(tea.KeyMsg)
-	if !ok {
-		return nil
+	return nil
+}
+
+// UpdateRegions recalculates clickable regions based on current state.
+// Implements the Clickable interface.
+func (s *Sidebar) UpdateRegions(offsetX, offsetY int) {
+	s.regionMgr.Clear()
+
+	// Calculate Y offset for header and divider
+	// Header: 1 line
+	// Divider: 1 line
+	yOffset := offsetY + 2
+
+	// Add "Back" link region if present (in submenu)
+	if len(s.path) > 0 {
+		s.regionMgr.Add(
+			"back",
+			mouse.Rect{
+				X:      offsetX,
+				Y:      yOffset,
+				Width:  s.Width(),
+				Height: 1,
+			},
+			nil,
+		)
+		// "< Back" line: 1 line
+		// Empty separator: 1 line
+		yOffset += 2
 	}
 
-	// Handle number shortcuts (1-9)
-	if num := s.getNumberKey(keyMsg); num > 0 && num <= len(s.currentItems) {
-		s.cursor = num - 1
-		return s.selectItem()
+	// Add region for each menu item
+	for i := range s.currentItems {
+		s.regionMgr.Add(
+			fmt.Sprintf("item-%d", i),
+			mouse.Rect{
+				X:      offsetX,
+				Y:      yOffset + i,
+				Width:  s.Width(),
+				Height: 1,
+			},
+			i, // Item index as metadata
+		)
 	}
+}
 
-	// Handle letter hotkeys (case-sensitive)
-	if idx := s.findItemByHotkey(keyMsg.String()); idx >= 0 {
-		s.cursor = idx
-		return s.selectItem()
-	}
+// GetRegions returns current clickable regions.
+// Implements the Clickable interface.
+func (s *Sidebar) GetRegions() []mouse.Region {
+	return s.regionMgr.GetRegions()
+}
 
-	switch {
-	case key.Matches(keyMsg, s.keys.Up):
-		s.moveUp()
-	case key.Matches(keyMsg, s.keys.Down):
-		s.moveDown()
-	case key.Matches(keyMsg, s.keys.Select):
-		return s.selectItem()
-	case key.Matches(keyMsg, s.keys.Back):
+// HandleRegionClick processes a click on a specific region.
+// Implements the Clickable interface.
+func (s *Sidebar) HandleRegionClick(regionID string) tea.Cmd {
+	// Handle back button
+	if regionID == "back" {
 		s.goBack()
+		return nil
+	}
+
+	// Parse region ID to get item index
+	var itemIdx int
+	if _, err := fmt.Sscanf(regionID, "item-%d", &itemIdx); err != nil {
+		return nil
+	}
+
+	if itemIdx < 0 || itemIdx >= len(s.currentItems) {
+		return nil
+	}
+
+	// Update cursor and select item
+	s.cursor = itemIdx
+	return s.selectItem()
+}
+
+// Update handles keyboard and mouse input when sidebar is focused
+func (s *Sidebar) Update(msg tea.Msg) tea.Cmd {
+	switch msg := msg.(type) {
+	case tea.MouseMsg:
+		return s.handleMouseEvent(msg)
+
+	case tea.KeyMsg:
+		if !s.focused {
+			return nil
+		}
+
+		// Handle number shortcuts (1-9)
+		if num := s.getNumberKey(msg); num > 0 && num <= len(s.currentItems) {
+			s.cursor = num - 1
+			return s.selectItem()
+		}
+
+		// Handle letter hotkeys (case-sensitive)
+		if idx := s.findItemByHotkey(msg.String()); idx >= 0 {
+			s.cursor = idx
+			return s.selectItem()
+		}
+
+		switch {
+		case key.Matches(msg, s.keys.Up):
+			s.moveUp()
+		case key.Matches(msg, s.keys.Down):
+			s.moveDown()
+		case key.Matches(msg, s.keys.Select):
+			return s.selectItem()
+		case key.Matches(msg, s.keys.Back):
+			s.goBack()
+		}
 	}
 	return nil
 }

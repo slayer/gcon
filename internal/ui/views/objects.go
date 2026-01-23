@@ -14,11 +14,14 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
+	"github.com/slayer/gcon/internal/ui/components"
+	"github.com/slayer/gcon/internal/ui/components/actionmenu"
 	"github.com/slayer/gcon/internal/ui/components/confirm"
 	"github.com/slayer/gcon/internal/ui/components/filepicker"
 	"github.com/slayer/gcon/internal/ui/components/progress"
 	"github.com/slayer/gcon/internal/ui/components/table"
 	"github.com/slayer/gcon/internal/ui/context"
+	"github.com/slayer/gcon/internal/ui/mouse"
 	"github.com/slayer/gcon/internal/ui/symbols"
 	"github.com/slayer/gcon/internal/ui/timeutil"
 )
@@ -27,13 +30,14 @@ const defaultPageSize = 100
 
 // objectKeyMap defines object-specific key bindings
 type objectKeyMap struct {
-	Enter    key.Binding
-	Refresh  key.Binding
-	NextPage key.Binding
-	PrevPage key.Binding
-	Download key.Binding
-	Upload   key.Binding
-	Delete   key.Binding
+	Enter      key.Binding
+	Refresh    key.Binding
+	NextPage   key.Binding
+	PrevPage   key.Binding
+	Download   key.Binding
+	Upload     key.Binding
+	Delete     key.Binding
+	ActionMenu key.Binding
 }
 
 func defaultObjectKeyMap() objectKeyMap {
@@ -65,6 +69,10 @@ func defaultObjectKeyMap() objectKeyMap {
 		Delete: key.NewBinding(
 			key.WithKeys("D"),
 			key.WithHelp("D", "delete"),
+		),
+		ActionMenu: key.NewBinding(
+			key.WithKeys("."),
+			key.WithHelp(".", "actions"),
 		),
 	}
 }
@@ -126,6 +134,10 @@ type ObjectsView struct {
 	deleting           bool
 	deleteProgress     *progress.Progress
 	deleteChan         chan deleteProgressUpdate
+
+	// Action menu state
+	actionMenu *actionmenu.ActionMenu
+	menuOpen   bool
 }
 
 // NewObjectsView creates a new objects view with table display
@@ -305,6 +317,19 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 	case objectsErrorMsg:
 		v.loading = false
 		v.err = msg.err
+		return nil
+
+	case table.RowDoubleClickedMsg:
+		// Handle double-click on table row - navigate into folder
+		obj := v.findObjectByName(msg.RowID)
+		if obj != nil && obj.IsFolder {
+			// Push current prefix to stack and navigate into folder
+			v.prefixStack = append(v.prefixStack, v.currentPrefix)
+			v.currentPrefix = obj.Name
+			v.resetPagination()
+			v.loading = true
+			return tea.Batch(v.spinner.Tick, v.loadObjects(""))
+		}
 		return nil
 
 	case spinner.TickMsg:
@@ -532,7 +557,21 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 		}
 		return nil
 
+	case actionmenu.ActionSelectedMsg:
+		// Handle action menu selection
+		v.menuOpen = false
+		return v.executeMenuAction(msg.Key)
+
+	case actionmenu.ActionMenuClosedMsg:
+		v.menuOpen = false
+		return nil
+
 	case tea.KeyMsg:
+		// Route keys to action menu when open
+		if v.menuOpen && v.actionMenu != nil {
+			return v.actionMenu.Update(msg)
+		}
+
 		// If delete confirmation is shown, delegate to it
 		if v.showDeleteConfirm && v.deleteConfirm != nil {
 			cmd := v.deleteConfirm.Update(msg)
@@ -558,6 +597,17 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 		}
 
 		switch {
+		case key.Matches(msg, v.keys.ActionMenu):
+			// Open action menu for selected item
+			if row := v.table.SelectedRow(); row != nil {
+				obj := v.findObjectByName(row.ID)
+				if obj != nil {
+					v.actionMenu = actionmenu.New("Object Actions", v.buildObjectActions(*obj))
+					v.menuOpen = true
+				}
+			}
+			return nil
+
 		case key.Matches(msg, v.keys.Upload):
 			// Open file picker for upload
 			cwd, _ := os.Getwd()
@@ -585,18 +635,24 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 			}
 
 		case key.Matches(msg, v.keys.Enter):
-			// Navigate into folder on Enter
+			// Navigate into folder or view file details on Enter
 			if row := v.table.SelectedRow(); row != nil {
 				obj := v.findObjectByName(row.ID)
-				if obj != nil && obj.IsFolder {
-					// Push current prefix to stack and navigate into folder
-					v.prefixStack = append(v.prefixStack, v.currentPrefix)
-					v.currentPrefix = obj.Name
-					v.resetPagination()
-					v.loading = true
-					return tea.Batch(v.spinner.Tick, v.loadObjects(""))
+				if obj != nil {
+					if obj.IsFolder {
+						// Navigate into folder
+						v.prefixStack = append(v.prefixStack, v.currentPrefix)
+						v.currentPrefix = obj.Name
+						v.resetPagination()
+						v.loading = true
+						return tea.Batch(v.spinner.Tick, v.loadObjects(""))
+					}
+					// For files, emit selection message to open details view
+					selectedObj := *obj
+					return func() tea.Msg {
+						return ObjectSelectedMsg{Object: selectedObj}
+					}
 				}
-				// For files, could open details view in the future
 			}
 
 		case key.Matches(msg, v.keys.Refresh):
@@ -727,7 +783,7 @@ func (v *ObjectsView) View() string {
 	status := statusStyle.Render(fmt.Sprintf("  %d items%s", len(v.objects), pageInfo))
 
 	// Help text for actions
-	help := statusStyle.Render("\n  enter: open • d: download • u: upload • D: delete • n/p: next/prev page • /: filter • r: refresh • esc: back")
+	help := statusStyle.Render("\n  enter: open • d: download • u: upload • D: delete • .: menu • n/p: page • /: filter • r: refresh • esc: back")
 
 	// Build title with current path
 	titleStyle := lipgloss.NewStyle().
@@ -736,6 +792,11 @@ func (v *ObjectsView) View() string {
 		MarginBottom(1)
 
 	content := titleStyle.Render(v.buildTitle()) + "\n" + v.table.View() + "\n" + status + help
+
+	// Overlay action menu when shown
+	if v.menuOpen && v.actionMenu != nil {
+		content = v.overlayActionMenu(content)
+	}
 
 	// Overlay file picker when shown
 	if v.showFilePicker && v.filePicker != nil {
@@ -1413,4 +1474,179 @@ func (v *ObjectsView) overlayDeleteProgress(content string) string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// overlayActionMenu renders the action menu centered over the content
+func (v *ObjectsView) overlayActionMenu(content string) string {
+	lines := strings.Split(content, "\n")
+	menuView := v.actionMenu.View()
+	menuLines := strings.Split(menuView, "\n")
+
+	startRow := (len(lines) - len(menuLines)) / 2
+	if startRow < 0 {
+		startRow = 0
+	}
+
+	for i, mLine := range menuLines {
+		row := startRow + i
+		if row >= len(lines) {
+			break
+		}
+
+		mWidth := lipgloss.Width(mLine)
+		leftPad := (v.width - mWidth) / 2
+		if leftPad < 0 {
+			leftPad = 0
+		}
+
+		lines[row] = strings.Repeat(" ", leftPad) + mLine
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// buildObjectActions creates action menu items for the selected object
+func (v *ObjectsView) buildObjectActions(obj gcp.StorageObject) []actionmenu.Action {
+	if obj.IsFolder {
+		return []actionmenu.Action{
+			{Key: 'o', Label: "Open folder", Enabled: true},
+			{Key: 'd', Label: "Download", Enabled: true},
+			{Key: 'D', Label: "Delete", Enabled: true, Dangerous: true},
+		}
+	}
+
+	// File actions - include preview and open options
+	previewable := isFilePreviewable(obj.ContentType, obj.Size, obj.Name)
+
+	return []actionmenu.Action{
+		{Key: 'v', Label: "Preview", Enabled: previewable},
+		{Key: 'O', Label: "Open with app", Enabled: true},
+		{Key: 'o', Label: "View details", Enabled: true},
+		{Key: 'd', Label: "Download", Enabled: true},
+		{Key: 'D', Label: "Delete", Enabled: true, Dangerous: true},
+	}
+}
+
+// isFilePreviewable checks if a file can be previewed based on content type, size, and name
+func isFilePreviewable(contentType string, size int64, name string) bool {
+	// Max preview size: 500KB
+	const maxPreviewBytes = 500 * 1024
+
+	if size > maxPreviewBytes {
+		return false
+	}
+
+	// Check content type
+	ct := strings.ToLower(contentType)
+	if strings.HasPrefix(ct, "text/") {
+		return true
+	}
+	if ct == "application/json" || ct == "application/xml" ||
+		ct == "application/javascript" || ct == "application/x-yaml" {
+		return true
+	}
+
+	// Check file extension
+	nameLower := strings.ToLower(name)
+	previewableExts := []string{
+		".txt", ".md", ".log", ".yaml", ".yml", ".json", ".xml",
+		".html", ".css", ".js", ".ts", ".go", ".py", ".sh", ".bash",
+		".rb", ".rs", ".java", ".c", ".cpp", ".h", ".hpp",
+		".sql", ".csv", ".toml", ".ini", ".cfg", ".conf",
+	}
+	for _, ext := range previewableExts {
+		if strings.HasSuffix(nameLower, ext) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// executeMenuAction performs the action selected from the menu
+func (v *ObjectsView) executeMenuAction(actionKey rune) tea.Cmd {
+	row := v.table.SelectedRow()
+	if row == nil {
+		return nil
+	}
+
+	obj := v.findObjectByName(row.ID)
+	if obj == nil {
+		return nil
+	}
+
+	switch actionKey {
+	case 'v':
+		// Preview - open details view with preview action
+		if !obj.IsFolder {
+			selectedObj := *obj
+			return func() tea.Msg {
+				return ObjectSelectedMsg{Object: selectedObj, Action: ObjectActionPreview}
+			}
+		}
+	case 'O':
+		// Open with app - open details view with open action
+		if !obj.IsFolder {
+			selectedObj := *obj
+			return func() tea.Msg {
+				return ObjectSelectedMsg{Object: selectedObj, Action: ObjectActionOpen}
+			}
+		}
+	case 'o':
+		if obj.IsFolder {
+			// Navigate into folder
+			v.prefixStack = append(v.prefixStack, v.currentPrefix)
+			v.currentPrefix = obj.Name
+			v.resetPagination()
+			v.loading = true
+			return tea.Batch(v.spinner.Tick, v.loadObjects(""))
+		}
+		// For files, open details view
+		selectedObj := *obj
+		return func() tea.Msg {
+			return ObjectSelectedMsg{Object: selectedObj}
+		}
+	case 'd':
+		return v.prepareDownload(*obj)
+	case 'D':
+		return v.prepareDelete(*obj)
+	}
+
+	return nil
+}
+
+// IsMenuOpen returns true if the action menu is currently open
+func (v *ObjectsView) IsMenuOpen() bool {
+	return v.menuOpen || v.showDeleteConfirm
+}
+
+// GetStorageClient returns the storage client for reuse
+func (v *ObjectsView) GetStorageClient() *gcp.StorageClient {
+	return v.storageClient
+}
+
+// UpdateRegions delegates to the table component.
+// Implements the components.Clickable interface.
+func (v *ObjectsView) UpdateRegions(offsetX, offsetY int) {
+	if clickable, ok := interface{}(&v.table).(components.Clickable); ok {
+		clickable.UpdateRegions(offsetX, offsetY)
+	}
+}
+
+// GetRegions delegates to the table component.
+// Implements the components.Clickable interface.
+func (v *ObjectsView) GetRegions() []mouse.Region {
+	if clickable, ok := interface{}(&v.table).(components.Clickable); ok {
+		return clickable.GetRegions()
+	}
+	return nil
+}
+
+// HandleRegionClick delegates to the table component.
+// Implements the components.Clickable interface.
+func (v *ObjectsView) HandleRegionClick(regionID string) tea.Cmd {
+	if clickable, ok := interface{}(&v.table).(components.Clickable); ok {
+		return clickable.HandleRegionClick(regionID)
+	}
+	return nil
 }

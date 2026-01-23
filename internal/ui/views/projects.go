@@ -13,6 +13,7 @@ import (
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/table"
 	"github.com/slayer/gcon/internal/ui/context"
+	"github.com/slayer/gcon/internal/ui/mouse"
 	"github.com/slayer/gcon/internal/ui/symbols"
 )
 
@@ -147,6 +148,16 @@ func (v *ProjectsView) Update(msg tea.Msg) tea.Cmd {
 		v.err = msg.err
 		return nil
 
+	case table.RowDoubleClickedMsg:
+		// Handle double-click on table row - select project
+		proj := v.findProjectByID(msg.RowID)
+		if proj != nil {
+			return func() tea.Msg {
+				return ProjectSelectedMsg{Project: *proj}
+			}
+		}
+		return nil
+
 	case spinner.TickMsg:
 		if v.loading {
 			var cmd tea.Cmd
@@ -239,6 +250,32 @@ func (v *ProjectsView) SetContext(ctx *context.ProgramContext) {
 func (v *ProjectsView) SelectedProject() *gcp.Project {
 	if row := v.table.SelectedRow(); row != nil {
 		return v.findProjectByID(row.ID)
+	}
+	return nil
+}
+
+// UpdateRegions delegates to the table component.
+// Implements the components.Clickable interface.
+func (v *ProjectsView) UpdateRegions(offsetX, offsetY int) {
+	if clickable, ok := interface{}(&v.table).(components.Clickable); ok {
+		clickable.UpdateRegions(offsetX, offsetY)
+	}
+}
+
+// GetRegions delegates to the table component.
+// Implements the components.Clickable interface.
+func (v *ProjectsView) GetRegions() []mouse.Region {
+	if clickable, ok := interface{}(&v.table).(components.Clickable); ok {
+		return clickable.GetRegions()
+	}
+	return nil
+}
+
+// HandleRegionClick delegates to the table component.
+// Implements the components.Clickable interface.
+func (v *ProjectsView) HandleRegionClick(regionID string) tea.Cmd {
+	if clickable, ok := interface{}(&v.table).(components.Clickable); ok {
+		return clickable.HandleRegionClick(regionID)
 	}
 	return nil
 }

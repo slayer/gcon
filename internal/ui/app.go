@@ -12,6 +12,7 @@ import (
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/commandpalette"
+	"github.com/slayer/gcon/internal/ui/components/projectselector"
 	"github.com/slayer/gcon/internal/ui/components/sidebar"
 	"github.com/slayer/gcon/internal/ui/context"
 	"github.com/slayer/gcon/internal/ui/layout"
@@ -36,7 +37,8 @@ const (
 	ViewImages
 	ViewImageDetails
 	ViewBuckets
-	ViewObjects // Browsing objects within a bucket
+	ViewObjects       // Browsing objects within a bucket
+	ViewObjectDetails // Viewing object details
 	ViewNetworks
 	ViewFirewall
 	ViewLogs
@@ -77,6 +79,7 @@ type App struct {
 	imageDetailsView    *views.ImageDetailsView
 	bucketsView         *views.BucketsView
 	objectsView         *views.ObjectsView
+	objectDetailsView   *views.ObjectDetailsView
 
 	// Selected context
 	selectedProject  *gcp.Project
@@ -85,6 +88,7 @@ type App struct {
 	selectedSnapshot *gcp.Snapshot
 	selectedImage    *gcp.Image
 	selectedBucket   *gcp.Bucket
+	selectedObject   *gcp.StorageObject
 
 	// UI state
 	showHelp              bool
@@ -102,6 +106,13 @@ type App struct {
 	commandPalette     *commandpalette.CommandPalette
 	showCommandPalette bool
 	recentTracker      *commandpalette.RecentTracker
+
+	// Project selector modal
+	projectSelector     *projectselector.Model
+	showProjectSelector bool
+
+	// Header
+	header *components.Header
 
 	// Footer
 	footer *components.Footer
@@ -150,6 +161,8 @@ func NewApp(client *gcp.Client, opts AppOptions) *App {
 		focusedPanel:          FocusContent,
 		commandPalette:        commandpalette.New(),
 		recentTracker:         commandpalette.NewRecentTracker(),
+		projectSelector:       projectselector.New(client, opts.InitialProjectID),
+		header:                components.NewHeader(),
 		footer:                components.NewFooter(),
 		authenticatedIdentity: authenticatedIdentity,
 		identityType:          identityType,
@@ -162,8 +175,18 @@ func NewApp(client *gcp.Client, opts AppOptions) *App {
 	return a
 }
 
+// ShowProjectSelectorOnStartup configures the app to show project selector on startup
+func (a *App) ShowProjectSelectorOnStartup() {
+	a.showProjectSelector = true
+	// Sidebar will be hidden automatically since selectedProject is nil
+}
+
 // Init implements tea.Model
 func (a *App) Init() tea.Cmd {
+	// If project selector should be shown on startup
+	if a.showProjectSelector {
+		return a.projectSelector.Init()
+	}
 	// If initial project is set, load it directly instead of showing selector
 	if a.initialProjectID != "" {
 		a.loadingInitialProject = true
@@ -240,13 +263,30 @@ func (a *App) getCurrentViewModel() views.View {
 		return a.bucketsView
 	case ViewObjects:
 		return a.objectsView
+	case ViewObjectDetails:
+		return a.objectDetailsView
 	}
 	return nil
 }
 
 // Update implements tea.Model
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// Handle command palette messages first (highest priority when active)
+	// Handle project selector messages first (highest priority when active)
+	if a.showProjectSelector {
+		switch msg := msg.(type) {
+		case projectselector.ProjectSelectedMsg:
+			return a, a.handleProjectSwitch(&msg.Project)
+		case projectselector.ProjectSelectorCanceledMsg:
+			a.showProjectSelector = false
+			return a, nil
+		default:
+			// Pass all other messages to project selector (including spinner ticks, key msgs, etc)
+			cmd := a.projectSelector.Update(msg)
+			return a, cmd
+		}
+	}
+
+	// Handle command palette messages (second priority when active)
 	if a.showCommandPalette {
 		switch msg := msg.(type) {
 		case tea.KeyMsg:
@@ -262,6 +302,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg := msg.(type) {
+	case tea.MouseMsg:
+		// Handle mouse events
+		return a, a.handleMouseEvent(msg)
+
 	case tea.KeyMsg:
 		// Handle back navigation first (before view-specific handlers)
 		// But skip if a view has an action menu open - let the view handle Esc
@@ -304,6 +348,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case ViewObjects:
 					a.objectsView = nil
 					a.selectedBucket = nil
+				case ViewObjectDetails:
+					a.objectDetailsView = nil
+					a.selectedObject = nil
 				}
 
 				a.updateSidebarActiveView()
@@ -380,6 +427,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.help.Width = msg.Width
 		// Update layout with new terminal dimensions
 		a.layout.SetSize(msg.Width, msg.Height)
+		a.header.SetSize(msg.Width)
 		a.footer.SetWidth(msg.Width)
 		a.updateViewSizes()
 		a.syncContext()
@@ -439,6 +487,23 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case views.BucketSelectedMsg:
 		return a, a.handleBucketSelected(msg)
+
+	case views.ObjectSelectedMsg:
+		return a, a.handleObjectSelected(msg)
+
+	case views.ObjectDeletedMsg:
+		// Object was deleted, go back to objects list and refresh
+		return a, a.handleObjectDeleted(msg)
+
+	case components.FooterProjectClickedMsg:
+		// Project section in footer was clicked, show project selector
+		currentProjectID := ""
+		if a.selectedProject != nil {
+			currentProjectID = a.selectedProject.ID
+		}
+		a.projectSelector = projectselector.New(a.gcpClient, currentProjectID)
+		a.showProjectSelector = true
+		return a, a.projectSelector.Init()
 	}
 
 	// Delegate to current view (only if content is focused)
@@ -587,6 +652,9 @@ func (a *App) updateViewSizes() {
 	if a.objectsView != nil {
 		a.objectsView.SetContext(a.ctx)
 	}
+	if a.objectDetailsView != nil {
+		a.objectDetailsView.SetContext(a.ctx)
+	}
 }
 
 // View implements tea.Model
@@ -682,6 +750,11 @@ func (a *App) View() string {
 		}
 	}
 	debugLog("")
+
+	// Render project selector overlay if active (highest priority)
+	if a.showProjectSelector {
+		result = a.renderWithProjectSelector(result)
+	}
 
 	// Render command palette overlay if active
 	if a.showCommandPalette {

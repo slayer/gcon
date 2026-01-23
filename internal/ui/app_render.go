@@ -5,51 +5,88 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
-	"github.com/slayer/gcon/internal/ui/symbols"
 )
 
 // renderHeader creates the header with breadcrumb navigation
 func (a *App) renderHeader() string {
-	header := a.styles.Title.Render(symbols.Cloud() + " gcon")
+	// Update header state based on current view
 	if a.selectedProject != nil {
-		header += a.styles.Muted.Render(" • " + a.selectedProject.ID)
+		a.header.SetProject(a.selectedProject.ID)
+	} else {
+		a.header.SetProject("")
+	}
 
-		// Show current category from sidebar if drilled down
-		if category := a.sidebar.GetCurrentCategory(); category != "" {
-			header += a.styles.Muted.Render(" • " + category)
-		} else {
-			// Show category based on current view
-			switch a.currentView {
-			case ViewInstances, ViewInstanceDetails, ViewDisks, ViewDiskDetails, ViewSnapshots, ViewSnapshotDetails, ViewImages, ViewImageDetails:
-				header += a.styles.Muted.Render(" • Compute Engine")
-			case ViewBuckets, ViewObjects:
-				header += a.styles.Muted.Render(" • Cloud Storage")
-			case ViewNetworks, ViewFirewall:
-				header += a.styles.Muted.Render(" • VPC Network")
-			}
-		}
-
-		if a.currentView == ViewInstanceDetails && a.selectedInstance != nil {
-			header += a.styles.Muted.Render(" • " + a.selectedInstance.Name)
-		}
-
-		if a.currentView == ViewDiskDetails && a.selectedDisk != nil {
-			header += a.styles.Muted.Render(" • " + a.selectedDisk.Name)
-		}
-
-		if a.currentView == ViewImageDetails && a.selectedImage != nil {
-			header += a.styles.Muted.Render(" • " + a.selectedImage.Name)
-		}
-
-		// Show bucket name and path when browsing objects
-		if a.currentView == ViewObjects && a.objectsView != nil {
-			header += a.styles.Muted.Render(" • " + a.objectsView.GetBucketName())
-			if path := a.objectsView.GetCurrentPath(); path != "" {
-				header += a.styles.Muted.Render(" / " + path)
-			}
+	// Determine category
+	category := ""
+	if cat := a.sidebar.GetCurrentCategory(); cat != "" {
+		category = cat
+	} else {
+		// Determine category based on current view
+		switch a.currentView {
+		case ViewInstances, ViewInstanceDetails, ViewDisks, ViewDiskDetails, ViewSnapshots, ViewSnapshotDetails, ViewImages, ViewImageDetails:
+			category = "Compute Engine"
+		case ViewBuckets, ViewObjects, ViewObjectDetails:
+			category = "Cloud Storage"
+		case ViewNetworks, ViewFirewall:
+			category = "VPC Network"
 		}
 	}
-	return header
+	a.header.SetCategory(category)
+
+	// Build resources list based on current view
+	// This creates hierarchical breadcrumbs showing navigation context
+	resources := []string{}
+	switch a.currentView {
+	case ViewInstanceDetails:
+		if a.selectedInstance != nil {
+			resources = append(resources, a.selectedInstance.Name)
+		}
+	case ViewDiskDetails:
+		// Show parent instance if we came from instance details
+		if a.instanceDetailsView != nil && len(a.viewStack) > 0 {
+			lastView := a.viewStack[len(a.viewStack)-1]
+			if lastView == ViewInstanceDetails {
+				// Show: instance-name → disk-name
+				resources = append(resources, a.instanceDetailsView.GetInstanceName())
+			}
+		}
+		// Always add disk name from the view (whether navigated from instance or directly)
+		if a.diskDetailsView != nil {
+			resources = append(resources, a.diskDetailsView.GetDiskName())
+		}
+	case ViewSnapshotDetails:
+		// Show parent disk if we came from disk details
+		if a.diskDetailsView != nil && len(a.viewStack) > 0 {
+			lastView := a.viewStack[len(a.viewStack)-1]
+			if lastView == ViewDiskDetails {
+				// Show: disk-name → snapshot-name
+				resources = append(resources, a.diskDetailsView.GetDiskName())
+			}
+		}
+		// Always add snapshot name from the view
+		if a.snapshotDetailsView != nil {
+			resources = append(resources, a.snapshotDetailsView.GetSnapshotName())
+		}
+	case ViewImageDetails:
+		if a.selectedImage != nil {
+			resources = append(resources, a.selectedImage.Name)
+		}
+	case ViewObjects:
+		if a.objectsView != nil {
+			resources = append(resources, a.objectsView.GetBucketName())
+			if path := a.objectsView.GetCurrentPath(); path != "" {
+				resources = append(resources, path)
+			}
+		}
+	case ViewObjectDetails:
+		// Show bucket name and object name when viewing object details
+		if a.objectDetailsView != nil {
+			resources = append(resources, a.objectDetailsView.GetBucketName())
+		}
+	}
+	a.header.SetResources(resources)
+
+	return a.header.View()
 }
 
 // renderCurrentView renders the content area based on current view
@@ -109,6 +146,10 @@ func (a *App) renderCurrentView() string {
 	case ViewObjects:
 		if a.objectsView != nil {
 			return a.objectsView.View()
+		}
+	case ViewObjectDetails:
+		if a.objectDetailsView != nil {
+			return a.objectDetailsView.View()
 		}
 	case ViewNetworks:
 		return a.renderPlaceholder("VPC Networks")
@@ -351,4 +392,84 @@ func truncateToHeight(content string, maxLines int) string {
 
 	// Take only the first maxLines lines
 	return strings.Join(lines[:maxLines], "\n")
+}
+
+// renderWithProjectSelector overlays the project selector modal on the background
+func (a *App) renderWithProjectSelector(background string) string {
+	// Get the project selector view
+	selectorView := a.projectSelector.View()
+
+	// Split background into lines
+	bgLines := strings.Split(background, "\n")
+
+	// Split selector into lines
+	selectorLines := strings.Split(selectorView, "\n")
+
+	// Find max selector width for consistent positioning
+	maxSelectorWidth := 0
+	for _, line := range selectorLines {
+		w := lipgloss.Width(line)
+		if w > maxSelectorWidth {
+			maxSelectorWidth = w
+		}
+	}
+
+	// Calculate position (centered horizontally and vertically)
+	leftPad := (a.width - maxSelectorWidth) / 2
+	if leftPad < 0 {
+		leftPad = 0
+	}
+	topPad := (a.height - len(selectorLines)) / 2
+	if topPad < 2 {
+		topPad = 2
+	}
+
+	// Overlay the selector on the background
+	result := make([]string, len(bgLines))
+	copy(result, bgLines)
+
+	// Right side always starts at the same position for alignment
+	rightStart := leftPad + maxSelectorWidth
+
+	for i, selectorLine := range selectorLines {
+		bgIndex := topPad + i
+		if bgIndex < len(result) {
+			bgLine := result[bgIndex]
+			bgWidth := lipgloss.Width(bgLine)
+
+			// Build the overlayed line:
+			// 1. Left part of background (truncated to leftPad width)
+			// 2. Selector line (padded to maxSelectorWidth)
+			// 3. Right part of background (from rightStart onwards)
+			var newLine strings.Builder
+
+			// Left part: truncate background to leftPad characters
+			if leftPad > 0 {
+				leftPart := truncateRight(bgLine, leftPad)
+				newLine.WriteString(leftPart)
+				// Pad if background was shorter than leftPad
+				leftWidth := lipgloss.Width(leftPart)
+				if leftWidth < leftPad {
+					newLine.WriteString(strings.Repeat(" ", leftPad-leftWidth))
+				}
+			}
+
+			// Middle: the selector line, padded to consistent width
+			newLine.WriteString(selectorLine)
+			selectorLineWidth := lipgloss.Width(selectorLine)
+			if selectorLineWidth < maxSelectorWidth {
+				newLine.WriteString(strings.Repeat(" ", maxSelectorWidth-selectorLineWidth))
+			}
+
+			// Right part: skip first rightStart characters of background
+			if rightStart < bgWidth {
+				rightPart := truncateLeft(bgLine, rightStart)
+				newLine.WriteString(rightPart)
+			}
+
+			result[bgIndex] = newLine.String()
+		}
+	}
+
+	return strings.Join(result, "\n")
 }
