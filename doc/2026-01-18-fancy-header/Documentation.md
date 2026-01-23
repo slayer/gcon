@@ -4,7 +4,7 @@
 
 Enhanced the gcon header with a visually appealing rainbow-colored "Google" branding and powerline-styled breadcrumb navigation. The header now displays:
 
-1. **App Name**: "gcon - Google Console Platform TUI" with rainbow-colored "Google" (per-letter coloring: G=blue, o=red, o=yellow, g=blue, l=green, e=red)
+1. **App Name**: "gcon - Google Cloud Platform TUI" with rainbow-colored "Google" (per-letter coloring: G=blue, o=red, o=yellow, g=blue, l=green, e=red)
 2. **Breadcrumb Navigation**: Powerline-styled breadcrumbs positioned immediately after the app name on the left side
    - Colored backgrounds (Project=blue, Category=green, Resources=yellow)
    - Solid arrow separators (`\ue0b0`) with proper foreground/background styling for seamless flow
@@ -132,7 +132,7 @@ ok  	github.com/slayer/gcon/internal/ui/components	0.430s
 Breadcrumbs appear immediately after the app name on the left side with proper spacing:
 
 ```
-☁ gcon - Google Console Platform TUI  [my-project] ❯ [Compute Engine] ❯ [my-instance]
+☁ gcon - Google Cloud Platform TUI  [my-project] ❯ [Compute Engine] ❯ [my-instance]
          (rainbow colors)                (blue)          (green)            (yellow)
 ```
 
@@ -146,29 +146,29 @@ This creates a seamless "flow" effect between segments with clear, prominent sep
 ### ASCII Mode
 
 ```
-# gcon - Google Console Platform TUI  [my-project] > [Compute Engine] > [my-instance]
+# gcon - Google Cloud Platform TUI  [my-project] > [Compute Engine] > [my-instance]
 ```
 
 ### Various Contexts
 
 **Project Selection View:**
 ```
-☁ gcon - Google Console Platform TUI
+☁ gcon - Google Cloud Platform TUI
 ```
 
 **Instances List:**
 ```
-☁ gcon - Google Console Platform TUI  [my-project] ❯ [Compute Engine]
+☁ gcon - Google Cloud Platform TUI  [my-project] ❯ [Compute Engine]
 ```
 
 **Instance Details:**
 ```
-☁ gcon - Google Console Platform TUI  [my-project] ❯ [Compute Engine] ❯ [my-instance]
+☁ gcon - Google Cloud Platform TUI  [my-project] ❯ [Compute Engine] ❯ [my-instance]
 ```
 
 **Cloud Storage Objects:**
 ```
-☁ gcon - Google Console Platform TUI  [my-project] ❯ [Cloud Storage] ❯ [my-bucket] ❯ [folder1]
+☁ gcon - Google Cloud Platform TUI  [my-project] ❯ [Cloud Storage] ❯ [my-bucket] ❯ [folder1]
 ```
 
 ## Technical Considerations

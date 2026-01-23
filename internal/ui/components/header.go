@@ -133,7 +133,7 @@ func (h *Header) View() string {
 	return result
 }
 
-// renderAppName renders "gcon - Google Console Platform TUI Console" with rainbow Google
+// renderAppName renders "gcon - Google Cloud Platform TUI Console" with rainbow Google
 func (h *Header) renderAppName() string {
 	cloud := symbols.Cloud()
 	gcon := h.styles.Title.Render("gcon")
@@ -148,7 +148,7 @@ func (h *Header) renderAppName() string {
 	e := h.styles.GoogleColors.E.Render("e")
 	google := g + o1 + o2 + g2 + l + e
 
-	rest := h.styles.Title.Render(" Console Platform TUI Console")
+	rest := h.styles.Title.Render(" Cloud Platform TUI Console")
 
 	return cloud + " " + gcon + dash + google + rest
 }
