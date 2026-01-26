@@ -75,7 +75,7 @@ func (fm FormMode) String() string {
 
 // Validator is a function that validates a field value.
 // It returns nil if the value is valid, or an error describing the issue.
-type Validator func(value interface{}) error
+type Validator func(value any) error
 
 // Option represents a selectable option in dropdown/multiselect fields
 type Option struct {
@@ -86,7 +86,7 @@ type Option struct {
 
 // FormSubmitMsg is sent when the form is submitted via Ctrl+S
 type FormSubmitMsg struct {
-	Data map[string]interface{} // All field values keyed by field ID
+	Data map[string]any // All field values keyed by field ID
 }
 
 // FormCancelMsg is sent when the form is cancelled via Esc
@@ -95,7 +95,7 @@ type FormCancelMsg struct{}
 // FieldChangedMsg is sent when a field value changes
 type FieldChangedMsg struct {
 	FieldID string
-	Value   interface{}
+	Value   any
 }
 
 // ValidationErrorMsg is sent when validation fails

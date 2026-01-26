@@ -2,6 +2,7 @@ package gcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -70,7 +71,7 @@ func (c *StorageClient) ListBuckets(ctx context.Context, projectID string) ([]Bu
 	it := c.client.Buckets(ctx, projectID)
 	for {
 		attrs, err := it.Next()
-		if err == iterator.Done {
+		if errors.Is(err, iterator.Done) {
 			break
 		}
 		if err != nil {
@@ -109,7 +110,7 @@ func (c *StorageClient) ListObjects(ctx context.Context, bucketName, prefix, pag
 
 	for {
 		attrs, err := it.Next()
-		if err == iterator.Done {
+		if errors.Is(err, iterator.Done) {
 			break
 		}
 		if err != nil {
@@ -306,7 +307,7 @@ func (c *StorageClient) ListAllObjects(ctx context.Context, bucketName, prefix s
 	it := bucket.Objects(ctx, query)
 	for {
 		attrs, err := it.Next()
-		if err == iterator.Done {
+		if errors.Is(err, iterator.Done) {
 			break
 		}
 		if err != nil {

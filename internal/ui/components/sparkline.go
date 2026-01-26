@@ -71,7 +71,7 @@ func downsample(data []float64, targetSize int) []float64 {
 	result := make([]float64, targetSize)
 	bucketSize := float64(len(data)) / float64(targetSize)
 
-	for i := 0; i < targetSize; i++ {
+	for i := range targetSize {
 		startIdx := int(float64(i) * bucketSize)
 		endIdx := int(float64(i+1) * bucketSize)
 		if endIdx > len(data) {

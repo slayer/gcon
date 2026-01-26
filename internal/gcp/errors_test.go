@@ -168,7 +168,8 @@ func TestWrapListError(t *testing.T) {
 		apiErr := &googleapi.Error{Code: 403, Message: "forbidden"}
 		result := WrapListError(apiErr, "instances", "my-project")
 
-		gcpErr, ok := result.(*GCPError)
+		gcpErr := &GCPError{}
+		ok := errors.As(result, &gcpErr)
 		require.True(t, ok)
 		assert.Equal(t, "list instances", gcpErr.Operation)
 		assert.Equal(t, "my-project", gcpErr.Resource)
@@ -185,7 +186,8 @@ func TestWrapGetError(t *testing.T) {
 		apiErr := &googleapi.Error{Code: 404, Message: "not found"}
 		result := WrapGetError(apiErr, "instance", "my-vm")
 
-		gcpErr, ok := result.(*GCPError)
+		gcpErr := &GCPError{}
+		ok := errors.As(result, &gcpErr)
 		require.True(t, ok)
 		assert.Equal(t, "get instance", gcpErr.Operation)
 		assert.Equal(t, "my-vm", gcpErr.Resource)
@@ -202,7 +204,8 @@ func TestWrapActionError(t *testing.T) {
 		apiErr := &googleapi.Error{Code: 403, Message: "forbidden"}
 		result := WrapActionError(apiErr, "start instance", "my-vm")
 
-		gcpErr, ok := result.(*GCPError)
+		gcpErr := &GCPError{}
+		ok := errors.As(result, &gcpErr)
 		require.True(t, ok)
 		assert.Equal(t, "start instance", gcpErr.Operation)
 		assert.Equal(t, "my-vm", gcpErr.Resource)

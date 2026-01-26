@@ -1209,7 +1209,7 @@ func (v *ObjectsView) renderCenteredFilePicker() string {
 
 	var result strings.Builder
 	// Add top padding
-	for i := 0; i < topPad; i++ {
+	for range topPad {
 		result.WriteString("\n")
 	}
 

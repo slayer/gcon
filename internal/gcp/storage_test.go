@@ -226,7 +226,7 @@ func TestProgressWriter(t *testing.T) {
 	}
 
 	// Write in chunks
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		_, err := pw.Write([]byte("1234567890")) // 10 bytes each
 		assert.NoError(t, err)
 	}

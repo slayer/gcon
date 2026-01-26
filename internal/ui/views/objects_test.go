@@ -725,7 +725,7 @@ func TestObjectsViewDelete(t *testing.T) {
 		view := NewObjectsView("test-bucket", nil)
 		view.SetContext(testContext())
 		files := make([]gcp.StorageObject, 10)
-		for i := 0; i < 10; i++ {
+		for i := range 10 {
 			files[i] = gcp.StorageObject{Name: "file.txt", DisplayName: "file.txt"}
 		}
 

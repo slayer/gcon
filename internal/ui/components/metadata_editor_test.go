@@ -330,7 +330,7 @@ func TestValidate_ValueTooLarge(t *testing.T) {
 
 func TestValidate_TooManyKeys(t *testing.T) {
 	metadata := make(map[string]string)
-	for i := 0; i < maxMetadataKeys+1; i++ {
+	for i := range maxMetadataKeys + 1 {
 		metadata[strings.Repeat("k", i+1)] = "value"
 	}
 
@@ -345,7 +345,7 @@ func TestValidate_TotalSizeTooLarge(t *testing.T) {
 	metadata := make(map[string]string)
 	// Each entry is about 10KB
 	largeValue := strings.Repeat("a", 10000)
-	for i := 0; i < 30; i++ {
+	for i := range 30 {
 		metadata[strings.Repeat("k", i+1)] = largeValue
 	}
 
