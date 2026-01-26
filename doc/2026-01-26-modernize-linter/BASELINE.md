@@ -6,7 +6,14 @@ Configured golangci-lint to baseline existing issues so only **new violations** 
 
 ## Approach
 
-Disabled linters that have baseline issues rather than using complex exclusion patterns. This is simpler and more reliable than pattern-based exclusions.
+**Disabled specific linters** that have existing baseline issues. This approach was chosen because:
+
+1. **Simple** - Clear and easy to understand in `.golangci.yml`
+2. **Reliable** - Works consistently across golangci-lint versions
+3. **Documented** - Each disabled linter has inline comment explaining the count
+4. **Reversible** - Easy to re-enable once issues are fixed
+
+We tried using `exclude-rules` patterns but they don't work reliably in golangci-lint v2.6.0.
 
 ## Baseline Issues (85 Total)
 
