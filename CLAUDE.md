@@ -399,8 +399,8 @@ field.SetValidator(forms.ValidateGCPLabelValue)    // Label value format
 field.SetValidator(forms.ValidateNumber(min, max))
 field.SetValidator(forms.ValidateStringLength(min, max))
 field.SetValidator(forms.ValidateEmail())
-field.SetValidator(forms.ValidateIPAddress)
-field.SetValidator(forms.ValidateCIDR)
+field.SetValidator(forms.ValidateIPAddress())
+field.SetValidator(forms.ValidateCIDR())
 
 // Compose multiple validators
 field.SetValidator(forms.ComposeValidators(
@@ -460,7 +460,7 @@ if a.hasTextInputFocused() {
 
 ### Demo View
 
-Access the form demo via command palette with `:form-demo` to see all field types and validation in action.
+The `FormDemoView` in `internal/ui/views/form_demo.go` demonstrates all field types and validation. It can be instantiated directly for testing purposes.
 
 ## Component Patterns
 

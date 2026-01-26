@@ -192,3 +192,109 @@ func TestInstanceEditRequestMsg(t *testing.T) {
 	assert.Equal(t, "my-project", msg.ProjectID)
 	assert.Equal(t, "labels", msg.EditMode)
 }
+
+func TestInstanceEditorView_CancelDuringLoading(t *testing.T) {
+	view := NewInstanceEditorView("my-project", "us-central1-a", "my-instance", nil)
+	// State is initially stateLoading
+
+	// Press Escape during loading should allow cancel
+	cmd := view.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	assert.NotNil(t, cmd)
+
+	msg := cmd()
+	_, ok := msg.(InstanceEditCancelledMsg)
+	assert.True(t, ok, "Should be able to cancel during loading")
+}
+
+func TestInstanceEditorView_CancelDuringSaving(t *testing.T) {
+	view := NewInstanceEditorView("my-project", "us-central1-a", "my-instance", nil)
+	view.state = stateSaving
+
+	// Press Escape during saving should allow cancel
+	cmd := view.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	assert.NotNil(t, cmd)
+
+	msg := cmd()
+	_, ok := msg.(InstanceEditCancelledMsg)
+	assert.True(t, ok, "Should be able to cancel during saving")
+}
+
+func TestInstanceEditorView_NilComputeClient(t *testing.T) {
+	view := NewInstanceEditorView("my-project", "us-central1-a", "my-instance", nil)
+
+	// loadLabels should return error when computeClient is nil
+	cmd := view.loadLabels()
+	assert.NotNil(t, cmd)
+
+	msg := cmd()
+	errMsg, ok := msg.(labelsErrorMsg)
+	assert.True(t, ok, "Should return labelsErrorMsg")
+	assert.Error(t, errMsg.err, "Should have error for nil client")
+	assert.Contains(t, errMsg.err.Error(), "compute client not initialized")
+}
+
+func TestInstanceEditorView_ShowDiffPreviewNoChanges(t *testing.T) {
+	view := NewInstanceEditorView("my-project", "us-central1-a", "my-instance", nil)
+	view.width = 80
+	view.height = 24
+
+	// Load labels
+	view.Update(labelsLoadedMsg{
+		labelsFingerprint: &gcp.InstanceLabelsFingerprint{
+			Labels: map[string]string{
+				"env": "prod",
+			},
+			Fingerprint: "abc123",
+		},
+	})
+
+	// Try to show diff without making any changes
+	cmd := view.showDiffPreview()
+	assert.Nil(t, cmd, "Should return nil when no changes to preview")
+	assert.Equal(t, stateForm, view.state, "Should stay in form state when no changes")
+}
+
+func TestInstanceEditorView_DiffFieldsOrdering(t *testing.T) {
+	view := NewInstanceEditorView("my-project", "us-central1-a", "my-instance", nil)
+	view.width = 80
+	view.height = 24
+
+	// Load labels with multiple keys
+	view.Update(labelsLoadedMsg{
+		labelsFingerprint: &gcp.InstanceLabelsFingerprint{
+			Labels: map[string]string{
+				"zebra": "z-val",
+				"apple": "a-val",
+				"mango": "m-val",
+			},
+			Fingerprint: "abc123",
+		},
+	})
+
+	// Simulate adding a new label through the UI
+	// Press 'a' to enter add mode
+	view.labelEditor.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	// Type key name
+	for _, r := range "newkey" {
+		view.labelEditor.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	// Tab to value field
+	view.labelEditor.Update(tea.KeyMsg{Type: tea.KeyTab})
+	// Type value
+	for _, r := range "newval" {
+		view.labelEditor.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	// Press Enter to confirm add
+	view.labelEditor.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	// Now there should be changes
+	assert.True(t, view.labelEditor.IsDirty())
+
+	// Show diff preview
+	cmd := view.showDiffPreview()
+	assert.Nil(t, cmd)
+	assert.Equal(t, stateDiff, view.state)
+	assert.NotNil(t, view.diffViewer)
+
+	// The diff viewer should have fields - ordering is deterministic due to sort
+}

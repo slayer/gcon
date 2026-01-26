@@ -21,7 +21,7 @@ const (
 )
 
 // FormDemoView demonstrates all form components for testing.
-// Access via command palette with ":form-demo".
+// Note: Not currently registered in command palette - instantiate directly for testing.
 type FormDemoView struct {
 	ctx *context.ProgramContext
 

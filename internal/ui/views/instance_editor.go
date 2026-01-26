@@ -3,6 +3,7 @@ package views
 import (
 	gocontext "context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -137,6 +138,9 @@ func (v *InstanceEditorView) Init() tea.Cmd {
 // loadLabels fetches current labels and fingerprint from GCP
 func (v *InstanceEditorView) loadLabels() tea.Cmd {
 	return func() tea.Msg {
+		if v.computeClient == nil {
+			return labelsErrorMsg{err: fmt.Errorf("compute client not initialized")}
+		}
 		ctx := gocontext.Background()
 
 		lf, err := v.computeClient.GetInstanceLabelsFingerprint(ctx, v.projectID, v.zone, v.instanceName)
@@ -226,8 +230,11 @@ func (v *InstanceEditorView) Update(msg tea.Msg) tea.Cmd {
 
 // handleKeyMsg handles key presses based on current state
 func (v *InstanceEditorView) handleKeyMsg(msg tea.KeyMsg) tea.Cmd {
-	// Handle loading/saving states - only allow cancel
+	// Handle loading/saving states - allow cancel
 	if v.state == stateLoading || v.state == stateSaving {
+		if key.Matches(msg, v.keys.Cancel) {
+			return func() tea.Msg { return InstanceEditCancelledMsg{} }
+		}
 		return nil
 	}
 
@@ -281,42 +288,53 @@ func (v *InstanceEditorView) showDiffPreview() tea.Cmd {
 		return nil
 	}
 
-	// Check if there are any changes
+	// Check if there are any changes - stay in form if none
 	if !v.labelEditor.IsDirty() {
-		return func() tea.Msg { return InstanceEditCancelledMsg{} }
+		return nil
 	}
 
-	// Build diff fields from labels
+	// Build diff fields from labels with deterministic ordering
 	newLabels := v.labelEditor.GetLabels()
 	var fields []diff.Field
 
-	// Check for modified and removed labels
-	for key, oldVal := range v.originalLabels {
-		newVal, exists := newLabels[key]
-		if !exists {
+	// Collect all unique keys and sort them for deterministic output
+	keySet := make(map[string]bool)
+	for k := range v.originalLabels {
+		keySet[k] = true
+	}
+	for k := range newLabels {
+		keySet[k] = true
+	}
+	allKeys := make([]string, 0, len(keySet))
+	for k := range keySet {
+		allKeys = append(allKeys, k)
+	}
+	sort.Strings(allKeys)
+
+	// Build diff fields in sorted order
+	for _, key := range allKeys {
+		oldVal, hadOld := v.originalLabels[key]
+		newVal, hasNew := newLabels[key]
+
+		if !hasNew {
 			// Label was removed
 			fields = append(fields, diff.Field{
 				Label:    key,
 				OldValue: oldVal,
 				NewValue: "",
 			})
+		} else if !hadOld {
+			// Label was added
+			fields = append(fields, diff.Field{
+				Label:    key,
+				OldValue: "",
+				NewValue: newVal,
+			})
 		} else if oldVal != newVal {
 			// Label was modified
 			fields = append(fields, diff.Field{
 				Label:    key,
 				OldValue: oldVal,
-				NewValue: newVal,
-			})
-		}
-	}
-
-	// Check for added labels
-	for key, newVal := range newLabels {
-		if _, exists := v.originalLabels[key]; !exists {
-			// Label was added
-			fields = append(fields, diff.Field{
-				Label:    key,
-				OldValue: "",
 				NewValue: newVal,
 			})
 		}

@@ -140,8 +140,8 @@ type Field struct {
 	Validator   Validator
 
 	// Value storage
-	value         interface{}
-	originalValue interface{}
+	value         any
+	originalValue any
 
 	// Options for dropdown/multiselect
 	Options       []Option
@@ -329,7 +329,7 @@ func (f *Field) SetCharLimit(limit int) *Field {
 // Value accessors
 
 // SetValue sets the field value
-func (f *Field) SetValue(value interface{}) *Field {
+func (f *Field) SetValue(value any) *Field {
 	f.value = value
 	f.originalValue = value
 
@@ -385,7 +385,7 @@ func (f *Field) SetValue(value interface{}) *Field {
 }
 
 // GetValue returns the current field value
-func (f *Field) GetValue() interface{} {
+func (f *Field) GetValue() any {
 	switch f.Type {
 	case FieldText:
 		return f.textInput.Value()
@@ -536,8 +536,9 @@ func (f *Field) Validate() error {
 			isEmpty = true
 		}
 		if isEmpty {
-			f.validationErr = "This field is required"
-			return fmt.Errorf("required field")
+			err := fmt.Errorf("%s is required", f.Label)
+			f.validationErr = err.Error()
+			return err
 		}
 	}
 
