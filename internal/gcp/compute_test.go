@@ -162,32 +162,7 @@ func TestInstanceDetailsFromAPI(t *testing.T) {
 		},
 		{
 			name: "instance with disks",
-			inst: &compute.Instance{
-				Name:        "disk-test",
-				Id:          11111,
-				Status:      "RUNNING",
-				MachineType: "e2-medium",
-				Disks: []*compute.AttachedDisk{
-					{
-						Boot:       true,
-						AutoDelete: true,
-						Mode:       "READ_WRITE",
-						DiskSizeGb: 100,
-						DeviceName: "boot-disk",
-						Source:     "projects/test/zones/us-central1-a/disks/test-boot-disk",
-						Interface:  "SCSI",
-					},
-					{
-						Boot:       false,
-						AutoDelete: false,
-						Mode:       "READ_WRITE",
-						DiskSizeGb: 500,
-						DeviceName: "data-disk",
-						Source:     "projects/test/zones/us-central1-a/disks/test-data-disk",
-						Interface:  "NVME",
-					},
-				},
-			},
+			inst: createInstanceWithDisks(),
 			zone: "us-central1-a",
 			validate: func(t *testing.T, d *InstanceDetails) {
 				assert.Len(t, d.Disks, 2)

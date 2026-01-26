@@ -67,6 +67,7 @@ func TestGetAuthenticatedIdentity_ServiceAccount(t *testing.T) {
 	// Create temporary service account JSON file
 	tmpDir := t.TempDir()
 	credFile := filepath.Join(tmpDir, "sa-key.json")
+	// #nosec G101 -- Test credentials, not real
 	credContent := `{
   "type": "service_account",
   "project_id": "test-project",
@@ -152,6 +153,7 @@ func TestGetAuthenticatedIdentity_NoCredentials(t *testing.T) {
 func TestExtractServiceAccountEmail_ValidJSON(t *testing.T) {
 	tmpDir := t.TempDir()
 	credFile := filepath.Join(tmpDir, "sa-key.json")
+	// #nosec G101 -- Test credentials, not real
 	credContent := `{
   "type": "service_account",
   "client_email": "my-sa@my-project.iam.gserviceaccount.com"
@@ -178,6 +180,7 @@ func TestExtractServiceAccountEmail_MalformedJSON(t *testing.T) {
 func TestExtractServiceAccountEmail_MissingEmail(t *testing.T) {
 	tmpDir := t.TempDir()
 	credFile := filepath.Join(tmpDir, "no-email.json")
+	// #nosec G101 -- Test credentials, not real
 	credContent := `{
   "type": "service_account",
   "project_id": "test-project"

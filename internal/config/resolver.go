@@ -1,7 +1,6 @@
 package config
 
 import (
-	"errors"
 	"os"
 	"strings"
 )

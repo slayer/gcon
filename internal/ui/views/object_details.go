@@ -572,11 +572,11 @@ func (v *ObjectDetailsView) openObject() tea.Cmd {
 		var cmd *exec.Cmd
 		switch runtime.GOOS {
 		case "darwin":
-			cmd = exec.Command("open", tempPath)
+			cmd = exec.Command("open", tempPath) // #nosec G204 -- Opening user-downloaded file with system default app
 		case "linux":
-			cmd = exec.Command("xdg-open", tempPath)
+			cmd = exec.Command("xdg-open", tempPath) // #nosec G204 -- Opening user-downloaded file with system default app
 		case "windows":
-			cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", tempPath)
+			cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", tempPath) // #nosec G204 -- Opening user-downloaded file with system default app
 		default:
 			_ = os.Remove(tempPath)
 			return objectOpenCompleteMsg{err: fmt.Errorf("unsupported operating system: %s", runtime.GOOS)}

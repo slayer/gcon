@@ -93,7 +93,7 @@ func getActiveConfig(configDir string) (string, error) {
 	activeConfigPath := filepath.Join(configDir, "active_config")
 
 	// Read the active_config file (contains just the config name)
-	data, err := os.ReadFile(activeConfigPath)
+	data, err := os.ReadFile(activeConfigPath) // #nosec G304 -- Reading gcloud config file
 	if err != nil {
 		if os.IsNotExist(err) {
 			return "", nil
@@ -109,7 +109,7 @@ func getActiveConfig(configDir string) (string, error) {
 // parseConfigFile parses an INI-style gcloud config file.
 // Returns map[section]map[key]value
 func parseConfigFile(path string) (map[string]map[string]string, error) {
-	file, err := os.Open(path)
+	file, err := os.Open(path) // #nosec G304 -- Reading gcloud config file
 	if err != nil {
 		return nil, err
 	}

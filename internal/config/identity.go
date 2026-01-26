@@ -117,7 +117,7 @@ func ClearIdentityCache() {
 // and extracts the client_email field.
 func extractServiceAccountEmail(credentialsPath string) (string, error) {
 	// Read the credentials file
-	data, err := os.ReadFile(credentialsPath)
+	data, err := os.ReadFile(credentialsPath) // #nosec G304 -- Reading user-provided credentials path
 	if err != nil {
 		return "", fmt.Errorf("failed to read credentials file: %w", err)
 	}
