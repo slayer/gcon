@@ -37,8 +37,9 @@ const (
 	ViewImages
 	ViewImageDetails
 	ViewBuckets
-	ViewObjects       // Browsing objects within a bucket
-	ViewObjectDetails // Viewing object details
+	ViewObjects        // Browsing objects within a bucket
+	ViewObjectDetails  // Viewing object details
+	ViewInstanceEditor // Editing instance properties (labels, etc.)
 	ViewNetworks
 	ViewFirewall
 	ViewLogs
@@ -80,6 +81,7 @@ type App struct {
 	bucketsView         *views.BucketsView
 	objectsView         *views.ObjectsView
 	objectDetailsView   *views.ObjectDetailsView
+	instanceEditorView  *views.InstanceEditorView
 
 	// Selected context
 	selectedProject  *gcp.Project
@@ -265,6 +267,8 @@ func (a *App) getCurrentViewModel() views.View {
 		return a.objectsView
 	case ViewObjectDetails:
 		return a.objectDetailsView
+	case ViewInstanceEditor:
+		return a.instanceEditorView
 	}
 	return nil
 }
@@ -495,6 +499,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Object was deleted, go back to objects list and refresh
 		return a, a.handleObjectDeleted(msg)
 
+	case views.InstanceEditRequestMsg:
+		return a, a.handleInstanceEditRequest(msg)
+
+	case views.InstanceEditCompleteMsg:
+		return a, a.handleInstanceEditComplete(msg)
+
+	case views.InstanceEditCancelledMsg:
+		return a, a.handleInstanceEditCancelled()
+
 	case components.FooterProjectClickedMsg:
 		// Project section in footer was clicked, show project selector
 		currentProjectID := ""
@@ -654,6 +667,9 @@ func (a *App) updateViewSizes() {
 	}
 	if a.objectDetailsView != nil {
 		a.objectDetailsView.SetContext(a.ctx)
+	}
+	if a.instanceEditorView != nil {
+		a.instanceEditorView.SetContext(a.ctx)
 	}
 }
 

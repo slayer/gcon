@@ -23,7 +23,7 @@ func (a *App) renderHeader() string {
 	} else {
 		// Determine category based on current view
 		switch a.currentView {
-		case ViewInstances, ViewInstanceDetails, ViewDisks, ViewDiskDetails, ViewSnapshots, ViewSnapshotDetails, ViewImages, ViewImageDetails:
+		case ViewInstances, ViewInstanceDetails, ViewInstanceEditor, ViewDisks, ViewDiskDetails, ViewSnapshots, ViewSnapshotDetails, ViewImages, ViewImageDetails:
 			category = "Compute Engine"
 		case ViewBuckets, ViewObjects, ViewObjectDetails:
 			category = "Cloud Storage"
@@ -82,6 +82,11 @@ func (a *App) renderHeader() string {
 		// Show bucket name and object name when viewing object details
 		if a.objectDetailsView != nil {
 			resources = append(resources, a.objectDetailsView.GetBucketName())
+		}
+	case ViewInstanceEditor:
+		// Show instance name and "Edit Labels" when editing
+		if a.selectedInstance != nil {
+			resources = append(resources, a.selectedInstance.Name, "Edit Labels")
 		}
 	}
 	a.header.SetResources(resources)
@@ -150,6 +155,10 @@ func (a *App) renderCurrentView() string {
 	case ViewObjectDetails:
 		if a.objectDetailsView != nil {
 			return a.objectDetailsView.View()
+		}
+	case ViewInstanceEditor:
+		if a.instanceEditorView != nil {
+			return a.instanceEditorView.View()
 		}
 	case ViewNetworks:
 		return a.renderPlaceholder("VPC Networks")

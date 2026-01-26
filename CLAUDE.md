@@ -428,6 +428,30 @@ func (a *App) clearAllViews() {
 | `x` | Stop running instance |
 | `R` | Reset (hard reboot) |
 
+### Instance Details
+
+| Key | Action |
+|-----|--------|
+| `.` | Open action menu |
+| `l` | Edit labels |
+| `s` | Start instance (if stopped) |
+| `x` | Stop instance (if running) |
+| `R` | Reset instance |
+| `r` | Refresh details |
+
+### Label Editor
+
+| Key | Action |
+|-----|--------|
+| `↑/k` | Move up |
+| `↓/j` | Move down |
+| `a` | Add new label |
+| `e`/`Enter` | Edit selected label |
+| `x`/`Delete` | Delete label |
+| `Tab` | Switch key/value input |
+| `Ctrl+S` | Preview changes |
+| `Esc` | Cancel |
+
 ### Instance Details - Observability Tab
 
 | Key | Action |

@@ -85,6 +85,17 @@ gcon
 | `s` | Start instance |
 | `x` | Stop instance |
 | `R` | Reset instance |
+| `l` | Edit labels |
+
+#### Label Editor
+
+| Key | Action |
+|-----|--------|
+| `a` | Add new label |
+| `e`/`Enter` | Edit selected label |
+| `x` | Delete label |
+| `Ctrl+S` | Save changes |
+| `Tab` | Switch key/value input |
 
 ## Building
 

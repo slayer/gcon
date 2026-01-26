@@ -534,6 +534,7 @@ func (v *InstanceDetailsView) buildActions() []actionmenu.Action {
 		{Key: 's', Label: "Start", Enabled: isStopped},
 		{Key: 'x', Label: "Stop", Enabled: isRunning},
 		{Key: 'R', Label: "Reset", Enabled: isRunning, Dangerous: true},
+		{Key: 'l', Label: "Edit Labels", Enabled: true},
 		{Key: 'S', Label: "SSH", Enabled: isRunning},
 		{Key: 'r', Label: "Refresh", Enabled: true},
 	}
@@ -563,6 +564,16 @@ func (v *InstanceDetailsView) executeAction(actionKey rune) tea.Cmd {
 			v.actionLoading = true
 			v.actionMsg = fmt.Sprintf("Resetting %s...", v.instanceName)
 			return tea.Batch(v.spinner.Tick, v.resetInstance())
+		}
+	case 'l':
+		// Edit Labels - emit message to app to navigate to editor
+		return func() tea.Msg {
+			return InstanceEditRequestMsg{
+				ProjectID:    v.projectID,
+				Zone:         v.zone,
+				InstanceName: v.instanceName,
+				EditMode:     "labels",
+			}
 		}
 	case 'S':
 		if v.isInstanceRunning() {

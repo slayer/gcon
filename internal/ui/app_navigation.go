@@ -485,6 +485,7 @@ func (a *App) clearAllViews() {
 	a.objectDetailsView = nil
 	a.projectMetadataView = nil
 	a.metadataView = nil
+	a.instanceEditorView = nil
 
 	// Clear view stack
 	a.viewStack = nil
@@ -568,4 +569,68 @@ func (a *App) reloadCurrentView(projectID string) tea.Cmd {
 		a.updateViewSizes()
 		return a.instancesView.Init()
 	}
+}
+
+// handleInstanceEditRequest processes request to open instance editor
+func (a *App) handleInstanceEditRequest(msg views.InstanceEditRequestMsg) tea.Cmd {
+	// Push current view onto stack for back navigation
+	a.viewStack = append(a.viewStack, a.currentView)
+	a.currentView = ViewInstanceEditor
+
+	// Get compute client from instance details view or instances view
+	var computeClient *gcp.ComputeClient
+	if a.instanceDetailsView != nil {
+		computeClient = a.instanceDetailsView.GetComputeClient()
+	} else if a.instancesView != nil {
+		computeClient = a.instancesView.GetComputeClient()
+	}
+
+	// Create editor view
+	a.instanceEditorView = views.NewInstanceEditorView(
+		msg.ProjectID,
+		msg.Zone,
+		msg.InstanceName,
+		computeClient,
+	)
+	a.updateSidebarActiveView()
+	a.updateViewSizes()
+	return a.instanceEditorView.Init()
+}
+
+// handleInstanceEditComplete processes successful instance edit
+func (a *App) handleInstanceEditComplete(msg views.InstanceEditCompleteMsg) tea.Cmd {
+	// Pop back to previous view
+	if len(a.viewStack) > 0 {
+		lastViewIndex := len(a.viewStack) - 1
+		a.currentView = a.viewStack[lastViewIndex]
+		a.viewStack = a.viewStack[:lastViewIndex]
+	}
+
+	// Clean up editor view
+	a.instanceEditorView = nil
+
+	a.updateSidebarActiveView()
+
+	// Refresh instance details if that's where we came from to show updated labels
+	if a.instanceDetailsView != nil && a.currentView == ViewInstanceDetails {
+		return a.instanceDetailsView.Init()
+	}
+
+	return nil
+}
+
+// handleInstanceEditCancelled processes cancelled instance edit
+func (a *App) handleInstanceEditCancelled() tea.Cmd {
+	// Pop back to previous view
+	if len(a.viewStack) > 0 {
+		lastViewIndex := len(a.viewStack) - 1
+		a.currentView = a.viewStack[lastViewIndex]
+		a.viewStack = a.viewStack[:lastViewIndex]
+	}
+
+	// Clean up editor view
+	a.instanceEditorView = nil
+
+	a.updateSidebarActiveView()
+	return nil
 }

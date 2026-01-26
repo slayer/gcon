@@ -8,6 +8,7 @@
 ## Phase 1: Core Form Framework ⏳
 **Branch:** `2026-01-18-form-framework`
 **Duration:** 1 week
+**Status:** ~30% complete (DiffViewer done, forms framework not started)
 
 ### Package Structure
 - [ ] Create `internal/ui/components/forms/` directory
@@ -54,14 +55,15 @@
 - [ ] Add viewport scrolling for long forms
 - [ ] Write tests (navigation, validation, data collection)
 
-### DiffViewer Component
-- [ ] Implement DiffViewer struct
-- [ ] Implement diff field rendering (before/after)
-- [ ] Implement changed field highlighting (colors)
+### DiffViewer Component ✅
+*Implemented in `internal/ui/components/diff/` as part of Instance Labels Editor*
+- [x] Implement DiffViewer struct (`internal/ui/components/diff/diff.go`)
+- [x] Implement diff field rendering (before/after)
+- [x] Implement changed field highlighting (colors)
 - [ ] Implement warning display
 - [ ] Implement cost impact display
-- [ ] Implement Yes/No confirmation
-- [ ] Write tests (rendering, selection)
+- [x] Implement Yes/No confirmation
+- [x] Write tests (rendering, selection) (`internal/ui/components/diff/diff_test.go`)
 
 ### Validators
 - [ ] Implement `ValidateRequired()`
@@ -221,36 +223,49 @@
 
 ---
 
-## Phase 5: Instance Labels Editing ⏸️
-**Branch:** `2026-01-18-instance-labels`
+## Phase 5: Instance Labels Editing ✅ COMPLETE
+**Branch:** `2026-01-18-resource-editing`
 **Duration:** 1 week
+**Completed:** 2026-01-26
 
-### GCP API
-- [ ] Add `SetInstanceLabels()` method
-- [ ] Handle fingerprint for optimistic concurrency
-- [ ] Write tests
+### GCP API ✅
+- [x] Add `SetInstanceLabels()` method (`internal/gcp/compute_labels.go`)
+- [x] Add `GetInstanceLabelsFingerprint()` method (`internal/gcp/compute_labels.go`)
+- [x] Handle fingerprint for optimistic concurrency
+- [x] Write tests (`internal/gcp/compute_labels_test.go`)
 
-### InstanceEditor Component
-- [ ] Create `internal/ui/views/instance_editor.go`
-- [ ] Create `internal/ui/views/instance_editor_test.go`
-- [ ] Define InstanceEditor struct
-- [ ] Implement `buildLabelsForm()` with MultiSelect field
-- [ ] Implement state machine
-- [ ] Write tests
+### InstanceEditor Component ✅
+- [x] Create `internal/ui/views/instance_editor.go`
+- [x] Create `internal/ui/views/instance_editor_test.go`
+- [x] Define InstanceEditor struct
+- [x] Implement state machine (loading, form, diff, saving, error)
+- [x] Write tests
 
-### View Integration
-- [ ] Add "Edit Labels" to instance details view
+### LabelEditor Component ✅
+*Dedicated label editing component*
+- [x] Create `internal/ui/components/labeledit/labeledit.go`
+- [x] Create `internal/ui/components/labeledit/labeledit_test.go`
+- [x] Add/edit/delete labels functionality
+- [x] Key/value input with Tab switching
+- [x] GCP label validation (63 chars, lowercase, etc.)
 
-### App Integration
-- [ ] Handle instance label editing
+### View Integration ✅
+- [x] Add "Edit Labels" to instance details action menu
+- [x] Add 'l' key binding for quick access
 
-### Documentation
-- [ ] Update docs
+### App Integration ✅
+- [x] Add ViewInstanceEditor to app views
+- [x] Handle InstanceEditorMsg in App.Update
+- [x] Handle navigation back from editor
 
-### Phase 5 Complete
-- [ ] Manual test
-- [ ] All tests pass
-- [ ] Commit and push
+### Documentation ✅
+- [x] Update README.md with key bindings
+- [x] Update CLAUDE.md with key bindings
+
+### Phase 5 Complete ✅
+- [x] Manual test
+- [x] All tests pass
+- [x] Code committed
 
 ---
 
@@ -528,11 +543,11 @@
 
 ## Progress Tracking
 
-**Phase 1:** ⏸️ Not Started
+**Phase 1:** ⏳ ~30% (DiffViewer done, forms framework not started)
 **Phase 2:** ⏸️ Not Started
 **Phase 3:** ⏸️ Not Started
 **Phase 4:** ⏸️ Not Started
-**Phase 5:** ⏸️ Not Started
+**Phase 5:** ✅ Complete
 **Phase 6:** ⏸️ Not Started
 **Phase 7:** ⏸️ Not Started
 **Phase 8:** ⏸️ Not Started
@@ -540,7 +555,7 @@
 **Phase 10:** ⏸️ Not Started
 **Phase 11:** ⏸️ Not Started
 
-**Overall Progress:** 0% (0/11 phases complete)
+**Overall Progress:** ~15% (1.3/11 phases complete)
 
 ---
 
@@ -571,3 +586,4 @@
 | Date       | Version | Changes                           |
 |------------|---------|-----------------------------------|
 | 2026-01-18 | 1.0     | Initial TODO created              |
+| 2026-01-26 | 1.1     | Phase 5 complete, Phase 1 DiffViewer done |
