@@ -9,7 +9,7 @@ The fancy header displays hierarchical breadcrumbs that show your current locati
 Breadcrumbs follow this pattern:
 
 ```
-☁ gcon - Google Console Platform TUI  [Project] ▶ [Category] ▶ [Resource1] ▶ [Resource2] ▶ ...
+☁ gcon - Google Cloud Platform TUI  [Project] ▶ [Category] ▶ [Resource1] ▶ [Resource2] ▶ ...
 ```
 
 ### Components
