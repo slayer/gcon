@@ -14,6 +14,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
+	uierrors "github.com/slayer/gcon/internal/ui/errors"
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/actionmenu"
 	"github.com/slayer/gcon/internal/ui/components/confirm"
@@ -479,7 +480,7 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 		}
 		// Handle empty folder case - nothing to delete
 		if len(msg.files) == 0 {
-			v.err = fmt.Errorf("folder is empty, nothing to delete")
+			v.err = fmt.Errorf("%w, nothing to delete", uierrors.ErrFolderEmpty)
 			v.pendingDelete = nil
 			return nil
 		}
@@ -879,7 +880,7 @@ func (v *ObjectsView) prepareDownload(obj gcp.StorageObject) tea.Cmd {
 				return downloadCompleteMsg{err: err}
 			}
 			if len(objects) == 0 {
-				return downloadCompleteMsg{err: fmt.Errorf("folder is empty")}
+				return downloadCompleteMsg{err: uierrors.ErrFolderEmpty}
 			}
 			return downloadStartMsg{files: objects}
 		}

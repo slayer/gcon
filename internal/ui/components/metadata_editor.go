@@ -248,6 +248,7 @@ func parseLine(line string) (key, value string, isMultiline bool, err error) {
 		return key, value, false, nil
 	}
 
+	//nolint:err113 // User input parsing errors need specific messages
 	return "", "", false, fmt.Errorf("invalid format: expected 'key=value' or 'key: value'")
 }
 

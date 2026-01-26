@@ -16,7 +16,7 @@ func TestRenderError_NilError(t *testing.T) {
 }
 
 func TestRenderError_NonGCPError(t *testing.T) {
-	err := errors.New("some generic error")
+	err := errors.New("some generic error") //nolint:err113 // Test error
 	result := RenderError(err)
 
 	assert.Contains(t, result, "some generic error")

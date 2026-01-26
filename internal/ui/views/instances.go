@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
+	uierrors "github.com/slayer/gcon/internal/ui/errors"
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/actionmenu"
 	"github.com/slayer/gcon/internal/ui/components/table"
@@ -395,7 +396,7 @@ func (v *InstancesView) executeAction(actionKey rune) tea.Cmd {
 	case 'S':
 		if inst.IsRunning() {
 			// SSH to instance is a planned feature
-			v.err = fmt.Errorf("SSH action is not yet implemented for instance %s", inst.Name)
+			v.err = fmt.Errorf("%w for instance %s", uierrors.ErrSSHNotImplemented, inst.Name)
 		}
 	case 'r':
 		v.loading = true

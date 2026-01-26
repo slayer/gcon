@@ -120,12 +120,12 @@ func TestParseError_NetworkErrors(t *testing.T) {
 	}{
 		{
 			name:     "connection error",
-			err:      errors.New("dial tcp: connection refused"),
+			err:      errors.New("dial tcp: connection refused"), //nolint:err113 // Test error
 			wantCode: ErrorNetwork,
 		},
 		{
 			name:     "timeout error",
-			err:      errors.New("context deadline exceeded (timeout)"),
+			err:      errors.New("context deadline exceeded (timeout)"), //nolint:err113 // Test error
 			wantCode: ErrorNetwork,
 		},
 	}

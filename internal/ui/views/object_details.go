@@ -16,6 +16,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
+	uierrors "github.com/slayer/gcon/internal/ui/errors"
 	"github.com/slayer/gcon/internal/ui/components/actionmenu"
 	"github.com/slayer/gcon/internal/ui/components/confirm"
 	"github.com/slayer/gcon/internal/ui/components/tabs"
@@ -579,7 +580,7 @@ func (v *ObjectDetailsView) openObject() tea.Cmd {
 			cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", tempPath) // #nosec G204 -- Opening user-downloaded file with system default app
 		default:
 			_ = os.Remove(tempPath)
-			return objectOpenCompleteMsg{err: fmt.Errorf("unsupported operating system: %s", runtime.GOOS)}
+			return objectOpenCompleteMsg{err: fmt.Errorf("%w: %s", uierrors.ErrUnsupportedOS, runtime.GOOS)}
 		}
 
 		if err := cmd.Start(); err != nil {

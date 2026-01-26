@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
+	uierrors "github.com/slayer/gcon/internal/ui/errors"
 	"github.com/slayer/gcon/internal/ui/components/diff"
 	"github.com/slayer/gcon/internal/ui/components/labeledit"
 	"github.com/slayer/gcon/internal/ui/context"
@@ -139,7 +140,7 @@ func (v *InstanceEditorView) Init() tea.Cmd {
 func (v *InstanceEditorView) loadLabels() tea.Cmd {
 	return func() tea.Msg {
 		if v.computeClient == nil {
-			return labelsErrorMsg{err: fmt.Errorf("compute client not initialized")}
+			return labelsErrorMsg{err: uierrors.ErrClientNotInitialized}
 		}
 		ctx := gocontext.Background()
 

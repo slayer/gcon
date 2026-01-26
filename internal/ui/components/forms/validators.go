@@ -6,6 +6,10 @@ import (
 	"strings"
 )
 
+// Note: This file uses dynamic error messages for validation feedback.
+// err113 is suppressed because user-facing validation errors need contextual messages.
+//nolint:err113 // Validation errors require dynamic messages for UX
+
 // GCP resource name pattern: lowercase letters, numbers, hyphens
 // Must start with a lowercase letter, 1-63 characters
 var gcpResourceNamePattern = regexp.MustCompile(`^[a-z][a-z0-9-]*[a-z0-9]$|^[a-z]$`)

@@ -2,9 +2,17 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"sync"
+)
+
+var (
+	// ErrIdentityNotDetermined is returned when unable to determine authenticated identity
+	ErrIdentityNotDetermined = errors.New("unable to determine authenticated identity")
+	// ErrClientEmailMissing is returned when service account JSON is missing client_email
+	ErrClientEmailMissing = errors.New("client_email field is empty or missing")
 )
 
 // IdentityType represents the type of authenticated identity
@@ -59,7 +67,7 @@ func GetAuthenticatedIdentity() (string, IdentityType, error) {
 		if identity != "" {
 			return identity, identityType, nil
 		}
-		return "", IdentityUnknown, fmt.Errorf("unable to determine authenticated identity")
+		return "", IdentityUnknown, ErrIdentityNotDetermined
 	}
 	cacheMutex.RUnlock()
 
@@ -72,7 +80,7 @@ func GetAuthenticatedIdentity() (string, IdentityType, error) {
 		if cachedIdentity != "" {
 			return cachedIdentity, cachedIdentityType, nil
 		}
-		return "", IdentityUnknown, fmt.Errorf("unable to determine authenticated identity")
+		return "", IdentityUnknown, ErrIdentityNotDetermined
 	}
 
 	// Method 1: Try gcloud config (user credentials)
@@ -101,7 +109,7 @@ func GetAuthenticatedIdentity() (string, IdentityType, error) {
 
 	// Mark cache as initialized with no identity found
 	cacheInitialized = true
-	return "", IdentityUnknown, fmt.Errorf("unable to determine authenticated identity")
+	return "", IdentityUnknown, ErrIdentityNotDetermined
 }
 
 // ClearIdentityCache clears the cached identity (useful for testing)
@@ -130,7 +138,7 @@ func extractServiceAccountEmail(credentialsPath string) (string, error) {
 
 	// Extract client_email
 	if creds.ClientEmail == "" {
-		return "", fmt.Errorf("client_email field is empty or missing")
+		return "", ErrClientEmailMissing
 	}
 
 	return creds.ClientEmail, nil

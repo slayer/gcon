@@ -15,6 +15,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
+	uierrors "github.com/slayer/gcon/internal/ui/errors"
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/actionmenu"
 	"github.com/slayer/gcon/internal/ui/components/links"
@@ -578,7 +579,7 @@ func (v *InstanceDetailsView) executeAction(actionKey rune) tea.Cmd {
 	case 'S':
 		if v.isInstanceRunning() {
 			// SSH to instance is a planned feature
-			v.err = fmt.Errorf("SSH action is not yet implemented for instance %s", v.instanceName)
+			v.err = fmt.Errorf("%w for instance %s", uierrors.ErrSSHNotImplemented, v.instanceName)
 		}
 	case 'r':
 		v.loading = true
@@ -622,7 +623,7 @@ func (v *InstanceDetailsView) resetInstance() tea.Cmd {
 func (v *InstanceDetailsView) loadMetrics() tea.Cmd {
 	return func() tea.Msg {
 		if v.gcpClient == nil || v.details == nil {
-			return metricsErrorMsg{err: fmt.Errorf("client or details not available")}
+			return metricsErrorMsg{err: uierrors.ErrDetailsNotAvailable}
 		}
 
 		ctx, cancel := gocontext.WithTimeout(gocontext.Background(), 30*time.Second)
@@ -682,7 +683,7 @@ func (v *InstanceDetailsView) loadMetrics() tea.Cmd {
 func (v *InstanceDetailsView) loadLogs() tea.Cmd {
 	return func() tea.Msg {
 		if v.gcpClient == nil || v.details == nil {
-			return logsErrorMsg{err: fmt.Errorf("client or details not available")}
+			return logsErrorMsg{err: uierrors.ErrDetailsNotAvailable}
 		}
 
 		ctx, cancel := gocontext.WithTimeout(gocontext.Background(), 30*time.Second)

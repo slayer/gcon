@@ -536,6 +536,7 @@ func (f *Field) Validate() error {
 			isEmpty = true
 		}
 		if isEmpty {
+			//nolint:err113 // Field validation errors need field-specific messages
 			err := fmt.Errorf("%s is required", f.Label)
 			f.validationErr = err.Error()
 			return err

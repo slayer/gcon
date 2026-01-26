@@ -159,6 +159,7 @@ func (v *InstanceMetadataView) saveMetadata() tea.Cmd {
 		// Validate metadata
 		validationErrors := components.Validate(metadata)
 		if len(validationErrors) > 0 {
+			//nolint:err113 // Validation errors need dynamic messages
 			return metadataSaveErrorMsg{err: fmt.Errorf("validation failed: %s", strings.Join(validationErrors, "; "))}
 		}
 
