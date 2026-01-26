@@ -12,6 +12,7 @@ import (
 
 // handleMouseEvent processes mouse events and routes them to appropriate components.
 // Uses region-based click handling for better maintainability and correctness.
+//nolint:gocognit // Mouse event routing - complexity 59
 func (a *App) handleMouseEvent(msg tea.MouseMsg) tea.Cmd {
 	// Fast path: ignore motion events entirely - they're too frequent and cause lag
 	if msg.Action == tea.MouseActionMotion {
@@ -114,6 +115,7 @@ func (a *App) handleMouseEvent(msg tea.MouseMsg) tea.Cmd {
 }
 
 // handleSidebarNavigation processes sidebar navigation messages and initializes views
+//nolint:gocognit // Sidebar navigation routing - complexity 35
 func (a *App) handleSidebarNavigation(msg sidebar.NavigateMsg) tea.Cmd {
 	var cmd tea.Cmd
 

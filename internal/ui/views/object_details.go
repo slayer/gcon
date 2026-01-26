@@ -250,6 +250,7 @@ func (v *ObjectDetailsView) loadPreview(objectSize int64) tea.Cmd {
 }
 
 // Update handles messages for the object details view
+//nolint:gocognit // Bubble Tea Update pattern - complexity 69
 func (v *ObjectDetailsView) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case objectMetadataLoadedMsg:

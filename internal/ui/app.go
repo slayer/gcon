@@ -293,6 +293,7 @@ func (a *App) getCurrentViewModel() views.View {
 }
 
 // Update implements tea.Model
+//nolint:gocognit // Bubble Tea Update pattern - complexity 60
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Handle project selector messages first (highest priority when active)
 	if a.showProjectSelector {

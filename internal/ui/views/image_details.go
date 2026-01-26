@@ -211,6 +211,7 @@ func (v *ImageDetailsView) updateViewportContent() {
 }
 
 // renderContent generates the full details content
+//nolint:gocognit // Detail rendering with multiple sections - complexity 37
 func (v *ImageDetailsView) renderContent() string {
 	d := v.details
 	var b strings.Builder

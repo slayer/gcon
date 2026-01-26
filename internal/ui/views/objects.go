@@ -298,6 +298,7 @@ type deleteCompleteMsg struct {
 }
 
 // Update handles messages for the objects view
+//nolint:gocognit // Bubble Tea Update pattern - complexity 108
 func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case objectsLoadedMsg:
@@ -1048,6 +1049,7 @@ func (v *ObjectsView) overlayProgress(content string) string {
 }
 
 // startUpload begins the actual upload process in a background goroutine
+//nolint:gocognit // Upload orchestration with progress tracking - complexity 41
 func (v *ObjectsView) startUpload() tea.Cmd {
 	files := v.uploadFiles
 	if len(files) == 0 {

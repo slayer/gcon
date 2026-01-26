@@ -214,6 +214,7 @@ func TestHiddenFiles(t *testing.T) {
 	assert.True(t, found, "visible.txt should be in entries")
 }
 
+//nolint:gocognit // Test function with multiple scenarios - complexity 31
 func TestFilePickerUpdate(t *testing.T) {
 	t.Run("handles filePickerLoadedMsg", func(t *testing.T) {
 		tempDir := t.TempDir()

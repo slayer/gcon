@@ -34,7 +34,7 @@ linters:
 
     # Code quality
     # - revive        # Fast, configurable, extensible linter (replaces golint)
-    # - gocognit      # Computes cognitive complexity (DISABLED: 18 baseline issues)
+    - gocognit      # Computes cognitive complexity
     # - gocyclo       # Computes cyclomatic complexity (DISABLED: 7 baseline issues in Update methods)
     # - maintidx      # Measures maintainability index (DISABLED: 2 baseline issues)
     # - nestif        # Reports deeply nested if statements
@@ -58,7 +58,7 @@ linters:
     - copyloopvar   # Detects places where loop variables are copied
     - intrange      # Finds places where int range loops can be used
 
-linters-settings:
+settings:
   # Error handling settings
   errcheck:
     check-type-assertions: true
@@ -74,7 +74,7 @@ linters-settings:
 
   # Cognitive complexity limit
   gocognit:
-    min-complexity: 20
+    min-complexity: 50
 
   # Cyclomatic complexity limit
   gocyclo:

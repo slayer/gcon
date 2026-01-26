@@ -189,6 +189,7 @@ func instanceToRow(inst gcp.Instance) table.Row {
 }
 
 // Update handles messages for the instances view
+//nolint:gocognit // Bubble Tea Update pattern - complexity 57
 func (v *InstancesView) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case computeClientReadyMsg:

@@ -252,6 +252,7 @@ func (v *InstanceDetailsView) loadDetails() tea.Cmd {
 }
 
 // Update handles messages for the instance details view
+//nolint:gocognit // Bubble Tea Update pattern - complexity 90
 func (v *InstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case instanceDetailsLoadedMsg:
@@ -1076,6 +1077,7 @@ func (v *InstanceDetailsView) renderDetailsTab() string {
 }
 
 // renderObservabilityTab generates the Observability tab content with real-time metrics
+//nolint:gocognit // Metrics rendering with multiple sections - complexity 31
 func (v *InstanceDetailsView) renderObservabilityTab() string {
 	d := v.details
 	var b strings.Builder
