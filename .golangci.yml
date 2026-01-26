@@ -23,7 +23,7 @@ linters:
 
     # Additional error handling & bugs
     - errorlint     # Error wrapping (Go 1.13+)
-    # - err113        # Error definition rules (DISABLED: 30 baseline issues in validators.go)
+    - err113        # Error definition rules
     - errname       # Error naming conventions (ErrXxx, XxxError)
     - nilnil        # Checks that there is no simultaneous return of nil error and an invalid value
     - nilerr        # Find code returning nil when error is not nil

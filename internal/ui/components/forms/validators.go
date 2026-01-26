@@ -7,8 +7,7 @@ import (
 )
 
 // Note: This file uses dynamic error messages for validation feedback.
-// err113 is suppressed because user-facing validation errors need contextual messages.
-//nolint:err113 // Validation errors require dynamic messages for UX
+// err113 is suppressed on individual lines because user-facing validation errors need contextual messages.
 
 // GCP resource name pattern: lowercase letters, numbers, hyphens
 // Must start with a lowercase letter, 1-63 characters
@@ -25,17 +24,17 @@ var gcpLabelValuePattern = regexp.MustCompile(`^[a-z0-9_-]*$`)
 // ValidateRequired returns an error if the value is empty
 func ValidateRequired(value any) error {
 	if value == nil {
-		return fmt.Errorf("this field is required")
+		return fmt.Errorf("this field is required") //nolint:err113 // Validation error
 	}
 
 	switch v := value.(type) {
 	case string:
 		if strings.TrimSpace(v) == "" {
-			return fmt.Errorf("this field is required")
+			return fmt.Errorf("this field is required") //nolint:err113 // Validation error
 		}
 	case []string:
 		if len(v) == 0 {
-			return fmt.Errorf("at least one selection is required")
+			return fmt.Errorf("at least one selection is required") //nolint:err113 // Validation error
 		}
 	}
 
@@ -46,7 +45,7 @@ func ValidateRequired(value any) error {
 func ValidateGCPResourceName(value any) error {
 	name, ok := value.(string)
 	if !ok {
-		return fmt.Errorf("expected string value")
+		return fmt.Errorf("expected string value") //nolint:err113 // Validation error
 	}
 
 	name = strings.TrimSpace(name)
@@ -55,11 +54,11 @@ func ValidateGCPResourceName(value any) error {
 	}
 
 	if len(name) > 63 {
-		return fmt.Errorf("name must be 63 characters or less (got %d)", len(name))
+		return fmt.Errorf("name must be 63 characters or less (got %d)", len(name)) //nolint:err113 // Validation error
 	}
 
 	if !gcpResourceNamePattern.MatchString(name) {
-		return fmt.Errorf("name must start with lowercase letter, contain only lowercase letters, numbers, and hyphens")
+		return fmt.Errorf("name must start with lowercase letter, contain only lowercase letters, numbers, and hyphens") //nolint:err113 // Validation error
 	}
 
 	return nil
@@ -69,7 +68,7 @@ func ValidateGCPResourceName(value any) error {
 func ValidateGCPLabelKey(value any) error {
 	key, ok := value.(string)
 	if !ok {
-		return fmt.Errorf("expected string value")
+		return fmt.Errorf("expected string value") //nolint:err113 // Validation error
 	}
 
 	key = strings.TrimSpace(key)
@@ -78,11 +77,11 @@ func ValidateGCPLabelKey(value any) error {
 	}
 
 	if len(key) > 63 {
-		return fmt.Errorf("label key must be 63 characters or less (got %d)", len(key))
+		return fmt.Errorf("label key must be 63 characters or less (got %d)", len(key)) //nolint:err113 // Validation error
 	}
 
 	if !gcpLabelKeyPattern.MatchString(key) {
-		return fmt.Errorf("label key must start with lowercase letter, contain only lowercase letters, numbers, hyphens, underscores")
+		return fmt.Errorf("label key must start with lowercase letter, contain only lowercase letters, numbers, hyphens, underscores") //nolint:err113 // Validation error
 	}
 
 	return nil
@@ -92,7 +91,7 @@ func ValidateGCPLabelKey(value any) error {
 func ValidateGCPLabelValue(value any) error {
 	val, ok := value.(string)
 	if !ok {
-		return fmt.Errorf("expected string value")
+		return fmt.Errorf("expected string value") //nolint:err113 // Validation error
 	}
 
 	val = strings.TrimSpace(val)
@@ -101,11 +100,11 @@ func ValidateGCPLabelValue(value any) error {
 	}
 
 	if len(val) > 63 {
-		return fmt.Errorf("label value must be 63 characters or less (got %d)", len(val))
+		return fmt.Errorf("label value must be 63 characters or less (got %d)", len(val)) //nolint:err113 // Validation error
 	}
 
 	if !gcpLabelValuePattern.MatchString(val) {
-		return fmt.Errorf("label value must contain only lowercase letters, numbers, hyphens, underscores")
+		return fmt.Errorf("label value must contain only lowercase letters, numbers, hyphens, underscores") //nolint:err113 // Validation error
 	}
 
 	return nil
@@ -123,16 +122,16 @@ func ValidateNumber(min, max int64) Validator {
 		case float64:
 			num = int64(v)
 		case string:
-			return fmt.Errorf("expected numeric value")
+			return fmt.Errorf("expected numeric value") //nolint:err113 // Validation error
 		default:
-			return fmt.Errorf("expected numeric value")
+			return fmt.Errorf("expected numeric value") //nolint:err113 // Validation error
 		}
 
 		if num < min {
-			return fmt.Errorf("value must be at least %d", min)
+			return fmt.Errorf("value must be at least %d", min) //nolint:err113 // Validation error
 		}
 		if num > max {
-			return fmt.Errorf("value must be at most %d", max)
+			return fmt.Errorf("value must be at most %d", max) //nolint:err113 // Validation error
 		}
 
 		return nil
@@ -144,15 +143,15 @@ func ValidateStringLength(min, max int) Validator {
 	return func(value any) error {
 		str, ok := value.(string)
 		if !ok {
-			return fmt.Errorf("expected string value")
+			return fmt.Errorf("expected string value") //nolint:err113 // Validation error
 		}
 
 		length := len(str)
 		if length < min {
-			return fmt.Errorf("must be at least %d characters (got %d)", min, length)
+			return fmt.Errorf("must be at least %d characters (got %d)", min, length) //nolint:err113 // Validation error
 		}
 		if length > max {
-			return fmt.Errorf("must be at most %d characters (got %d)", max, length)
+			return fmt.Errorf("must be at most %d characters (got %d)", max, length) //nolint:err113 // Validation error
 		}
 
 		return nil
@@ -165,7 +164,7 @@ func ValidatePattern(pattern string, errorMsg string) Validator {
 	return func(value any) error {
 		str, ok := value.(string)
 		if !ok {
-			return fmt.Errorf("expected string value")
+			return fmt.Errorf("expected string value") //nolint:err113 // Validation error
 		}
 
 		if str == "" {
@@ -174,9 +173,9 @@ func ValidatePattern(pattern string, errorMsg string) Validator {
 
 		if !re.MatchString(str) {
 			if errorMsg != "" {
-				return fmt.Errorf("%s", errorMsg)
+				return fmt.Errorf("%s", errorMsg) //nolint:err113 // Validation error
 			}
-			return fmt.Errorf("value does not match required pattern")
+			return fmt.Errorf("value does not match required pattern") //nolint:err113 // Validation error
 		}
 
 		return nil
@@ -202,7 +201,7 @@ func ValidateIPAddress() Validator {
 	return func(value any) error {
 		str, ok := value.(string)
 		if !ok {
-			return fmt.Errorf("expected string value")
+			return fmt.Errorf("expected string value") //nolint:err113 // Validation error
 		}
 
 		if str == "" {
@@ -211,7 +210,7 @@ func ValidateIPAddress() Validator {
 
 		re := regexp.MustCompile(ipPattern)
 		if !re.MatchString(str) {
-			return fmt.Errorf("invalid IP address format")
+			return fmt.Errorf("invalid IP address format") //nolint:err113 // Validation error
 		}
 
 		// Validate each octet is 0-255
@@ -220,7 +219,7 @@ func ValidateIPAddress() Validator {
 			var num int
 			_, _ = fmt.Sscanf(part, "%d", &num)
 			if num < 0 || num > 255 {
-				return fmt.Errorf("invalid IP address: octet %s out of range", part)
+				return fmt.Errorf("invalid IP address: octet %s out of range", part) //nolint:err113 // Validation error
 			}
 		}
 
@@ -234,7 +233,7 @@ func ValidateCIDR() Validator {
 	return func(value any) error {
 		str, ok := value.(string)
 		if !ok {
-			return fmt.Errorf("expected string value")
+			return fmt.Errorf("expected string value") //nolint:err113 // Validation error
 		}
 
 		if str == "" {
@@ -243,7 +242,7 @@ func ValidateCIDR() Validator {
 
 		re := regexp.MustCompile(cidrPattern)
 		if !re.MatchString(str) {
-			return fmt.Errorf("invalid CIDR notation (expected format: x.x.x.x/xx)")
+			return fmt.Errorf("invalid CIDR notation (expected format: x.x.x.x/xx)") //nolint:err113 // Validation error
 		}
 
 		// Validate the IP part
@@ -257,7 +256,7 @@ func ValidateCIDR() Validator {
 		var prefix int
 		_, _ = fmt.Sscanf(parts[1], "%d", &prefix)
 		if prefix < 0 || prefix > 32 {
-			return fmt.Errorf("invalid CIDR prefix length: must be 0-32")
+			return fmt.Errorf("invalid CIDR prefix length: must be 0-32") //nolint:err113 // Validation error
 		}
 
 		return nil
@@ -269,7 +268,7 @@ func ValidateOneOf(allowed []string) Validator {
 	return func(value any) error {
 		str, ok := value.(string)
 		if !ok {
-			return fmt.Errorf("expected string value")
+			return fmt.Errorf("expected string value") //nolint:err113 // Validation error
 		}
 
 		if str == "" {
@@ -282,7 +281,7 @@ func ValidateOneOf(allowed []string) Validator {
 			}
 		}
 
-		return fmt.Errorf("value must be one of: %s", strings.Join(allowed, ", "))
+		return fmt.Errorf("value must be one of: %s", strings.Join(allowed, ", ")) //nolint:err113 // Validation error
 	}
 }
 
@@ -291,15 +290,15 @@ func ValidateNotOneOf(disallowed []string, errorMsg string) Validator {
 	return func(value any) error {
 		str, ok := value.(string)
 		if !ok {
-			return fmt.Errorf("expected string value")
+			return fmt.Errorf("expected string value") //nolint:err113 // Validation error
 		}
 
 		for _, d := range disallowed {
 			if str == d {
 				if errorMsg != "" {
-					return fmt.Errorf("%s", errorMsg)
+					return fmt.Errorf("%s", errorMsg) //nolint:err113 // Validation error
 				}
-				return fmt.Errorf("value '%s' is not allowed", str)
+				return fmt.Errorf("value '%s' is not allowed", str) //nolint:err113 // Validation error
 			}
 		}
 
@@ -367,14 +366,14 @@ func ValidateDiskSize(minGB, maxGB int64) Validator {
 		case float64:
 			sizeGB = int64(v)
 		default:
-			return fmt.Errorf("expected numeric disk size")
+			return fmt.Errorf("expected numeric disk size") //nolint:err113 // Validation error
 		}
 
 		if sizeGB < minGB {
-			return fmt.Errorf("disk size must be at least %d GB", minGB)
+			return fmt.Errorf("disk size must be at least %d GB", minGB) //nolint:err113 // Validation error
 		}
 		if sizeGB > maxGB {
-			return fmt.Errorf("disk size must be at most %d GB (GCP limit: 65536 GB)", maxGB)
+			return fmt.Errorf("disk size must be at most %d GB (GCP limit: 65536 GB)", maxGB) //nolint:err113 // Validation error
 		}
 
 		return nil
