@@ -620,7 +620,7 @@ func (a *App) handleInstanceEditComplete(msg views.InstanceEditCompleteMsg) tea.
 }
 
 // handleInstanceEditCancelled processes cancelled instance edit
-func (a *App) handleInstanceEditCancelled() tea.Cmd {
+func (a *App) handleInstanceEditCancelled() {
 	// Pop back to previous view
 	if len(a.viewStack) > 0 {
 		lastViewIndex := len(a.viewStack) - 1
@@ -632,5 +632,4 @@ func (a *App) handleInstanceEditCancelled() tea.Cmd {
 	a.instanceEditorView = nil
 
 	a.updateSidebarActiveView()
-	return nil
 }

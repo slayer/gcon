@@ -316,21 +316,22 @@ func (v *InstanceEditorView) showDiffPreview() tea.Cmd {
 		oldVal, hadOld := v.originalLabels[key]
 		newVal, hasNew := newLabels[key]
 
-		if !hasNew {
+		switch {
+		case !hasNew:
 			// Label was removed
 			fields = append(fields, diff.Field{
 				Label:    key,
 				OldValue: oldVal,
 				NewValue: "",
 			})
-		} else if !hadOld {
+		case !hadOld:
 			// Label was added
 			fields = append(fields, diff.Field{
 				Label:    key,
 				OldValue: "",
 				NewValue: newVal,
 			})
-		} else if oldVal != newVal {
+		case oldVal != newVal:
 			// Label was modified
 			fields = append(fields, diff.Field{
 				Label:    key,
