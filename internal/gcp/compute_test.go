@@ -48,10 +48,79 @@ func TestExtractName(t *testing.T) {
 	}
 }
 
-func TestInstanceDetailsFromAPI(t *testing.T) {
-	// Helper to create a bool pointer
-	boolPtr := func(b bool) *bool { return &b }
+// Test helpers for creating test instances
+func boolPtr(b bool) *bool { return &b }
 
+func createBasicInstance() *compute.Instance {
+	return &compute.Instance{
+		Name:               "test-instance",
+		Id:                 12345,
+		Description:        "Test description",
+		Status:             "RUNNING",
+		CreationTimestamp:  "2025-01-11T10:00:00Z",
+		DeletionProtection: true,
+		MachineType:        "projects/test/zones/us-central1-a/machineTypes/n1-standard-1",
+		CpuPlatform:        "Intel Haswell",
+		Labels:             map[string]string{"env": "test"},
+		Tags:               &compute.Tags{Items: []string{"http-server", "https-server"}},
+	}
+}
+
+func createInstanceWithNetwork() *compute.Instance {
+	return &compute.Instance{
+		Name:        "network-test",
+		Id:          67890,
+		Status:      "RUNNING",
+		MachineType: "n2-standard-2",
+		NetworkInterfaces: []*compute.NetworkInterface{
+			{
+				Name:       "nic0",
+				Network:    "projects/test/global/networks/default",
+				Subnetwork: "projects/test/regions/us-central1/subnetworks/default",
+				NetworkIP:  "10.128.0.2",
+				NicType:    "GVNIC",
+				StackType:  "IPV4_ONLY",
+				AccessConfigs: []*compute.AccessConfig{
+					{
+						NatIP:       "35.192.0.1",
+						NetworkTier: "PREMIUM",
+					},
+				},
+			},
+		},
+	}
+}
+
+func createInstanceWithDisks() *compute.Instance {
+	return &compute.Instance{
+		Name:        "disk-test",
+		Id:          11111,
+		Status:      "RUNNING",
+		MachineType: "e2-medium",
+		Disks: []*compute.AttachedDisk{
+			{
+				Boot:       true,
+				AutoDelete: true,
+				Mode:       "READ_WRITE",
+				DiskSizeGb: 100,
+				DeviceName: "boot-disk",
+				Source:     "projects/test/zones/us-central1-a/disks/test-boot-disk",
+				Interface:  "SCSI",
+			},
+			{
+				Boot:       false,
+				AutoDelete: false,
+				Mode:       "READ_WRITE",
+				DiskSizeGb: 500,
+				DeviceName: "data-disk",
+				Source:     "projects/test/zones/us-central1-a/disks/test-data-disk",
+				Interface:  "NVME",
+			},
+		},
+	}
+}
+
+func TestInstanceDetailsFromAPI(t *testing.T) {
 	tests := []struct {
 		name     string
 		inst     *compute.Instance
@@ -60,18 +129,7 @@ func TestInstanceDetailsFromAPI(t *testing.T) {
 	}{
 		{
 			name: "basic instance",
-			inst: &compute.Instance{
-				Name:               "test-instance",
-				Id:                 12345,
-				Description:        "Test description",
-				Status:             "RUNNING",
-				CreationTimestamp:  "2025-01-11T10:00:00Z",
-				DeletionProtection: true,
-				MachineType:        "projects/test/zones/us-central1-a/machineTypes/n1-standard-1",
-				CpuPlatform:        "Intel Haswell",
-				Labels:             map[string]string{"env": "test"},
-				Tags:               &compute.Tags{Items: []string{"http-server", "https-server"}},
-			},
+			inst: createBasicInstance(),
 			zone: "zones/us-central1-a",
 			validate: func(t *testing.T, d *InstanceDetails) {
 				assert.Equal(t, "test-instance", d.Name)
@@ -88,28 +146,7 @@ func TestInstanceDetailsFromAPI(t *testing.T) {
 		},
 		{
 			name: "instance with network interfaces",
-			inst: &compute.Instance{
-				Name:        "network-test",
-				Id:          67890,
-				Status:      "RUNNING",
-				MachineType: "n2-standard-2",
-				NetworkInterfaces: []*compute.NetworkInterface{
-					{
-						Name:       "nic0",
-						Network:    "projects/test/global/networks/default",
-						Subnetwork: "projects/test/regions/us-central1/subnetworks/default",
-						NetworkIP:  "10.128.0.2",
-						NicType:    "GVNIC",
-						StackType:  "IPV4_ONLY",
-						AccessConfigs: []*compute.AccessConfig{
-							{
-								NatIP:       "35.192.0.1",
-								NetworkTier: "PREMIUM",
-							},
-						},
-					},
-				},
-			},
+			inst: createInstanceWithNetwork(),
 			zone: "us-central1-a",
 			validate: func(t *testing.T, d *InstanceDetails) {
 				assert.Len(t, d.NetworkInterfaces, 1)
