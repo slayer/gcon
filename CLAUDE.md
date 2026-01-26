@@ -466,7 +466,7 @@ if a.hasTextInputFocused() {
 
 ### Demo View
 
-The `FormDemoView` in `internal/ui/views/form_demo.go` demonstrates all field types and validation. It can be instantiated directly for testing purposes.
+Access the form demo via command palette with "Form Demo (dev)" to see all field types and validation in action.
 
 ## Component Patterns
 

@@ -164,6 +164,10 @@ func (a *App) renderCurrentView() string {
 		return a.renderPlaceholder("VPC Networks")
 	case ViewFirewall:
 		return a.renderPlaceholder("Firewall Rules")
+	case ViewFormDemo:
+		if a.formDemoView != nil {
+			return a.formDemoView.View()
+		}
 	}
 	return "View not implemented"
 }

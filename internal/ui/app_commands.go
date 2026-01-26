@@ -7,6 +7,7 @@ import (
 	"github.com/slayer/gcon/internal/ui/components/commandpalette"
 	"github.com/slayer/gcon/internal/ui/components/projectselector"
 	"github.com/slayer/gcon/internal/ui/components/sidebar"
+	"github.com/slayer/gcon/internal/ui/views"
 )
 
 // openCommandPalette shows the command palette and configures it based on current state
@@ -87,8 +88,23 @@ func (a *App) handleActionCommand(cmd commandpalette.Command) (tea.Model, tea.Cm
 		a.projectSelector = projectselector.New(a.gcpClient, currentProjectID)
 		a.showProjectSelector = true
 		return a, a.projectSelector.Init()
+	case "action:form-demo":
+		return a.openFormDemo()
 	}
 	return a, nil
+}
+
+// openFormDemo opens the form components demo view
+func (a *App) openFormDemo() (tea.Model, tea.Cmd) {
+	// Create the form demo view
+	a.formDemoView = views.NewFormDemoView()
+	a.formDemoView.SetContext(a.ctx)
+
+	// Push current view to stack for back navigation
+	a.viewStack = append(a.viewStack, a.currentView)
+	a.currentView = ViewFormDemo
+
+	return a, a.formDemoView.Init()
 }
 
 // handleRecentCommand navigates to a recently accessed resource from command palette

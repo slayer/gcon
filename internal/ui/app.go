@@ -537,7 +537,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, a.handleInstanceEditComplete(msg)
 
 	case views.InstanceEditCancelledMsg:
-		return a, a.handleInstanceEditCancelled()
+		a.handleInstanceEditCancelled()
+		return a, nil
 
 	case components.FooterProjectClickedMsg:
 		// Project section in footer was clicked, show project selector
