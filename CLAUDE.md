@@ -15,6 +15,9 @@ A terminal-based user interface for managing Google Cloud Platform resources, bu
   - Mocking with interfaces and test implementations
   - use `testify` for assertions
   - use table-driven tests if applicable
+- **Linting**: golangci-lint v2.6.0+ with 32 enabled linters
+  - Comprehensive error handling, security, and code quality checks
+  - Bubble Tea-specific complexity allowances
 
 ## Project Structure
 
@@ -108,11 +111,14 @@ make build-all
 # Run tests
 make test
 
-# Install linter (golangci-lint v2.1.6)
+# Install linter (golangci-lint latest)
 make install-lint
 
 # Lint
 make lint
+
+# Lint with auto-fix
+make lint-fix
 ```
 
 ## GCP Authentication
@@ -545,6 +551,61 @@ func (a *App) clearAllViews() {
     // Clear selected resources
     a.selectedInstance = nil
     // ... clear ALL selected resources
+}
+```
+
+### Deterministic Map Iteration for UI
+Go maps iterate in random order. When rendering UI elements from maps (labels, tags, etc.), sort keys first for consistent output and testable behavior:
+
+```go
+// Wrong - non-deterministic order, flaky tests
+for key, val := range labels {
+    fields = append(fields, Field{Label: key, Value: val})
+}
+
+// Correct - deterministic alphabetical order
+keys := make([]string, 0, len(labels))
+for k := range labels {
+    keys = append(keys, k)
+}
+sort.Strings(keys)
+for _, key := range keys {
+    fields = append(fields, Field{Label: key, Value: labels[key]})
+}
+```
+
+### Allow Cancel During Async Operations
+Users should be able to cancel/escape during loading or saving states. Check for cancel key before returning nil in async state handlers:
+
+```go
+func (v *View) handleKeyMsg(msg tea.KeyMsg) tea.Cmd {
+    // Handle loading/saving states - allow cancel
+    if v.state == stateLoading || v.state == stateSaving {
+        if key.Matches(msg, v.keys.Cancel) {
+            return func() tea.Msg { return CancelledMsg{} }
+        }
+        return nil  // Ignore other keys during async ops
+    }
+    // ... handle other states
+}
+```
+
+### Nil Client Checks in Async Commands
+GCP client may be nil in tests or error states. Add defensive checks at the start of async commands:
+
+```go
+func (v *View) loadData() tea.Cmd {
+    return func() tea.Msg {
+        if v.client == nil {
+            return errorMsg{err: fmt.Errorf("client not initialized")}
+        }
+        // Safe to use client now
+        data, err := v.client.GetData(ctx, v.resourceID)
+        if err != nil {
+            return errorMsg{err: err}
+        }
+        return dataLoadedMsg{data: data}
+    }
 }
 ```
 
