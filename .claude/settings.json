@@ -6,9 +6,15 @@
       "Bash(go build:*)",
       "Bash(go test:*)",
       "Bash(go fmt:*)",
+      "Bash(gofmt:*)",
       "Bash(make lint:*)",
       "Bash(unset:*)",
       "Bash(/tmp/gcon)",
+      "Bash(xargs ls:*)",
+      "Bash(xargs cat:*)",
+      "Bash(mkdir:*)",
+      "Bash(golangci-lint:*)",
+      "Bash(tee:*)",
       "Bash(gh:*)"
     ]
   }
