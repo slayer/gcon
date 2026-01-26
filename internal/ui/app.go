@@ -43,6 +43,7 @@ const (
 	ViewNetworks
 	ViewFirewall
 	ViewLogs
+	ViewFormDemo // Demo view for testing form components
 )
 
 // FocusedPanel indicates which panel has keyboard focus
@@ -82,6 +83,7 @@ type App struct {
 	objectsView         *views.ObjectsView
 	objectDetailsView   *views.ObjectDetailsView
 	instanceEditorView  *views.InstanceEditorView
+	formDemoView        *views.FormDemoView
 
 	// Selected context
 	selectedProject  *gcp.Project
@@ -236,6 +238,21 @@ func (a *App) updateCurrentView(msg tea.Msg) tea.Cmd {
 	return nil
 }
 
+// TextInputFocusable is implemented by views that can have text input fields focused
+type TextInputFocusable interface {
+	HasTextInputFocused() bool
+}
+
+// hasTextInputFocused returns true if the current view has a text input focused.
+// When true, character keys should be passed to the view instead of handled globally.
+func (a *App) hasTextInputFocused() bool {
+	view := a.getCurrentViewModel()
+	if focusable, ok := view.(TextInputFocusable); ok {
+		return focusable.HasTextInputFocused()
+	}
+	return false
+}
+
 // getCurrentViewModel returns the model for the currently active view.
 func (a *App) getCurrentViewModel() views.View {
 	switch a.currentView {
@@ -269,6 +286,8 @@ func (a *App) getCurrentViewModel() views.View {
 		return a.objectDetailsView
 	case ViewInstanceEditor:
 		return a.instanceEditorView
+	case ViewFormDemo:
+		return a.formDemoView
 	}
 	return nil
 }
@@ -382,7 +401,19 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// Global key handlers
+		// Handle Ctrl+C quit regardless of text input focus
+		if msg.Type == tea.KeyCtrlC {
+			a.cleanup()
+			return a, tea.Quit
+		}
+
+		// Skip character-based global shortcuts when text input is focused
+		// This allows typing "q", "?", etc. in form fields
+		if a.hasTextInputFocused() {
+			return a, a.updateCurrentView(msg)
+		}
+
+		// Global key handlers (only when text input is NOT focused)
 		switch {
 		case key.Matches(msg, a.keys.Quit):
 			// Clean up resources before quitting
