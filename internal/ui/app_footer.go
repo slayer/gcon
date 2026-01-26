@@ -112,7 +112,7 @@ func (a *App) syncFooter() {
 func colorFromString(s string) lipgloss.Color {
 	// Simple hash using FNV-1a algorithm
 	var hash uint32 = 2166136261
-	for i := 0; i < len(s); i++ {
+	for i := range len(s) {
 		hash ^= uint32(s[i])
 		hash *= 16777619
 	}

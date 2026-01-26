@@ -2,10 +2,14 @@ package config
 
 import (
 	"bufio"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 )
+
+// ErrNoGcloudConfig is returned when gcloud is not configured
+var ErrNoGcloudConfig = errors.New("gcloud not configured")
 
 // GcloudConfig holds parsed gcloud configuration
 type GcloudConfig struct {
@@ -17,13 +21,13 @@ type GcloudConfig struct {
 }
 
 // LoadGcloudConfig reads the default project from gcloud configuration.
-// Returns nil if gcloud is not configured or no project is set.
+// Returns ErrNoGcloudConfig if gcloud is not configured or no project is set.
 func LoadGcloudConfig() (*GcloudConfig, error) {
 	configDir := getConfigDir()
 
 	// Check if gcloud config directory exists
 	if _, err := os.Stat(configDir); os.IsNotExist(err) {
-		return nil, nil
+		return nil, ErrNoGcloudConfig
 	}
 
 	// Determine active configuration name
@@ -45,7 +49,7 @@ func LoadGcloudConfig() (*GcloudConfig, error) {
 	configData, err := parseConfigFile(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return nil, ErrNoGcloudConfig
 		}
 		return nil, err
 	}
