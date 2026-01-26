@@ -675,7 +675,7 @@ func (v *View) loadData() tea.Cmd {
 | `x`/`Delete` | Delete label |
 | `Tab` | Switch key/value input |
 | `Ctrl+S` | Preview changes |
-| `Esc` | Cancel |
+| `Esc` | Back (global: navigate to previous view) |
 
 ### Instance Details - Observability Tab
 
