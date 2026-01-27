@@ -284,3 +284,26 @@ form.Validate()     // Get []string of error messages
 ## Demo View
 
 Access the form demo via command palette with "Form Demo (dev)" to see all field types and validation in action.
+
+## Key Binding Conflicts with Text Input
+
+When adding keyboard shortcuts to form sections, single-character keys conflict with text input.
+
+**Problem**: Character shortcuts (like `-` for collapse) are consumed before reaching text input fields, preventing users from typing those characters (e.g., "my-bucket-name").
+
+**Solution**: Always check `HasTextInputFocused()` before handling character keys in section/form Update():
+
+```go
+case key.Matches(keyMsg, s.keys.Collapse):
+    // Skip collapse action if user is typing in a text field
+    if s.Collapsible && !s.HasTextInputFocused() {
+        s.Collapsed = true
+        return nil
+    }
+    // Fall through to let the focused field handle the '-' key
+```
+
+**Rules for form shortcuts**:
+1. Prefer non-character keys (Ctrl+X, function keys) when possible
+2. If character key required, gate it with `!HasTextInputFocused()`
+3. Update tests - shortcuts should NOT work when text input is focused
