@@ -2175,7 +2175,7 @@ Due to the length of this plan, I'll continue with a summary of remaining tasks.
 
 ---
 
-**Plan complete and saved to `docs/plans/2026-01-18-form-framework.md`.**
+**Plan complete and saved to `doc/plans/2026-01-18-form-framework.md`.**
 
 Two execution options:
 

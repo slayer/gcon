@@ -15,7 +15,10 @@
       "Bash(mkdir:*)",
       "Bash(golangci-lint:*)",
       "Bash(tee:*)",
-      "Bash(gh:*)"
+      "Bash(perl -i -pe:*)",
+      "Bash(curl:*)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:github.com)"
     ]
   }
 }

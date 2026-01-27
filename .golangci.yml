@@ -1,5 +1,8 @@
 version: "2"
 
+# schema: https://golangci-lint.run/jsonschema/golangci.jsonschema.json
+# reference: https://raw.githubusercontent.com/golangci/golangci-lint/2ed365c7944938b15a969dd36be9637b6c9c0d9e/.golangci.reference.yml
+
 linters:
   # Use default: none instead of disable-all
   default: none
