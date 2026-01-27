@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
+	uierrors "github.com/slayer/gcon/internal/ui/errors"
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/actionmenu"
 	"github.com/slayer/gcon/internal/ui/components/table"
@@ -165,7 +166,7 @@ func statusIcon(status string) string {
 }
 
 // instanceToRow converts a GCP instance to a table row
-func instanceToRow(inst gcp.Instance) table.Row {
+func instanceToRow(inst gcp.Instance) table.Row { //nolint:gocritic // Copying instance is acceptable
 	externalIP := inst.ExternalIP
 	if externalIP == "" {
 		externalIP = "-"
@@ -188,6 +189,7 @@ func instanceToRow(inst gcp.Instance) table.Row {
 }
 
 // Update handles messages for the instances view
+//nolint:gocognit // Bubble Tea Update pattern - complexity 57
 func (v *InstancesView) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case computeClientReadyMsg:
@@ -349,7 +351,7 @@ func (v *InstancesView) Update(msg tea.Msg) tea.Cmd {
 }
 
 // buildActions creates the action menu items based on instance state
-func (v *InstancesView) buildActions(inst gcp.Instance) []actionmenu.Action {
+func (v *InstancesView) buildActions(inst gcp.Instance) []actionmenu.Action { //nolint:gocritic // Copying instance is acceptable
 	isRunning := inst.IsRunning()
 	isStopped := inst.IsStopped()
 
@@ -395,7 +397,7 @@ func (v *InstancesView) executeAction(actionKey rune) tea.Cmd {
 	case 'S':
 		if inst.IsRunning() {
 			// SSH to instance is a planned feature
-			v.err = fmt.Errorf("SSH action is not yet implemented for instance %s", inst.Name)
+			v.err = fmt.Errorf("%w for instance %s", uierrors.ErrSSHNotImplemented, inst.Name)
 		}
 	case 'r':
 		v.loading = true
@@ -416,13 +418,14 @@ func (v *InstancesView) findInstanceByName(name string) *gcp.Instance {
 	return nil
 }
 
-func (v *InstancesView) startInstance(inst gcp.Instance) tea.Cmd {
+func (v *InstancesView) startInstance(inst gcp.Instance) tea.Cmd { //nolint:gocritic // Copying instance is acceptable
 	return func() tea.Msg {
 		err := v.computeClient.StartInstance(gocontext.Background(), v.projectID, inst.Zone, inst.Name)
 		return instanceActionMsg{action: "Start", instance: inst.Name, err: err}
 	}
 }
 
+//nolint:gocritic // hugeParam: Instance struct passed by value for clarity
 func (v *InstancesView) stopInstance(inst gcp.Instance) tea.Cmd {
 	return func() tea.Msg {
 		err := v.computeClient.StopInstance(gocontext.Background(), v.projectID, inst.Zone, inst.Name)
@@ -430,6 +433,7 @@ func (v *InstancesView) stopInstance(inst gcp.Instance) tea.Cmd {
 	}
 }
 
+//nolint:gocritic // hugeParam: Instance struct passed by value for clarity
 func (v *InstancesView) resetInstance(inst gcp.Instance) tea.Cmd {
 	return func() tea.Msg {
 		err := v.computeClient.ResetInstance(gocontext.Background(), v.projectID, inst.Zone, inst.Name)

@@ -499,7 +499,7 @@ func (m *Model) UpdateRegions(offsetX, offsetY int) {
 		visibleRows = len(m.rows)
 	}
 
-	for i := 0; i < visibleRows; i++ {
+	for i := range visibleRows {
 		m.regionMgr.Add(
 			fmt.Sprintf("row-%d", i),
 			mouse.Rect{

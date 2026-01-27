@@ -12,6 +12,7 @@ import (
 
 // handleMouseEvent processes mouse events and routes them to appropriate components.
 // Uses region-based click handling for better maintainability and correctness.
+//nolint:gocognit // Mouse event routing - complexity 59
 func (a *App) handleMouseEvent(msg tea.MouseMsg) tea.Cmd {
 	// Fast path: ignore motion events entirely - they're too frequent and cause lag
 	if msg.Action == tea.MouseActionMotion {
@@ -114,6 +115,7 @@ func (a *App) handleMouseEvent(msg tea.MouseMsg) tea.Cmd {
 }
 
 // handleSidebarNavigation processes sidebar navigation messages and initializes views
+//nolint:gocognit // Sidebar navigation routing - complexity 35
 func (a *App) handleSidebarNavigation(msg sidebar.NavigateMsg) tea.Cmd {
 	var cmd tea.Cmd
 
@@ -236,6 +238,7 @@ func (a *App) handleProjectSelected(msg views.ProjectSelectedMsg) tea.Cmd {
 }
 
 // handleInstanceSelected processes instance selection and navigates to details view
+//nolint:gocritic // hugeParam: message struct passed by value
 func (a *App) handleInstanceSelected(msg views.InstanceSelectedMsg) tea.Cmd {
 	inst := msg.Instance
 	a.selectedInstance = &inst
@@ -260,6 +263,7 @@ func (a *App) handleInstanceSelected(msg views.InstanceSelectedMsg) tea.Cmd {
 }
 
 // handleDiskSelected processes disk selection from disks view and navigates to details view
+//nolint:gocritic // hugeParam: message struct passed by value
 func (a *App) handleDiskSelected(msg views.DiskSelectedMsg) tea.Cmd {
 	disk := msg.Disk
 	a.selectedDisk = &disk
@@ -300,6 +304,7 @@ func (a *App) handleInstanceDiskSelected(msg views.InstanceDiskSelectedMsg) tea.
 }
 
 // handleSnapshotSelected processes snapshot selection and navigates to details view
+//nolint:gocritic // hugeParam: message struct passed by value
 func (a *App) handleSnapshotSelected(msg views.SnapshotSelectedMsg) tea.Cmd {
 	snapshot := msg.Snapshot
 	a.selectedSnapshot = &snapshot
@@ -320,6 +325,7 @@ func (a *App) handleSnapshotSelected(msg views.SnapshotSelectedMsg) tea.Cmd {
 }
 
 // handleImageSelected processes image selection and navigates to details view
+//nolint:gocritic // hugeParam: message struct passed by value
 func (a *App) handleImageSelected(msg views.ImageSelectedMsg) tea.Cmd {
 	image := msg.Image
 	a.selectedImage = &image
@@ -381,6 +387,7 @@ func (a *App) handleSnapshotDiskSelected(msg views.SnapshotDiskSelectedMsg) tea.
 }
 
 // handleObjectSelected processes object selection and navigates to details view
+//nolint:gocritic // hugeParam: message struct passed by value
 func (a *App) handleObjectSelected(msg views.ObjectSelectedMsg) tea.Cmd {
 	if a.objectsView == nil {
 		return nil
@@ -485,6 +492,7 @@ func (a *App) clearAllViews() {
 	a.objectDetailsView = nil
 	a.projectMetadataView = nil
 	a.metadataView = nil
+	a.instanceEditorView = nil
 
 	// Clear view stack
 	a.viewStack = nil
@@ -568,4 +576,67 @@ func (a *App) reloadCurrentView(projectID string) tea.Cmd {
 		a.updateViewSizes()
 		return a.instancesView.Init()
 	}
+}
+
+// handleInstanceEditRequest processes request to open instance editor
+func (a *App) handleInstanceEditRequest(msg views.InstanceEditRequestMsg) tea.Cmd {
+	// Push current view onto stack for back navigation
+	a.viewStack = append(a.viewStack, a.currentView)
+	a.currentView = ViewInstanceEditor
+
+	// Get compute client from instance details view or instances view
+	var computeClient *gcp.ComputeClient
+	if a.instanceDetailsView != nil {
+		computeClient = a.instanceDetailsView.GetComputeClient()
+	} else if a.instancesView != nil {
+		computeClient = a.instancesView.GetComputeClient()
+	}
+
+	// Create editor view
+	a.instanceEditorView = views.NewInstanceEditorView(
+		msg.ProjectID,
+		msg.Zone,
+		msg.InstanceName,
+		computeClient,
+	)
+	a.updateSidebarActiveView()
+	a.updateViewSizes()
+	return a.instanceEditorView.Init()
+}
+
+// handleInstanceEditComplete processes successful instance edit
+func (a *App) handleInstanceEditComplete(msg views.InstanceEditCompleteMsg) tea.Cmd {
+	// Pop back to previous view
+	if len(a.viewStack) > 0 {
+		lastViewIndex := len(a.viewStack) - 1
+		a.currentView = a.viewStack[lastViewIndex]
+		a.viewStack = a.viewStack[:lastViewIndex]
+	}
+
+	// Clean up editor view
+	a.instanceEditorView = nil
+
+	a.updateSidebarActiveView()
+
+	// Refresh instance details if that's where we came from to show updated labels
+	if a.instanceDetailsView != nil && a.currentView == ViewInstanceDetails {
+		return a.instanceDetailsView.Init()
+	}
+
+	return nil
+}
+
+// handleInstanceEditCanceled processes canceled instance edit
+func (a *App) handleInstanceEditCancelled() {
+	// Pop back to previous view
+	if len(a.viewStack) > 0 {
+		lastViewIndex := len(a.viewStack) - 1
+		a.currentView = a.viewStack[lastViewIndex]
+		a.viewStack = a.viewStack[:lastViewIndex]
+	}
+
+	// Clean up editor view
+	a.instanceEditorView = nil
+
+	a.updateSidebarActiveView()
 }

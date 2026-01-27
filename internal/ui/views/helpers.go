@@ -4,7 +4,7 @@ import "github.com/charmbracelet/lipgloss"
 
 // renderRow formats a label-value pair for display in detail views.
 // Empty or placeholder values are rendered in muted style.
-func renderRow(labelStyle, valueStyle, mutedStyle lipgloss.Style, label, value string) string {
+func renderRow(labelStyle, valueStyle, mutedStyle lipgloss.Style, label, value string) string { //nolint:gocritic // Style params acceptable
 	if value == "" || value == "None" || value == "—" {
 		return labelStyle.Render(label+":") + " " + mutedStyle.Render(value) + "\n"
 	}
@@ -19,8 +19,8 @@ func defaultIfEmpty(s, def string) string {
 	return s
 }
 
-// min returns the minimum of two integers.
-func min(a, b int) int {
+// minInt returns the minimum of two integers.
+func minInt(a, b int) int {
 	if a < b {
 		return a
 	}

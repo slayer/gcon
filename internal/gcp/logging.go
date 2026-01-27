@@ -2,6 +2,7 @@ package gcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -66,7 +67,7 @@ func (c *LoggingClient) GetRecentLogs(
 
 	for count < limit {
 		entry, err := iter.Next()
-		if err == iterator.Done {
+		if errors.Is(err, iterator.Done) {
 			break
 		}
 		if err != nil {

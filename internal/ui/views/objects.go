@@ -14,6 +14,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
+	uierrors "github.com/slayer/gcon/internal/ui/errors"
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/actionmenu"
 	"github.com/slayer/gcon/internal/ui/components/confirm"
@@ -210,7 +211,7 @@ type objectsErrorMsg struct {
 type ObjectsBackMsg struct{}
 
 // objectToRow converts a GCS object to a table row
-func objectToRow(obj gcp.StorageObject) table.Row {
+func objectToRow(obj gcp.StorageObject) table.Row { //nolint:gocritic // Copying object is acceptable
 	var name, size, contentType, modified string
 
 	if obj.IsFolder {
@@ -297,6 +298,7 @@ type deleteCompleteMsg struct {
 }
 
 // Update handles messages for the objects view
+//nolint:gocognit // Bubble Tea Update pattern - complexity 108
 func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case objectsLoadedMsg:
@@ -401,7 +403,7 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 		return nil
 
 	case filepicker.FilePickerCancelMsg:
-		// User cancelled file picker
+		// User canceled file picker
 		v.showFilePicker = false
 		v.filePicker = nil
 		return nil
@@ -479,7 +481,7 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 		}
 		// Handle empty folder case - nothing to delete
 		if len(msg.files) == 0 {
-			v.err = fmt.Errorf("folder is empty, nothing to delete")
+			v.err = fmt.Errorf("%w, nothing to delete", uierrors.ErrFolderEmpty)
 			v.pendingDelete = nil
 			return nil
 		}
@@ -610,7 +612,7 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 
 		case key.Matches(msg, v.keys.Upload):
 			// Open file picker for upload
-			cwd, _ := os.Getwd()
+			cwd, _ := os.Getwd() //nolint:errcheck // Fallback to empty
 			v.filePicker = filepicker.New(cwd, true)
 			v.filePicker.SetSize(v.width-10, v.height-10)
 			v.showFilePicker = true
@@ -866,7 +868,7 @@ func ObjectsLoadedMsgForTest(objects []gcp.StorageObject, nextToken string, hasM
 }
 
 // prepareDownload initiates download for a file or folder
-func (v *ObjectsView) prepareDownload(obj gcp.StorageObject) tea.Cmd {
+func (v *ObjectsView) prepareDownload(obj gcp.StorageObject) tea.Cmd { //nolint:gocritic // Copying object is acceptable
 	return func() tea.Msg {
 		if obj.IsFolder {
 			// For folders, list all objects recursively
@@ -879,7 +881,7 @@ func (v *ObjectsView) prepareDownload(obj gcp.StorageObject) tea.Cmd {
 				return downloadCompleteMsg{err: err}
 			}
 			if len(objects) == 0 {
-				return downloadCompleteMsg{err: fmt.Errorf("folder is empty")}
+				return downloadCompleteMsg{err: uierrors.ErrFolderEmpty}
 			}
 			return downloadStartMsg{files: objects}
 		}
@@ -1047,6 +1049,7 @@ func (v *ObjectsView) overlayProgress(content string) string {
 }
 
 // startUpload begins the actual upload process in a background goroutine
+//nolint:gocognit // Upload orchestration with progress tracking - complexity 41
 func (v *ObjectsView) startUpload() tea.Cmd {
 	files := v.uploadFiles
 	if len(files) == 0 {
@@ -1209,7 +1212,7 @@ func (v *ObjectsView) renderCenteredFilePicker() string {
 
 	var result strings.Builder
 	// Add top padding
-	for i := 0; i < topPad; i++ {
+	for range topPad {
 		result.WriteString("\n")
 	}
 
@@ -1289,14 +1292,14 @@ func (v *ObjectsView) overlayUploadProgress(content string) string {
 }
 
 // prepareDelete initiates the delete flow
-func (v *ObjectsView) prepareDelete(obj gcp.StorageObject) tea.Cmd {
+func (v *ObjectsView) prepareDelete(obj gcp.StorageObject) tea.Cmd { //nolint:gocritic // Copying object is acceptable
 	return func() tea.Msg {
 		return deleteRequestMsg{object: obj}
 	}
 }
 
 // resolveDeleteFiles lists all files under a folder prefix
-func (v *ObjectsView) resolveDeleteFiles(folder gcp.StorageObject) tea.Cmd {
+func (v *ObjectsView) resolveDeleteFiles(folder gcp.StorageObject) tea.Cmd { //nolint:gocritic // Copying object is acceptable
 	return func() tea.Msg {
 		objects, err := v.storageClient.ListAllObjects(
 			gocontext.Background(),
@@ -1506,6 +1509,7 @@ func (v *ObjectsView) overlayActionMenu(content string) string {
 }
 
 // buildObjectActions creates action menu items for the selected object
+//nolint:gocritic // hugeParam: StorageObject struct passed by value for clarity
 func (v *ObjectsView) buildObjectActions(obj gcp.StorageObject) []actionmenu.Action {
 	if obj.IsFolder {
 		return []actionmenu.Action{

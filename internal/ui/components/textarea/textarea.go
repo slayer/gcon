@@ -97,18 +97,21 @@ func New() Model {
 }
 
 // WithTitle sets the textarea title
+//nolint:gocritic // hugeParam: Model size from embedded textarea
 func (m Model) WithTitle(title string) Model {
 	m.title = title
 	return m
 }
 
 // WithPlaceholder sets the placeholder text
+//nolint:gocritic // hugeParam: Model size from embedded textarea
 func (m Model) WithPlaceholder(placeholder string) Model {
 	m.textarea.Placeholder = placeholder
 	return m
 }
 
 // WithCharLimit sets the character limit (0 for no limit)
+//nolint:gocritic // hugeParam: Model size from embedded textarea
 func (m Model) WithCharLimit(limit int) Model {
 	m.textarea.CharLimit = limit
 	return m
@@ -252,6 +255,7 @@ func (m Model) renderInfo() string {
 	var parts []string
 	parts = append(parts, lipgloss.NewStyle().Render("Ln "+itoa(row+1)+", Col "+itoa(col+1)))
 	parts = append(parts, lipgloss.NewStyle().Render(itoa(lines)+" lines"))
+	//nolint:gocritic // appendCombine: appends are intentionally separate for clarity
 	parts = append(parts, lipgloss.NewStyle().Render(itoa(chars)+" chars"))
 
 	if m.readOnly {

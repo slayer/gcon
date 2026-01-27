@@ -134,6 +134,7 @@ func (v *SnapshotDetailsView) loadDetails() tea.Cmd {
 }
 
 // Update handles messages for the snapshot details view
+//nolint:gocognit // Bubble Tea Update pattern - complexity 31
 func (v *SnapshotDetailsView) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case snapshotDetailsLoadedMsg:

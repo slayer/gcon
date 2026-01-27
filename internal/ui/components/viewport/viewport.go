@@ -1,4 +1,6 @@
 // Package viewport provides a scrollable content container with GCP styling.
+//
+//nolint:gocritic // Model size is from embedded viewport
 package viewport
 
 import (

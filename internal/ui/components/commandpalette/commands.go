@@ -42,6 +42,7 @@ const (
 	IconRecent   = "⏱"
 	IconProject  = "◎"
 	IconQuit     = "✕"
+	IconDemo     = "▦"
 )
 
 // Command represents an executable palette item
@@ -168,6 +169,13 @@ func ActionCommands() []Command {
 			ID:      "action:quit",
 			Label:   "Quit",
 			Icon:    IconQuit,
+			Type:    CommandTypeAction,
+			Enabled: true,
+		},
+		{
+			ID:      "action:form-demo",
+			Label:   "Form Demo (dev)",
+			Icon:    IconDemo,
 			Type:    CommandTypeAction,
 			Enabled: true,
 		},

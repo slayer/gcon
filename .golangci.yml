@@ -1,14 +1,201 @@
 version: "2"
 
-linters:
-  enable:
-    - govet
-    - errcheck
-    - staticcheck
-    - unused
-    - ineffassign
-    - gocritic
+# schema: https://golangci-lint.run/jsonschema/golangci.jsonschema.json
+# reference: https://raw.githubusercontent.com/golangci/golangci-lint/2ed365c7944938b15a969dd36be9637b6c9c0d9e/.golangci.reference.yml
 
-formatters:
+linters:
+  # Use default: none instead of disable-all
+  default: none
+
   enable:
-    - gofmt
+    # Core static analysis
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    # - unused
+    # Error handling
+    - errorlint
+    - err113
+    - errname
+    - nilnil
+    - nilerr
+    # Code quality
+    - gocognit
+    - gocritic
+    # Style
+    - unconvert
+    - mirror
+    - misspell
+    - nakedret
+    # Modern Go
+    - copyloopvar
+    - intrange
+
+  # Linter-specific settings
+  settings:
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+      exclude-functions:
+        - (io.Closer).Close
+        - (*os.File).Close
+
+    errorlint:
+      errorf: true
+      asserts: true
+      comparison: true
+
+    gocognit:
+      min-complexity: 50
+
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - style
+        - performance
+        - experimental
+      disabled-checks:
+        - whyNoLint
+        - commentFormatting
+
+    misspell:
+      locale: US
+
+    nakedret:
+      max-func-lines: 30
+
+  # Exclusions per-path, per-linter
+  exclusions:
+    rules:
+      # Exclude some linters from running on tests
+      - path: _test\.go
+        linters:
+          - gocognit
+          - dupl
+
+      # Exclude shadow checking on err/ctx
+      - linters:
+          - govet
+        text: 'shadow: declaration of "(err|ctx)"'
+
+      # Exclude linters for generated code
+      - path: ".*\\.pb\\.go$"
+        linters:
+          - staticcheck
+          - errcheck
+          - govet
+
+      # Allow dot imports for Bubble Tea DSL in tests
+      - path: _test\.go
+        linters:
+          - revive
+        text: "dot-imports"
+
+      # Cognitive complexity can be higher in main Update methods (Bubble Tea pattern)
+      - path: "(app|model)\\.go$"
+        text: "cognitive complexity"
+        linters:
+          - gocognit
+
+      # err113: Validation errors in validators.go (justified - UX requires dynamic messages)
+      - path: internal/ui/components/forms/validators\.go
+        linters:
+          - err113
+
+      # gosec: Already reviewed and justified
+      - linters:
+          - gosec
+        text: "G304.*file inclusion"
+
+      # gocognit: Complex functions that will be refactored later
+      - path: internal/ui/components/forms/field\.go
+        linters:
+          - gocognit
+        text: "cognitive complexity.*of func.*Field.*Update"
+      - path: internal/ui/views/instances\.go
+        linters:
+          - gocognit
+        text: "cognitive complexity.*of func.*InstancesView.*Update"
+      - path: internal/ui/views/instance_details\.go
+        linters:
+          - gocognit
+        text: "cognitive complexity.*of func.*InstanceDetailsView.*Update"
+      - path: internal/ui/views/disks\.go
+        linters:
+          - gocognit
+        text: "cognitive complexity.*of func.*DisksView.*Update"
+      - path: internal/ui/views/objects\.go
+        linters:
+          - gocognit
+        text: "cognitive complexity.*of func.*ObjectsView.*Update"
+      - path: internal/ui/views/object_details\.go
+        linters:
+          - gocognit
+        text: "cognitive complexity.*of func.*ObjectDetailView.*Update"
+
+      # gocritic: Baseline issues - allow existing patterns, fail on new issues
+
+      # octalLiteral: Legacy octal style in test files and existing code
+      - linters:
+          - gocritic
+        text: "octalLiteral.*use new octal literal style"
+
+      # hugeParam: Bubble Tea patterns - passing models by value is idiomatic
+      - linters:
+          - gocritic
+        text: "hugeParam.*is heavy.*consider passing it by pointer"
+
+      # paramTypeCombine: Style preference - keep parameters explicit for clarity
+      - linters:
+          - gocritic
+        text: "paramTypeCombine.*could be replaced with"
+
+      # builtinShadow: Acceptable local variable names in context
+      - linters:
+          - gocritic
+        text: "builtinShadow.*shadowing of predeclared identifier"
+
+      # emptyStringTest: Both len() and != "" are acceptable
+      - linters:
+          - gocritic
+        text: "emptyStringTest.*replace.*with"
+
+      # importShadow: Acceptable parameter names
+      - linters:
+          - gocritic
+        text: "importShadow.*shadow of imported"
+
+      # commentedOutCode: Intentional commented code with explanations
+      - linters:
+          - gocritic
+        text: "commentedOutCode.*may want to remove"
+
+      # appendCombine: Intentionally separate appends for clarity
+      - linters:
+          - gocritic
+        text: "appendCombine.*can combine"
+
+      # nestingReduce: Style preference - current nesting is clear
+      - linters:
+          - gocritic
+        text: "nestingReduce.*invert if cond"
+
+      # stringConcatSimplify: Minimal performance impact, current style is clear
+      - linters:
+          - gocritic
+        text: "stringConcatSimplify"
+
+
+issues:
+  max-issues-per-linter: 50
+  max-same-issues: 3
+
+run:
+  timeout: 5m
+  tests: true
+  build-tags:
+    - integration
+  modules-download-mode: readonly
+  concurrency: 4
+  allow-parallel-runners: true

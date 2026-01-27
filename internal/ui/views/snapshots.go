@@ -134,7 +134,7 @@ type SnapshotSelectedMsg struct {
 }
 
 // snapshotStatusIcon returns a symbol indicator for snapshot status
-func snapshotStatusIcon(snapshot gcp.Snapshot) string {
+func snapshotStatusIcon(snapshot gcp.Snapshot) string { //nolint:gocritic // Copying snapshot is acceptable
 	if snapshot.IsReady() {
 		return symbols.StatusRunning() // Green - ready
 	}
@@ -148,7 +148,7 @@ func snapshotStatusIcon(snapshot gcp.Snapshot) string {
 }
 
 // snapshotToRow converts a GCP snapshot to a table row
-func snapshotToRow(snapshot gcp.Snapshot) table.Row {
+func snapshotToRow(snapshot gcp.Snapshot) table.Row { //nolint:gocritic // Copying snapshot is acceptable
 	sourceDisk := snapshot.SourceDisk
 	if sourceDisk == "" {
 		sourceDisk = "-"

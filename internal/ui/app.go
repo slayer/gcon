@@ -37,11 +37,13 @@ const (
 	ViewImages
 	ViewImageDetails
 	ViewBuckets
-	ViewObjects       // Browsing objects within a bucket
-	ViewObjectDetails // Viewing object details
+	ViewObjects        // Browsing objects within a bucket
+	ViewObjectDetails  // Viewing object details
+	ViewInstanceEditor // Editing instance properties (labels, etc.)
 	ViewNetworks
 	ViewFirewall
 	ViewLogs
+	ViewFormDemo // Demo view for testing form components
 )
 
 // FocusedPanel indicates which panel has keyboard focus
@@ -80,6 +82,8 @@ type App struct {
 	bucketsView         *views.BucketsView
 	objectsView         *views.ObjectsView
 	objectDetailsView   *views.ObjectDetailsView
+	instanceEditorView  *views.InstanceEditorView
+	formDemoView        *views.FormDemoView
 
 	// Selected context
 	selectedProject  *gcp.Project
@@ -234,6 +238,21 @@ func (a *App) updateCurrentView(msg tea.Msg) tea.Cmd {
 	return nil
 }
 
+// TextInputFocusable is implemented by views that can have text input fields focused
+type TextInputFocusable interface {
+	HasTextInputFocused() bool
+}
+
+// hasTextInputFocused returns true if the current view has a text input focused.
+// When true, character keys should be passed to the view instead of handled globally.
+func (a *App) hasTextInputFocused() bool {
+	view := a.getCurrentViewModel()
+	if focusable, ok := view.(TextInputFocusable); ok {
+		return focusable.HasTextInputFocused()
+	}
+	return false
+}
+
 // getCurrentViewModel returns the model for the currently active view.
 func (a *App) getCurrentViewModel() views.View {
 	switch a.currentView {
@@ -265,16 +284,22 @@ func (a *App) getCurrentViewModel() views.View {
 		return a.objectsView
 	case ViewObjectDetails:
 		return a.objectDetailsView
+	case ViewInstanceEditor:
+		return a.instanceEditorView
+	case ViewFormDemo:
+		return a.formDemoView
 	}
 	return nil
 }
 
 // Update implements tea.Model
+//nolint:gocognit // Bubble Tea Update pattern - complexity 60
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Handle project selector messages first (highest priority when active)
 	if a.showProjectSelector {
 		switch msg := msg.(type) {
 		case projectselector.ProjectSelectedMsg:
+			//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
 			return a, a.handleProjectSwitch(&msg.Project)
 		case projectselector.ProjectSelectorCanceledMsg:
 			a.showProjectSelector = false
@@ -304,6 +329,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.MouseMsg:
 		// Handle mouse events
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
 		return a, a.handleMouseEvent(msg)
 
 	case tea.KeyMsg:
@@ -313,6 +339,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Check if any view has action menu open
 			if a.isViewMenuOpen() {
 				// Let the view handle Esc to close its menu
+				//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
 				return a, a.updateCurrentView(msg)
 			}
 
@@ -378,7 +405,20 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// Global key handlers
+		// Handle Ctrl+C quit regardless of text input focus
+		if msg.Type == tea.KeyCtrlC {
+			a.cleanup()
+			return a, tea.Quit
+		}
+
+		// Skip character-based global shortcuts when text input is focused
+		// This allows typing "q", "?", etc. in form fields
+		if a.hasTextInputFocused() {
+			//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+			return a, a.updateCurrentView(msg)
+		}
+
+		// Global key handlers (only when text input is NOT focused)
 		switch {
 		case key.Matches(msg, a.keys.Quit):
 			// Clean up resources before quitting
@@ -443,24 +483,31 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case views.ProjectSelectedMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
 		return a, a.handleProjectSelected(msg)
 
 	case views.InstanceSelectedMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
 		return a, a.handleInstanceSelected(msg)
 
 	case views.DiskSelectedMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
 		return a, a.handleDiskSelected(msg)
 
 	case views.InstanceDiskSelectedMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
 		return a, a.handleInstanceDiskSelected(msg)
 
 	case views.SnapshotSelectedMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
 		return a, a.handleSnapshotSelected(msg)
 
 	case views.SnapshotDiskSelectedMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
 		return a, a.handleSnapshotDiskSelected(msg)
 
 	case views.ImageSelectedMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
 		return a, a.handleImageSelected(msg)
 
 	case InitialProjectLoadedMsg:
@@ -483,17 +530,33 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case sidebar.NavigateMsg:
 		// Handle sidebar navigation
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
 		return a, a.handleSidebarNavigation(msg)
 
 	case views.BucketSelectedMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
 		return a, a.handleBucketSelected(msg)
 
 	case views.ObjectSelectedMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
 		return a, a.handleObjectSelected(msg)
 
 	case views.ObjectDeletedMsg:
 		// Object was deleted, go back to objects list and refresh
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
 		return a, a.handleObjectDeleted(msg)
+
+	case views.InstanceEditRequestMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleInstanceEditRequest(msg)
+
+	case views.InstanceEditCompleteMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleInstanceEditComplete(msg)
+
+	case views.InstanceEditCanceledMsg:
+		a.handleInstanceEditCancelled()
+		return a, nil
 
 	case components.FooterProjectClickedMsg:
 		// Project section in footer was clicked, show project selector
@@ -520,12 +583,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // cleanup releases resources held by views
 func (a *App) cleanup() {
 	if a.bucketsView != nil {
-		_ = a.bucketsView.Close() // Best-effort cleanup on exit
+		_ = a.bucketsView.Close() //nolint:errcheck // Best-effort cleanup on exit
 	}
 }
 
 // startTask registers a new async task and returns a command to animate the spinner.
 // Tasks are tracked in the context and displayed in the footer.
+//nolint:gocritic // hugeParam: task struct size is acceptable for clarity
 func (a *App) startTask(task context.Task) tea.Cmd {
 	task.StartTime = time.Now()
 	task.State = context.TaskRunning
@@ -654,6 +718,9 @@ func (a *App) updateViewSizes() {
 	}
 	if a.objectDetailsView != nil {
 		a.objectDetailsView.SetContext(a.ctx)
+	}
+	if a.instanceEditorView != nil {
+		a.instanceEditorView.SetContext(a.ctx)
 	}
 }
 

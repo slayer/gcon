@@ -2,6 +2,7 @@ package gcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -262,7 +263,7 @@ func (c *MonitoringClient) fetchMetricData(ctx context.Context, filter string, d
 
 	for {
 		resp, err := it.Next()
-		if err == iterator.Done {
+		if errors.Is(err, iterator.Done) {
 			break
 		}
 		if err != nil {

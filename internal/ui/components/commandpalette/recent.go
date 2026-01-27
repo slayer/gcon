@@ -128,12 +128,12 @@ func (r *RecentTracker) Clear() {
 }
 
 // SetMaxItems sets the maximum number of recent items to track
-func (r *RecentTracker) SetMaxItems(max int) {
+func (r *RecentTracker) SetMaxItems(maxItems int) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	r.maxItems = max
-	if len(r.items) > max {
-		r.items = r.items[:max]
+	r.maxItems = maxItems
+	if len(r.items) > maxItems {
+		r.items = r.items[:maxItems]
 	}
 }

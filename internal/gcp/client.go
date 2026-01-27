@@ -34,7 +34,7 @@ func NewClient() (*Client, error) {
 	}
 
 	// Retrieve authenticated identity and type (non-critical, ignore errors)
-	identity, identityType, _ := config.GetAuthenticatedIdentity()
+	identity, identityType, _ := config.GetAuthenticatedIdentity() //nolint:errcheck // Display only
 
 	return &Client{
 		ctx:                   ctx,
@@ -70,7 +70,7 @@ func (c *Client) GetMonitoringClient(projectID string) (*MonitoringClient, error
 	if c.monitoringClient == nil || c.monitoringClientProjID != projectID {
 		// Close old client before replacing to prevent resource leak
 		if c.monitoringClient != nil {
-			_ = c.monitoringClient.Close()
+			_ = c.monitoringClient.Close() //nolint:errcheck // Best-effort cleanup
 		}
 		client, err := NewMonitoringClient(c.ctx, projectID)
 		if err != nil {
@@ -88,7 +88,7 @@ func (c *Client) GetLoggingClient(projectID string) (*LoggingClient, error) {
 	if c.loggingClient == nil || c.loggingClientProjID != projectID {
 		// Close old client before replacing to prevent resource leak
 		if c.loggingClient != nil {
-			_ = c.loggingClient.Close()
+			_ = c.loggingClient.Close() //nolint:errcheck // Best-effort cleanup
 		}
 		client, err := NewLoggingClient(c.ctx, projectID)
 		if err != nil {

@@ -147,6 +147,7 @@ func (v *ProjectMetadataView) saveMetadata() tea.Cmd {
 		// Validate metadata
 		validationErrors := components.Validate(metadata)
 		if len(validationErrors) > 0 {
+			//nolint:err113 // Validation errors need dynamic messages
 			return projectMetadataSaveErrorMsg{err: fmt.Errorf("validation failed: %s", strings.Join(validationErrors, "; "))}
 		}
 

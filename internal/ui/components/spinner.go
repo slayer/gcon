@@ -27,11 +27,13 @@ func NewLoadingSpinner(message string) LoadingSpinner {
 }
 
 // Init starts the spinner animation
+//nolint:gocritic // hugeParam: LoadingSpinner size from embedded spinner
 func (l LoadingSpinner) Init() tea.Cmd {
 	return l.spinner.Tick
 }
 
 // Update handles spinner tick messages
+//nolint:gocritic // hugeParam: LoadingSpinner size from embedded spinner
 func (l LoadingSpinner) Update(msg tea.Msg) (LoadingSpinner, tea.Cmd) {
 	var cmd tea.Cmd
 	l.spinner, cmd = l.spinner.Update(msg)
@@ -39,6 +41,7 @@ func (l LoadingSpinner) Update(msg tea.Msg) (LoadingSpinner, tea.Cmd) {
 }
 
 // View renders the spinner with message
+//nolint:gocritic // hugeParam: LoadingSpinner size from embedded spinner
 func (l LoadingSpinner) View() string {
 	return l.spinner.View() + " " + l.style.Render(l.message)
 }

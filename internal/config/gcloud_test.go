@@ -84,7 +84,7 @@ account = user@example.com
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tmpFile := createTempFile(t, tt.content)
-			defer func() { _ = os.Remove(tmpFile) }()
+			defer func() { _ = os.Remove(tmpFile) }() //nolint:errcheck // Test cleanup
 
 			result, err := parseConfigFile(tmpFile)
 			require.NoError(t, err)
@@ -112,7 +112,7 @@ func TestGetConfigDir(t *testing.T) {
 
 		result := getConfigDir()
 
-		homeDir, _ := os.UserHomeDir()
+		homeDir, _ := os.UserHomeDir() //nolint:errcheck // Test uses fallback if home dir unavailable
 		expected := filepath.Join(homeDir, ".config", "gcloud")
 		assert.Equal(t, expected, result)
 	})
@@ -124,17 +124,17 @@ func TestLoadGcloudConfig(t *testing.T) {
 		t.Setenv("CLOUDSDK_CONFIG", tmpDir)
 
 		// Create active_config file indicating active config
-		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "active_config"), []byte("prod\n"), 0644))
+		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "active_config"), []byte("prod\n"), 0o600))
 
 		// Create configurations directory and config file
 		configDir := filepath.Join(tmpDir, "configurations")
-		require.NoError(t, os.MkdirAll(configDir, 0755))
+		require.NoError(t, os.MkdirAll(configDir, 0750))
 
 		configContent := `[core]
 account = user@example.com
 project = production-project
 `
-		require.NoError(t, os.WriteFile(filepath.Join(configDir, "config_prod"), []byte(configContent), 0644))
+		require.NoError(t, os.WriteFile(filepath.Join(configDir, "config_prod"), []byte(configContent), 0o600))
 
 		config, err := LoadGcloudConfig()
 		require.NoError(t, err)
@@ -150,12 +150,12 @@ project = production-project
 
 		// Create configurations directory and default config file
 		configDir := filepath.Join(tmpDir, "configurations")
-		require.NoError(t, os.MkdirAll(configDir, 0755))
+		require.NoError(t, os.MkdirAll(configDir, 0750))
 
 		configContent := `[core]
 project = default-project
 `
-		require.NoError(t, os.WriteFile(filepath.Join(configDir, "config_default"), []byte(configContent), 0644))
+		require.NoError(t, os.WriteFile(filepath.Join(configDir, "config_default"), []byte(configContent), 0o600))
 
 		config, err := LoadGcloudConfig()
 		require.NoError(t, err)
@@ -164,24 +164,26 @@ project = default-project
 		assert.Equal(t, "default-project", config.Project)
 	})
 
-	t.Run("returns nil when config dir does not exist", func(t *testing.T) {
+	t.Run("returns error when config dir does not exist", func(t *testing.T) {
 		t.Setenv("CLOUDSDK_CONFIG", "/nonexistent/gcloud/config")
 
 		config, err := LoadGcloudConfig()
-		require.NoError(t, err)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrNoGcloudConfig)
 		assert.Nil(t, config)
 	})
 
-	t.Run("returns nil when config file does not exist", func(t *testing.T) {
+	t.Run("returns error when config file does not exist", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		t.Setenv("CLOUDSDK_CONFIG", tmpDir)
 		t.Setenv("CLOUDSDK_ACTIVE_CONFIG_NAME", "")
 
 		// Create configurations directory but no config files
-		require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "configurations"), 0755))
+		require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "configurations"), 0o755))
 
 		config, err := LoadGcloudConfig()
-		require.NoError(t, err)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrNoGcloudConfig)
 		assert.Nil(t, config)
 	})
 
@@ -191,21 +193,21 @@ project = default-project
 		t.Setenv("CLOUDSDK_ACTIVE_CONFIG_NAME", "staging")
 
 		// Create active_config file indicating different active config
-		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "active_config"), []byte("prod\n"), 0644))
+		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "active_config"), []byte("prod\n"), 0o600))
 
 		// Create configurations directory with both configs
 		configDir := filepath.Join(tmpDir, "configurations")
-		require.NoError(t, os.MkdirAll(configDir, 0755))
+		require.NoError(t, os.MkdirAll(configDir, 0750))
 
 		require.NoError(t, os.WriteFile(
 			filepath.Join(configDir, "config_prod"),
 			[]byte("[core]\nproject = prod-project\n"),
-			0644,
+			0o600,
 		))
 		require.NoError(t, os.WriteFile(
 			filepath.Join(configDir, "config_staging"),
 			[]byte("[core]\nproject = staging-project\n"),
-			0644,
+			0o600,
 		))
 
 		config, err := LoadGcloudConfig()
@@ -222,7 +224,7 @@ project = default-project
 		t.Setenv("CLOUDSDK_ACTIVE_CONFIG_NAME", "")
 
 		configDir := filepath.Join(tmpDir, "configurations")
-		require.NoError(t, os.MkdirAll(configDir, 0755))
+		require.NoError(t, os.MkdirAll(configDir, 0750))
 
 		configContent := `[core]
 project = my-project
@@ -231,7 +233,7 @@ project = my-project
 zone = us-central1-a
 region = us-central1
 `
-		require.NoError(t, os.WriteFile(filepath.Join(configDir, "config_default"), []byte(configContent), 0644))
+		require.NoError(t, os.WriteFile(filepath.Join(configDir, "config_default"), []byte(configContent), 0o600))
 
 		config, err := LoadGcloudConfig()
 		require.NoError(t, err)

@@ -59,7 +59,7 @@ func run() error {
 		fmt.Fprintln(os.Stderr, "Make sure you're authenticated: gcloud auth application-default login")
 		return fmt.Errorf("failed to initialize GCP client: %w", err)
 	}
-	defer func() { _ = gcpClient.Close() }()
+	defer func() { _ = gcpClient.Close() }() //nolint:errcheck // Best-effort cleanup on exit
 
 	// Resolve project from flag/env/gcloud config
 	projectID := config.ResolveProject(projectFlag)
