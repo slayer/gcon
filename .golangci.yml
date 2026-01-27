@@ -186,20 +186,6 @@ linters:
           - gocritic
         text: "stringConcatSimplify"
 
-      # staticcheck: Intentional empty branches for code structure
-      - linters:
-          - staticcheck
-        text: "SA9003.*empty branch"
-
-      # unused: False positives - functions called via message dispatch
-      - path: internal/ui/app\.go
-        linters:
-          - unused
-        text: "func.*updateCurrentView.*is unused"
-      - path: internal/ui/app_navigation\.go
-        linters:
-          - unused
-        text: "func.*(handleMouseEvent|handleProjectSelected|handleInstanceSelected|handleDiskSelected|handleInstanceDiskSelected|handleSnapshotSelected|handleImageSelected|handleBucketSelected|handleSnapshotDiskSelected|handleObjectSelected|handleObjectDeleted|handleProjectSwitch|clearAllViews|reloadCurrentView|handleInstanceEditRequest|handleInstanceEditComplete).*is unused"
 
 issues:
   max-issues-per-linter: 50
