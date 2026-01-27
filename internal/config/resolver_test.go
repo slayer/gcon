@@ -25,7 +25,7 @@ func TestResolveProject(t *testing.T) {
 		t.Setenv("CLOUDSDK_CORE_PROJECT", "env-project")
 
 		configDir := filepath.Join(tmpDir, "configurations")
-		require.NoError(t, os.MkdirAll(configDir, 0755))
+		require.NoError(t, os.MkdirAll(configDir, 0o755))
 		require.NoError(t, os.WriteFile(
 			filepath.Join(configDir, "config_default"),
 			[]byte("[core]\nproject = config-project\n"),
@@ -42,7 +42,7 @@ func TestResolveProject(t *testing.T) {
 		t.Setenv("CLOUDSDK_CORE_PROJECT", "")
 
 		configDir := filepath.Join(tmpDir, "configurations")
-		require.NoError(t, os.MkdirAll(configDir, 0755))
+		require.NoError(t, os.MkdirAll(configDir, 0o755))
 		require.NoError(t, os.WriteFile(
 			filepath.Join(configDir, "config_default"),
 			[]byte("[core]\nproject = config-project\n"),
@@ -109,7 +109,7 @@ func TestResolveZone(t *testing.T) {
 
 			if tt.gcloudVal != "" {
 				configDir := filepath.Join(tmpDir, "configurations")
-				require.NoError(t, os.MkdirAll(configDir, 0755))
+				require.NoError(t, os.MkdirAll(configDir, 0o755))
 				require.NoError(t, os.WriteFile(
 					filepath.Join(configDir, "config_default"),
 					[]byte("[compute]\nzone = "+tt.gcloudVal+"\n"),
@@ -163,7 +163,7 @@ func TestResolveRegion(t *testing.T) {
 
 			if tt.gcloudVal != "" {
 				configDir := filepath.Join(tmpDir, "configurations")
-				require.NoError(t, os.MkdirAll(configDir, 0755))
+				require.NoError(t, os.MkdirAll(configDir, 0o755))
 				require.NoError(t, os.WriteFile(
 					filepath.Join(configDir, "config_default"),
 					[]byte("[compute]\nregion = "+tt.gcloudVal+"\n"),
@@ -217,7 +217,7 @@ func TestResolveAccount(t *testing.T) {
 
 			if tt.gcloudVal != "" {
 				configDir := filepath.Join(tmpDir, "configurations")
-				require.NoError(t, os.MkdirAll(configDir, 0755))
+				require.NoError(t, os.MkdirAll(configDir, 0o755))
 				require.NoError(t, os.WriteFile(
 					filepath.Join(configDir, "config_default"),
 					[]byte("[core]\naccount = "+tt.gcloudVal+"\n"),
@@ -252,7 +252,7 @@ func TestResolveActiveConfigName(t *testing.T) {
 
 		// Create the staging config file
 		configDir := filepath.Join(tmpDir, "configurations")
-		require.NoError(t, os.MkdirAll(configDir, 0755))
+		require.NoError(t, os.MkdirAll(configDir, 0o755))
 		require.NoError(t, os.WriteFile(
 			filepath.Join(configDir, "config_staging"),
 			[]byte("[core]\nproject = staging-project\n"),
@@ -278,7 +278,7 @@ func TestResolveActiveConfigName(t *testing.T) {
 
 		// Create config directory but no active_config file
 		configDir := filepath.Join(tmpDir, "configurations")
-		require.NoError(t, os.MkdirAll(configDir, 0755))
+		require.NoError(t, os.MkdirAll(configDir, 0o755))
 
 		result := ResolveActiveConfigName()
 		assert.Equal(t, "default", result)

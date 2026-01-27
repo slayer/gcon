@@ -124,7 +124,7 @@ func TestLoadGcloudConfig(t *testing.T) {
 		t.Setenv("CLOUDSDK_CONFIG", tmpDir)
 
 		// Create active_config file indicating active config
-		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "active_config"), []byte("prod\n"), 0600))
+		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "active_config"), []byte("prod\n"), 0o600))
 
 		// Create configurations directory and config file
 		configDir := filepath.Join(tmpDir, "configurations")
@@ -134,7 +134,7 @@ func TestLoadGcloudConfig(t *testing.T) {
 account = user@example.com
 project = production-project
 `
-		require.NoError(t, os.WriteFile(filepath.Join(configDir, "config_prod"), []byte(configContent), 0600))
+		require.NoError(t, os.WriteFile(filepath.Join(configDir, "config_prod"), []byte(configContent), 0o600))
 
 		config, err := LoadGcloudConfig()
 		require.NoError(t, err)
@@ -155,7 +155,7 @@ project = production-project
 		configContent := `[core]
 project = default-project
 `
-		require.NoError(t, os.WriteFile(filepath.Join(configDir, "config_default"), []byte(configContent), 0600))
+		require.NoError(t, os.WriteFile(filepath.Join(configDir, "config_default"), []byte(configContent), 0o600))
 
 		config, err := LoadGcloudConfig()
 		require.NoError(t, err)
@@ -179,7 +179,7 @@ project = default-project
 		t.Setenv("CLOUDSDK_ACTIVE_CONFIG_NAME", "")
 
 		// Create configurations directory but no config files
-		require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "configurations"), 0755))
+		require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "configurations"), 0o755))
 
 		config, err := LoadGcloudConfig()
 		require.Error(t, err)
@@ -193,7 +193,7 @@ project = default-project
 		t.Setenv("CLOUDSDK_ACTIVE_CONFIG_NAME", "staging")
 
 		// Create active_config file indicating different active config
-		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "active_config"), []byte("prod\n"), 0600))
+		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "active_config"), []byte("prod\n"), 0o600))
 
 		// Create configurations directory with both configs
 		configDir := filepath.Join(tmpDir, "configurations")
@@ -202,12 +202,12 @@ project = default-project
 		require.NoError(t, os.WriteFile(
 			filepath.Join(configDir, "config_prod"),
 			[]byte("[core]\nproject = prod-project\n"),
-			0600,
+			0o600,
 		))
 		require.NoError(t, os.WriteFile(
 			filepath.Join(configDir, "config_staging"),
 			[]byte("[core]\nproject = staging-project\n"),
-			0600,
+			0o600,
 		))
 
 		config, err := LoadGcloudConfig()
@@ -233,7 +233,7 @@ project = my-project
 zone = us-central1-a
 region = us-central1
 `
-		require.NoError(t, os.WriteFile(filepath.Join(configDir, "config_default"), []byte(configContent), 0600))
+		require.NoError(t, os.WriteFile(filepath.Join(configDir, "config_default"), []byte(configContent), 0o600))
 
 		config, err := LoadGcloudConfig()
 		require.NoError(t, err)

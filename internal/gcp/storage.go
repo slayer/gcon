@@ -228,7 +228,7 @@ func (c *StorageClient) DownloadObject(ctx context.Context, bucketName, objectNa
 
 	// Ensure parent directory exists
 	if dir := filepath.Dir(localPath); dir != "." {
-		if err := os.MkdirAll(dir, 0755); err != nil {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return fmt.Errorf("failed to create directory: %w", err)
 		}
 	}

@@ -18,7 +18,7 @@ func TestGetAuthenticatedIdentity_UserCredentials(t *testing.T) {
 	// Create config structure
 	configDir := filepath.Join(tmpDir, ".config", "gcloud")
 	configsDir := filepath.Join(configDir, "configurations")
-	require.NoError(t, os.MkdirAll(configsDir, 0755))
+	require.NoError(t, os.MkdirAll(configsDir, 0o755))
 
 	// Write active_config file
 	activeConfigPath := filepath.Join(configDir, "active_config")
@@ -139,8 +139,8 @@ func TestGetAuthenticatedIdentity_NoCredentials(t *testing.T) {
 	})
 
 	_ = os.Setenv("CLOUDSDK_CONFIG", filepath.Join(tmpDir, "nonexistent")) //nolint:errcheck // Test setup
-	_ = os.Unsetenv("GOOGLE_APPLICATION_CREDENTIALS") //nolint:errcheck // Test cleanup
-	_ = os.Unsetenv("CLOUDSDK_CORE_ACCOUNT") //nolint:errcheck // Test cleanup
+	_ = os.Unsetenv("GOOGLE_APPLICATION_CREDENTIALS")                      //nolint:errcheck // Test cleanup
+	_ = os.Unsetenv("CLOUDSDK_CORE_ACCOUNT")                               //nolint:errcheck // Test cleanup
 
 	// Test
 	identity, identityType, err := GetAuthenticatedIdentity()
@@ -221,7 +221,7 @@ func TestGetAuthenticatedIdentity_EnvVarAccount(t *testing.T) {
 	})
 
 	_ = os.Setenv("CLOUDSDK_CORE_ACCOUNT", "envvar@example.com") //nolint:errcheck // Test setup
-	_ = os.Unsetenv("GOOGLE_APPLICATION_CREDENTIALS") //nolint:errcheck // Test cleanup
+	_ = os.Unsetenv("GOOGLE_APPLICATION_CREDENTIALS")            //nolint:errcheck // Test cleanup
 
 	identity, identityType, err := GetAuthenticatedIdentity()
 	assert.NoError(t, err)
