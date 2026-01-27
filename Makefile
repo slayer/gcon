@@ -1,7 +1,7 @@
 .PHONY: build run test lint clean deps tidy install-lint
 
-# golangci-lint version
-GOLANGCI_LINT_VERSION := v2.1.6
+# golangci-lint version (update in .github/workflows/ci.yml when changing)
+GOLANGCI_LINT_VERSION := v2.6
 
 # Binary name
 BINARY_NAME=gcon
@@ -57,6 +57,10 @@ install-lint:
 lint:
 	golangci-lint run ./...
 
+# Run linter with auto-fix
+lint-fix:
+	golangci-lint run --fix ./...
+
 # Run go vet
 vet:
 	$(GOVET) ./...
@@ -90,6 +94,7 @@ help:
 	@echo "  test         - Run tests"
 	@echo "  install-lint - Install golangci-lint"
 	@echo "  lint         - Run linter"
+	@echo "  lint-fix     - Run linter with auto-fix"
 	@echo "  clean        - Clean build artifacts"
 	@echo "  deps         - Download dependencies"
 	@echo "  tidy         - Tidy go.mod"

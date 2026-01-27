@@ -2,6 +2,7 @@ package gcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -70,7 +71,7 @@ func (c *StorageClient) ListBuckets(ctx context.Context, projectID string) ([]Bu
 	it := c.client.Buckets(ctx, projectID)
 	for {
 		attrs, err := it.Next()
-		if err == iterator.Done {
+		if errors.Is(err, iterator.Done) {
 			break
 		}
 		if err != nil {
@@ -109,7 +110,7 @@ func (c *StorageClient) ListObjects(ctx context.Context, bucketName, prefix, pag
 
 	for {
 		attrs, err := it.Next()
-		if err == iterator.Done {
+		if errors.Is(err, iterator.Done) {
 			break
 		}
 		if err != nil {
@@ -223,11 +224,11 @@ func (c *StorageClient) DownloadObject(ctx context.Context, bucketName, objectNa
 	if err != nil {
 		return fmt.Errorf("failed to create reader: %w", err)
 	}
-	defer func() { _ = reader.Close() }()
+	defer func() { _ = reader.Close() }() //nolint:errcheck // Best-effort cleanup
 
 	// Ensure parent directory exists
 	if dir := filepath.Dir(localPath); dir != "." {
-		if err := os.MkdirAll(dir, 0755); err != nil {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return fmt.Errorf("failed to create directory: %w", err)
 		}
 	}
@@ -237,7 +238,7 @@ func (c *StorageClient) DownloadObject(ctx context.Context, bucketName, objectNa
 	if err != nil {
 		return fmt.Errorf("failed to create local file: %w", err)
 	}
-	defer func() { _ = file.Close() }()
+	defer func() { _ = file.Close() }() //nolint:errcheck // Best-effort cleanup
 
 	// Copy with progress reporting (copyWithProgress handles final progress update internally)
 	if progress != nil {
@@ -260,7 +261,7 @@ func (c *StorageClient) UploadObject(ctx context.Context, bucketName, objectName
 	if err != nil {
 		return fmt.Errorf("failed to open local file: %w", err)
 	}
-	defer func() { _ = file.Close() }()
+	defer func() { _ = file.Close() }() //nolint:errcheck // Best-effort cleanup
 
 	// Get file size for progress reporting
 	stat, err := file.Stat()
@@ -275,12 +276,12 @@ func (c *StorageClient) UploadObject(ctx context.Context, bucketName, objectName
 	// Copy with progress reporting (copyWithProgress handles final progress update internally)
 	if progress != nil {
 		if _, err := copyWithProgress(writer, file, totalSize, progress); err != nil {
-			_ = writer.Close() // Best-effort close to avoid resource leak
+			_ = writer.Close() //nolint:errcheck // Best-effort close to avoid resource leak
 			return fmt.Errorf("failed to upload: %w", err)
 		}
 	} else {
 		if _, err := io.Copy(writer, file); err != nil {
-			_ = writer.Close() // Best-effort close to avoid resource leak
+			_ = writer.Close() //nolint:errcheck // Best-effort close to avoid resource leak
 			return fmt.Errorf("failed to upload: %w", err)
 		}
 	}
@@ -306,7 +307,7 @@ func (c *StorageClient) ListAllObjects(ctx context.Context, bucketName, prefix s
 	it := bucket.Objects(ctx, query)
 	for {
 		attrs, err := it.Next()
-		if err == iterator.Done {
+		if errors.Is(err, iterator.Done) {
 			break
 		}
 		if err != nil {
@@ -481,7 +482,7 @@ func (c *StorageClient) GetObjectContent(ctx context.Context, bucketName, object
 	if err != nil {
 		return nil, fmt.Errorf("failed to create reader: %w", err)
 	}
-	defer func() { _ = reader.Close() }()
+	defer func() { _ = reader.Close() }() //nolint:errcheck // Best-effort cleanup
 
 	// ReadAll will read up to the smaller of maxBytes or actual object size
 	content, err := io.ReadAll(reader)

@@ -268,7 +268,7 @@ func (p *CommandPalette) renderList() string {
 }
 
 // renderItem renders a single command item
-func (p *CommandPalette) renderItem(cmd Command, selected bool) string {
+func (p *CommandPalette) renderItem(cmd Command, selected bool) string { //nolint:gocritic // Command is small enough
 	// Cursor indicator
 	cursor := "  "
 	if selected {

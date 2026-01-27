@@ -58,11 +58,13 @@ func NewMetadataEditor() MetadataEditor {
 }
 
 // Init initializes the editor
+//nolint:gocritic // hugeParam: Model size from embedded textarea
 func (m MetadataEditor) Init() tea.Cmd {
 	return textarea.Blink
 }
 
 // Update handles textarea messages
+//nolint:gocritic // hugeParam: Model size from embedded textarea
 func (m MetadataEditor) Update(msg tea.Msg) (MetadataEditor, tea.Cmd) {
 	var cmd tea.Cmd
 	m.textarea, cmd = m.textarea.Update(msg)
@@ -70,6 +72,7 @@ func (m MetadataEditor) Update(msg tea.Msg) (MetadataEditor, tea.Cmd) {
 }
 
 // View renders the editor
+//nolint:gocritic // hugeParam: Model size from embedded textarea
 func (m MetadataEditor) View() string {
 	return m.style.Render(m.textarea.View())
 }
@@ -142,6 +145,7 @@ func SerializeMetadata(metadata map[string]string) string {
 			// Escape quotes and newlines
 			escapedValue := strings.ReplaceAll(value, "\"", "\\\"")
 			escapedValue = strings.ReplaceAll(escapedValue, "\n", "\\n")
+			//nolint:gocritic // sprintfQuotedString: using %s with explicit quotes for escaped values
 			lines = append(lines, fmt.Sprintf("%s=\"%s\"", key, escapedValue))
 		default:
 			// Simple values: use key=value format
@@ -188,6 +192,7 @@ func ParseMetadata(text string) (map[string]string, error) {
 			for i < len(lines) {
 				nextLine := lines[i]
 				// Check if line is indented (starts with space or tab)
+				//nolint:gocritic // emptyStringTest: checking > 0 is clearer than != "" for this case
 				if len(nextLine) > 0 && (nextLine[0] == ' ' || nextLine[0] == '\t') {
 					multilineValue = append(multilineValue, strings.TrimLeft(nextLine, " \t"))
 					i++
@@ -248,6 +253,7 @@ func parseLine(line string) (key, value string, isMultiline bool, err error) {
 		return key, value, false, nil
 	}
 
+	//nolint:err113 // User input parsing errors need specific messages
 	return "", "", false, fmt.Errorf("invalid format: expected 'key=value' or 'key: value'")
 }
 
@@ -264,6 +270,7 @@ func Validate(metadata map[string]string) []string {
 	totalSize := 0
 	for key, value := range metadata {
 		// Validate key name
+		//nolint:gocritic // emptyStringTest: len(key) == 0 is clearer than key == "" for validation
 		if len(key) == 0 {
 			errors = append(errors, "Empty key name is not allowed")
 			continue

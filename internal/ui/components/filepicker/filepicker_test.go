@@ -94,7 +94,7 @@ func TestReadDirectory(t *testing.T) {
 	// Create test files
 	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "file1.txt"), []byte("test"), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "file2.txt"), []byte("test data"), 0644))
-	require.NoError(t, os.Mkdir(filepath.Join(tempDir, "subdir"), 0755))
+	require.NoError(t, os.Mkdir(filepath.Join(tempDir, "subdir"), 0o755))
 
 	fp := New(tempDir, true)
 	entries, err := fp.readDirectory(tempDir)
@@ -214,6 +214,7 @@ func TestHiddenFiles(t *testing.T) {
 	assert.True(t, found, "visible.txt should be in entries")
 }
 
+//nolint:gocognit // Test function with multiple scenarios - complexity 31
 func TestFilePickerUpdate(t *testing.T) {
 	t.Run("handles filePickerLoadedMsg", func(t *testing.T) {
 		tempDir := t.TempDir()
@@ -272,7 +273,7 @@ func TestFilePickerUpdate(t *testing.T) {
 	t.Run("Backspace navigates to parent directory", func(t *testing.T) {
 		tempDir := t.TempDir()
 		subDir := filepath.Join(tempDir, "subdir")
-		require.NoError(t, os.Mkdir(subDir, 0755))
+		require.NoError(t, os.Mkdir(subDir, 0o755))
 
 		fp := New(subDir, true)
 
@@ -285,12 +286,12 @@ func TestFilePickerUpdate(t *testing.T) {
 	t.Run("Left arrow on first page navigates to parent directory", func(t *testing.T) {
 		tempDir := t.TempDir()
 		subDir := filepath.Join(tempDir, "subdir")
-		require.NoError(t, os.Mkdir(subDir, 0755))
+		require.NoError(t, os.Mkdir(subDir, 0o755))
 
 		fp := New(subDir, true)
 
 		// Load directory to initialize list
-		entries, _ := fp.readDirectory(subDir)
+		entries, _ := fp.readDirectory(subDir) //nolint:errcheck // Test helper
 		fp.Update(filePickerLoadedMsg{entries: entries})
 
 		// Should be on first page (page 0)
@@ -310,7 +311,7 @@ func TestFilePickerUpdate(t *testing.T) {
 		fp := New(tempDir, true) // multi-select enabled
 
 		// Load directory first
-		entries, _ := fp.readDirectory(tempDir)
+		entries, _ := fp.readDirectory(tempDir) //nolint:errcheck // Test helper
 		fp.Update(filePickerLoadedMsg{entries: entries})
 
 		// Find the file entry (not "..")
@@ -349,7 +350,7 @@ func TestFilePickerUpdate(t *testing.T) {
 		fp := New(tempDir, true)
 
 		// Load directory
-		entries, _ := fp.readDirectory(tempDir)
+		entries, _ := fp.readDirectory(tempDir) //nolint:errcheck // Test helper
 		fp.Update(filePickerLoadedMsg{entries: entries})
 
 		// Press 'a' to select all
@@ -378,12 +379,12 @@ func TestFilePickerUpdate(t *testing.T) {
 	t.Run("Enter on directory navigates into it", func(t *testing.T) {
 		tempDir := t.TempDir()
 		subDir := filepath.Join(tempDir, "subdir")
-		require.NoError(t, os.Mkdir(subDir, 0755))
+		require.NoError(t, os.Mkdir(subDir, 0o755))
 
 		fp := New(tempDir, true)
 
 		// Load directory
-		entries, _ := fp.readDirectory(tempDir)
+		entries, _ := fp.readDirectory(tempDir) //nolint:errcheck // Test helper
 		fp.Update(filePickerLoadedMsg{entries: entries})
 
 		// Find and select the subdir
@@ -409,7 +410,7 @@ func TestFilePickerUpdate(t *testing.T) {
 		fp := New(tempDir, true)
 
 		// Load directory
-		entries, _ := fp.readDirectory(tempDir)
+		entries, _ := fp.readDirectory(tempDir) //nolint:errcheck // Test helper
 		fp.Update(filePickerLoadedMsg{entries: entries})
 
 		// Pre-select a file
@@ -436,7 +437,7 @@ func TestFilePickerUpdate(t *testing.T) {
 	t.Run("Navigate up selects previous folder", func(t *testing.T) {
 		tempDir := t.TempDir()
 		subDir := filepath.Join(tempDir, "mysubdir")
-		require.NoError(t, os.Mkdir(subDir, 0755))
+		require.NoError(t, os.Mkdir(subDir, 0o755))
 
 		// Start in subdir
 		fp := New(subDir, true)
@@ -459,13 +460,13 @@ func TestFilePickerUpdate(t *testing.T) {
 	t.Run("Navigate up via .. entry selects previous folder", func(t *testing.T) {
 		tempDir := t.TempDir()
 		subDir := filepath.Join(tempDir, "anothersubdir")
-		require.NoError(t, os.Mkdir(subDir, 0755))
+		require.NoError(t, os.Mkdir(subDir, 0o755))
 
 		// Start in subdir
 		fp := New(subDir, true)
 
 		// Load directory first
-		entries, _ := fp.readDirectory(subDir)
+		entries, _ := fp.readDirectory(subDir) //nolint:errcheck // Test helper
 		fp.Update(filePickerLoadedMsg{entries: entries})
 
 		// Select ".." entry
@@ -493,14 +494,14 @@ func TestFilePickerUpdate(t *testing.T) {
 
 	t.Run("filePickerLoadedMsg with selectTarget selects correct entry", func(t *testing.T) {
 		tempDir := t.TempDir()
-		require.NoError(t, os.Mkdir(filepath.Join(tempDir, "aaa"), 0755))
-		require.NoError(t, os.Mkdir(filepath.Join(tempDir, "bbb"), 0755))
-		require.NoError(t, os.Mkdir(filepath.Join(tempDir, "ccc"), 0755))
+		require.NoError(t, os.Mkdir(filepath.Join(tempDir, "aaa"), 0o755))
+		require.NoError(t, os.Mkdir(filepath.Join(tempDir, "bbb"), 0o755))
+		require.NoError(t, os.Mkdir(filepath.Join(tempDir, "ccc"), 0o755))
 
 		fp := New(tempDir, true)
 
 		// Load directory with selectTarget = "bbb"
-		entries, _ := fp.readDirectory(tempDir)
+		entries, _ := fp.readDirectory(tempDir) //nolint:errcheck // Test helper
 		fp.Update(filePickerLoadedMsg{entries: entries, selectTarget: "bbb"})
 
 		// Check that "bbb" is selected in the list
@@ -529,7 +530,7 @@ func TestFilePickerView(t *testing.T) {
 		fp.SetSize(100, 30)
 
 		// Load entries
-		entries, _ := fp.readDirectory(tempDir)
+		entries, _ := fp.readDirectory(tempDir) //nolint:errcheck // Test helper
 		fp.Update(filePickerLoadedMsg{entries: entries})
 
 		view := fp.View()

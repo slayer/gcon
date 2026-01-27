@@ -141,7 +141,7 @@ func (m *Manager) cycleNext() tea.Msg {
 	startIndex := m.activeIndex
 
 	// Find next enabled region, wrapping around
-	for i := 0; i < len(m.regions); i++ {
+	for i := range len(m.regions) {
 		next := (startIndex + 1 + i) % len(m.regions)
 		if m.regions[next].Enabled {
 			m.activeIndex = next
@@ -168,7 +168,7 @@ func (m *Manager) cyclePrev() tea.Msg {
 	startIndex := m.activeIndex
 
 	// Find previous enabled region, wrapping around
-	for i := 0; i < len(m.regions); i++ {
+	for i := range len(m.regions) {
 		prev := (startIndex - 1 - i + len(m.regions)) % len(m.regions)
 		if m.regions[prev].Enabled {
 			m.activeIndex = prev

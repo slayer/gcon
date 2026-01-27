@@ -233,7 +233,7 @@ func (v *DiskDetailsView) renderContent() string {
 	statusIcon := diskDetailStatusIcon(d.Status, len(d.Users) > 0)
 	b.WriteString(titleStyle.Render(fmt.Sprintf("Disk: %s  %s %s", d.Name, statusIcon, d.Status)))
 	b.WriteString("\n")
-	b.WriteString(strings.Repeat("─", min(v.width-4, 60)))
+	b.WriteString(strings.Repeat("─", minInt(v.width-4, 60)))
 	b.WriteString("\n\n")
 
 	// Basic Information

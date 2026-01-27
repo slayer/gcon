@@ -284,6 +284,7 @@ type FilePickerConfirmMsg struct {
 type FilePickerCancelMsg struct{}
 
 // Update handles messages for the file picker
+//nolint:gocognit // File picker event handling - complexity 63
 func (fp *FilePicker) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case filePickerLoadedMsg:

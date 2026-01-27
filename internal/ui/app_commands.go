@@ -7,6 +7,7 @@ import (
 	"github.com/slayer/gcon/internal/ui/components/commandpalette"
 	"github.com/slayer/gcon/internal/ui/components/projectselector"
 	"github.com/slayer/gcon/internal/ui/components/sidebar"
+	"github.com/slayer/gcon/internal/ui/views"
 )
 
 // openCommandPalette shows the command palette and configures it based on current state
@@ -33,6 +34,7 @@ func (a *App) openCommandPalette(showPrefix bool) {
 }
 
 // handleCommandSelected processes a selected command from the palette
+//nolint:gocritic // hugeParam: Command struct passed by value for clarity
 func (a *App) handleCommandSelected(cmd commandpalette.Command) (tea.Model, tea.Cmd) {
 	a.showCommandPalette = false
 	a.commandPalette.Reset()
@@ -50,6 +52,7 @@ func (a *App) handleCommandSelected(cmd commandpalette.Command) (tea.Model, tea.
 }
 
 // handleNavigationCommand navigates to the selected view from command palette
+//nolint:gocritic // hugeParam: Command struct passed by value for clarity
 func (a *App) handleNavigationCommand(cmd commandpalette.Command) (tea.Model, tea.Cmd) {
 	// Navigation commands require a project to be selected
 	if a.selectedProject == nil {
@@ -63,6 +66,7 @@ func (a *App) handleNavigationCommand(cmd commandpalette.Command) (tea.Model, te
 }
 
 // handleActionCommand executes the selected action from command palette
+//nolint:gocritic // hugeParam: Command struct passed by value for clarity
 func (a *App) handleActionCommand(cmd commandpalette.Command) (tea.Model, tea.Cmd) {
 	switch cmd.ID {
 	case "action:refresh":
@@ -87,8 +91,23 @@ func (a *App) handleActionCommand(cmd commandpalette.Command) (tea.Model, tea.Cm
 		a.projectSelector = projectselector.New(a.gcpClient, currentProjectID)
 		a.showProjectSelector = true
 		return a, a.projectSelector.Init()
+	case "action:form-demo":
+		return a.openFormDemo()
 	}
 	return a, nil
+}
+
+// openFormDemo opens the form components demo view
+func (a *App) openFormDemo() (tea.Model, tea.Cmd) {
+	// Create the form demo view
+	a.formDemoView = views.NewFormDemoView()
+	a.formDemoView.SetContext(a.ctx)
+
+	// Push current view to stack for back navigation
+	a.viewStack = append(a.viewStack, a.currentView)
+	a.currentView = ViewFormDemo
+
+	return a, a.formDemoView.Init()
 }
 
 // handleRecentCommand navigates to a recently accessed resource from command palette
@@ -100,6 +119,7 @@ func (a *App) handleRecentCommand(cmd commandpalette.Command) (tea.Model, tea.Cm
 	}
 
 	recentType := parts[1]
+	//nolint:gocritic // commentedOutCode: intentionally commented, available for future use
 	// resourceID := parts[2] // Available if needed for direct navigation
 
 	switch recentType {

@@ -15,6 +15,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
+	uierrors "github.com/slayer/gcon/internal/ui/errors"
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/actionmenu"
 	"github.com/slayer/gcon/internal/ui/components/links"
@@ -251,6 +252,7 @@ func (v *InstanceDetailsView) loadDetails() tea.Cmd {
 }
 
 // Update handles messages for the instance details view
+//nolint:gocognit // Bubble Tea Update pattern - complexity 90
 func (v *InstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case instanceDetailsLoadedMsg:
@@ -534,6 +536,7 @@ func (v *InstanceDetailsView) buildActions() []actionmenu.Action {
 		{Key: 's', Label: "Start", Enabled: isStopped},
 		{Key: 'x', Label: "Stop", Enabled: isRunning},
 		{Key: 'R', Label: "Reset", Enabled: isRunning, Dangerous: true},
+		{Key: 'l', Label: "Edit Labels", Enabled: true},
 		{Key: 'S', Label: "SSH", Enabled: isRunning},
 		{Key: 'r', Label: "Refresh", Enabled: true},
 	}
@@ -564,10 +567,20 @@ func (v *InstanceDetailsView) executeAction(actionKey rune) tea.Cmd {
 			v.actionMsg = fmt.Sprintf("Resetting %s...", v.instanceName)
 			return tea.Batch(v.spinner.Tick, v.resetInstance())
 		}
+	case 'l':
+		// Edit Labels - emit message to app to navigate to editor
+		return func() tea.Msg {
+			return InstanceEditRequestMsg{
+				ProjectID:    v.projectID,
+				Zone:         v.zone,
+				InstanceName: v.instanceName,
+				EditMode:     "labels",
+			}
+		}
 	case 'S':
 		if v.isInstanceRunning() {
 			// SSH to instance is a planned feature
-			v.err = fmt.Errorf("SSH action is not yet implemented for instance %s", v.instanceName)
+			v.err = fmt.Errorf("%w for instance %s", uierrors.ErrSSHNotImplemented, v.instanceName)
 		}
 	case 'r':
 		v.loading = true
@@ -611,7 +624,7 @@ func (v *InstanceDetailsView) resetInstance() tea.Cmd {
 func (v *InstanceDetailsView) loadMetrics() tea.Cmd {
 	return func() tea.Msg {
 		if v.gcpClient == nil || v.details == nil {
-			return metricsErrorMsg{err: fmt.Errorf("client or details not available")}
+			return metricsErrorMsg{err: uierrors.ErrDetailsNotAvailable}
 		}
 
 		ctx, cancel := gocontext.WithTimeout(gocontext.Background(), 30*time.Second)
@@ -638,7 +651,7 @@ func (v *InstanceDetailsView) loadMetrics() tea.Cmd {
 		metrics.CPU = cpuData
 
 		// Memory utilization (optional - requires Ops Agent)
-		memData, _ := monitoringClient.GetMemoryUtilization(ctx, instanceID, v.zone, v.timeRange)
+		memData, _ := monitoringClient.GetMemoryUtilization(ctx, instanceID, v.zone, v.timeRange) //nolint:errcheck // Ops Agent optional
 		metrics.Memory = memData
 
 		// Network traffic
@@ -671,7 +684,7 @@ func (v *InstanceDetailsView) loadMetrics() tea.Cmd {
 func (v *InstanceDetailsView) loadLogs() tea.Cmd {
 	return func() tea.Msg {
 		if v.gcpClient == nil || v.details == nil {
-			return logsErrorMsg{err: fmt.Errorf("client or details not available")}
+			return logsErrorMsg{err: uierrors.ErrDetailsNotAvailable}
 		}
 
 		ctx, cancel := gocontext.WithTimeout(gocontext.Background(), 30*time.Second)
@@ -973,7 +986,7 @@ func (v *InstanceDetailsView) renderDetailsTab() string {
 		b.WriteString(fmt.Sprintf("  %-8s %-15s %-15s %-10s %-16s %-16s\n",
 			"Name", "Network", "Subnetwork", "Type", "Internal IP", "External IP"))
 		b.WriteString("  " + strings.Repeat("─", 84) + "\n")
-		for _, nic := range d.NetworkInterfaces {
+		for _, nic := range d.NetworkInterfaces { //nolint:gocritic // Copying in range acceptable
 			extIP := defaultIfEmpty(nic.ExternalIP, "—")
 			nicType := defaultIfEmpty(nic.NicType, "—")
 			b.WriteString(fmt.Sprintf("  %-8s %-15s %-15s %-10s %-16s %-16s\n",
@@ -1064,6 +1077,7 @@ func (v *InstanceDetailsView) renderDetailsTab() string {
 }
 
 // renderObservabilityTab generates the Observability tab content with real-time metrics
+//nolint:gocognit // Metrics rendering with multiple sections - complexity 31
 func (v *InstanceDetailsView) renderObservabilityTab() string {
 	d := v.details
 	var b strings.Builder

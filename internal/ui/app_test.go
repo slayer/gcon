@@ -42,9 +42,9 @@ func TestNewApp_StoresConfigProfile(t *testing.T) {
 	oldEnv := os.Getenv("CLOUDSDK_ACTIVE_CONFIG_NAME")
 	t.Cleanup(func() {
 		if oldEnv != "" {
-			_ = os.Setenv("CLOUDSDK_ACTIVE_CONFIG_NAME", oldEnv)
+			_ = os.Setenv("CLOUDSDK_ACTIVE_CONFIG_NAME", oldEnv) //nolint:errcheck // Test setup
 		} else {
-			_ = os.Unsetenv("CLOUDSDK_ACTIVE_CONFIG_NAME")
+			_ = os.Unsetenv("CLOUDSDK_ACTIVE_CONFIG_NAME") //nolint:errcheck // Test cleanup
 		}
 	})
 
@@ -73,17 +73,17 @@ func TestNewApp_StoresConfigProfile(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if tt.envValue != "" {
-				_ = os.Setenv("CLOUDSDK_ACTIVE_CONFIG_NAME", tt.envValue)
+				_ = os.Setenv("CLOUDSDK_ACTIVE_CONFIG_NAME", tt.envValue) //nolint:errcheck // Test setup
 			} else {
-				_ = os.Unsetenv("CLOUDSDK_ACTIVE_CONFIG_NAME")
+				_ = os.Unsetenv("CLOUDSDK_ACTIVE_CONFIG_NAME") //nolint:errcheck // Test cleanup
 				// Also clear CLOUDSDK_CONFIG to ensure we get "default"
 				oldConfig := os.Getenv("CLOUDSDK_CONFIG")
-				_ = os.Setenv("CLOUDSDK_CONFIG", "/nonexistent/path")
+				_ = os.Setenv("CLOUDSDK_CONFIG", "/nonexistent/path") //nolint:errcheck // Test setup
 				t.Cleanup(func() {
 					if oldConfig != "" {
-						_ = os.Setenv("CLOUDSDK_CONFIG", oldConfig)
+						_ = os.Setenv("CLOUDSDK_CONFIG", oldConfig) //nolint:errcheck // Test setup
 					} else {
-						_ = os.Unsetenv("CLOUDSDK_CONFIG")
+						_ = os.Unsetenv("CLOUDSDK_CONFIG") //nolint:errcheck // Test cleanup
 					}
 				})
 			}

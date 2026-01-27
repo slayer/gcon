@@ -8,6 +8,7 @@ import (
 )
 
 // renderHeader creates the header with breadcrumb navigation
+//nolint:gocognit // Header rendering with breadcrumbs - complexity 35
 func (a *App) renderHeader() string {
 	// Update header state based on current view
 	if a.selectedProject != nil {
@@ -23,7 +24,7 @@ func (a *App) renderHeader() string {
 	} else {
 		// Determine category based on current view
 		switch a.currentView {
-		case ViewInstances, ViewInstanceDetails, ViewDisks, ViewDiskDetails, ViewSnapshots, ViewSnapshotDetails, ViewImages, ViewImageDetails:
+		case ViewInstances, ViewInstanceDetails, ViewInstanceEditor, ViewDisks, ViewDiskDetails, ViewSnapshots, ViewSnapshotDetails, ViewImages, ViewImageDetails:
 			category = "Compute Engine"
 		case ViewBuckets, ViewObjects, ViewObjectDetails:
 			category = "Cloud Storage"
@@ -83,6 +84,11 @@ func (a *App) renderHeader() string {
 		if a.objectDetailsView != nil {
 			resources = append(resources, a.objectDetailsView.GetBucketName())
 		}
+	case ViewInstanceEditor:
+		// Show instance name and "Edit Labels" when editing
+		if a.selectedInstance != nil {
+			resources = append(resources, a.selectedInstance.Name, "Edit Labels")
+		}
 	}
 	a.header.SetResources(resources)
 
@@ -90,6 +96,7 @@ func (a *App) renderHeader() string {
 }
 
 // renderCurrentView renders the content area based on current view
+//nolint:gocognit // View routing and rendering - complexity 32
 func (a *App) renderCurrentView() string {
 	// Show loading message while fetching initial project from config
 	if a.loadingInitialProject {
@@ -151,10 +158,18 @@ func (a *App) renderCurrentView() string {
 		if a.objectDetailsView != nil {
 			return a.objectDetailsView.View()
 		}
+	case ViewInstanceEditor:
+		if a.instanceEditorView != nil {
+			return a.instanceEditorView.View()
+		}
 	case ViewNetworks:
 		return a.renderPlaceholder("VPC Networks")
 	case ViewFirewall:
 		return a.renderPlaceholder("Firewall Rules")
+	case ViewFormDemo:
+		if a.formDemoView != nil {
+			return a.formDemoView.View()
+		}
 	}
 	return "View not implemented"
 }

@@ -293,6 +293,7 @@ func TestFooter_truncateToWidth(t *testing.T) {
 	}{
 		{"plain text fits", "hello", 10, 5},
 		{"plain text truncated", "hello world", 5, 5},
+		//nolint:gocritic // commentedOutCode: this is test data, not commented out code
 		{"powerline counted correctly", "ab" + SepRight + "cd", 5, 4}, // ab + separator(2) = 4
 		{"empty string", "", 10, 0},
 	}

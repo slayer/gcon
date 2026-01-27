@@ -211,7 +211,7 @@ func TestCenterInScreen(t *testing.T) {
 
 	// First non-empty line should have leading spaces
 	for _, line := range lines {
-		if len(line) > 0 {
+		if line != "" {
 			assert.True(t, strings.HasPrefix(line, " "),
 				"should have left margin for centering")
 			break

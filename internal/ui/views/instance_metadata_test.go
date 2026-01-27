@@ -78,7 +78,7 @@ func TestInstanceMetadataViewUpdateErrorMsg(t *testing.T) {
 	view := NewInstanceMetadataView("test-project", "us-central1-a", "test-instance", client)
 	view.loading = true
 
-	testErr := errors.New("test error")
+	testErr := errors.New("test error") //nolint:err113 // Test error
 	msg := metadataErrorMsg{err: testErr}
 
 	view.Update(msg)
@@ -107,7 +107,7 @@ func TestInstanceMetadataViewUpdateSaveErrorMsg(t *testing.T) {
 	view := NewInstanceMetadataView("test-project", "us-central1-a", "test-instance", client)
 	view.saving = true
 
-	testErr := errors.New("save error")
+	testErr := errors.New("save error") //nolint:err113 // Test error
 	msg := metadataSaveErrorMsg{err: testErr}
 
 	view.Update(msg)
@@ -244,7 +244,7 @@ func TestInstanceMetadataViewViewErrorState(t *testing.T) {
 	client := &gcp.ComputeClient{}
 	view := NewInstanceMetadataView("test-project", "us-central1-a", "test-instance", client)
 	view.loading = false
-	view.err = errors.New("test error")
+	view.err = errors.New("test error") //nolint:err113 // Test error
 
 	output := view.View()
 
@@ -389,7 +389,7 @@ func TestInstanceMetadataViewRenderEditModeWithError(t *testing.T) {
 	view.ready = true
 	view.width = 100
 	view.height = 30
-	view.err = errors.New("validation error")
+	view.err = errors.New("validation error") //nolint:err113 // Test error
 
 	output := view.renderEditMode()
 

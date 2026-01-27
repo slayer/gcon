@@ -15,6 +15,9 @@ A terminal-based user interface for managing Google Cloud Platform resources, bu
   - Mocking with interfaces and test implementations
   - use `testify` for assertions
   - use table-driven tests if applicable
+- **Linting**: golangci-lint v2.6.0+ with 32 enabled linters
+  - Comprehensive error handling, security, and code quality checks
+  - Bubble Tea-specific complexity allowances
 
 ## Project Structure
 
@@ -108,11 +111,14 @@ make build-all
 # Run tests
 make test
 
-# Install linter (golangci-lint v2.1.6)
+# Install linter (golangci-lint latest)
 make install-lint
 
 # Lint
 make lint
+
+# Lint with auto-fix
+make lint-fix
 ```
 
 ## GCP Authentication
@@ -135,6 +141,9 @@ Required scopes:
 - Handle errors explicitly, don't ignore them
 - Use context.Context for cancellation in GCP API calls
 - Export message types that need to cross package boundaries
+- Use modern Go features
+  - generics, error wrapping where appropriate
+  - `any` instead of `interface{}` when type is truly generic
 
 ## UI/UX Guidelines
 
@@ -281,22 +290,183 @@ func (m *Model) SetSize(width, height int) {
 ### Transparent Backgrounds with lipgloss
 **Critical**: `UnsetBackground()` on lipgloss styles doesn't always work when the style is wrapped by a Container with `.Width()`, because the Container fills remaining space with its background.
 
-**Solution**: For truly transparent text (no background box), use plain strings instead of lipgloss styles:
+**Solutions**:
 
+1. Use `Inline(true)` to prevent background inheritance (preferred when you still want foreground styling):
 ```go
-// Wrong - will have background from Container
-helpStyle := lipgloss.NewStyle().
-    Foreground(colorMuted).
-    UnsetBackground()
-b.WriteString(helpStyle.Render("help text"))
+// Correct - Inline(true) prevents container background bleeding
+helpStyle := lipgloss.NewStyle().Foreground(colorMuted).Faint(true)
+b.WriteString(helpStyle.Inline(true).Render("Select a zone"))
 return m.styles.Container.Width(m.width).Render(b.String())
+```
 
-// Correct - plain text, no background
-b.WriteString("help text")  // No lipgloss styling
+2. Use plain strings for truly unstyled text:
+```go
+// Also correct - plain text, no lipgloss styling at all
+b.WriteString("help text")
 return m.styles.Container.Width(m.width).Render(b.String())
 ```
 
 This applies to any text that should appear "inline" without a background box inside a styled container.
+
+### Styling Bubbles TextInput Components
+**Critical**: Never wrap `textInput.View()` output with styled boxes - it breaks cursor positioning and placeholder display.
+
+**Solution**: Set background colors directly on the textinput's internal style properties:
+
+```go
+// Wrong - breaks cursor and display
+boxStyle := lipgloss.NewStyle().Background(bgColor)
+return boxStyle.Render(f.textInput.View())
+
+// Correct - set styles on the component itself
+f.textInput.TextStyle = lipgloss.NewStyle().
+    Foreground(textColor).
+    Background(bgColor)
+f.textInput.PlaceholderStyle = lipgloss.NewStyle().
+    Foreground(placeholderColor).
+    Background(bgColor)
+f.textInput.PromptStyle = lipgloss.NewStyle().
+    Background(bgColor)
+f.textInput.Cursor.TextStyle = lipgloss.NewStyle().
+    Background(bgColor)
+return f.textInput.View()
+```
+
+Update these styles in `Focus()` and `Blur()` methods to change appearance based on focus state.
+
+## Forms Framework
+
+The `internal/ui/components/forms/` package provides reusable form components for editing GCP resources.
+
+### Architecture
+
+```
+Form (container)
+├── Section 1 (collapsible group)
+│   ├── Field 1 (text input)
+│   ├── Field 2 (dropdown)
+│   └── Field 3 (toggle)
+├── Section 2
+│   └── ...
+└── Action Bar (Submit/Cancel)
+```
+
+### Field Types
+
+| Type | Constructor | Description |
+|------|-------------|-------------|
+| `FieldText` | `NewTextField(id, label)` | Single-line text input |
+| `FieldNumber` | `NewNumberField(id, label)` | Numeric input with validation |
+| `FieldDropdown` | `NewDropdownField(id, label)` | Single selection from options |
+| `FieldMultiSelect` | `NewMultiSelectField(id, label)` | Multiple selections |
+| `FieldToggle` | `NewToggleField(id, label)` | Boolean on/off switch |
+| `FieldReadOnly` | `NewReadOnlyField(id, label, value)` | Display-only value |
+| `FieldTextArea` | `NewTextAreaField(id, label)` | Multi-line text input |
+
+### Basic Usage
+
+```go
+// Create a form
+form := forms.NewForm("Create Instance", forms.FormModeCreate).
+    SetSubtitle("Create a new VM instance").
+    EnableViewport()  // For long forms with scrolling
+
+// Add sections with fields
+basicSection := forms.NewSection("basic", "Basic Settings").
+    AddField(forms.NewTextField("name", "Name").
+        SetRequired(true).
+        SetPlaceholder("my-instance").
+        SetValidator(forms.ValidateGCPResourceName)).
+    AddField(forms.NewDropdownField("zone", "Zone").
+        SetOptionsFromStrings([]string{"us-central1-a", "us-east1-b"}))
+
+form.AddSection(basicSection)
+
+// Advanced section (collapsible)
+advancedSection := forms.NewSection("advanced", "Advanced Options").
+    SetCollapsible(true).
+    SetCollapsed(true).
+    AddField(forms.NewTextAreaField("startup_script", "Startup Script").
+        SetRows(6).
+        SetShowLineNumbers(true))
+
+form.AddSection(advancedSection)
+```
+
+### Validators
+
+```go
+// Built-in validators
+field.SetValidator(forms.ValidateRequired)
+field.SetValidator(forms.ValidateGCPResourceName)  // Lowercase, hyphens, numbers
+field.SetValidator(forms.ValidateGCPLabelKey)      // Label key format
+field.SetValidator(forms.ValidateGCPLabelValue)    // Label value format
+field.SetValidator(forms.ValidateNumber(min, max))
+field.SetValidator(forms.ValidateStringLength(min, max))
+field.SetValidator(forms.ValidateEmail())
+field.SetValidator(forms.ValidateIPAddress())
+field.SetValidator(forms.ValidateCIDR())
+
+// Compose multiple validators
+field.SetValidator(forms.ComposeValidators(
+    forms.ValidateRequired,
+    forms.ValidateStringLength(2, 50),
+    forms.ValidateGCPResourceName,
+))
+```
+
+### Form Messages
+
+Forms emit these messages that the parent view should handle:
+
+```go
+// In your view's Update method
+switch msg := msg.(type) {
+case forms.FormSubmitMsg:
+    data := msg.Data  // map[string]any with all field values
+    // Handle submission
+case forms.FormCancelMsg:
+    // Handle cancellation
+}
+```
+
+### Text Input Focus and Global Keys
+
+**Critical**: When a form has a text input field focused, character keys must go to the field instead of being handled as global shortcuts.
+
+Views containing forms must implement `TextInputFocusable`:
+
+```go
+// In your view
+func (v *MyView) HasTextInputFocused() bool {
+    return v.form.HasTextInputFocused()
+}
+```
+
+The app checks this interface before processing global keys like "q" for quit:
+
+```go
+// In app.go - global key handling skips character keys when text input is focused
+if a.hasTextInputFocused() {
+    return a, a.updateCurrentView(msg)  // Let view handle the key
+}
+```
+
+### Form Keyboard Shortcuts
+
+| Key | Action |
+|-----|--------|
+| `Tab` / `↓` | Next field |
+| `Shift+Tab` / `↑` | Previous field |
+| `Enter` / `Space` | Select/toggle option |
+| `Ctrl+S` | Submit form |
+| `Esc` | Cancel |
+| `?` | Toggle help |
+
+### Demo View
+
+Access the form demo via command palette with "Form Demo (dev)" to see all field types and validation in action.
 
 ## Component Patterns
 
@@ -384,6 +554,61 @@ func (a *App) clearAllViews() {
 }
 ```
 
+### Deterministic Map Iteration for UI
+Go maps iterate in random order. When rendering UI elements from maps (labels, tags, etc.), sort keys first for consistent output and testable behavior:
+
+```go
+// Wrong - non-deterministic order, flaky tests
+for key, val := range labels {
+    fields = append(fields, Field{Label: key, Value: val})
+}
+
+// Correct - deterministic alphabetical order
+keys := make([]string, 0, len(labels))
+for k := range labels {
+    keys = append(keys, k)
+}
+sort.Strings(keys)
+for _, key := range keys {
+    fields = append(fields, Field{Label: key, Value: labels[key]})
+}
+```
+
+### Allow Cancel During Async Operations
+Users should be able to cancel/escape during loading or saving states. Check for cancel key before returning nil in async state handlers:
+
+```go
+func (v *View) handleKeyMsg(msg tea.KeyMsg) tea.Cmd {
+    // Handle loading/saving states - allow cancel
+    if v.state == stateLoading || v.state == stateSaving {
+        if key.Matches(msg, v.keys.Cancel) {
+            return func() tea.Msg { return CancelledMsg{} }
+        }
+        return nil  // Ignore other keys during async ops
+    }
+    // ... handle other states
+}
+```
+
+### Nil Client Checks in Async Commands
+GCP client may be nil in tests or error states. Add defensive checks at the start of async commands:
+
+```go
+func (v *View) loadData() tea.Cmd {
+    return func() tea.Msg {
+        if v.client == nil {
+            return errorMsg{err: fmt.Errorf("client not initialized")}
+        }
+        // Safe to use client now
+        data, err := v.client.GetData(ctx, v.resourceID)
+        if err != nil {
+            return errorMsg{err: err}
+        }
+        return dataLoadedMsg{data: data}
+    }
+}
+```
+
 ## Key Bindings
 
 ### Global
@@ -427,6 +652,30 @@ func (a *App) clearAllViews() {
 | `s` | Start stopped instance |
 | `x` | Stop running instance |
 | `R` | Reset (hard reboot) |
+
+### Instance Details
+
+| Key | Action |
+|-----|--------|
+| `.` | Open action menu |
+| `l` | Edit labels |
+| `s` | Start instance (if stopped) |
+| `x` | Stop instance (if running) |
+| `R` | Reset instance |
+| `r` | Refresh details |
+
+### Label Editor
+
+| Key | Action |
+|-----|--------|
+| `↑/k` | Move up |
+| `↓/j` | Move down |
+| `a` | Add new label |
+| `e`/`Enter` | Edit selected label |
+| `x`/`Delete` | Delete label |
+| `Tab` | Switch key/value input |
+| `Ctrl+S` | Preview changes |
+| `Esc` | Back (global: navigate to previous view) |
 
 ### Instance Details - Observability Tab
 

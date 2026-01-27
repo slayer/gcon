@@ -69,7 +69,7 @@ func TestProjectMetadataViewUpdateErrorMsg(t *testing.T) {
 	view := NewProjectMetadataView("test-project", client)
 	view.loading = true
 
-	testErr := errors.New("test error")
+	testErr := errors.New("test error") //nolint:err113 // Test error
 	msg := projectMetadataErrorMsg{err: testErr}
 
 	view.Update(msg)
@@ -101,7 +101,7 @@ func TestProjectMetadataViewUpdateSaveErrorMsg(t *testing.T) {
 	view.saving = true
 	view.showWarning = true
 
-	testErr := errors.New("save error")
+	testErr := errors.New("save error") //nolint:err113 // Test error
 	msg := projectMetadataSaveErrorMsg{err: testErr}
 
 	view.Update(msg)
@@ -203,7 +203,7 @@ func TestProjectMetadataViewRefresh(t *testing.T) {
 	client := &gcp.ComputeClient{}
 	view := NewProjectMetadataView("test-project", client)
 	view.loading = false
-	view.err = errors.New("previous error")
+	view.err = errors.New("previous error") //nolint:err113 // Test error
 
 	// Press 'r' to refresh
 	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}}
@@ -349,7 +349,7 @@ func TestProjectMetadataViewViewError(t *testing.T) {
 	client := &gcp.ComputeClient{}
 	view := NewProjectMetadataView("test-project", client)
 	view.loading = false
-	view.err = errors.New("test error")
+	view.err = errors.New("test error") //nolint:err113 // Test error
 
 	output := view.View()
 

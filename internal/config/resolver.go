@@ -20,7 +20,7 @@ func ResolveProject(flagValue string) string {
 	}
 
 	config, err := LoadGcloudConfig()
-	if err != nil || config == nil {
+	if err != nil {
 		return ""
 	}
 
@@ -41,7 +41,7 @@ func ResolveZone(flagValue string) string {
 	}
 
 	config, err := LoadGcloudConfig()
-	if err != nil || config == nil {
+	if err != nil {
 		return ""
 	}
 
@@ -62,7 +62,7 @@ func ResolveRegion(flagValue string) string {
 	}
 
 	config, err := LoadGcloudConfig()
-	if err != nil || config == nil {
+	if err != nil {
 		return ""
 	}
 
@@ -83,7 +83,7 @@ func ResolveAccount(flagValue string) string {
 	}
 
 	config, err := LoadGcloudConfig()
-	if err != nil || config == nil {
+	if err != nil {
 		return ""
 	}
 

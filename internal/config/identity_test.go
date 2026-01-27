@@ -18,7 +18,7 @@ func TestGetAuthenticatedIdentity_UserCredentials(t *testing.T) {
 	// Create config structure
 	configDir := filepath.Join(tmpDir, ".config", "gcloud")
 	configsDir := filepath.Join(configDir, "configurations")
-	require.NoError(t, os.MkdirAll(configsDir, 0755))
+	require.NoError(t, os.MkdirAll(configsDir, 0o755))
 
 	// Write active_config file
 	activeConfigPath := filepath.Join(configDir, "active_config")
@@ -36,23 +36,23 @@ project = test-project
 	oldCloudSDKConfig := os.Getenv("CLOUDSDK_CONFIG")
 	t.Cleanup(func() {
 		if oldCloudSDKConfig != "" {
-			_ = os.Setenv("CLOUDSDK_CONFIG", oldCloudSDKConfig)
+			_ = os.Setenv("CLOUDSDK_CONFIG", oldCloudSDKConfig) //nolint:errcheck // Test setup
 		} else {
-			_ = os.Unsetenv("CLOUDSDK_CONFIG")
+			_ = os.Unsetenv("CLOUDSDK_CONFIG") //nolint:errcheck // Test cleanup
 		}
 	})
-	_ = os.Setenv("CLOUDSDK_CONFIG", configDir)
+	_ = os.Setenv("CLOUDSDK_CONFIG", configDir) //nolint:errcheck // Test setup
 
 	// Clear GOOGLE_APPLICATION_CREDENTIALS to ensure gcloud method is used
 	oldGoogleCreds := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
 	t.Cleanup(func() {
 		if oldGoogleCreds != "" {
-			_ = os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", oldGoogleCreds)
+			_ = os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", oldGoogleCreds) //nolint:errcheck // Test setup
 		} else {
-			_ = os.Unsetenv("GOOGLE_APPLICATION_CREDENTIALS")
+			_ = os.Unsetenv("GOOGLE_APPLICATION_CREDENTIALS") //nolint:errcheck // Test cleanup
 		}
 	})
-	_ = os.Unsetenv("GOOGLE_APPLICATION_CREDENTIALS")
+	_ = os.Unsetenv("GOOGLE_APPLICATION_CREDENTIALS") //nolint:errcheck // Test cleanup
 
 	// Test
 	identity, identityType, err := GetAuthenticatedIdentity()
@@ -67,6 +67,7 @@ func TestGetAuthenticatedIdentity_ServiceAccount(t *testing.T) {
 	// Create temporary service account JSON file
 	tmpDir := t.TempDir()
 	credFile := filepath.Join(tmpDir, "sa-key.json")
+	// #nosec G101 -- Test credentials, not real
 	credContent := `{
   "type": "service_account",
   "project_id": "test-project",
@@ -84,23 +85,23 @@ func TestGetAuthenticatedIdentity_ServiceAccount(t *testing.T) {
 	oldGoogleCreds := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
 	t.Cleanup(func() {
 		if oldGoogleCreds != "" {
-			_ = os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", oldGoogleCreds)
+			_ = os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", oldGoogleCreds) //nolint:errcheck // Test setup
 		} else {
-			_ = os.Unsetenv("GOOGLE_APPLICATION_CREDENTIALS")
+			_ = os.Unsetenv("GOOGLE_APPLICATION_CREDENTIALS") //nolint:errcheck // Test cleanup
 		}
 	})
-	_ = os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", credFile)
+	_ = os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", credFile) //nolint:errcheck // Test setup
 
 	// Clear gcloud config to ensure SA method is used
 	oldCloudSDKConfig := os.Getenv("CLOUDSDK_CONFIG")
 	t.Cleanup(func() {
 		if oldCloudSDKConfig != "" {
-			_ = os.Setenv("CLOUDSDK_CONFIG", oldCloudSDKConfig)
+			_ = os.Setenv("CLOUDSDK_CONFIG", oldCloudSDKConfig) //nolint:errcheck // Test setup
 		} else {
-			_ = os.Unsetenv("CLOUDSDK_CONFIG")
+			_ = os.Unsetenv("CLOUDSDK_CONFIG") //nolint:errcheck // Test cleanup
 		}
 	})
-	_ = os.Setenv("CLOUDSDK_CONFIG", filepath.Join(tmpDir, "nonexistent"))
+	_ = os.Setenv("CLOUDSDK_CONFIG", filepath.Join(tmpDir, "nonexistent")) //nolint:errcheck // Test setup
 
 	// Test
 	identity, identityType, err := GetAuthenticatedIdentity()
@@ -121,25 +122,25 @@ func TestGetAuthenticatedIdentity_NoCredentials(t *testing.T) {
 
 	t.Cleanup(func() {
 		if oldCloudSDKConfig != "" {
-			_ = os.Setenv("CLOUDSDK_CONFIG", oldCloudSDKConfig)
+			_ = os.Setenv("CLOUDSDK_CONFIG", oldCloudSDKConfig) //nolint:errcheck // Test setup
 		} else {
-			_ = os.Unsetenv("CLOUDSDK_CONFIG")
+			_ = os.Unsetenv("CLOUDSDK_CONFIG") //nolint:errcheck // Test cleanup
 		}
 		if oldGoogleCreds != "" {
-			_ = os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", oldGoogleCreds)
+			_ = os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", oldGoogleCreds) //nolint:errcheck // Test setup
 		} else {
-			_ = os.Unsetenv("GOOGLE_APPLICATION_CREDENTIALS")
+			_ = os.Unsetenv("GOOGLE_APPLICATION_CREDENTIALS") //nolint:errcheck // Test cleanup
 		}
 		if oldCoreAccount != "" {
-			_ = os.Setenv("CLOUDSDK_CORE_ACCOUNT", oldCoreAccount)
+			_ = os.Setenv("CLOUDSDK_CORE_ACCOUNT", oldCoreAccount) //nolint:errcheck // Test setup
 		} else {
-			_ = os.Unsetenv("CLOUDSDK_CORE_ACCOUNT")
+			_ = os.Unsetenv("CLOUDSDK_CORE_ACCOUNT") //nolint:errcheck // Test cleanup
 		}
 	})
 
-	_ = os.Setenv("CLOUDSDK_CONFIG", filepath.Join(tmpDir, "nonexistent"))
-	_ = os.Unsetenv("GOOGLE_APPLICATION_CREDENTIALS")
-	_ = os.Unsetenv("CLOUDSDK_CORE_ACCOUNT")
+	_ = os.Setenv("CLOUDSDK_CONFIG", filepath.Join(tmpDir, "nonexistent")) //nolint:errcheck // Test setup
+	_ = os.Unsetenv("GOOGLE_APPLICATION_CREDENTIALS")                      //nolint:errcheck // Test cleanup
+	_ = os.Unsetenv("CLOUDSDK_CORE_ACCOUNT")                               //nolint:errcheck // Test cleanup
 
 	// Test
 	identity, identityType, err := GetAuthenticatedIdentity()
@@ -152,6 +153,7 @@ func TestGetAuthenticatedIdentity_NoCredentials(t *testing.T) {
 func TestExtractServiceAccountEmail_ValidJSON(t *testing.T) {
 	tmpDir := t.TempDir()
 	credFile := filepath.Join(tmpDir, "sa-key.json")
+	// #nosec G101 -- Test credentials, not real
 	credContent := `{
   "type": "service_account",
   "client_email": "my-sa@my-project.iam.gserviceaccount.com"
@@ -178,6 +180,7 @@ func TestExtractServiceAccountEmail_MalformedJSON(t *testing.T) {
 func TestExtractServiceAccountEmail_MissingEmail(t *testing.T) {
 	tmpDir := t.TempDir()
 	credFile := filepath.Join(tmpDir, "no-email.json")
+	// #nosec G101 -- Test credentials, not real
 	credContent := `{
   "type": "service_account",
   "project_id": "test-project"
@@ -206,19 +209,19 @@ func TestGetAuthenticatedIdentity_EnvVarAccount(t *testing.T) {
 
 	t.Cleanup(func() {
 		if oldCoreAccount != "" {
-			_ = os.Setenv("CLOUDSDK_CORE_ACCOUNT", oldCoreAccount)
+			_ = os.Setenv("CLOUDSDK_CORE_ACCOUNT", oldCoreAccount) //nolint:errcheck // Test setup
 		} else {
-			_ = os.Unsetenv("CLOUDSDK_CORE_ACCOUNT")
+			_ = os.Unsetenv("CLOUDSDK_CORE_ACCOUNT") //nolint:errcheck // Test cleanup
 		}
 		if oldGoogleCreds != "" {
-			_ = os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", oldGoogleCreds)
+			_ = os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", oldGoogleCreds) //nolint:errcheck // Test setup
 		} else {
-			_ = os.Unsetenv("GOOGLE_APPLICATION_CREDENTIALS")
+			_ = os.Unsetenv("GOOGLE_APPLICATION_CREDENTIALS") //nolint:errcheck // Test cleanup
 		}
 	})
 
-	_ = os.Setenv("CLOUDSDK_CORE_ACCOUNT", "envvar@example.com")
-	_ = os.Unsetenv("GOOGLE_APPLICATION_CREDENTIALS")
+	_ = os.Setenv("CLOUDSDK_CORE_ACCOUNT", "envvar@example.com") //nolint:errcheck // Test setup
+	_ = os.Unsetenv("GOOGLE_APPLICATION_CREDENTIALS")            //nolint:errcheck // Test cleanup
 
 	identity, identityType, err := GetAuthenticatedIdentity()
 	assert.NoError(t, err)
