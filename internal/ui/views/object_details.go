@@ -564,7 +564,7 @@ func (v *ObjectDetailsView) openObject() tea.Cmd {
 		)
 		if err != nil {
 			// Clean up temp file on download failure
-			_ = os.Remove(tempPath)
+			_ = os.Remove(tempPath) //nolint:errcheck // Best-effort cleanup
 			return objectOpenCompleteMsg{err: err}
 		}
 
@@ -580,12 +580,12 @@ func (v *ObjectDetailsView) openObject() tea.Cmd {
 		case "windows":
 			cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", tempPath) // #nosec G204 -- Opening user-downloaded file with system default app
 		default:
-			_ = os.Remove(tempPath)
+			_ = os.Remove(tempPath) //nolint:errcheck // Best-effort cleanup
 			return objectOpenCompleteMsg{err: fmt.Errorf("%w: %s", uierrors.ErrUnsupportedOS, runtime.GOOS)}
 		}
 
 		if err := cmd.Start(); err != nil {
-			_ = os.Remove(tempPath)
+			_ = os.Remove(tempPath) //nolint:errcheck // Best-effort cleanup
 			return objectOpenCompleteMsg{err: fmt.Errorf("failed to open file: %w", err)}
 		}
 

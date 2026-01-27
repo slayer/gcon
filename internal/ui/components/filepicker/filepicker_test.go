@@ -291,7 +291,7 @@ func TestFilePickerUpdate(t *testing.T) {
 		fp := New(subDir, true)
 
 		// Load directory to initialize list
-		entries, _ := fp.readDirectory(subDir)
+		entries, _ := fp.readDirectory(subDir) //nolint:errcheck // Test helper
 		fp.Update(filePickerLoadedMsg{entries: entries})
 
 		// Should be on first page (page 0)
@@ -311,7 +311,7 @@ func TestFilePickerUpdate(t *testing.T) {
 		fp := New(tempDir, true) // multi-select enabled
 
 		// Load directory first
-		entries, _ := fp.readDirectory(tempDir)
+		entries, _ := fp.readDirectory(tempDir) //nolint:errcheck // Test helper
 		fp.Update(filePickerLoadedMsg{entries: entries})
 
 		// Find the file entry (not "..")
@@ -350,7 +350,7 @@ func TestFilePickerUpdate(t *testing.T) {
 		fp := New(tempDir, true)
 
 		// Load directory
-		entries, _ := fp.readDirectory(tempDir)
+		entries, _ := fp.readDirectory(tempDir) //nolint:errcheck // Test helper
 		fp.Update(filePickerLoadedMsg{entries: entries})
 
 		// Press 'a' to select all
@@ -384,7 +384,7 @@ func TestFilePickerUpdate(t *testing.T) {
 		fp := New(tempDir, true)
 
 		// Load directory
-		entries, _ := fp.readDirectory(tempDir)
+		entries, _ := fp.readDirectory(tempDir) //nolint:errcheck // Test helper
 		fp.Update(filePickerLoadedMsg{entries: entries})
 
 		// Find and select the subdir
@@ -410,7 +410,7 @@ func TestFilePickerUpdate(t *testing.T) {
 		fp := New(tempDir, true)
 
 		// Load directory
-		entries, _ := fp.readDirectory(tempDir)
+		entries, _ := fp.readDirectory(tempDir) //nolint:errcheck // Test helper
 		fp.Update(filePickerLoadedMsg{entries: entries})
 
 		// Pre-select a file
@@ -466,7 +466,7 @@ func TestFilePickerUpdate(t *testing.T) {
 		fp := New(subDir, true)
 
 		// Load directory first
-		entries, _ := fp.readDirectory(subDir)
+		entries, _ := fp.readDirectory(subDir) //nolint:errcheck // Test helper
 		fp.Update(filePickerLoadedMsg{entries: entries})
 
 		// Select ".." entry
@@ -501,7 +501,7 @@ func TestFilePickerUpdate(t *testing.T) {
 		fp := New(tempDir, true)
 
 		// Load directory with selectTarget = "bbb"
-		entries, _ := fp.readDirectory(tempDir)
+		entries, _ := fp.readDirectory(tempDir) //nolint:errcheck // Test helper
 		fp.Update(filePickerLoadedMsg{entries: entries, selectTarget: "bbb"})
 
 		// Check that "bbb" is selected in the list
@@ -530,7 +530,7 @@ func TestFilePickerView(t *testing.T) {
 		fp.SetSize(100, 30)
 
 		// Load entries
-		entries, _ := fp.readDirectory(tempDir)
+		entries, _ := fp.readDirectory(tempDir) //nolint:errcheck // Test helper
 		fp.Update(filePickerLoadedMsg{entries: entries})
 
 		view := fp.View()

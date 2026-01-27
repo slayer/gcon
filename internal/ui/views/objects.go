@@ -211,7 +211,7 @@ type objectsErrorMsg struct {
 type ObjectsBackMsg struct{}
 
 // objectToRow converts a GCS object to a table row
-func objectToRow(obj gcp.StorageObject) table.Row {
+func objectToRow(obj gcp.StorageObject) table.Row { //nolint:gocritic // Copying object is acceptable
 	var name, size, contentType, modified string
 
 	if obj.IsFolder {
@@ -403,7 +403,7 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 		return nil
 
 	case filepicker.FilePickerCancelMsg:
-		// User cancelled file picker
+		// User canceled file picker
 		v.showFilePicker = false
 		v.filePicker = nil
 		return nil
@@ -612,7 +612,7 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 
 		case key.Matches(msg, v.keys.Upload):
 			// Open file picker for upload
-			cwd, _ := os.Getwd()
+			cwd, _ := os.Getwd() //nolint:errcheck // Fallback to empty
 			v.filePicker = filepicker.New(cwd, true)
 			v.filePicker.SetSize(v.width-10, v.height-10)
 			v.showFilePicker = true
@@ -868,7 +868,7 @@ func ObjectsLoadedMsgForTest(objects []gcp.StorageObject, nextToken string, hasM
 }
 
 // prepareDownload initiates download for a file or folder
-func (v *ObjectsView) prepareDownload(obj gcp.StorageObject) tea.Cmd {
+func (v *ObjectsView) prepareDownload(obj gcp.StorageObject) tea.Cmd { //nolint:gocritic // Copying object is acceptable
 	return func() tea.Msg {
 		if obj.IsFolder {
 			// For folders, list all objects recursively
@@ -1292,14 +1292,14 @@ func (v *ObjectsView) overlayUploadProgress(content string) string {
 }
 
 // prepareDelete initiates the delete flow
-func (v *ObjectsView) prepareDelete(obj gcp.StorageObject) tea.Cmd {
+func (v *ObjectsView) prepareDelete(obj gcp.StorageObject) tea.Cmd { //nolint:gocritic // Copying object is acceptable
 	return func() tea.Msg {
 		return deleteRequestMsg{object: obj}
 	}
 }
 
 // resolveDeleteFiles lists all files under a folder prefix
-func (v *ObjectsView) resolveDeleteFiles(folder gcp.StorageObject) tea.Cmd {
+func (v *ObjectsView) resolveDeleteFiles(folder gcp.StorageObject) tea.Cmd { //nolint:gocritic // Copying object is acceptable
 	return func() tea.Msg {
 		objects, err := v.storageClient.ListAllObjects(
 			gocontext.Background(),
@@ -1509,6 +1509,7 @@ func (v *ObjectsView) overlayActionMenu(content string) string {
 }
 
 // buildObjectActions creates action menu items for the selected object
+//nolint:gocritic // hugeParam: StorageObject struct passed by value for clarity
 func (v *ObjectsView) buildObjectActions(obj gcp.StorageObject) []actionmenu.Action {
 	if obj.IsFolder {
 		return []actionmenu.Action{

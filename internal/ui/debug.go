@@ -29,8 +29,8 @@ func debugLog(format string, args ...interface{}) {
 	if !debugEnabled || debugFile == nil {
 		return
 	}
-	_, _ = fmt.Fprintf(debugFile, format+"\n", args...)
-	_ = debugFile.Sync()
+	_, _ = fmt.Fprintf(debugFile, format+"\n", args...) //nolint:errcheck // Debug logging
+	_ = debugFile.Sync() //nolint:errcheck // Debug logging
 }
 
 func debugLogView(name string, content string) {

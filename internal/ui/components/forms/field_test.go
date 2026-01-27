@@ -97,7 +97,7 @@ func TestMultiSelectFieldValue(t *testing.T) {
 
 	// Set multiple selections
 	field.SetValue([]string{"http-server", "allow-ssh"})
-	value := field.GetValue().([]string)
+	value := field.GetValue().([]string) //nolint:errcheck // Test knows type
 	assert.Len(t, value, 2)
 	assert.Contains(t, value, "http-server")
 	assert.Contains(t, value, "allow-ssh")
@@ -238,7 +238,7 @@ func TestFieldView(t *testing.T) {
 
 	t.Run("validation error view", func(t *testing.T) {
 		field := NewTextField("name", "Name").SetRequired(true)
-		_ = field.Validate() // Trigger error
+		_ = field.Validate() //nolint:errcheck // Intentional: trigger validation state
 
 		view := field.View()
 		assert.Contains(t, view, "⚠")
@@ -316,7 +316,7 @@ func TestMultiSelectFieldNavigation(t *testing.T) {
 	field.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
 
 	// Check selections
-	value := field.GetValue().([]string)
+	value := field.GetValue().([]string) //nolint:errcheck // Test knows type
 	assert.Len(t, value, 2)
 	assert.Contains(t, value, "http-server")
 	assert.Contains(t, value, "https-server")

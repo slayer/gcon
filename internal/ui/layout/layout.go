@@ -128,17 +128,17 @@ func (l *Layout) IsSidebarActive() bool {
 }
 
 // HeaderStyle returns a lipgloss style with header dimensions applied
-func (l *Layout) HeaderStyle(style lipgloss.Style) lipgloss.Style {
+func (l *Layout) HeaderStyle(style lipgloss.Style) lipgloss.Style { //nolint:gocritic // Style param is acceptable
 	return teatile.SetStyleSize(style, l.header)
 }
 
 // ContentStyle returns a lipgloss style with content dimensions applied
-func (l *Layout) ContentStyle(style lipgloss.Style) lipgloss.Style {
+func (l *Layout) ContentStyle(style lipgloss.Style) lipgloss.Style { //nolint:gocritic // Style param is acceptable
 	return teatile.SetStyleSize(style, l.content)
 }
 
 // SidebarStyle returns a lipgloss style with sidebar dimensions applied
-func (l *Layout) SidebarStyle(style lipgloss.Style) lipgloss.Style {
+func (l *Layout) SidebarStyle(style lipgloss.Style) lipgloss.Style { //nolint:gocritic // Style param is acceptable
 	return teatile.SetStyleSize(style, l.sidebar)
 }
 

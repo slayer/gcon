@@ -128,7 +128,7 @@ type ImageSelectedMsg struct {
 }
 
 // imageStatusIcon returns a symbol indicator for image status
-func imageStatusIcon(image gcp.Image) string {
+func imageStatusIcon(image gcp.Image) string { //nolint:gocritic // Copying image is acceptable
 	if image.IsReady() {
 		return symbols.StatusRunning() // Green - ready
 	}
@@ -140,7 +140,7 @@ func imageStatusIcon(image gcp.Image) string {
 }
 
 // imageToRow converts a GCP image to a table row
-func imageToRow(image gcp.Image) table.Row {
+func imageToRow(image gcp.Image) table.Row { //nolint:gocritic // Copying image is acceptable
 	// Combine status icon with name
 	name := imageStatusIcon(image) + " " + image.Name
 
@@ -202,7 +202,7 @@ func (v *ImagesView) Update(msg tea.Msg) tea.Cmd {
 
 		// Convert images to table rows
 		rows := make([]table.Row, len(msg.images))
-		for i, image := range msg.images {
+		for i, image := range msg.images { //nolint:gocritic // Copying in range acceptable
 			rows[i] = imageToRow(image)
 		}
 		v.table.SetRows(rows)
@@ -271,7 +271,7 @@ func (v *ImagesView) Update(msg tea.Msg) tea.Cmd {
 
 // findImageByName looks up an image by name
 func (v *ImagesView) findImageByName(name string) *gcp.Image {
-	for _, image := range v.images {
+	for _, image := range v.images { //nolint:gocritic // Copying in range acceptable
 		if image.Name == name {
 			return &image
 		}

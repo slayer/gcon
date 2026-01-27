@@ -89,7 +89,7 @@ type FormSubmitMsg struct {
 	Data map[string]any // All field values keyed by field ID
 }
 
-// FormCancelMsg is sent when the form is cancelled via Esc
+// FormCancelMsg is sent when the form is canceled via Esc
 type FormCancelMsg struct{}
 
 // FieldChangedMsg is sent when a field value changes

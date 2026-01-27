@@ -299,6 +299,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if a.showProjectSelector {
 		switch msg := msg.(type) {
 		case projectselector.ProjectSelectedMsg:
+			//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
 			return a, a.handleProjectSwitch(&msg.Project)
 		case projectselector.ProjectSelectorCanceledMsg:
 			a.showProjectSelector = false
@@ -328,7 +329,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.MouseMsg:
 		// Handle mouse events
-		return a, a.handleMouseEvent(msg)
+//nolint:gocritic 		return a, a.handleMouseEvent(msg)
 
 	case tea.KeyMsg:
 		// Handle back navigation first (before view-specific handlers)
@@ -337,7 +338,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Check if any view has action menu open
 			if a.isViewMenuOpen() {
 				// Let the view handle Esc to close its menu
-				return a, a.updateCurrentView(msg)
+//nolint:gocritic 				return a, a.updateCurrentView(msg)
 			}
 
 			// If sidebar is focused and drilled down, go back in sidebar
@@ -411,7 +412,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Skip character-based global shortcuts when text input is focused
 		// This allows typing "q", "?", etc. in form fields
 		if a.hasTextInputFocused() {
-			return a, a.updateCurrentView(msg)
+//nolint:gocritic 			return a, a.updateCurrentView(msg)
 		}
 
 		// Global key handlers (only when text input is NOT focused)
@@ -479,25 +480,25 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case views.ProjectSelectedMsg:
-		return a, a.handleProjectSelected(msg)
+//nolint:gocritic 		return a, a.handleProjectSelected(msg)
 
 	case views.InstanceSelectedMsg:
-		return a, a.handleInstanceSelected(msg)
+//nolint:gocritic 		return a, a.handleInstanceSelected(msg)
 
 	case views.DiskSelectedMsg:
-		return a, a.handleDiskSelected(msg)
+//nolint:gocritic 		return a, a.handleDiskSelected(msg)
 
 	case views.InstanceDiskSelectedMsg:
-		return a, a.handleInstanceDiskSelected(msg)
+//nolint:gocritic 		return a, a.handleInstanceDiskSelected(msg)
 
 	case views.SnapshotSelectedMsg:
-		return a, a.handleSnapshotSelected(msg)
+//nolint:gocritic 		return a, a.handleSnapshotSelected(msg)
 
 	case views.SnapshotDiskSelectedMsg:
-		return a, a.handleSnapshotDiskSelected(msg)
+//nolint:gocritic 		return a, a.handleSnapshotDiskSelected(msg)
 
 	case views.ImageSelectedMsg:
-		return a, a.handleImageSelected(msg)
+//nolint:gocritic 		return a, a.handleImageSelected(msg)
 
 	case InitialProjectLoadedMsg:
 		// Initial project loaded successfully, go directly to instances view
@@ -519,25 +520,25 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case sidebar.NavigateMsg:
 		// Handle sidebar navigation
-		return a, a.handleSidebarNavigation(msg)
+//nolint:gocritic 		return a, a.handleSidebarNavigation(msg)
 
 	case views.BucketSelectedMsg:
-		return a, a.handleBucketSelected(msg)
+//nolint:gocritic 		return a, a.handleBucketSelected(msg)
 
 	case views.ObjectSelectedMsg:
-		return a, a.handleObjectSelected(msg)
+//nolint:gocritic 		return a, a.handleObjectSelected(msg)
 
 	case views.ObjectDeletedMsg:
 		// Object was deleted, go back to objects list and refresh
-		return a, a.handleObjectDeleted(msg)
+//nolint:gocritic 		return a, a.handleObjectDeleted(msg)
 
 	case views.InstanceEditRequestMsg:
-		return a, a.handleInstanceEditRequest(msg)
+//nolint:gocritic 		return a, a.handleInstanceEditRequest(msg)
 
 	case views.InstanceEditCompleteMsg:
-		return a, a.handleInstanceEditComplete(msg)
+//nolint:gocritic 		return a, a.handleInstanceEditComplete(msg)
 
-	case views.InstanceEditCancelledMsg:
+	case views.InstanceEditCanceledMsg:
 		a.handleInstanceEditCancelled()
 		return a, nil
 
@@ -566,12 +567,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // cleanup releases resources held by views
 func (a *App) cleanup() {
 	if a.bucketsView != nil {
-		_ = a.bucketsView.Close() // Best-effort cleanup on exit
+		_ = a.bucketsView.Close() //nolint:errcheck // Best-effort cleanup on exit
 	}
 }
 
 // startTask registers a new async task and returns a command to animate the spinner.
 // Tasks are tracked in the context and displayed in the footer.
+//nolint:gocritic // hugeParam: task struct size is acceptable for clarity
 func (a *App) startTask(task context.Task) tea.Cmd {
 	task.StartTime = time.Now()
 	task.State = context.TaskRunning

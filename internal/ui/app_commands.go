@@ -34,6 +34,7 @@ func (a *App) openCommandPalette(showPrefix bool) {
 }
 
 // handleCommandSelected processes a selected command from the palette
+//nolint:gocritic // hugeParam: Command struct passed by value for clarity
 func (a *App) handleCommandSelected(cmd commandpalette.Command) (tea.Model, tea.Cmd) {
 	a.showCommandPalette = false
 	a.commandPalette.Reset()
@@ -51,6 +52,7 @@ func (a *App) handleCommandSelected(cmd commandpalette.Command) (tea.Model, tea.
 }
 
 // handleNavigationCommand navigates to the selected view from command palette
+//nolint:gocritic // hugeParam: Command struct passed by value for clarity
 func (a *App) handleNavigationCommand(cmd commandpalette.Command) (tea.Model, tea.Cmd) {
 	// Navigation commands require a project to be selected
 	if a.selectedProject == nil {
@@ -64,6 +66,7 @@ func (a *App) handleNavigationCommand(cmd commandpalette.Command) (tea.Model, te
 }
 
 // handleActionCommand executes the selected action from command palette
+//nolint:gocritic // hugeParam: Command struct passed by value for clarity
 func (a *App) handleActionCommand(cmd commandpalette.Command) (tea.Model, tea.Cmd) {
 	switch cmd.ID {
 	case "action:refresh":
@@ -116,6 +119,7 @@ func (a *App) handleRecentCommand(cmd commandpalette.Command) (tea.Model, tea.Cm
 	}
 
 	recentType := parts[1]
+	//nolint:gocritic // commentedOutCode: intentionally commented, available for future use
 	// resourceID := parts[2] // Available if needed for direct navigation
 
 	switch recentType {

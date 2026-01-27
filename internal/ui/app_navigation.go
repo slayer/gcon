@@ -238,6 +238,7 @@ func (a *App) handleProjectSelected(msg views.ProjectSelectedMsg) tea.Cmd {
 }
 
 // handleInstanceSelected processes instance selection and navigates to details view
+//nolint:gocritic // hugeParam: message struct passed by value
 func (a *App) handleInstanceSelected(msg views.InstanceSelectedMsg) tea.Cmd {
 	inst := msg.Instance
 	a.selectedInstance = &inst
@@ -262,6 +263,7 @@ func (a *App) handleInstanceSelected(msg views.InstanceSelectedMsg) tea.Cmd {
 }
 
 // handleDiskSelected processes disk selection from disks view and navigates to details view
+//nolint:gocritic // hugeParam: message struct passed by value
 func (a *App) handleDiskSelected(msg views.DiskSelectedMsg) tea.Cmd {
 	disk := msg.Disk
 	a.selectedDisk = &disk
@@ -302,6 +304,7 @@ func (a *App) handleInstanceDiskSelected(msg views.InstanceDiskSelectedMsg) tea.
 }
 
 // handleSnapshotSelected processes snapshot selection and navigates to details view
+//nolint:gocritic // hugeParam: message struct passed by value
 func (a *App) handleSnapshotSelected(msg views.SnapshotSelectedMsg) tea.Cmd {
 	snapshot := msg.Snapshot
 	a.selectedSnapshot = &snapshot
@@ -322,6 +325,7 @@ func (a *App) handleSnapshotSelected(msg views.SnapshotSelectedMsg) tea.Cmd {
 }
 
 // handleImageSelected processes image selection and navigates to details view
+//nolint:gocritic // hugeParam: message struct passed by value
 func (a *App) handleImageSelected(msg views.ImageSelectedMsg) tea.Cmd {
 	image := msg.Image
 	a.selectedImage = &image
@@ -383,6 +387,7 @@ func (a *App) handleSnapshotDiskSelected(msg views.SnapshotDiskSelectedMsg) tea.
 }
 
 // handleObjectSelected processes object selection and navigates to details view
+//nolint:gocritic // hugeParam: message struct passed by value
 func (a *App) handleObjectSelected(msg views.ObjectSelectedMsg) tea.Cmd {
 	if a.objectsView == nil {
 		return nil
@@ -621,7 +626,7 @@ func (a *App) handleInstanceEditComplete(msg views.InstanceEditCompleteMsg) tea.
 	return nil
 }
 
-// handleInstanceEditCancelled processes cancelled instance edit
+// handleInstanceEditCanceled processes canceled instance edit
 func (a *App) handleInstanceEditCancelled() {
 	// Pop back to previous view
 	if len(a.viewStack) > 0 {

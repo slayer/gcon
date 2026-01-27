@@ -22,6 +22,7 @@ func RenderSparkline(data []float64, width int) string {
 	}
 
 	// Find min and max for normalization
+	//nolint:gocritic // builtinShadow: local variable names are intentional, clear in context
 	min, max := findMinMax(sampledData)
 
 	// Handle edge case where all values are the same
@@ -95,12 +96,14 @@ func downsample(data []float64, targetSize int) []float64 {
 }
 
 // findMinMax finds the minimum and maximum values in a slice
+//nolint:gocritic // unnamedResult: simple min/max return is clear from context
 func findMinMax(data []float64) (float64, float64) {
 	if len(data) == 0 {
 		return 0, 0
 	}
 
 	// Find first valid value to initialize min/max
+	//nolint:gocritic // builtinShadow: local variable names are intentional, clear in context
 	var min, max float64
 	initialized := false
 	for _, v := range data {

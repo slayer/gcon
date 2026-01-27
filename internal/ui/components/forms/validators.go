@@ -217,7 +217,7 @@ func ValidateIPAddress() Validator {
 		parts := strings.Split(str, ".")
 		for _, part := range parts {
 			var num int
-			_, _ = fmt.Sscanf(part, "%d", &num)
+			_, _ = fmt.Sscanf(part, "%d", &num) //nolint:errcheck // Best-effort parsing
 			if num < 0 || num > 255 {
 				return fmt.Errorf("invalid IP address: octet %s out of range", part) //nolint:err113 // Validation error
 			}
@@ -254,7 +254,7 @@ func ValidateCIDR() Validator {
 
 		// Validate the prefix length
 		var prefix int
-		_, _ = fmt.Sscanf(parts[1], "%d", &prefix)
+		_, _ = fmt.Sscanf(parts[1], "%d", &prefix) //nolint:errcheck // Best-effort parsing
 		if prefix < 0 || prefix > 32 {
 			return fmt.Errorf("invalid CIDR prefix length: must be 0-32") //nolint:err113 // Validation error
 		}

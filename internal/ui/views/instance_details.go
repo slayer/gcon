@@ -651,7 +651,7 @@ func (v *InstanceDetailsView) loadMetrics() tea.Cmd {
 		metrics.CPU = cpuData
 
 		// Memory utilization (optional - requires Ops Agent)
-		memData, _ := monitoringClient.GetMemoryUtilization(ctx, instanceID, v.zone, v.timeRange)
+		memData, _ := monitoringClient.GetMemoryUtilization(ctx, instanceID, v.zone, v.timeRange) //nolint:errcheck // Ops Agent optional
 		metrics.Memory = memData
 
 		// Network traffic
@@ -986,7 +986,7 @@ func (v *InstanceDetailsView) renderDetailsTab() string {
 		b.WriteString(fmt.Sprintf("  %-8s %-15s %-15s %-10s %-16s %-16s\n",
 			"Name", "Network", "Subnetwork", "Type", "Internal IP", "External IP"))
 		b.WriteString("  " + strings.Repeat("─", 84) + "\n")
-		for _, nic := range d.NetworkInterfaces {
+		for _, nic := range d.NetworkInterfaces { //nolint:gocritic // Copying in range acceptable
 			extIP := defaultIfEmpty(nic.ExternalIP, "—")
 			nicType := defaultIfEmpty(nic.NicType, "—")
 			b.WriteString(fmt.Sprintf("  %-8s %-15s %-15s %-10s %-16s %-16s\n",

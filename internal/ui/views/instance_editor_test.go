@@ -118,7 +118,7 @@ func TestInstanceEditorView_Cancel(t *testing.T) {
 	assert.NotNil(t, cmd)
 
 	msg := cmd()
-	_, ok := msg.(InstanceEditCancelledMsg)
+	_, ok := msg.(InstanceEditCanceledMsg)
 	assert.True(t, ok)
 }
 
@@ -202,7 +202,7 @@ func TestInstanceEditorView_CancelDuringLoading(t *testing.T) {
 	assert.NotNil(t, cmd)
 
 	msg := cmd()
-	_, ok := msg.(InstanceEditCancelledMsg)
+	_, ok := msg.(InstanceEditCanceledMsg)
 	assert.True(t, ok, "Should be able to cancel during loading")
 }
 
@@ -215,7 +215,7 @@ func TestInstanceEditorView_CancelDuringSaving(t *testing.T) {
 	assert.NotNil(t, cmd)
 
 	msg := cmd()
-	_, ok := msg.(InstanceEditCancelledMsg)
+	_, ok := msg.(InstanceEditCanceledMsg)
 	assert.True(t, ok, "Should be able to cancel during saving")
 }
 

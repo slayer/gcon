@@ -58,8 +58,8 @@ type InstanceEditCompleteMsg struct {
 	EditType     string
 }
 
-// InstanceEditCancelledMsg indicates user cancelled editing
-type InstanceEditCancelledMsg struct{}
+// InstanceEditCanceledMsg indicates user canceled editing
+type InstanceEditCanceledMsg struct{}
 
 // instanceEditorKeyMap defines key bindings for the editor
 type instanceEditorKeyMap struct {
@@ -206,7 +206,7 @@ func (v *InstanceEditorView) Update(msg tea.Msg) tea.Cmd {
 		return tea.Batch(v.spinner.Tick, v.saveLabels())
 
 	case diff.CancelMsg:
-		// User cancelled from diff view, go back to form
+		// User canceled from diff view, go back to form
 		v.state = stateForm
 		return nil
 
@@ -234,7 +234,7 @@ func (v *InstanceEditorView) handleKeyMsg(msg tea.KeyMsg) tea.Cmd {
 	// Handle loading/saving states - allow cancel
 	if v.state == stateLoading || v.state == stateSaving {
 		if key.Matches(msg, v.keys.Cancel) {
-			return func() tea.Msg { return InstanceEditCancelledMsg{} }
+			return func() tea.Msg { return InstanceEditCanceledMsg{} }
 		}
 		return nil
 	}
@@ -247,7 +247,7 @@ func (v *InstanceEditorView) handleKeyMsg(msg tea.KeyMsg) tea.Cmd {
 			return tea.Batch(v.spinner.Tick, v.loadLabels())
 		}
 		if key.Matches(msg, v.keys.Cancel) {
-			return func() tea.Msg { return InstanceEditCancelledMsg{} }
+			return func() tea.Msg { return InstanceEditCanceledMsg{} }
 		}
 		return nil
 	}
@@ -271,7 +271,7 @@ func (v *InstanceEditorView) handleKeyMsg(msg tea.KeyMsg) tea.Cmd {
 				return v.labelEditor.Update(msg)
 			}
 			// Otherwise cancel the whole editor
-			return func() tea.Msg { return InstanceEditCancelledMsg{} }
+			return func() tea.Msg { return InstanceEditCanceledMsg{} }
 		}
 
 		// Delegate to label editor

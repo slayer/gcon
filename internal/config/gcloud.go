@@ -113,7 +113,7 @@ func parseConfigFile(path string) (map[string]map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = file.Close() }()
+	defer func() { _ = file.Close() }() //nolint:errcheck // Best-effort cleanup
 
 	result := make(map[string]map[string]string)
 	var currentSection string

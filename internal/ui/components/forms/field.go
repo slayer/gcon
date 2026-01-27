@@ -948,7 +948,7 @@ func (f *Field) renderMultiSelect() string {
 
 // renderToggle renders toggle field
 func (f *Field) renderToggle() string {
-	isOn, _ := f.value.(bool)
+	isOn, _ := f.value.(bool) //nolint:errcheck // Default false on type mismatch
 
 	boxStyle := f.styles.InputBox
 	if f.focused {

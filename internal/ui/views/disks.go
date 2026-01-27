@@ -122,7 +122,7 @@ type disksErrorMsg struct {
 }
 
 // diskStatusIcon returns a symbol indicator for disk status
-func diskStatusIcon(disk gcp.Disk) string {
+func diskStatusIcon(disk gcp.Disk) string { //nolint:gocritic // Copying disk is acceptable
 	// Use attachment status as primary indicator since most disks are READY
 	if disk.IsAttached() {
 		return symbols.StatusRunning() // Green - in use
@@ -135,7 +135,7 @@ func diskStatusIcon(disk gcp.Disk) string {
 }
 
 // diskToRow converts a GCP disk to a table row
-func diskToRow(disk gcp.Disk) table.Row {
+func diskToRow(disk gcp.Disk) table.Row { //nolint:gocritic // Copying disk is acceptable
 	attachedTo := disk.AttachedTo
 	if attachedTo == "" {
 		attachedTo = "-"

@@ -133,10 +133,10 @@ func TestFormatTimestampDate(t *testing.T) {
 func TestTimezoneRespected(t *testing.T) {
 	// Save current TZ and restore after test
 	originalTZ := os.Getenv("TZ")
-	defer func() { _ = os.Setenv("TZ", originalTZ) }()
+	defer func() { _ = os.Setenv("TZ", originalTZ) }() //nolint:errcheck // Test cleanup
 
 	// Set timezone to PST
-	_ = os.Setenv("TZ", "America/Los_Angeles")
+	_ = os.Setenv("TZ", "America/Los_Angeles") //nolint:errcheck // Test setup
 	time.Local = mustLoadLocation("America/Los_Angeles")
 
 	// UTC time: Jan 15, 2024 at 20:00 UTC = Jan 15, 2024 at 12:00 PST
@@ -148,7 +148,7 @@ func TestTimezoneRespected(t *testing.T) {
 	assert.Contains(t, result, "PST")
 
 	// Now switch to EST
-	_ = os.Setenv("TZ", "America/New_York")
+	_ = os.Setenv("TZ", "America/New_York") //nolint:errcheck // Test setup
 	time.Local = mustLoadLocation("America/New_York")
 
 	result = FormatDateTime(input)

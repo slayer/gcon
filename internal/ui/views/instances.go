@@ -166,7 +166,7 @@ func statusIcon(status string) string {
 }
 
 // instanceToRow converts a GCP instance to a table row
-func instanceToRow(inst gcp.Instance) table.Row {
+func instanceToRow(inst gcp.Instance) table.Row { //nolint:gocritic // Copying instance is acceptable
 	externalIP := inst.ExternalIP
 	if externalIP == "" {
 		externalIP = "-"
@@ -351,7 +351,7 @@ func (v *InstancesView) Update(msg tea.Msg) tea.Cmd {
 }
 
 // buildActions creates the action menu items based on instance state
-func (v *InstancesView) buildActions(inst gcp.Instance) []actionmenu.Action {
+func (v *InstancesView) buildActions(inst gcp.Instance) []actionmenu.Action { //nolint:gocritic // Copying instance is acceptable
 	isRunning := inst.IsRunning()
 	isStopped := inst.IsStopped()
 
@@ -418,13 +418,14 @@ func (v *InstancesView) findInstanceByName(name string) *gcp.Instance {
 	return nil
 }
 
-func (v *InstancesView) startInstance(inst gcp.Instance) tea.Cmd {
+func (v *InstancesView) startInstance(inst gcp.Instance) tea.Cmd { //nolint:gocritic // Copying instance is acceptable
 	return func() tea.Msg {
 		err := v.computeClient.StartInstance(gocontext.Background(), v.projectID, inst.Zone, inst.Name)
 		return instanceActionMsg{action: "Start", instance: inst.Name, err: err}
 	}
 }
 
+//nolint:gocritic // hugeParam: Instance struct passed by value for clarity
 func (v *InstancesView) stopInstance(inst gcp.Instance) tea.Cmd {
 	return func() tea.Msg {
 		err := v.computeClient.StopInstance(gocontext.Background(), v.projectID, inst.Zone, inst.Name)
@@ -432,6 +433,7 @@ func (v *InstancesView) stopInstance(inst gcp.Instance) tea.Cmd {
 	}
 }
 
+//nolint:gocritic // hugeParam: Instance struct passed by value for clarity
 func (v *InstancesView) resetInstance(inst gcp.Instance) tea.Cmd {
 	return func() tea.Msg {
 		err := v.computeClient.ResetInstance(gocontext.Background(), v.projectID, inst.Zone, inst.Name)

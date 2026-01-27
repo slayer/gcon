@@ -123,6 +123,7 @@ func (f *Footer) SetWidth(width int) {
 }
 
 // SetStyles sets custom footer styles
+//nolint:gocritic // hugeParam: FooterStyles struct passed by value for clarity
 func (f *Footer) SetStyles(styles FooterStyles) {
 	f.styles = styles
 }
@@ -464,6 +465,7 @@ func (f *Footer) renderCenterGroup() string {
 			Foreground(f.styles.SpacerBg).
 			Background(centerBg).
 			Render(SepRight)
+		//nolint:gocritic // appendCombine: appends are sequential, not combinable
 		parts = append(parts, sep)
 
 		// Add pre-rendered content

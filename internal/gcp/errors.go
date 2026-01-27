@@ -78,7 +78,7 @@ func ParseError(err error, operation, resource string) *GCPError {
 }
 
 // classifyAPIError maps HTTP status codes to user-friendly messages
-func classifyAPIError(apiErr *googleapi.Error) (ErrorCode, string, string) {
+func classifyAPIError(apiErr *googleapi.Error) (code ErrorCode, title, suggestion string) {
 	switch apiErr.Code {
 	case 401:
 		return ErrorUnauthenticated,

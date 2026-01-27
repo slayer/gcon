@@ -84,7 +84,7 @@ account = user@example.com
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tmpFile := createTempFile(t, tt.content)
-			defer func() { _ = os.Remove(tmpFile) }()
+			defer func() { _ = os.Remove(tmpFile) }() //nolint:errcheck // Test cleanup
 
 			result, err := parseConfigFile(tmpFile)
 			require.NoError(t, err)
@@ -112,7 +112,7 @@ func TestGetConfigDir(t *testing.T) {
 
 		result := getConfigDir()
 
-		homeDir, _ := os.UserHomeDir()
+		homeDir, _ := os.UserHomeDir() //nolint:errcheck // Test uses fallback if home dir unavailable
 		expected := filepath.Join(homeDir, ".config", "gcloud")
 		assert.Equal(t, expected, result)
 	})

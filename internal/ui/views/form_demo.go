@@ -230,7 +230,7 @@ func (v *FormDemoView) updateForm(msg tea.Msg) tea.Cmd {
 		v.state = FormDemoStateDiff
 		return nil
 	case forms.FormCancelMsg:
-		// Cancelled - reset form
+		// Canceled - reset form
 		v.buildDemoForm()
 		v.form.Init()
 		return nil
@@ -248,7 +248,7 @@ func (v *FormDemoView) updateDiff(msg tea.Msg) tea.Cmd {
 		v.state = FormDemoStateDone
 		return nil
 	case diff.CancelMsg:
-		// Cancelled - back to form
+		// Canceled - back to form
 		v.state = FormDemoStateForm
 		return nil
 	}
