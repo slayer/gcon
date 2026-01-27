@@ -18,6 +18,12 @@
       "Bash(sed:*)",
       "Bash(perl -i -pe:*)",
       "Bash(curl:*)",
+
+      "Read(/tmp/*)",
+      "Read(**/*.go)",
+      "Read(**/*.md)",
+      "Edit",
+
       "WebFetch(domain:raw.githubusercontent.com)",
       "WebFetch(domain:github.com)"
     ]
