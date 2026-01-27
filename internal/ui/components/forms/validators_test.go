@@ -558,6 +558,106 @@ func TestComposeValidators(t *testing.T) {
 	}
 }
 
+func TestValidateGCSBucketName(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   any
+		wantErr bool
+	}{
+		{
+			name:    "empty string",
+			value:   "",
+			wantErr: false, // Let ValidateRequired handle empty
+		},
+		{
+			name:    "valid simple name",
+			value:   "my-bucket",
+			wantErr: false,
+		},
+		{
+			name:    "valid with numbers",
+			value:   "bucket-123",
+			wantErr: false,
+		},
+		{
+			name:    "valid with dots",
+			value:   "my.bucket.name",
+			wantErr: false,
+		},
+		{
+			name:    "valid with underscores",
+			value:   "my_bucket_name",
+			wantErr: false,
+		},
+		{
+			name:    "minimum length (3 chars)",
+			value:   "abc",
+			wantErr: false,
+		},
+		{
+			name:    "too short (2 chars)",
+			value:   "ab",
+			wantErr: true,
+		},
+		{
+			name:    "too long (64 chars)",
+			value:   "a123456789012345678901234567890123456789012345678901234567890123",
+			wantErr: true,
+		},
+		{
+			name:    "exactly 63 chars",
+			value:   "a12345678901234567890123456789012345678901234567890123456789012",
+			wantErr: false,
+		},
+		{
+			name:    "starts with goog",
+			value:   "goog-my-bucket",
+			wantErr: true,
+		},
+		{
+			name:    "contains google",
+			value:   "my-google-bucket",
+			wantErr: true,
+		},
+		{
+			name:    "starts with hyphen",
+			value:   "-my-bucket",
+			wantErr: true,
+		},
+		{
+			name:    "ends with hyphen",
+			value:   "my-bucket-",
+			wantErr: true,
+		},
+		{
+			name:    "contains uppercase",
+			value:   "My-Bucket",
+			wantErr: true,
+		},
+		{
+			name:    "contains spaces",
+			value:   "my bucket",
+			wantErr: true,
+		},
+		{
+			name:    "non-string value",
+			value:   123,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateGCSBucketName(tt.value)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestValidateDiskSize(t *testing.T) {
 	validator := ValidateDiskSize(10, 65536)
 

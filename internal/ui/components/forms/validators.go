@@ -353,6 +353,49 @@ func ValidateNotEmpty(value any) error {
 	return ValidateRequired(value)
 }
 
+// GCS bucket name pattern: lowercase letters, numbers, hyphens, underscores, dots
+// Must start/end with letter or number, 3-63 characters
+var gcsBucketNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{1,61}[a-z0-9]$|^[a-z0-9]{1,2}$`)
+
+// ValidateGCSBucketName validates a GCS bucket name according to GCP rules
+func ValidateGCSBucketName(value any) error {
+	name, ok := value.(string)
+	if !ok {
+		return fmt.Errorf("expected string value") //nolint:err113 // Validation error
+	}
+
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil // Let ValidateRequired handle empty values
+	}
+
+	// Length check: 3-63 characters
+	if len(name) < 3 {
+		return fmt.Errorf("bucket name must be at least 3 characters (got %d)", len(name)) //nolint:err113 // Validation error
+	}
+	if len(name) > 63 {
+		return fmt.Errorf("bucket name must be 63 characters or less (got %d)", len(name)) //nolint:err113 // Validation error
+	}
+
+	// Cannot start with "goog"
+	if strings.HasPrefix(name, "goog") {
+		return fmt.Errorf("bucket name cannot start with 'goog'") //nolint:err113 // Validation error
+	}
+
+	// Cannot contain "google"
+	if strings.Contains(name, "google") {
+		return fmt.Errorf("bucket name cannot contain 'google'") //nolint:err113 // Validation error
+	}
+
+	// Pattern check: lowercase letters, numbers, hyphens, underscores, dots
+	// Must start/end with letter or number
+	if !gcsBucketNamePattern.MatchString(name) {
+		return fmt.Errorf("bucket name must contain only lowercase letters, numbers, hyphens, underscores, and dots; must start and end with letter or number") //nolint:err113 // Validation error
+	}
+
+	return nil
+}
+
 // ValidateDiskSize validates a disk size value (GCP constraints)
 func ValidateDiskSize(minGB, maxGB int64) Validator {
 	return func(value any) error {

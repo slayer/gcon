@@ -365,12 +365,13 @@ func (s *Section) Update(msg tea.Msg) tea.Cmd {
 	if keyMsg, ok := msg.(tea.KeyMsg); ok {
 		switch {
 		case key.Matches(keyMsg, s.keys.Collapse):
-			// Collapse the section with "-" key
-			if s.Collapsible {
+			// Collapse the section with "-" key, but only if no text input is focused
+			// (so users can type hyphens in text fields)
+			if s.Collapsible && !s.HasTextInputFocused() {
 				s.Collapsed = true
 				return nil
 			}
-			return nil
+			// If text input is focused, fall through to let field handle it
 
 		case key.Matches(keyMsg, s.keys.Down), key.Matches(keyMsg, s.keys.Tab):
 			// Only navigate if the current field isn't capturing input
