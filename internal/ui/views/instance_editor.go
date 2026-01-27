@@ -462,3 +462,12 @@ func (v *InstanceEditorView) applySize(width, height int) {
 func (v *InstanceEditorView) GetComputeClient() *gcp.ComputeClient {
 	return v.computeClient
 }
+
+// HasTextInputFocused returns true if a text input field is currently focused
+func (v *InstanceEditorView) HasTextInputFocused() bool {
+	// Only when in form state and actively editing
+	if v.state == stateForm && v.labelEditor != nil {
+		return v.labelEditor.IsEditing()
+	}
+	return false
+}

@@ -6,6 +6,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components/diff"
+	"github.com/slayer/gcon/internal/ui/components/labeledit"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -297,4 +298,91 @@ func TestInstanceEditorView_DiffFieldsOrdering(t *testing.T) {
 	assert.NotNil(t, view.diffViewer)
 
 	// The diff viewer should have fields - ordering is deterministic due to sort
+}
+
+func TestInstanceEditorView_HasTextInputFocused(t *testing.T) {
+	tests := []struct {
+		name     string
+		state    editorState
+		editing  bool
+		expected bool
+	}{
+		{
+			name:     "not in form state",
+			state:    stateLoading,
+			editing:  false,
+			expected: false,
+		},
+		{
+			name:     "in form state but not editing",
+			state:    stateForm,
+			editing:  false,
+			expected: false,
+		},
+		{
+			name:     "in form state and editing",
+			state:    stateForm,
+			editing:  true,
+			expected: true,
+		},
+		{
+			name:     "in diff state",
+			state:    stateDiff,
+			editing:  false,
+			expected: false,
+		},
+		{
+			name:     "in saving state",
+			state:    stateSaving,
+			editing:  false,
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			view := NewInstanceEditorView("my-project", "us-central1-a", "my-instance", nil)
+			view.width = 80
+			view.height = 24
+			view.state = tt.state
+
+			// Initialize label editor if needed
+			if tt.state == stateForm {
+				view.labelEditor = labeledit.New(map[string]string{"key": "value"})
+				view.labelEditor.SetSize(76, 16)
+
+				if tt.editing {
+					// Start editing by pressing 'e'
+					view.labelEditor.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+				}
+			}
+
+			result := view.HasTextInputFocused()
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestInstanceEditorView_GlobalQuitNotBlockedWhenNotEditing(t *testing.T) {
+	view := NewInstanceEditorView("my-project", "us-central1-a", "my-instance", nil)
+	view.width = 80
+	view.height = 24
+
+	// Load labels
+	msg := labelsLoadedMsg{
+		labelsFingerprint: &gcp.InstanceLabelsFingerprint{
+			Labels:      map[string]string{"env": "prod"},
+			Fingerprint: "abc123",
+		},
+	}
+	view.Update(msg)
+
+	// In navigation mode (not editing), HasTextInputFocused should be false
+	assert.False(t, view.HasTextInputFocused())
+
+	// Start editing by pressing 'a' to add a label
+	view.labelEditor.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+
+	// Now HasTextInputFocused should be true
+	assert.True(t, view.HasTextInputFocused())
 }
