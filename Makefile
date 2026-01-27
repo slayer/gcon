@@ -1,7 +1,7 @@
 .PHONY: build run test lint clean deps tidy install-lint
 
-# golangci-lint version (latest stable as of 2026-01-26)
-GOLANGCI_LINT_VERSION := latest
+# golangci-lint version (update in .github/workflows/ci.yml when changing)
+GOLANGCI_LINT_VERSION := v2.6
 
 # Binary name
 BINARY_NAME=gcon
