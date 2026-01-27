@@ -329,7 +329,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.MouseMsg:
 		// Handle mouse events
-//nolint:gocritic 		return a, a.handleMouseEvent(msg)
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleMouseEvent(msg)
 
 	case tea.KeyMsg:
 		// Handle back navigation first (before view-specific handlers)
@@ -338,7 +339,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Check if any view has action menu open
 			if a.isViewMenuOpen() {
 				// Let the view handle Esc to close its menu
-//nolint:gocritic 				return a, a.updateCurrentView(msg)
+				//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+				return a, a.updateCurrentView(msg)
 			}
 
 			// If sidebar is focused and drilled down, go back in sidebar
@@ -412,7 +414,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Skip character-based global shortcuts when text input is focused
 		// This allows typing "q", "?", etc. in form fields
 		if a.hasTextInputFocused() {
-//nolint:gocritic 			return a, a.updateCurrentView(msg)
+			//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+			return a, a.updateCurrentView(msg)
 		}
 
 		// Global key handlers (only when text input is NOT focused)
@@ -480,25 +483,32 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case views.ProjectSelectedMsg:
-//nolint:gocritic 		return a, a.handleProjectSelected(msg)
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleProjectSelected(msg)
 
 	case views.InstanceSelectedMsg:
-//nolint:gocritic 		return a, a.handleInstanceSelected(msg)
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleInstanceSelected(msg)
 
 	case views.DiskSelectedMsg:
-//nolint:gocritic 		return a, a.handleDiskSelected(msg)
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleDiskSelected(msg)
 
 	case views.InstanceDiskSelectedMsg:
-//nolint:gocritic 		return a, a.handleInstanceDiskSelected(msg)
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleInstanceDiskSelected(msg)
 
 	case views.SnapshotSelectedMsg:
-//nolint:gocritic 		return a, a.handleSnapshotSelected(msg)
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleSnapshotSelected(msg)
 
 	case views.SnapshotDiskSelectedMsg:
-//nolint:gocritic 		return a, a.handleSnapshotDiskSelected(msg)
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleSnapshotDiskSelected(msg)
 
 	case views.ImageSelectedMsg:
-//nolint:gocritic 		return a, a.handleImageSelected(msg)
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleImageSelected(msg)
 
 	case InitialProjectLoadedMsg:
 		// Initial project loaded successfully, go directly to instances view
@@ -520,23 +530,29 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case sidebar.NavigateMsg:
 		// Handle sidebar navigation
-//nolint:gocritic 		return a, a.handleSidebarNavigation(msg)
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleSidebarNavigation(msg)
 
 	case views.BucketSelectedMsg:
-//nolint:gocritic 		return a, a.handleBucketSelected(msg)
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleBucketSelected(msg)
 
 	case views.ObjectSelectedMsg:
-//nolint:gocritic 		return a, a.handleObjectSelected(msg)
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleObjectSelected(msg)
 
 	case views.ObjectDeletedMsg:
 		// Object was deleted, go back to objects list and refresh
-//nolint:gocritic 		return a, a.handleObjectDeleted(msg)
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleObjectDeleted(msg)
 
 	case views.InstanceEditRequestMsg:
-//nolint:gocritic 		return a, a.handleInstanceEditRequest(msg)
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleInstanceEditRequest(msg)
 
 	case views.InstanceEditCompleteMsg:
-//nolint:gocritic 		return a, a.handleInstanceEditComplete(msg)
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleInstanceEditComplete(msg)
 
 	case views.InstanceEditCanceledMsg:
 		a.handleInstanceEditCancelled()
