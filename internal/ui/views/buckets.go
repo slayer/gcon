@@ -284,6 +284,12 @@ func (v *BucketsView) Close() error {
 	return nil
 }
 
+// HasTextInputFocused returns true if the table filter is active.
+// Used to prevent global hotkeys (like 'q' for quit) from triggering while typing.
+func (v *BucketsView) HasTextInputFocused() bool {
+	return v.table.HasTextInputFocused()
+}
+
 // renderLoading renders a loading message
 // Height enforcement is handled by the app's View() method using lipgloss.MaxHeight()
 func (v *BucketsView) renderLoading(msg string) string {

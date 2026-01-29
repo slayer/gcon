@@ -1,6 +1,7 @@
 package ui
 
 import (
+	gocontext "context"
 	"path/filepath"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -697,3 +698,264 @@ func (a *App) handleBucketCreateCanceled() {
 
 	a.updateSidebarActiveView()
 }
+
+// handleDeleteDiskConfirmed processes confirmed disk deletion
+func (a *App) handleDeleteDiskConfirmed(msg views.DeleteDiskConfirmedMsg) tea.Cmd {
+	// Get compute client from the appropriate view
+	var computeClient *gcp.ComputeClient
+	if a.disksView != nil {
+		computeClient = a.disksView.GetComputeClient()
+	} else if a.diskDetailsView != nil {
+		computeClient = a.diskDetailsView.GetComputeClient()
+	}
+
+	if computeClient == nil || a.selectedProject == nil {
+		return nil
+	}
+
+	projectID := a.selectedProject.ID
+	diskName := msg.DiskName
+	zone := msg.Zone
+
+	return func() tea.Msg {
+		err := computeClient.DeleteDisk(gocontext.Background(), projectID, zone, diskName)
+		return views.DiskActionResultMsg{
+			Action:  "delete",
+			Success: err == nil,
+			Error:   err,
+		}
+	}
+}
+
+// handleSnapshotCreateRequest opens the snapshot creation form
+func (a *App) handleSnapshotCreateRequest(msg views.SnapshotCreateRequestMsg) tea.Cmd {
+	// Get compute client from the appropriate view
+	var computeClient *gcp.ComputeClient
+	if a.disksView != nil {
+		computeClient = a.disksView.GetComputeClient()
+	} else if a.diskDetailsView != nil {
+		computeClient = a.diskDetailsView.GetComputeClient()
+	}
+
+	if computeClient == nil || a.selectedProject == nil {
+		return nil
+	}
+
+	a.viewStack = append(a.viewStack, a.currentView)
+	a.currentView = ViewSnapshotCreate
+	a.snapshotCreateView = views.NewSnapshotCreateView(
+		a.selectedProject.ID,
+		msg.DiskName,
+		msg.Zone,
+		msg.AttachedTo,
+		computeClient,
+	)
+	a.updateViewSizes()
+	return a.snapshotCreateView.Init()
+}
+
+// handleSnapshotCreateCanceled processes canceled snapshot creation
+func (a *App) handleSnapshotCreateCanceled() {
+	// Pop back to previous view
+	if len(a.viewStack) > 0 {
+		lastViewIndex := len(a.viewStack) - 1
+		a.currentView = a.viewStack[lastViewIndex]
+		a.viewStack = a.viewStack[:lastViewIndex]
+	}
+
+	// Clean up create view
+	a.snapshotCreateView = nil
+
+	a.updateSidebarActiveView()
+}
+
+// handleCreateSnapshotFromDisk processes snapshot creation from a disk
+func (a *App) handleCreateSnapshotFromDisk(msg views.CreateSnapshotFromDiskMsg) tea.Cmd {
+	// Get compute client from the snapshot create view or disk views
+	var computeClient *gcp.ComputeClient
+	switch {
+	case a.snapshotCreateView != nil:
+		computeClient = a.snapshotCreateView.GetComputeClient()
+	case a.disksView != nil:
+		computeClient = a.disksView.GetComputeClient()
+	case a.diskDetailsView != nil:
+		computeClient = a.diskDetailsView.GetComputeClient()
+	}
+
+	if computeClient == nil || a.selectedProject == nil {
+		return nil
+	}
+
+	projectID := a.selectedProject.ID
+	config := gcp.SnapshotCreateConfig{
+		Name:            msg.SnapshotName,
+		Description:     msg.Description,
+		Labels:          msg.Labels,
+		StorageLocation: msg.StorageLocation,
+	}
+
+	return func() tea.Msg {
+		err := computeClient.CreateSnapshotFromDisk(
+			gocontext.Background(),
+			projectID,
+			msg.Zone,
+			msg.DiskName,
+			config,
+		)
+		return views.DiskActionResultMsg{
+			Action:  "snapshot",
+			Success: err == nil,
+			Error:   err,
+		}
+	}
+}
+
+// handleImageCreateRequest opens the image creation form
+func (a *App) handleImageCreateRequest(msg views.ImageCreateRequestMsg) tea.Cmd {
+	// Get compute client from the appropriate view
+	var computeClient *gcp.ComputeClient
+	if a.disksView != nil {
+		computeClient = a.disksView.GetComputeClient()
+	} else if a.diskDetailsView != nil {
+		computeClient = a.diskDetailsView.GetComputeClient()
+	}
+
+	if computeClient == nil || a.selectedProject == nil {
+		return nil
+	}
+
+	a.viewStack = append(a.viewStack, a.currentView)
+	a.currentView = ViewImageCreate
+	a.imageCreateView = views.NewImageCreateView(
+		a.selectedProject.ID,
+		msg.DiskName,
+		msg.Zone,
+		msg.AttachedTo,
+		computeClient,
+	)
+	a.updateViewSizes()
+	return a.imageCreateView.Init()
+}
+
+// handleImageCreateCanceled processes canceled image creation
+func (a *App) handleImageCreateCanceled() {
+	// Pop back to previous view
+	if len(a.viewStack) > 0 {
+		lastViewIndex := len(a.viewStack) - 1
+		a.currentView = a.viewStack[lastViewIndex]
+		a.viewStack = a.viewStack[:lastViewIndex]
+	}
+
+	// Clean up create view
+	a.imageCreateView = nil
+
+	a.updateSidebarActiveView()
+}
+
+// handleCreateImageFromDisk processes image creation from a disk
+func (a *App) handleCreateImageFromDisk(msg views.CreateImageFromDiskMsg) tea.Cmd {
+	// Get compute client from the image create view or disk views
+	var computeClient *gcp.ComputeClient
+	switch {
+	case a.imageCreateView != nil:
+		computeClient = a.imageCreateView.GetComputeClient()
+	case a.disksView != nil:
+		computeClient = a.disksView.GetComputeClient()
+	case a.diskDetailsView != nil:
+		computeClient = a.diskDetailsView.GetComputeClient()
+	}
+
+	if computeClient == nil || a.selectedProject == nil {
+		return nil
+	}
+
+	projectID := a.selectedProject.ID
+	config := gcp.ImageCreateConfig{
+		Name:            msg.ImageName,
+		Description:     msg.Description,
+		Family:          msg.Family,
+		Labels:          msg.Labels,
+		StorageLocation: msg.StorageLocation,
+		ForceCreate:     msg.ForceCreate,
+	}
+
+	return func() tea.Msg {
+		err := computeClient.CreateImageFromDisk(
+			gocontext.Background(),
+			projectID,
+			msg.Zone,
+			msg.DiskName,
+			config,
+		)
+		return views.DiskActionResultMsg{
+			Action:  "image",
+			Success: err == nil,
+			Error:   err,
+		}
+	}
+}
+
+// handleDiskActionResult processes the result of a disk action
+func (a *App) handleDiskActionResult(msg views.DiskActionResultMsg) tea.Cmd {
+	if msg.Error != nil {
+		a.err = msg.Error
+		return nil
+	}
+
+	// On successful delete, navigate back to disks list and refresh
+	if msg.Action == "delete" {
+		// If we're in disk details view, go back to disks list
+		if a.currentView == ViewDiskDetails {
+			// Pop back to disks view
+			if len(a.viewStack) > 0 {
+				lastViewIndex := len(a.viewStack) - 1
+				a.currentView = a.viewStack[lastViewIndex]
+				a.viewStack = a.viewStack[:lastViewIndex]
+			}
+
+			// Clean up disk details view
+			a.diskDetailsView = nil
+			a.selectedDisk = nil
+
+			a.updateSidebarActiveView()
+		}
+
+		// Refresh disks list
+		if a.disksView != nil {
+			return a.disksView.Init()
+		}
+	}
+
+	// For snapshot creation, navigate back from create view
+	if msg.Action == "snapshot" {
+		if a.currentView == ViewSnapshotCreate {
+			// Pop back to previous view
+			if len(a.viewStack) > 0 {
+				lastViewIndex := len(a.viewStack) - 1
+				a.currentView = a.viewStack[lastViewIndex]
+				a.viewStack = a.viewStack[:lastViewIndex]
+			}
+			a.snapshotCreateView = nil
+			a.updateSidebarActiveView()
+		}
+		a.err = nil
+	}
+
+	// For image creation, navigate back from create view
+	if msg.Action == "image" {
+		if a.currentView == ViewImageCreate {
+			// Pop back to previous view
+			if len(a.viewStack) > 0 {
+				lastViewIndex := len(a.viewStack) - 1
+				a.currentView = a.viewStack[lastViewIndex]
+				a.viewStack = a.viewStack[:lastViewIndex]
+			}
+			a.imageCreateView = nil
+			a.updateSidebarActiveView()
+		}
+		a.err = nil
+	}
+
+	return nil
+}
+

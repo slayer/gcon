@@ -12,7 +12,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
+	"github.com/slayer/gcon/internal/ui/components/actionmenu"
+	"github.com/slayer/gcon/internal/ui/components/confirm"
 	"github.com/slayer/gcon/internal/ui/context"
+	"github.com/slayer/gcon/internal/ui/overlay"
 	"github.com/slayer/gcon/internal/ui/symbols"
 	"github.com/slayer/gcon/internal/ui/timeutil"
 )
@@ -48,12 +51,24 @@ type DiskDetailsView struct {
 	height        int
 	keys          diskDetailsKeyMap
 	ready         bool
+
+	// Action menu state
+	actionMenu *actionmenu.ActionMenu
+	menuOpen   bool
+
+	// Delete confirmation state
+	deleteConfirm     *confirm.ConfirmDialog
+	showDeleteConfirm bool
 }
 
 type diskDetailsKeyMap struct {
-	Up      key.Binding
-	Down    key.Binding
-	Refresh key.Binding
+	Up         key.Binding
+	Down       key.Binding
+	Refresh    key.Binding
+	ActionMenu key.Binding
+	Snapshot   key.Binding
+	Image      key.Binding
+	Delete     key.Binding
 }
 
 func defaultDiskDetailsKeyMap() diskDetailsKeyMap {
@@ -69,6 +84,22 @@ func defaultDiskDetailsKeyMap() diskDetailsKeyMap {
 		Refresh: key.NewBinding(
 			key.WithKeys("r"),
 			key.WithHelp("r", "refresh"),
+		),
+		ActionMenu: key.NewBinding(
+			key.WithKeys("."),
+			key.WithHelp(".", "actions"),
+		),
+		Snapshot: key.NewBinding(
+			key.WithKeys("s"),
+			key.WithHelp("s", "snapshot"),
+		),
+		Image: key.NewBinding(
+			key.WithKeys("i"),
+			key.WithHelp("i", "image"),
+		),
+		Delete: key.NewBinding(
+			key.WithKeys("D"),
+			key.WithHelp("D", "delete"),
 		),
 	}
 }
@@ -110,6 +141,7 @@ func (v *DiskDetailsView) loadDetails() tea.Cmd {
 }
 
 // Update handles messages for the disk details view
+//nolint:gocognit // Bubble Tea Update pattern - complexity 45
 func (v *DiskDetailsView) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case diskDetailsLoadedMsg:
@@ -123,6 +155,27 @@ func (v *DiskDetailsView) Update(msg tea.Msg) tea.Cmd {
 		v.err = msg.err
 		return nil
 
+	case actionmenu.ActionSelectedMsg:
+		v.menuOpen = false
+		return v.executeAction(msg.Key)
+
+	case actionmenu.ActionMenuClosedMsg:
+		v.menuOpen = false
+		return nil
+
+	case confirm.ConfirmMsg:
+		v.showDeleteConfirm = false
+		return func() tea.Msg {
+			return DeleteDiskConfirmedMsg{
+				DiskName: v.diskName,
+				Zone:     v.zone,
+			}
+		}
+
+	case confirm.CancelMsg:
+		v.showDeleteConfirm = false
+		return nil
+
 	case spinner.TickMsg:
 		if v.loading {
 			var cmd tea.Cmd
@@ -132,7 +185,44 @@ func (v *DiskDetailsView) Update(msg tea.Msg) tea.Cmd {
 		return nil
 
 	case tea.KeyMsg:
-		if key.Matches(msg, v.keys.Refresh) {
+		// Route to delete confirmation dialog when shown
+		if v.showDeleteConfirm && v.deleteConfirm != nil {
+			return v.deleteConfirm.Update(msg)
+		}
+
+		// Route to action menu when open
+		if v.menuOpen && v.actionMenu != nil {
+			return v.actionMenu.Update(msg)
+		}
+
+		switch {
+		case key.Matches(msg, v.keys.ActionMenu):
+			if v.details != nil {
+				v.actionMenu = actionmenu.New("Disk Actions", v.buildActions())
+				v.menuOpen = true
+			}
+			return nil
+
+		case key.Matches(msg, v.keys.Snapshot):
+			if v.details != nil {
+				return v.showSnapshotDialog()
+			}
+			return nil
+
+		case key.Matches(msg, v.keys.Image):
+			if v.details != nil {
+				return v.showImageDialog()
+			}
+			return nil
+
+		case key.Matches(msg, v.keys.Delete):
+			// Delete only enabled if disk is detached
+			if v.details != nil && !v.isAttached() {
+				return v.showDeleteConfirmation()
+			}
+			return nil
+
+		case key.Matches(msg, v.keys.Refresh):
 			v.loading = true
 			v.err = nil
 			return tea.Batch(v.spinner.Tick, v.loadDetails())
@@ -147,6 +237,113 @@ func (v *DiskDetailsView) Update(msg tea.Msg) tea.Cmd {
 	}
 
 	return nil
+}
+
+// isAttached returns true if the disk is attached to any instance
+func (v *DiskDetailsView) isAttached() bool {
+	return v.details != nil && len(v.details.Users) > 0
+}
+
+// buildActions creates the action menu items based on disk state
+func (v *DiskDetailsView) buildActions() []actionmenu.Action {
+	isDetached := !v.isAttached()
+
+	return []actionmenu.Action{
+		{Key: 's', Label: "Create Snapshot", Enabled: true},
+		{Key: 'i', Label: "Create Image", Enabled: true},
+		{Key: 'D', Label: "Delete", Enabled: isDetached, Dangerous: true},
+		{Key: 'r', Label: "Refresh", Enabled: true},
+	}
+}
+
+// executeAction performs the action selected from the menu
+func (v *DiskDetailsView) executeAction(actionKey rune) tea.Cmd {
+	if v.details == nil {
+		return nil
+	}
+
+	switch actionKey {
+	case 's':
+		return v.showSnapshotDialog()
+	case 'i':
+		return v.showImageDialog()
+	case 'D':
+		if !v.isAttached() {
+			return v.showDeleteConfirmation()
+		}
+	case 'r':
+		v.loading = true
+		v.err = nil
+		return tea.Batch(v.spinner.Tick, v.loadDetails())
+	}
+
+	return nil
+}
+
+// showSnapshotDialog opens the snapshot creation form
+func (v *DiskDetailsView) showSnapshotDialog() tea.Cmd {
+	attachedTo := ""
+	if v.details != nil && len(v.details.Users) > 0 {
+		attachedTo = extractInstanceNameFromURL(v.details.Users[0])
+	}
+
+	return func() tea.Msg {
+		return SnapshotCreateRequestMsg{
+			DiskName:   v.diskName,
+			Zone:       v.zone,
+			AttachedTo: attachedTo,
+		}
+	}
+}
+
+// showImageDialog opens the image creation form
+func (v *DiskDetailsView) showImageDialog() tea.Cmd {
+	attachedTo := ""
+	if v.details != nil && len(v.details.Users) > 0 {
+		attachedTo = extractInstanceNameFromURL(v.details.Users[0])
+	}
+
+	return func() tea.Msg {
+		return ImageCreateRequestMsg{
+			DiskName:   v.diskName,
+			Zone:       v.zone,
+			AttachedTo: attachedTo,
+		}
+	}
+}
+
+// extractInstanceNameFromURL extracts the instance name from a full GCP resource URL
+// URL format: projects/{project}/zones/{zone}/instances/{instance}
+func extractInstanceNameFromURL(url string) string {
+	parts := strings.Split(url, "/")
+	if len(parts) > 0 {
+		return parts[len(parts)-1]
+	}
+	return url
+}
+
+// showDeleteConfirmation opens the delete confirmation dialog
+func (v *DiskDetailsView) showDeleteConfirmation() tea.Cmd {
+	details := []string{
+		fmt.Sprintf("Zone: %s", v.zone),
+	}
+	if v.details != nil {
+		details = append(details, fmt.Sprintf("Size: %d GB", v.details.SizeGB))
+	}
+	details = append(details, "This action cannot be undone.")
+
+	v.deleteConfirm = confirm.New(
+		"Delete Disk",
+		fmt.Sprintf("Are you sure you want to delete disk '%s'?", v.diskName),
+		details,
+	)
+	v.showDeleteConfirm = true
+	return nil
+}
+
+// IsMenuOpen returns true if the action menu is currently open
+func (v *DiskDetailsView) IsMenuOpen() bool {
+	return v.menuOpen || v.showDeleteConfirm
 }
 
 // View renders the disk details view
@@ -171,9 +368,27 @@ func (v *DiskDetailsView) View() string {
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
 	scrollStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#4285F4"))
 	scrollInfo := scrollStyle.Render(fmt.Sprintf("%.0f%%", v.viewport.ScrollPercent()*100))
-	help := helpStyle.Render("\n  ↑/↓: scroll • r: refresh • esc: back") + " " + scrollInfo
+	help := helpStyle.Render("\n  ↑/↓: scroll • .: actions • s: snapshot • i: image • r: refresh • esc: back") + " " + scrollInfo
 
-	return v.viewport.View() + help
+	mainContent := v.viewport.View() + help
+
+	// Overlay action menu if open
+	if v.menuOpen && v.actionMenu != nil {
+		return v.renderWithOverlay(mainContent, v.actionMenu.View())
+	}
+
+	// Overlay delete confirmation if shown
+	if v.showDeleteConfirm && v.deleteConfirm != nil {
+		return v.renderWithOverlay(mainContent, v.deleteConfirm.View())
+	}
+
+	return mainContent
+}
+
+// renderWithOverlay overlays a dialog centered on top of the content
+func (v *DiskDetailsView) renderWithOverlay(content, overlayContent string) string {
+	contentHeight := lipgloss.Height(content)
+	return overlay.Center(content, overlayContent, v.width, contentHeight)
 }
 
 // SetContext updates the view with shared program context.
@@ -362,4 +577,9 @@ func (v *DiskDetailsView) renderLoading(msg string) string {
 // GetDiskName returns the disk name for use in breadcrumbs
 func (v *DiskDetailsView) GetDiskName() string {
 	return v.diskName
+}
+
+// GetComputeClient returns the compute client for reuse
+func (v *DiskDetailsView) GetComputeClient() *gcp.ComputeClient {
+	return v.computeClient
 }

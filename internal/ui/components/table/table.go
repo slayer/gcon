@@ -422,6 +422,12 @@ func (m *Model) IsFiltering() bool {
 	return m.filtering
 }
 
+// HasTextInputFocused returns true if the filter text input is focused.
+// Used to prevent global hotkeys (like 'q' for quit) from triggering while typing.
+func (m *Model) HasTextInputFocused() bool {
+	return m.filtering
+}
+
 // FilterValue returns the current filter text
 func (m *Model) FilterValue() string {
 	return m.filter.Value()

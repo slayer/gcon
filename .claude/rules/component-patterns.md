@@ -152,3 +152,47 @@ func (v *View) loadData() tea.Cmd {
     }
 }
 ```
+
+## Text Input Focus Handling (TextInputFocusable)
+
+**Critical**: Views that show dialogs or modals with text input MUST implement `HasTextInputFocused()`.
+
+The app skips global character keys (like 'q' for quit) when a view reports text input is focused. Without this, typing 'q' in a text field will quit the app.
+
+```go
+// WRONG - global 'q' key will quit app when input dialog is open
+type MyView struct {
+    inputDialog     *inputdialog.InputDialog
+    showInputDialog bool
+}
+
+// CORRECT - implement TextInputFocusable interface
+func (v *MyView) HasTextInputFocused() bool {
+    // Return true when ANY text input component is active
+    return v.showInputDialog && v.inputDialog != nil
+}
+
+// For views with forms:
+func (v *MyView) HasTextInputFocused() bool {
+    if v.form != nil {
+        return v.form.HasTextInputFocused()
+    }
+    return false
+}
+
+// For views with multiple possible text inputs:
+func (v *MyView) HasTextInputFocused() bool {
+    if v.showInputDialog && v.inputDialog != nil {
+        return true
+    }
+    if v.form != nil && v.form.HasTextInputFocused() {
+        return true
+    }
+    return false
+}
+```
+
+**Checklist when adding text input to a view:**
+1. Does the view implement `HasTextInputFocused() bool`?
+2. Does it return `true` when the text input is active?
+3. Test by typing 'q' in the input field - it should NOT quit the app

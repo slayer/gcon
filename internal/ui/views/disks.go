@@ -11,9 +11,12 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components"
+	"github.com/slayer/gcon/internal/ui/components/actionmenu"
+	"github.com/slayer/gcon/internal/ui/components/confirm"
 	"github.com/slayer/gcon/internal/ui/components/table"
 	"github.com/slayer/gcon/internal/ui/context"
 	"github.com/slayer/gcon/internal/ui/mouse"
+	"github.com/slayer/gcon/internal/ui/overlay"
 	"github.com/slayer/gcon/internal/ui/symbols"
 )
 
@@ -28,12 +31,29 @@ type DisksView struct {
 	err           error
 	disks         []gcp.Disk
 	keys          diskKeyMap
+
+	// Action menu state
+	actionMenu *actionmenu.ActionMenu
+	menuOpen   bool
+
+	// Delete confirmation state
+	deleteConfirm     *confirm.ConfirmDialog
+	showDeleteConfirm bool
+	pendingDelete     *gcp.Disk // Disk pending deletion
+
+	// View dimensions for overlay rendering
+	width  int
+	height int
 }
 
 // diskKeyMap defines disk-specific key bindings
 type diskKeyMap struct {
-	Enter   key.Binding
-	Refresh key.Binding
+	Enter      key.Binding
+	Refresh    key.Binding
+	ActionMenu key.Binding
+	Snapshot   key.Binding
+	Image      key.Binding
+	Delete     key.Binding
 }
 
 func defaultDiskKeyMap() diskKeyMap {
@@ -45,6 +65,22 @@ func defaultDiskKeyMap() diskKeyMap {
 		Refresh: key.NewBinding(
 			key.WithKeys("r"),
 			key.WithHelp("r", "refresh"),
+		),
+		ActionMenu: key.NewBinding(
+			key.WithKeys("."),
+			key.WithHelp(".", "actions"),
+		),
+		Snapshot: key.NewBinding(
+			key.WithKeys("s"),
+			key.WithHelp("s", "snapshot"),
+		),
+		Image: key.NewBinding(
+			key.WithKeys("i"),
+			key.WithHelp("i", "image"),
+		),
+		Delete: key.NewBinding(
+			key.WithKeys("D"),
+			key.WithHelp("D", "delete"),
 		),
 	}
 }
@@ -161,6 +197,7 @@ func diskToRow(disk gcp.Disk) table.Row { //nolint:gocritic // Copying disk is a
 }
 
 // Update handles messages for the disks view
+//nolint:gocognit // Bubble Tea Update pattern - complexity 45
 func (v *DisksView) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case disksClientReadyMsg:
@@ -194,6 +231,33 @@ func (v *DisksView) Update(msg tea.Msg) tea.Cmd {
 		}
 		return nil
 
+	case actionmenu.ActionSelectedMsg:
+		v.menuOpen = false
+		return v.executeAction(msg.Key)
+
+	case actionmenu.ActionMenuClosedMsg:
+		v.menuOpen = false
+		return nil
+
+	case confirm.ConfirmMsg:
+		v.showDeleteConfirm = false
+		if v.pendingDelete != nil {
+			disk := v.pendingDelete
+			v.pendingDelete = nil
+			return func() tea.Msg {
+				return DeleteDiskConfirmedMsg{
+					DiskName: disk.Name,
+					Zone:     disk.Zone,
+				}
+			}
+		}
+		return nil
+
+	case confirm.CancelMsg:
+		v.showDeleteConfirm = false
+		v.pendingDelete = nil
+		return nil
+
 	case spinner.TickMsg:
 		if v.loading {
 			var cmd tea.Cmd
@@ -203,6 +267,16 @@ func (v *DisksView) Update(msg tea.Msg) tea.Cmd {
 		return nil
 
 	case tea.KeyMsg:
+		// Route to delete confirmation dialog when shown
+		if v.showDeleteConfirm && v.deleteConfirm != nil {
+			return v.deleteConfirm.Update(msg)
+		}
+
+		// Route to action menu when open
+		if v.menuOpen && v.actionMenu != nil {
+			return v.actionMenu.Update(msg)
+		}
+
 		// Don't handle custom keys during loading
 		if v.loading {
 			return nil
@@ -227,6 +301,47 @@ func (v *DisksView) Update(msg tea.Msg) tea.Cmd {
 				}
 			}
 
+		case key.Matches(msg, v.keys.ActionMenu):
+			// Open action menu for selected disk
+			if row := v.table.SelectedRow(); row != nil {
+				disk := v.findDiskByName(row.ID)
+				if disk != nil {
+					v.actionMenu = actionmenu.New("Disk Actions", v.buildActions(disk))
+					v.menuOpen = true
+				}
+			}
+			return nil
+
+		case key.Matches(msg, v.keys.Snapshot):
+			// Direct hotkey for snapshot
+			if row := v.table.SelectedRow(); row != nil {
+				disk := v.findDiskByName(row.ID)
+				if disk != nil {
+					return v.showSnapshotDialog(disk)
+				}
+			}
+			return nil
+
+		case key.Matches(msg, v.keys.Image):
+			// Direct hotkey for image
+			if row := v.table.SelectedRow(); row != nil {
+				disk := v.findDiskByName(row.ID)
+				if disk != nil {
+					return v.showImageDialog(disk)
+				}
+			}
+			return nil
+
+		case key.Matches(msg, v.keys.Delete):
+			// Direct hotkey for delete (only if detached)
+			if row := v.table.SelectedRow(); row != nil {
+				disk := v.findDiskByName(row.ID)
+				if disk != nil && !disk.IsAttached() {
+					return v.showDeleteConfirmation(disk)
+				}
+			}
+			return nil
+
 		case key.Matches(msg, v.keys.Refresh):
 			v.loading = true
 			v.err = nil
@@ -238,6 +353,92 @@ func (v *DisksView) Update(msg tea.Msg) tea.Cmd {
 	var cmd tea.Cmd
 	v.table, cmd = v.table.Update(msg)
 	return cmd
+}
+
+// buildActions creates the action menu items based on disk state
+func (v *DisksView) buildActions(disk *gcp.Disk) []actionmenu.Action {
+	isDetached := !disk.IsAttached()
+
+	return []actionmenu.Action{
+		{Key: 's', Label: "Create Snapshot", Enabled: true},
+		{Key: 'i', Label: "Create Image", Enabled: true},
+		{Key: 'D', Label: "Delete", Enabled: isDetached, Dangerous: true},
+	}
+}
+
+// executeAction performs the action selected from the menu
+func (v *DisksView) executeAction(actionKey rune) tea.Cmd {
+	row := v.table.SelectedRow()
+	if row == nil {
+		return nil
+	}
+
+	disk := v.findDiskByName(row.ID)
+	if disk == nil {
+		return nil
+	}
+
+	switch actionKey {
+	case 's':
+		return v.showSnapshotDialog(disk)
+	case 'i':
+		return v.showImageDialog(disk)
+	case 'D':
+		if !disk.IsAttached() {
+			return v.showDeleteConfirmation(disk)
+		}
+	}
+
+	return nil
+}
+
+// showSnapshotDialog opens the snapshot creation form
+func (v *DisksView) showSnapshotDialog(disk *gcp.Disk) tea.Cmd {
+	return func() tea.Msg {
+		return SnapshotCreateRequestMsg{
+			DiskName:   disk.Name,
+			Zone:       disk.Zone,
+			AttachedTo: disk.AttachedTo,
+		}
+	}
+}
+
+// showImageDialog opens the image creation form
+func (v *DisksView) showImageDialog(disk *gcp.Disk) tea.Cmd {
+	return func() tea.Msg {
+		return ImageCreateRequestMsg{
+			DiskName:   disk.Name,
+			Zone:       disk.Zone,
+			AttachedTo: disk.AttachedTo,
+		}
+	}
+}
+
+// showDeleteConfirmation opens the delete confirmation dialog
+func (v *DisksView) showDeleteConfirmation(disk *gcp.Disk) tea.Cmd {
+	v.deleteConfirm = confirm.New(
+		"Delete Disk",
+		fmt.Sprintf("Are you sure you want to delete disk '%s'?", disk.Name),
+		[]string{
+			fmt.Sprintf("Zone: %s", disk.Zone),
+			fmt.Sprintf("Size: %d GB", disk.SizeGB),
+			"This action cannot be undone.",
+		},
+	)
+	v.showDeleteConfirm = true
+	v.pendingDelete = disk
+	return nil
+}
+
+// IsMenuOpen returns true if the action menu is currently open
+func (v *DisksView) IsMenuOpen() bool {
+	return v.menuOpen || v.showDeleteConfirm
+}
+
+// HasTextInputFocused returns true if the table filter is active.
+// Used to prevent global hotkeys (like 'q' for quit) from triggering while typing.
+func (v *DisksView) HasTextInputFocused() bool {
+	return v.table.HasTextInputFocused()
 }
 
 // findDiskByName looks up a disk by name
@@ -270,9 +471,27 @@ func (v *DisksView) View() string {
 
 	// Help text for actions
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
-	help := helpStyle.Render("\n  enter: details • /: filter • r: refresh • esc: back")
+	help := helpStyle.Render("\n  enter: details • .: actions • s: snapshot • i: image • /: filter • r: refresh • esc: back")
 
-	return v.table.View() + help
+	mainContent := v.table.View() + help
+
+	// Overlay action menu if open
+	if v.menuOpen && v.actionMenu != nil {
+		return v.renderWithOverlay(mainContent, v.actionMenu.View())
+	}
+
+	// Overlay delete confirmation if shown
+	if v.showDeleteConfirm && v.deleteConfirm != nil {
+		return v.renderWithOverlay(mainContent, v.deleteConfirm.View())
+	}
+
+	return mainContent
+}
+
+// renderWithOverlay overlays a dialog centered on top of the content
+func (v *DisksView) renderWithOverlay(content, overlayContent string) string {
+	contentHeight := lipgloss.Height(content)
+	return overlay.Center(content, overlayContent, v.width, contentHeight)
 }
 
 // GetComputeClient returns the compute client for reuse in detail views
@@ -284,6 +503,8 @@ func (v *DisksView) GetComputeClient() *gcp.ComputeClient {
 // Reads dimensions from the context for consistent sizing.
 func (v *DisksView) SetContext(ctx *context.ProgramContext) {
 	v.ctx = ctx
+	v.width = ctx.ContentWidth
+	v.height = ctx.ContentHeight
 	v.table.SetSize(ctx.ContentWidth, ctx.ContentHeight-6)
 }
 

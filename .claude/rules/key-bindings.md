@@ -82,6 +82,31 @@ description: Keyboard shortcuts reference for all views
 | `a` | Toggle auto-refresh (30s interval, on by default) |
 | `r` | Manual refresh metrics |
 
+## Disks View
+
+| Key | Action |
+|-----|--------|
+| `Enter` | View disk details |
+| `.` | Open action menu |
+| `s` | Create snapshot from disk |
+| `i` | Create image from disk |
+| `D` | Delete disk (if detached) |
+| `/` | Filter disks |
+| `r` | Refresh list |
+| `Esc` | Go back |
+
+## Disk Details View
+
+| Key | Action |
+|-----|--------|
+| `.` | Open action menu |
+| `s` | Create snapshot from disk |
+| `i` | Create image from disk |
+| `D` | Delete disk (if detached) |
+| `r` | Refresh details |
+| `↑/↓` | Scroll content |
+| `Esc` | Go back |
+
 ## Buckets View
 
 | Key | Action |
