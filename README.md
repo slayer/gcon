@@ -9,6 +9,7 @@ A terminal UI for managing Google Cloud Platform resources.
 
 - **Project Selector** - Browse and filter GCP projects with fuzzy search
 - **Compute Engine** - List, start, stop, and reset VM instances
+- **Cloud Storage** - Browse buckets, upload/download objects, create buckets
 - **Keyboard-driven** - Vim-style navigation and shortcuts
 - **Fast** - Async API calls with loading indicators
 
@@ -96,6 +97,25 @@ gcon
 | `x` | Delete label |
 | `Ctrl+S` | Save changes |
 | `Tab` | Switch key/value input |
+
+#### Cloud Storage Buckets
+
+| Key | Action |
+|-----|--------|
+| `Enter` | Browse bucket contents |
+| `c` | Create new bucket |
+| `/` | Filter buckets |
+| `r` | Refresh list |
+
+#### Cloud Storage Objects
+
+| Key | Action |
+|-----|--------|
+| `Enter` | Open folder / View file |
+| `d` | Download file/folder |
+| `u` | Upload files |
+| `D` | Delete (with confirmation) |
+| `n/p` | Next/Previous page |
 
 ## Building
 

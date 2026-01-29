@@ -1,0 +1,154 @@
+---
+description: UI component best practices and patterns
+globs:
+  - "internal/ui/**/*.go"
+---
+
+# Component Patterns
+
+## Always Create Fresh Modal Instances
+
+When opening modals/overlays, always create a new instance with current state rather than reusing stale instances:
+
+```go
+// Wrong - reuses stale instance if selectedProject is nil
+if a.selectedProject != nil {
+    a.projectSelector = projectselector.New(a.gcpClient, a.selectedProject.ID)
+}
+a.showProjectSelector = true
+return a, a.projectSelector.Init()
+
+// Correct - always creates fresh instance
+currentProjectID := ""
+if a.selectedProject != nil {
+    currentProjectID = a.selectedProject.ID
+}
+a.projectSelector = projectselector.New(a.gcpClient, currentProjectID)
+a.showProjectSelector = true
+return a, a.projectSelector.Init()
+```
+
+## Defensive Bounds Checking for List Components
+
+Always validate list bounds before accessing elements, especially in user input handlers:
+
+```go
+// Handling Enter key on a filtered list
+case key.Matches(msg, m.keys.Select):
+    // Check for empty list first
+    if len(m.filteredProjects) == 0 {
+        return nil
+    }
+    // Check cursor bounds
+    if m.cursor < 0 || m.cursor >= len(m.filteredProjects) {
+        m.cursor = 0
+        return nil
+    }
+    // Safe to access now
+    selectedItem := m.filteredProjects[m.cursor]
+```
+
+## Cursor Position After Filtering
+
+Cap cursor to the last valid position instead of always resetting to 0 when filtering reduces list size:
+
+```go
+// Reset cursor if out of bounds after filtering
+if m.cursor >= len(m.filteredProjects) {
+    if len(m.filteredProjects) > 0 {
+        m.cursor = len(m.filteredProjects) - 1  // Preserve position
+    } else {
+        m.cursor = 0
+    }
+}
+```
+
+## Mouse Click Region Calculations
+
+For click regions, use simple geometry based on known dimensions rather than re-rendering components:
+
+```go
+// Wrong - calls render again, potentially inconsistent
+right3X := f.right3StartPos + (f.terminalWidth(f.renderRightGroup()) - f.right3Width)
+
+// Correct - use simple geometry
+right3X := f.width - f.right3Width  // Right-aligned section
+```
+
+## Complete State Cleanup on Context Switch
+
+When switching contexts (e.g., projects), ensure ALL view instances are cleared to prevent stale state:
+
+```go
+func (a *App) clearAllViews() {
+    a.projectView = nil           // Don't forget any views!
+    a.instancesView = nil
+    a.instanceDetailsView = nil
+    // ... clear ALL view instances
+
+    // Clear navigation state
+    a.viewStack = nil
+
+    // Clear selected resources
+    a.selectedInstance = nil
+    // ... clear ALL selected resources
+}
+```
+
+## Deterministic Map Iteration for UI
+
+Go maps iterate in random order. When rendering UI elements from maps (labels, tags, etc.), sort keys first for consistent output and testable behavior:
+
+```go
+// Wrong - non-deterministic order, flaky tests
+for key, val := range labels {
+    fields = append(fields, Field{Label: key, Value: val})
+}
+
+// Correct - deterministic alphabetical order
+keys := make([]string, 0, len(labels))
+for k := range labels {
+    keys = append(keys, k)
+}
+sort.Strings(keys)
+for _, key := range keys {
+    fields = append(fields, Field{Label: key, Value: labels[key]})
+}
+```
+
+## Allow Cancel During Async Operations
+
+Users should be able to cancel/escape during loading or saving states. Check for cancel key before returning nil in async state handlers:
+
+```go
+func (v *View) handleKeyMsg(msg tea.KeyMsg) tea.Cmd {
+    // Handle loading/saving states - allow cancel
+    if v.state == stateLoading || v.state == stateSaving {
+        if key.Matches(msg, v.keys.Cancel) {
+            return func() tea.Msg { return CancelledMsg{} }
+        }
+        return nil  // Ignore other keys during async ops
+    }
+    // ... handle other states
+}
+```
+
+## Nil Client Checks in Async Commands
+
+GCP client may be nil in tests or error states. Add defensive checks at the start of async commands:
+
+```go
+func (v *View) loadData() tea.Cmd {
+    return func() tea.Msg {
+        if v.client == nil {
+            return errorMsg{err: fmt.Errorf("client not initialized")}
+        }
+        // Safe to use client now
+        data, err := v.client.GetData(ctx, v.resourceID)
+        if err != nil {
+            return errorMsg{err: err}
+        }
+        return dataLoadedMsg{data: data}
+    }
+}
+```
