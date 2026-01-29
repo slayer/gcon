@@ -28,7 +28,8 @@ var (
 	}
 
 	// AllStorageLocations contains all storage locations (multi-regional + regional)
-	AllStorageLocations = append(ComputeMultiRegions, ComputeRegions...)
+	// Use explicit copy to avoid modifying ComputeMultiRegions' underlying array
+	AllStorageLocations = append(append([]string{}, ComputeMultiRegions...), ComputeRegions...)
 )
 
 // Instance represents a simplified Compute Engine VM instance

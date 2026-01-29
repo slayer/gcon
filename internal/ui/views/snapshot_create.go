@@ -93,10 +93,12 @@ func (v *SnapshotCreateView) buildForm() {
 		EnableViewport()
 
 	// Basic Settings section
+	// Default name: truncate disk name if needed to fit 63-char GCP limit
+	defaultName := truncateForSuffix(v.diskName, "-snapshot", 63)
 	basicSection := forms.NewSection("basic", "Basic Settings").
 		AddField(forms.NewTextField("name", "Snapshot Name").
 			SetRequired(true).
-			SetValue(v.diskName+"-snapshot").
+			SetValue(defaultName).
 			SetPlaceholder("my-snapshot").
 			SetHelpText("1-63 characters, lowercase letters, numbers, and hyphens").
 			SetValidator(forms.ComposeValidators(
@@ -227,6 +229,21 @@ func (v *SnapshotCreateView) handleSubmit() tea.Cmd {
 			}
 		},
 	)
+}
+
+// truncateForSuffix truncates a name to fit within maxLen when suffix is added.
+// GCP resource names have a 63 character limit.
+func truncateForSuffix(name, suffix string, maxLen int) string {
+	combined := name + suffix
+	if len(combined) <= maxLen {
+		return combined
+	}
+	// Truncate name to fit suffix within maxLen
+	maxNameLen := maxLen - len(suffix)
+	if maxNameLen < 1 {
+		maxNameLen = 1
+	}
+	return name[:maxNameLen] + suffix
 }
 
 // parseLabelsFromText parses labels from key=value text format

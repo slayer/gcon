@@ -93,10 +93,12 @@ func (v *ImageCreateView) buildForm() {
 		EnableViewport()
 
 	// Basic Settings section
+	// Default name: truncate disk name if needed to fit 63-char GCP limit
+	defaultName := truncateForSuffix(v.diskName, "-image", 63)
 	basicSection := forms.NewSection("basic", "Basic Settings").
 		AddField(forms.NewTextField("name", "Image Name").
 			SetRequired(true).
-			SetValue(v.diskName+"-image").
+			SetValue(defaultName).
 			SetPlaceholder("my-image").
 			SetHelpText("1-63 characters, lowercase letters, numbers, and hyphens").
 			SetValidator(forms.ComposeValidators(
