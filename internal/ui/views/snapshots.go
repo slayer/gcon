@@ -325,6 +325,12 @@ func (v *SnapshotsView) GetComputeClient() *gcp.ComputeClient {
 	return v.computeClient
 }
 
+// HasTextInputFocused returns true if the table filter is active.
+// Used to prevent global hotkeys (like 'q' for quit) from triggering while typing.
+func (v *SnapshotsView) HasTextInputFocused() bool {
+	return v.table.HasTextInputFocused()
+}
+
 // SetContext updates the view with shared program context
 func (v *SnapshotsView) SetContext(ctx *context.ProgramContext) {
 	v.ctx = ctx

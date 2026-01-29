@@ -166,6 +166,14 @@ func (a *App) renderCurrentView() string {
 		if a.bucketCreateView != nil {
 			return a.bucketCreateView.View()
 		}
+	case ViewSnapshotCreate:
+		if a.snapshotCreateView != nil {
+			return a.snapshotCreateView.View()
+		}
+	case ViewImageCreate:
+		if a.imageCreateView != nil {
+			return a.imageCreateView.View()
+		}
 	case ViewNetworks:
 		return a.renderPlaceholder("VPC Networks")
 	case ViewFirewall:

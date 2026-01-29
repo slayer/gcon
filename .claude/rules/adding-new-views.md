@@ -116,6 +116,27 @@ func (a *App) updateSidebarActiveView() {
 }
 ```
 
-## Common Symptom
+### 9. View with Text Input - HasTextInputFocused()
 
-If you see "View not implemented" when navigating to a new view, you likely forgot to add the case in `renderCurrentView()` in `app_render.go`.
+**If view has ANY text input (forms, dialogs, search fields)**, implement `TextInputFocusable`:
+
+```go
+// Required to prevent 'q' key from quitting when typing
+func (v *XxxView) HasTextInputFocused() bool {
+    // Return true when text input is active
+    if v.showInputDialog && v.inputDialog != nil {
+        return true
+    }
+    if v.form != nil {
+        return v.form.HasTextInputFocused()
+    }
+    return false
+}
+```
+
+**Test**: Type 'q' in any text field - it should NOT quit the app.
+
+## Common Symptoms
+
+- **"View not implemented"** when navigating → forgot `renderCurrentView()` in `app_render.go`
+- **App quits when typing 'q'** in text field → forgot `HasTextInputFocused()` implementation
