@@ -254,6 +254,12 @@ func (v *ProjectsView) SelectedProject() *gcp.Project {
 	return nil
 }
 
+// HasTextInputFocused returns true if the table filter is active.
+// Used to prevent global hotkeys (like 'q' for quit) from triggering while typing.
+func (v *ProjectsView) HasTextInputFocused() bool {
+	return v.table.HasTextInputFocused()
+}
+
 // UpdateRegions delegates to the table component.
 // Implements the components.Clickable interface.
 func (v *ProjectsView) UpdateRegions(offsetX, offsetY int) {

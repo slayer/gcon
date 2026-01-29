@@ -9,6 +9,29 @@ import (
 	"google.golang.org/api/option"
 )
 
+// Storage location options for snapshots and images
+var (
+	// ComputeMultiRegions contains multi-regional storage locations
+	ComputeMultiRegions = []string{"us", "eu", "asia"}
+
+	// ComputeRegions contains regional storage locations (same as GCS regions)
+	ComputeRegions = []string{
+		"us-central1", "us-east1", "us-east4", "us-east5", "us-south1", "us-west1", "us-west2", "us-west3", "us-west4",
+		"northamerica-northeast1", "northamerica-northeast2", "southamerica-east1", "southamerica-west1",
+		"europe-central2", "europe-north1", "europe-southwest1", "europe-west1", "europe-west2", "europe-west3",
+		"europe-west4", "europe-west6", "europe-west8", "europe-west9", "europe-west10", "europe-west12",
+		"asia-east1", "asia-east2", "asia-northeast1", "asia-northeast2", "asia-northeast3",
+		"asia-south1", "asia-south2", "asia-southeast1", "asia-southeast2",
+		"australia-southeast1", "australia-southeast2",
+		"me-central1", "me-central2", "me-west1",
+		"africa-south1",
+	}
+
+	// AllStorageLocations contains all storage locations (multi-regional + regional)
+	// Use explicit copy to avoid modifying ComputeMultiRegions' underlying array
+	AllStorageLocations = append(append([]string{}, ComputeMultiRegions...), ComputeRegions...)
+)
+
 // Instance represents a simplified Compute Engine VM instance
 type Instance struct {
 	Name        string
@@ -1002,6 +1025,90 @@ func (s *Snapshot) IsCreating() bool {
 // IsFailed returns true if the snapshot creation failed
 func (s *Snapshot) IsFailed() bool {
 	return s.Status == "FAILED"
+}
+
+// DeleteDisk deletes a persistent disk. The disk must be detached from all instances.
+func (c *ComputeClient) DeleteDisk(ctx context.Context, projectID, zone, diskName string) error {
+	_, err := c.service.Disks.Delete(projectID, zone, diskName).Context(ctx).Do()
+	if err != nil {
+		return WrapActionError(err, "delete disk", diskName)
+	}
+	return nil
+}
+
+// SnapshotCreateConfig holds configuration for creating a snapshot
+type SnapshotCreateConfig struct {
+	Name            string
+	Description     string
+	Labels          map[string]string
+	StorageLocation string // Regional or multi-regional (e.g., "us-central1", "us", "eu")
+}
+
+// CreateSnapshotFromDisk creates a snapshot from a disk with the given configuration
+func (c *ComputeClient) CreateSnapshotFromDisk(ctx context.Context, projectID, zone, diskName string, config SnapshotCreateConfig) error {
+	snapshot := &compute.Snapshot{
+		Name:        config.Name,
+		Description: config.Description,
+	}
+
+	if len(config.Labels) > 0 {
+		snapshot.Labels = config.Labels
+	}
+
+	if config.StorageLocation != "" {
+		snapshot.StorageLocations = []string{config.StorageLocation}
+	}
+
+	_, err := c.service.Disks.CreateSnapshot(projectID, zone, diskName, snapshot).Context(ctx).Do()
+	if err != nil {
+		return WrapActionError(err, "create snapshot from disk", diskName)
+	}
+	return nil
+}
+
+// ImageCreateConfig holds configuration for creating an image
+type ImageCreateConfig struct {
+	Name            string
+	Description     string
+	Family          string
+	Labels          map[string]string
+	StorageLocation string // Regional or multi-regional (e.g., "us-central1", "us", "eu")
+	ForceCreate     bool   // If true, create even if disk is attached to running instance
+}
+
+// CreateImageFromDisk creates an image from a disk with the given configuration
+func (c *ComputeClient) CreateImageFromDisk(ctx context.Context, projectID, zone, diskName string, config ImageCreateConfig) error {
+	// Build the full source disk URL
+	sourceDisk := fmt.Sprintf("projects/%s/zones/%s/disks/%s", projectID, zone, diskName)
+
+	image := &compute.Image{
+		Name:        config.Name,
+		Description: config.Description,
+		SourceDisk:  sourceDisk,
+	}
+
+	if config.Family != "" {
+		image.Family = config.Family
+	}
+
+	if len(config.Labels) > 0 {
+		image.Labels = config.Labels
+	}
+
+	if config.StorageLocation != "" {
+		image.StorageLocations = []string{config.StorageLocation}
+	}
+
+	call := c.service.Images.Insert(projectID, image).Context(ctx)
+	if config.ForceCreate {
+		call = call.ForceCreate(true)
+	}
+
+	_, err := call.Do()
+	if err != nil {
+		return WrapActionError(err, "create image from disk", diskName)
+	}
+	return nil
 }
 
 // GetInstanceMetadata retrieves metadata for a specific instance

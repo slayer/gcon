@@ -41,6 +41,8 @@ const (
 	ViewObjectDetails  // Viewing object details
 	ViewInstanceEditor // Editing instance properties (labels, etc.)
 	ViewBucketCreate   // Creating a new GCS bucket
+	ViewSnapshotCreate // Creating a snapshot from a disk
+	ViewImageCreate    // Creating an image from a disk
 	ViewNetworks
 	ViewFirewall
 	ViewLogs
@@ -85,6 +87,8 @@ type App struct {
 	objectDetailsView   *views.ObjectDetailsView
 	instanceEditorView  *views.InstanceEditorView
 	bucketCreateView    *views.BucketCreateView
+	snapshotCreateView  *views.SnapshotCreateView
+	imageCreateView     *views.ImageCreateView
 	formDemoView        *views.FormDemoView
 
 	// Selected context
@@ -290,6 +294,10 @@ func (a *App) getCurrentViewModel() views.View {
 		return a.instanceEditorView
 	case ViewBucketCreate:
 		return a.bucketCreateView
+	case ViewSnapshotCreate:
+		return a.snapshotCreateView
+	case ViewImageCreate:
+		return a.imageCreateView
 	case ViewFormDemo:
 		return a.formDemoView
 	}
@@ -574,6 +582,38 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.handleBucketCreateCanceled()
 		return a, nil
 
+	case views.DeleteDiskConfirmedMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleDeleteDiskConfirmed(msg)
+
+	case views.SnapshotCreateRequestMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleSnapshotCreateRequest(msg)
+
+	case views.SnapshotCreateCanceledMsg:
+		a.handleSnapshotCreateCanceled()
+		return a, nil
+
+	case views.CreateSnapshotFromDiskMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleCreateSnapshotFromDisk(msg)
+
+	case views.ImageCreateRequestMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleImageCreateRequest(msg)
+
+	case views.ImageCreateCanceledMsg:
+		a.handleImageCreateCanceled()
+		return a, nil
+
+	case views.CreateImageFromDiskMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleCreateImageFromDisk(msg)
+
+	case views.DiskActionResultMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleDiskActionResult(msg)
+
 	case components.FooterProjectClickedMsg:
 		// Project section in footer was clicked, show project selector
 		currentProjectID := ""
@@ -740,6 +780,12 @@ func (a *App) updateViewSizes() {
 	}
 	if a.bucketCreateView != nil {
 		a.bucketCreateView.SetContext(a.ctx)
+	}
+	if a.snapshotCreateView != nil {
+		a.snapshotCreateView.SetContext(a.ctx)
+	}
+	if a.imageCreateView != nil {
+		a.imageCreateView.SetContext(a.ctx)
 	}
 }
 

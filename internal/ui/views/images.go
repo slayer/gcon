@@ -309,6 +309,12 @@ func (v *ImagesView) GetComputeClient() *gcp.ComputeClient {
 	return v.computeClient
 }
 
+// HasTextInputFocused returns true if the table filter is active.
+// Used to prevent global hotkeys (like 'q' for quit) from triggering while typing.
+func (v *ImagesView) HasTextInputFocused() bool {
+	return v.table.HasTextInputFocused()
+}
+
 // SetContext updates the view with shared program context.
 // Reads dimensions from the context for consistent sizing.
 func (v *ImagesView) SetContext(ctx *context.ProgramContext) {
