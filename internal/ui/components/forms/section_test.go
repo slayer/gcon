@@ -318,6 +318,22 @@ func TestSectionUpdate(t *testing.T) {
 	})
 
 	t.Run("collapse expanded section with minus key", func(t *testing.T) {
+		// Use a toggle field instead of text field because '-' is passed to
+		// text inputs for typing (e.g., "my-bucket-name")
+		section := NewSection("advanced", "Advanced").
+			SetCollapsible(true).
+			SetCollapsed(false).
+			AddField(NewToggleField("enabled", "Enabled"))
+
+		section.Focus()
+		assert.False(t, section.Collapsed)
+
+		// Minus key to collapse (works because toggle is not a text input)
+		section.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'-'}})
+		assert.True(t, section.Collapsed)
+	})
+
+	t.Run("minus key types hyphen when text input is focused", func(t *testing.T) {
 		section := NewSection("advanced", "Advanced").
 			SetCollapsible(true).
 			SetCollapsed(false).
@@ -326,9 +342,10 @@ func TestSectionUpdate(t *testing.T) {
 		section.Focus()
 		assert.False(t, section.Collapsed)
 
-		// Minus key to collapse
+		// Minus key should NOT collapse when text input is focused
+		// (so users can type hyphens in bucket names, etc.)
 		section.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'-'}})
-		assert.True(t, section.Collapsed)
+		assert.False(t, section.Collapsed, "should not collapse when text input is focused")
 	})
 
 	t.Run("delegate to focused field", func(t *testing.T) {

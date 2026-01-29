@@ -162,6 +162,10 @@ func (a *App) renderCurrentView() string {
 		if a.instanceEditorView != nil {
 			return a.instanceEditorView.View()
 		}
+	case ViewBucketCreate:
+		if a.bucketCreateView != nil {
+			return a.bucketCreateView.View()
+		}
 	case ViewNetworks:
 		return a.renderPlaceholder("VPC Networks")
 	case ViewFirewall:

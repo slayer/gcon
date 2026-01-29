@@ -40,6 +40,7 @@ const (
 	ViewObjects        // Browsing objects within a bucket
 	ViewObjectDetails  // Viewing object details
 	ViewInstanceEditor // Editing instance properties (labels, etc.)
+	ViewBucketCreate   // Creating a new GCS bucket
 	ViewNetworks
 	ViewFirewall
 	ViewLogs
@@ -83,6 +84,7 @@ type App struct {
 	objectsView         *views.ObjectsView
 	objectDetailsView   *views.ObjectDetailsView
 	instanceEditorView  *views.InstanceEditorView
+	bucketCreateView    *views.BucketCreateView
 	formDemoView        *views.FormDemoView
 
 	// Selected context
@@ -286,6 +288,8 @@ func (a *App) getCurrentViewModel() views.View {
 		return a.objectDetailsView
 	case ViewInstanceEditor:
 		return a.instanceEditorView
+	case ViewBucketCreate:
+		return a.bucketCreateView
 	case ViewFormDemo:
 		return a.formDemoView
 	}
@@ -558,6 +562,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.handleInstanceEditCancelled()
 		return a, nil
 
+	case views.BucketCreateRequestMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleBucketCreateRequest(msg)
+
+	case views.BucketCreatedMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleBucketCreated(msg)
+
+	case views.BucketCreateCanceledMsg:
+		a.handleBucketCreateCanceled()
+		return a, nil
+
 	case components.FooterProjectClickedMsg:
 		// Project section in footer was clicked, show project selector
 		currentProjectID := ""
@@ -721,6 +737,9 @@ func (a *App) updateViewSizes() {
 	}
 	if a.instanceEditorView != nil {
 		a.instanceEditorView.SetContext(a.ctx)
+	}
+	if a.bucketCreateView != nil {
+		a.bucketCreateView.SetContext(a.ctx)
 	}
 }
 

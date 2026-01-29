@@ -493,6 +493,7 @@ func (a *App) clearAllViews() {
 	a.projectMetadataView = nil
 	a.metadataView = nil
 	a.instanceEditorView = nil
+	a.bucketCreateView = nil
 
 	// Clear view stack
 	a.viewStack = nil
@@ -637,6 +638,62 @@ func (a *App) handleInstanceEditCancelled() {
 
 	// Clean up editor view
 	a.instanceEditorView = nil
+
+	a.updateSidebarActiveView()
+}
+
+// handleBucketCreateRequest processes request to open bucket create view
+func (a *App) handleBucketCreateRequest(msg views.BucketCreateRequestMsg) tea.Cmd {
+	// Push current view onto stack for back navigation
+	a.viewStack = append(a.viewStack, a.currentView)
+	a.currentView = ViewBucketCreate
+
+	// Get storage client from buckets view
+	var storageClient *gcp.StorageClient
+	if a.bucketsView != nil {
+		storageClient = a.bucketsView.GetStorageClient()
+	}
+
+	// Create the view
+	a.bucketCreateView = views.NewBucketCreateView(msg.ProjectID, storageClient)
+	a.updateSidebarActiveView()
+	a.updateViewSizes()
+	return a.bucketCreateView.Init()
+}
+
+// handleBucketCreated processes successful bucket creation
+func (a *App) handleBucketCreated(_ views.BucketCreatedMsg) tea.Cmd {
+	// Pop back to previous view
+	if len(a.viewStack) > 0 {
+		lastViewIndex := len(a.viewStack) - 1
+		a.currentView = a.viewStack[lastViewIndex]
+		a.viewStack = a.viewStack[:lastViewIndex]
+	}
+
+	// Clean up create view
+	a.bucketCreateView = nil
+
+	a.updateSidebarActiveView()
+
+	// Refresh buckets list to show new bucket
+	if a.bucketsView != nil && a.currentView == ViewBuckets {
+		return a.bucketsView.Init()
+	}
+
+	return nil
+}
+
+// handleBucketCreateCanceled processes canceled bucket creation
+func (a *App) handleBucketCreateCanceled() {
+	// Pop back to previous view
+	if len(a.viewStack) > 0 {
+		lastViewIndex := len(a.viewStack) - 1
+		a.currentView = a.viewStack[lastViewIndex]
+		a.viewStack = a.viewStack[:lastViewIndex]
+	}
+
+	// Clean up create view
+	a.bucketCreateView = nil
 
 	a.updateSidebarActiveView()
 }

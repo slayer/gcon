@@ -21,6 +21,7 @@ import (
 type bucketKeyMap struct {
 	Enter   key.Binding
 	Refresh key.Binding
+	Create  key.Binding
 }
 
 func defaultBucketKeyMap() bucketKeyMap {
@@ -32,6 +33,10 @@ func defaultBucketKeyMap() bucketKeyMap {
 		Refresh: key.NewBinding(
 			key.WithKeys("r"),
 			key.WithHelp("r", "refresh"),
+		),
+		Create: key.NewBinding(
+			key.WithKeys("c"),
+			key.WithHelp("c", "create bucket"),
 		),
 	}
 }
@@ -210,6 +215,11 @@ func (v *BucketsView) Update(msg tea.Msg) tea.Cmd {
 			v.loading = true
 			v.err = nil
 			return tea.Batch(v.spinner.Tick, v.loadBuckets())
+
+		case key.Matches(msg, v.keys.Create):
+			return func() tea.Msg {
+				return BucketCreateRequestMsg{ProjectID: v.projectID}
+			}
 		}
 	}
 
@@ -249,7 +259,7 @@ func (v *BucketsView) View() string {
 
 	// Help text for actions
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
-	help := helpStyle.Render("\n  enter: browse • /: filter • r: refresh • esc: back")
+	help := helpStyle.Render("\n  enter: browse • c: create • /: filter • r: refresh • esc: back")
 
 	return v.table.View() + help
 }

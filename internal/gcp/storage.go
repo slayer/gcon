@@ -471,6 +471,113 @@ func encodeObjectPath(objectName string) string {
 	return strings.Join(segments, "/")
 }
 
+// BucketCreateConfig contains settings for creating a new GCS bucket
+type BucketCreateConfig struct {
+	Name                   string            // Globally unique bucket name
+	Location               string            // Region, dual-region, or multi-region
+	LocationType           string            // "region", "dual-region", "multi-region"
+	StorageClass           string            // STANDARD, NEARLINE, COLDLINE, ARCHIVE
+	PublicAccessPrevention bool              // Enforce public access prevention
+	UniformBucketAccess    bool              // true=uniform ACL, false=fine-grained
+	VersioningEnabled      bool              // Enable object versioning
+	RetentionDays          int               // Object retention period (0=disabled)
+	SoftDeleteDays         int               // Soft delete retention (0-90, default 7)
+	Labels                 map[string]string // User-defined labels
+	EncryptionKey          string            // CMEK resource path (optional)
+}
+
+// GCS location constants
+var (
+	// GCSMultiRegions contains multi-region location codes
+	GCSMultiRegions = []string{"US", "EU", "ASIA"}
+
+	// GCSRegions contains single-region location codes
+	GCSRegions = []string{
+		"us-central1", "us-east1", "us-east4", "us-east5", "us-south1", "us-west1", "us-west2", "us-west3", "us-west4",
+		"northamerica-northeast1", "northamerica-northeast2", "southamerica-east1", "southamerica-west1",
+		"europe-central2", "europe-north1", "europe-southwest1", "europe-west1", "europe-west2", "europe-west3",
+		"europe-west4", "europe-west6", "europe-west8", "europe-west9", "europe-west10", "europe-west12",
+		"asia-east1", "asia-east2", "asia-northeast1", "asia-northeast2", "asia-northeast3",
+		"asia-south1", "asia-south2", "asia-southeast1", "asia-southeast2",
+		"australia-southeast1", "australia-southeast2",
+		"me-central1", "me-central2", "me-west1",
+		"africa-south1",
+	}
+
+	// GCSDualRegions contains dual-region location codes
+	GCSDualRegions = []string{"nam4", "eur4", "asia1"}
+
+	// GCSStorageClasses contains available storage classes
+	GCSStorageClasses = []string{"STANDARD", "NEARLINE", "COLDLINE", "ARCHIVE"}
+)
+
+// GetLocationsForType returns location options for a given location type
+func GetLocationsForType(locationType string) []string {
+	switch locationType {
+	case "region":
+		return GCSRegions
+	case "dual-region":
+		return GCSDualRegions
+	case "multi-region":
+		return GCSMultiRegions
+	default:
+		return GCSRegions
+	}
+}
+
+// CreateBucket creates a new GCS bucket with the specified configuration
+func (c *StorageClient) CreateBucket(ctx context.Context, projectID string, config BucketCreateConfig) error {
+	bucket := c.client.Bucket(config.Name)
+
+	attrs := &storage.BucketAttrs{
+		Location:     config.Location,
+		StorageClass: config.StorageClass,
+		Labels:       config.Labels,
+	}
+
+	// Set uniform bucket-level access
+	attrs.UniformBucketLevelAccess = storage.UniformBucketLevelAccess{
+		Enabled: config.UniformBucketAccess,
+	}
+
+	// Set public access prevention
+	if config.PublicAccessPrevention {
+		attrs.PublicAccessPrevention = storage.PublicAccessPreventionEnforced
+	}
+
+	// Set versioning
+	if config.VersioningEnabled {
+		attrs.VersioningEnabled = true
+	}
+
+	// Set retention policy if specified
+	if config.RetentionDays > 0 {
+		attrs.RetentionPolicy = &storage.RetentionPolicy{
+			RetentionPeriod: time.Duration(config.RetentionDays) * 24 * time.Hour,
+		}
+	}
+
+	// Set soft delete policy
+	if config.SoftDeleteDays > 0 {
+		attrs.SoftDeletePolicy = &storage.SoftDeletePolicy{
+			RetentionDuration: time.Duration(config.SoftDeleteDays) * 24 * time.Hour,
+		}
+	}
+
+	// Set CMEK encryption if specified
+	if config.EncryptionKey != "" {
+		attrs.Encryption = &storage.BucketEncryption{
+			DefaultKMSKeyName: config.EncryptionKey,
+		}
+	}
+
+	if err := bucket.Create(ctx, projectID, attrs); err != nil {
+		return fmt.Errorf("failed to create bucket: %w", err)
+	}
+
+	return nil
+}
+
 // GetObjectContent downloads object content up to maxBytes
 // Returns the content bytes and an error if any
 func (c *StorageClient) GetObjectContent(ctx context.Context, bucketName, objectName string, maxBytes int64) ([]byte, error) {
