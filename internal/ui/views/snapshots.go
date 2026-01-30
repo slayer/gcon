@@ -53,6 +53,7 @@ type snapshotKeyMap struct {
 	Refresh    key.Binding
 	ActionMenu key.Binding
 	Delete     key.Binding
+	CreateDisk key.Binding
 }
 
 func defaultSnapshotKeyMap() snapshotKeyMap {
@@ -72,6 +73,10 @@ func defaultSnapshotKeyMap() snapshotKeyMap {
 		Delete: key.NewBinding(
 			key.WithKeys("D"),
 			key.WithHelp("D", "delete"),
+		),
+		CreateDisk: key.NewBinding(
+			key.WithKeys("c"),
+			key.WithHelp("c", "create disk"),
 		),
 	}
 }
@@ -318,7 +323,7 @@ func (v *SnapshotsView) Update(msg tea.Msg) tea.Cmd {
 			if row := v.table.SelectedRow(); row != nil {
 				snapshot := v.findSnapshotByName(row.ID)
 				if snapshot != nil {
-					v.actionMenu = actionmenu.New("Snapshot Actions", v.buildActions())
+					v.actionMenu = actionmenu.New("Snapshot Actions", v.buildActions(snapshot))
 					v.menuOpen = true
 				}
 			}
@@ -330,6 +335,21 @@ func (v *SnapshotsView) Update(msg tea.Msg) tea.Cmd {
 				snapshot := v.findSnapshotByName(row.ID)
 				if snapshot != nil {
 					return v.showDeleteConfirmation(snapshot)
+				}
+			}
+			return nil
+
+		case key.Matches(msg, v.keys.CreateDisk):
+			// Direct hotkey for create disk from snapshot
+			if row := v.table.SelectedRow(); row != nil {
+				snapshot := v.findSnapshotByName(row.ID)
+				if snapshot != nil && snapshot.IsReady() {
+					return func() tea.Msg {
+						return DiskCreateFromSnapshotRequestMsg{
+							SnapshotName: snapshot.Name,
+							SnapshotSize: snapshot.SizeGB,
+						}
+					}
 				}
 			}
 			return nil
@@ -348,8 +368,9 @@ func (v *SnapshotsView) Update(msg tea.Msg) tea.Cmd {
 }
 
 // buildActions creates the action menu items
-func (v *SnapshotsView) buildActions() []actionmenu.Action {
+func (v *SnapshotsView) buildActions(snapshot *gcp.Snapshot) []actionmenu.Action {
 	return []actionmenu.Action{
+		{Key: 'c', Label: "Create Disk", Enabled: snapshot.IsReady()},
 		{Key: 'D', Label: "Delete", Enabled: true, Dangerous: true},
 	}
 }
@@ -366,7 +387,18 @@ func (v *SnapshotsView) executeAction(actionKey rune) tea.Cmd {
 		return nil
 	}
 
-	if actionKey == 'D' {
+	switch actionKey {
+	case 'c':
+		// Create disk from snapshot
+		if snapshot.IsReady() {
+			return func() tea.Msg {
+				return DiskCreateFromSnapshotRequestMsg{
+					SnapshotName: snapshot.Name,
+					SnapshotSize: snapshot.SizeGB,
+				}
+			}
+		}
+	case 'D':
 		return v.showDeleteConfirmation(snapshot)
 	}
 
@@ -429,7 +461,7 @@ func (v *SnapshotsView) View() string {
 
 	// Help text for actions
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
-	help := helpStyle.Render("\n  enter: details • .: actions • D: delete • /: filter • r: refresh • esc: back")
+	help := helpStyle.Render("\n  enter: details • .: actions • c: create disk • D: delete • /: filter • r: refresh • esc: back")
 
 	mainContent := v.table.View() + help
 

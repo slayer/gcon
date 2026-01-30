@@ -9,7 +9,27 @@ type DeleteSnapshotConfirmedMsg struct {
 
 // SnapshotActionResultMsg is sent after a snapshot action completes
 type SnapshotActionResultMsg struct {
-	Action  string // "delete"
+	Action  string // "delete", "create_disk"
 	Success bool
 	Error   error
+}
+
+// DiskCreateFromSnapshotRequestMsg requests opening the disk creation form
+type DiskCreateFromSnapshotRequestMsg struct {
+	SnapshotName string
+	SnapshotSize int64 // Size in GB
+}
+
+// DiskCreateCanceledMsg indicates user canceled disk creation
+type DiskCreateCanceledMsg struct{}
+
+// CreateDiskFromSnapshotMsg is sent when creating a disk from a snapshot
+type CreateDiskFromSnapshotMsg struct {
+	SnapshotName string
+	DiskName     string
+	Description  string
+	Zone         string
+	DiskType     string // pd-standard, pd-ssd, pd-balanced
+	SizeGB       int64
+	Labels       map[string]string
 }

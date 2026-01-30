@@ -495,6 +495,9 @@ func (a *App) clearAllViews() {
 	a.metadataView = nil
 	a.instanceEditorView = nil
 	a.bucketCreateView = nil
+	a.snapshotCreateView = nil
+	a.imageCreateView = nil
+	a.diskCreateView = nil
 
 	// Clear view stack
 	a.viewStack = nil
@@ -1017,7 +1020,105 @@ func (a *App) handleSnapshotActionResult(msg views.SnapshotActionResultMsg) tea.
 		}
 	}
 
+	// On successful disk creation, navigate to disks view
+	if msg.Action == "create_disk" {
+		// Pop back from disk create view
+		if a.currentView == ViewDiskCreate {
+			if len(a.viewStack) > 0 {
+				lastViewIndex := len(a.viewStack) - 1
+				a.currentView = a.viewStack[lastViewIndex]
+				a.viewStack = a.viewStack[:lastViewIndex]
+			}
+			a.diskCreateView = nil
+			a.updateSidebarActiveView()
+		}
+		a.err = nil
+	}
+
 	return nil
+}
+
+// handleDiskCreateFromSnapshotRequest opens the disk creation form
+func (a *App) handleDiskCreateFromSnapshotRequest(msg views.DiskCreateFromSnapshotRequestMsg) tea.Cmd {
+	// Get compute client from the appropriate view
+	var computeClient *gcp.ComputeClient
+	if a.snapshotsView != nil {
+		computeClient = a.snapshotsView.GetComputeClient()
+	} else if a.snapshotDetailsView != nil {
+		computeClient = a.snapshotDetailsView.GetComputeClient()
+	}
+
+	if computeClient == nil || a.selectedProject == nil {
+		return nil
+	}
+
+	a.viewStack = append(a.viewStack, a.currentView)
+	a.currentView = ViewDiskCreate
+	a.diskCreateView = views.NewDiskCreateView(
+		a.selectedProject.ID,
+		msg.SnapshotName,
+		msg.SnapshotSize,
+		computeClient,
+	)
+	a.updateViewSizes()
+	return a.diskCreateView.Init()
+}
+
+// handleDiskCreateCanceled processes canceled disk creation
+func (a *App) handleDiskCreateCanceled() {
+	// Pop back to previous view
+	if len(a.viewStack) > 0 {
+		lastViewIndex := len(a.viewStack) - 1
+		a.currentView = a.viewStack[lastViewIndex]
+		a.viewStack = a.viewStack[:lastViewIndex]
+	}
+
+	// Clean up create view
+	a.diskCreateView = nil
+
+	a.updateSidebarActiveView()
+}
+
+// handleCreateDiskFromSnapshot processes disk creation from a snapshot
+func (a *App) handleCreateDiskFromSnapshot(msg views.CreateDiskFromSnapshotMsg) tea.Cmd {
+	// Get compute client from the disk create view or snapshot views
+	var computeClient *gcp.ComputeClient
+	switch {
+	case a.diskCreateView != nil:
+		computeClient = a.diskCreateView.GetComputeClient()
+	case a.snapshotsView != nil:
+		computeClient = a.snapshotsView.GetComputeClient()
+	case a.snapshotDetailsView != nil:
+		computeClient = a.snapshotDetailsView.GetComputeClient()
+	}
+
+	if computeClient == nil || a.selectedProject == nil {
+		return nil
+	}
+
+	projectID := a.selectedProject.ID
+	config := gcp.DiskCreateConfig{
+		Name:           msg.DiskName,
+		Description:    msg.Description,
+		Zone:           msg.Zone,
+		Type:           msg.DiskType,
+		SizeGB:         msg.SizeGB,
+		SourceSnapshot: msg.SnapshotName,
+		Labels:         msg.Labels,
+	}
+
+	return func() tea.Msg {
+		err := computeClient.CreateDiskFromSnapshot(
+			gocontext.Background(),
+			projectID,
+			config,
+		)
+		return views.SnapshotActionResultMsg{
+			Action:  "create_disk",
+			Success: err == nil,
+			Error:   err,
+		}
+	}
 }
 
 // handleDeleteImageConfirmed processes confirmed image deletion

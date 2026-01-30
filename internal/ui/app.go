@@ -43,6 +43,7 @@ const (
 	ViewBucketCreate   // Creating a new GCS bucket
 	ViewSnapshotCreate // Creating a snapshot from a disk
 	ViewImageCreate    // Creating an image from a disk
+	ViewDiskCreate     // Creating a disk from a snapshot
 	ViewNetworks
 	ViewFirewall
 	ViewLogs
@@ -89,6 +90,7 @@ type App struct {
 	bucketCreateView    *views.BucketCreateView
 	snapshotCreateView  *views.SnapshotCreateView
 	imageCreateView     *views.ImageCreateView
+	diskCreateView      *views.DiskCreateView
 	formDemoView        *views.FormDemoView
 
 	// Selected context
@@ -298,6 +300,8 @@ func (a *App) getCurrentViewModel() views.View {
 		return a.snapshotCreateView
 	case ViewImageCreate:
 		return a.imageCreateView
+	case ViewDiskCreate:
+		return a.diskCreateView
 	case ViewFormDemo:
 		return a.formDemoView
 	}
@@ -622,6 +626,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
 		return a, a.handleSnapshotActionResult(msg)
 
+	case views.DiskCreateFromSnapshotRequestMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleDiskCreateFromSnapshotRequest(msg)
+
+	case views.DiskCreateCanceledMsg:
+		a.handleDiskCreateCanceled()
+		return a, nil
+
+	case views.CreateDiskFromSnapshotMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleCreateDiskFromSnapshot(msg)
+
 	case views.DeleteImageConfirmedMsg:
 		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
 		return a, a.handleDeleteImageConfirmed(msg)
@@ -810,6 +826,9 @@ func (a *App) updateViewSizes() {
 	}
 	if a.imageCreateView != nil {
 		a.imageCreateView.SetContext(a.ctx)
+	}
+	if a.diskCreateView != nil {
+		a.diskCreateView.SetContext(a.ctx)
 	}
 }
 

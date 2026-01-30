@@ -1111,6 +1111,44 @@ func (c *ComputeClient) CreateImageFromDisk(ctx context.Context, projectID, zone
 	return nil
 }
 
+// DiskCreateConfig holds configuration for creating a disk from a snapshot
+type DiskCreateConfig struct {
+	Name           string
+	Description    string
+	Zone           string
+	Type           string // pd-standard, pd-ssd, pd-balanced
+	SizeGB         int64  // Must be >= source snapshot size
+	SourceSnapshot string // Snapshot name (not full URL)
+	Labels         map[string]string
+}
+
+// CreateDiskFromSnapshot creates a new persistent disk from a snapshot
+func (c *ComputeClient) CreateDiskFromSnapshot(ctx context.Context, projectID string, config DiskCreateConfig) error {
+	// Build full source snapshot URL
+	sourceSnapshot := fmt.Sprintf("projects/%s/global/snapshots/%s", projectID, config.SourceSnapshot)
+
+	// Build full disk type URL
+	diskType := fmt.Sprintf("zones/%s/diskTypes/%s", config.Zone, config.Type)
+
+	disk := &compute.Disk{
+		Name:           config.Name,
+		Description:    config.Description,
+		Type:           diskType,
+		SizeGb:         config.SizeGB,
+		SourceSnapshot: sourceSnapshot,
+	}
+
+	if len(config.Labels) > 0 {
+		disk.Labels = config.Labels
+	}
+
+	_, err := c.service.Disks.Insert(projectID, config.Zone, disk).Context(ctx).Do()
+	if err != nil {
+		return WrapActionError(err, "create disk from snapshot", config.SourceSnapshot)
+	}
+	return nil
+}
+
 // DeleteInstance deletes a VM instance. Returns error if deletion protection is enabled.
 func (c *ComputeClient) DeleteInstance(ctx context.Context, projectID, zone, instanceName string) error {
 	_, err := c.service.Instances.Delete(projectID, zone, instanceName).Context(ctx).Do()
