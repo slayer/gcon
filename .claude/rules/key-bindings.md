@@ -107,6 +107,29 @@ description: Keyboard shortcuts reference for all views
 | `↑/↓` | Scroll content |
 | `Esc` | Go back |
 
+## Snapshots View
+
+| Key | Action |
+|-----|--------|
+| `Enter` | View snapshot details |
+| `.` | Open action menu |
+| `D` | Delete snapshot (with confirmation) |
+| `/` | Filter snapshots |
+| `r` | Refresh list |
+| `Esc` | Go back |
+
+## Snapshot Details View
+
+| Key | Action |
+|-----|--------|
+| `.` | Open action menu |
+| `D` | Delete snapshot (with confirmation) |
+| `r` | Refresh details |
+| `↑/↓` | Scroll content |
+| `Tab` | Switch focus (links/content) |
+| `Enter` | Navigate to source disk (when link focused) |
+| `Esc` | Go back |
+
 ## Buckets View
 
 | Key | Action |

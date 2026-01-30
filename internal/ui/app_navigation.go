@@ -959,3 +959,64 @@ func (a *App) handleDiskActionResult(msg views.DiskActionResultMsg) tea.Cmd {
 	return nil
 }
 
+// handleDeleteSnapshotConfirmed processes confirmed snapshot deletion
+func (a *App) handleDeleteSnapshotConfirmed(msg views.DeleteSnapshotConfirmedMsg) tea.Cmd {
+	// Get compute client from the appropriate view
+	var computeClient *gcp.ComputeClient
+	if a.snapshotsView != nil {
+		computeClient = a.snapshotsView.GetComputeClient()
+	} else if a.snapshotDetailsView != nil {
+		computeClient = a.snapshotDetailsView.GetComputeClient()
+	}
+
+	if computeClient == nil || a.selectedProject == nil {
+		return nil
+	}
+
+	projectID := a.selectedProject.ID
+	snapshotName := msg.SnapshotName
+
+	return func() tea.Msg {
+		err := computeClient.DeleteSnapshot(gocontext.Background(), projectID, snapshotName)
+		return views.SnapshotActionResultMsg{
+			Action:  "delete",
+			Success: err == nil,
+			Error:   err,
+		}
+	}
+}
+
+// handleSnapshotActionResult processes the result of a snapshot action
+func (a *App) handleSnapshotActionResult(msg views.SnapshotActionResultMsg) tea.Cmd {
+	if msg.Error != nil {
+		a.err = msg.Error
+		return nil
+	}
+
+	// On successful delete, navigate back to snapshots list and refresh
+	if msg.Action == "delete" {
+		// If we're in snapshot details view, go back to snapshots list
+		if a.currentView == ViewSnapshotDetails {
+			// Pop back to snapshots view
+			if len(a.viewStack) > 0 {
+				lastViewIndex := len(a.viewStack) - 1
+				a.currentView = a.viewStack[lastViewIndex]
+				a.viewStack = a.viewStack[:lastViewIndex]
+			}
+
+			// Clean up snapshot details view
+			a.snapshotDetailsView = nil
+			a.selectedSnapshot = nil
+
+			a.updateSidebarActiveView()
+		}
+
+		// Refresh snapshots list
+		if a.snapshotsView != nil {
+			return a.snapshotsView.Init()
+		}
+	}
+
+	return nil
+}
+
