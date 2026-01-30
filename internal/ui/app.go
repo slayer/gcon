@@ -43,6 +43,7 @@ const (
 	ViewBucketCreate   // Creating a new GCS bucket
 	ViewSnapshotCreate // Creating a snapshot from a disk
 	ViewImageCreate    // Creating an image from a disk
+	ViewDiskCreate     // Creating a disk from a snapshot
 	ViewNetworks
 	ViewFirewall
 	ViewLogs
@@ -89,6 +90,7 @@ type App struct {
 	bucketCreateView    *views.BucketCreateView
 	snapshotCreateView  *views.SnapshotCreateView
 	imageCreateView     *views.ImageCreateView
+	diskCreateView      *views.DiskCreateView
 	formDemoView        *views.FormDemoView
 
 	// Selected context
@@ -298,6 +300,8 @@ func (a *App) getCurrentViewModel() views.View {
 		return a.snapshotCreateView
 	case ViewImageCreate:
 		return a.imageCreateView
+	case ViewDiskCreate:
+		return a.diskCreateView
 	case ViewFormDemo:
 		return a.formDemoView
 	}
@@ -614,6 +618,62 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
 		return a, a.handleDiskActionResult(msg)
 
+	case views.DeleteSnapshotConfirmedMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleDeleteSnapshotConfirmed(msg)
+
+	case views.SnapshotActionResultMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleSnapshotActionResult(msg)
+
+	case views.DiskCreateFromSnapshotRequestMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleDiskCreateFromSnapshotRequest(msg)
+
+	case views.DiskCreateCanceledMsg:
+		a.handleDiskCreateCanceled()
+		return a, nil
+
+	case views.CreateDiskFromSnapshotMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleCreateDiskFromSnapshot(msg)
+
+	case views.ImageCreateFromSnapshotRequestMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleImageCreateFromSnapshotRequest(msg)
+
+	case views.ImageCreateFromSnapshotCanceledMsg:
+		a.handleImageCreateFromSnapshotCanceled()
+		return a, nil
+
+	case views.CreateImageFromSnapshotMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleCreateImageFromSnapshot(msg)
+
+	case views.DeleteImageConfirmedMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleDeleteImageConfirmed(msg)
+
+	case views.ImageActionResultMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleImageActionResult(msg)
+
+	case views.DiskCreateFromImageRequestMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleDiskCreateFromImageRequest(msg)
+
+	case views.CreateDiskFromImageMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleCreateDiskFromImage(msg)
+
+	case views.DeleteInstanceConfirmedMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleDeleteInstanceConfirmed(msg)
+
+	case views.InstanceActionResultMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleInstanceActionResult(msg)
+
 	case components.FooterProjectClickedMsg:
 		// Project section in footer was clicked, show project selector
 		currentProjectID := ""
@@ -786,6 +846,9 @@ func (a *App) updateViewSizes() {
 	}
 	if a.imageCreateView != nil {
 		a.imageCreateView.SetContext(a.ctx)
+	}
+	if a.diskCreateView != nil {
+		a.diskCreateView.SetContext(a.ctx)
 	}
 }
 

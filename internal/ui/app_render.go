@@ -174,6 +174,10 @@ func (a *App) renderCurrentView() string {
 		if a.imageCreateView != nil {
 			return a.imageCreateView.View()
 		}
+	case ViewDiskCreate:
+		if a.diskCreateView != nil {
+			return a.diskCreateView.View()
+		}
 	case ViewNetworks:
 		return a.renderPlaceholder("VPC Networks")
 	case ViewFirewall:

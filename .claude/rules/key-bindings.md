@@ -42,9 +42,17 @@ description: Keyboard shortcuts reference for all views
 
 | Key | Action |
 |-----|--------|
+| `Enter` | View instance details |
+| `.` | Open action menu |
 | `s` | Start stopped instance |
 | `x` | Stop running instance |
+| `z` | Suspend running instance |
+| `Z` | Resume suspended instance |
 | `R` | Reset (hard reboot) |
+| `D` | Delete instance (with type-to-confirm) |
+| `/` | Filter instances |
+| `r` | Refresh list |
+| `Esc` | Go back |
 
 ## Instance Details
 
@@ -54,8 +62,14 @@ description: Keyboard shortcuts reference for all views
 | `l` | Edit labels |
 | `s` | Start instance (if stopped) |
 | `x` | Stop instance (if running) |
+| `z` | Suspend instance (if running) |
+| `Z` | Resume instance (if suspended) |
 | `R` | Reset instance |
+| `D` | Delete instance (with type-to-confirm) |
 | `r` | Refresh details |
+| `↑/↓` | Scroll content |
+| `Tab` | Switch focus (tabs/links/content) |
+| `Esc` | Go back |
 
 ## Label Editor
 
@@ -107,6 +121,33 @@ description: Keyboard shortcuts reference for all views
 | `↑/↓` | Scroll content |
 | `Esc` | Go back |
 
+## Snapshots View
+
+| Key | Action |
+|-----|--------|
+| `Enter` | View snapshot details |
+| `.` | Open action menu |
+| `c` | Create disk from snapshot |
+| `i` | Create image from snapshot |
+| `D` | Delete snapshot (with confirmation) |
+| `/` | Filter snapshots |
+| `r` | Refresh list |
+| `Esc` | Go back |
+
+## Snapshot Details View
+
+| Key | Action |
+|-----|--------|
+| `.` | Open action menu |
+| `c` | Create disk from snapshot |
+| `i` | Create image from snapshot |
+| `D` | Delete snapshot (with confirmation) |
+| `r` | Refresh details |
+| `↑/↓` | Scroll content |
+| `Tab` | Switch focus (links/content) |
+| `Enter` | Navigate to source disk (when link focused) |
+| `Esc` | Go back |
+
 ## Buckets View
 
 | Key | Action |
@@ -122,8 +163,23 @@ description: Keyboard shortcuts reference for all views
 | Key | Action |
 |-----|--------|
 | `Enter` | View image details |
+| `.` | Open action menu |
+| `c` | Create disk from image |
+| `D` | Delete image (with confirmation) |
 | `/` | Filter images |
 | `r` | Refresh list |
+| `Esc` | Go back |
+
+## Image Details View
+
+| Key | Action |
+|-----|--------|
+| `.` | Open action menu |
+| `c` | Create disk from image |
+| `D` | Delete image (with confirmation) |
+| `r` | Refresh details |
+| `↑/↓` | Scroll content |
+| `Esc` | Go back |
 
 ## Objects View (GCS Browser)
 

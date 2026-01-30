@@ -11,9 +11,12 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components"
+	"github.com/slayer/gcon/internal/ui/components/actionmenu"
+	"github.com/slayer/gcon/internal/ui/components/confirm"
 	"github.com/slayer/gcon/internal/ui/components/table"
 	"github.com/slayer/gcon/internal/ui/context"
 	"github.com/slayer/gcon/internal/ui/mouse"
+	"github.com/slayer/gcon/internal/ui/overlay"
 	"github.com/slayer/gcon/internal/ui/symbols"
 	"github.com/slayer/gcon/internal/ui/timeutil"
 )
@@ -29,13 +32,29 @@ type SnapshotsView struct {
 	err           error
 	snapshots     []gcp.Snapshot
 	keys          snapshotKeyMap
+
+	// Action menu state
+	actionMenu *actionmenu.ActionMenu
+	menuOpen   bool
+
+	// Delete confirmation state
+	deleteConfirm     *confirm.ConfirmDialog
+	showDeleteConfirm bool
+	pendingDelete     *gcp.Snapshot // Snapshot pending deletion
+
+	// View dimensions for overlay rendering
+	width  int
+	height int
 }
 
 // snapshotKeyMap defines snapshot-specific key bindings
 type snapshotKeyMap struct {
-	Enter   key.Binding
-	Refresh key.Binding
-	Delete  key.Binding
+	Enter       key.Binding
+	Refresh     key.Binding
+	ActionMenu  key.Binding
+	Delete      key.Binding
+	CreateDisk  key.Binding
+	CreateImage key.Binding
 }
 
 func defaultSnapshotKeyMap() snapshotKeyMap {
@@ -48,9 +67,21 @@ func defaultSnapshotKeyMap() snapshotKeyMap {
 			key.WithKeys("r"),
 			key.WithHelp("r", "refresh"),
 		),
+		ActionMenu: key.NewBinding(
+			key.WithKeys("."),
+			key.WithHelp(".", "actions"),
+		),
 		Delete: key.NewBinding(
 			key.WithKeys("D"),
 			key.WithHelp("D", "delete"),
+		),
+		CreateDisk: key.NewBinding(
+			key.WithKeys("c"),
+			key.WithHelp("c", "create disk"),
+		),
+		CreateImage: key.NewBinding(
+			key.WithKeys("i"),
+			key.WithHelp("i", "create image"),
 		),
 	}
 }
@@ -189,6 +220,7 @@ func snapshotToRow(snapshot gcp.Snapshot) table.Row { //nolint:gocritic // Copyi
 }
 
 // Update handles messages for the snapshots view
+//nolint:gocognit // Bubble Tea Update pattern - complexity 45
 func (v *SnapshotsView) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case snapshotsClientReadyMsg:
@@ -222,6 +254,32 @@ func (v *SnapshotsView) Update(msg tea.Msg) tea.Cmd {
 		}
 		return nil
 
+	case actionmenu.ActionSelectedMsg:
+		v.menuOpen = false
+		return v.executeAction(msg.Key)
+
+	case actionmenu.ActionMenuClosedMsg:
+		v.menuOpen = false
+		return nil
+
+	case confirm.ConfirmMsg:
+		v.showDeleteConfirm = false
+		if v.pendingDelete != nil {
+			snapshot := v.pendingDelete
+			v.pendingDelete = nil
+			return func() tea.Msg {
+				return DeleteSnapshotConfirmedMsg{
+					SnapshotName: snapshot.Name,
+				}
+			}
+		}
+		return nil
+
+	case confirm.CancelMsg:
+		v.showDeleteConfirm = false
+		v.pendingDelete = nil
+		return nil
+
 	case spinner.TickMsg:
 		if v.loading {
 			var cmd tea.Cmd
@@ -231,6 +289,16 @@ func (v *SnapshotsView) Update(msg tea.Msg) tea.Cmd {
 		return nil
 
 	case tea.KeyMsg:
+		// Route to delete confirmation dialog when shown
+		if v.showDeleteConfirm && v.deleteConfirm != nil {
+			return v.deleteConfirm.Update(msg)
+		}
+
+		// Route to action menu when open
+		if v.menuOpen && v.actionMenu != nil {
+			return v.actionMenu.Update(msg)
+		}
+
 		// Don't handle custom keys during loading
 		if v.loading {
 			return nil
@@ -255,22 +323,60 @@ func (v *SnapshotsView) Update(msg tea.Msg) tea.Cmd {
 				}
 			}
 
+		case key.Matches(msg, v.keys.ActionMenu):
+			// Open action menu for selected snapshot
+			if row := v.table.SelectedRow(); row != nil {
+				snapshot := v.findSnapshotByName(row.ID)
+				if snapshot != nil {
+					v.actionMenu = actionmenu.New("Snapshot Actions", v.buildActions(snapshot))
+					v.menuOpen = true
+				}
+			}
+			return nil
+
+		case key.Matches(msg, v.keys.Delete):
+			// Direct hotkey for delete
+			if row := v.table.SelectedRow(); row != nil {
+				snapshot := v.findSnapshotByName(row.ID)
+				if snapshot != nil {
+					return v.showDeleteConfirmation(snapshot)
+				}
+			}
+			return nil
+
+		case key.Matches(msg, v.keys.CreateDisk):
+			// Direct hotkey for create disk from snapshot
+			if row := v.table.SelectedRow(); row != nil {
+				snapshot := v.findSnapshotByName(row.ID)
+				if snapshot != nil && snapshot.IsReady() {
+					return func() tea.Msg {
+						return DiskCreateFromSnapshotRequestMsg{
+							SnapshotName: snapshot.Name,
+							SnapshotSize: snapshot.SizeGB,
+						}
+					}
+				}
+			}
+			return nil
+
+		case key.Matches(msg, v.keys.CreateImage):
+			// Direct hotkey for create image from snapshot
+			if row := v.table.SelectedRow(); row != nil {
+				snapshot := v.findSnapshotByName(row.ID)
+				if snapshot != nil && snapshot.IsReady() {
+					return func() tea.Msg {
+						return ImageCreateFromSnapshotRequestMsg{
+							SnapshotName: snapshot.Name,
+						}
+					}
+				}
+			}
+			return nil
+
 		case key.Matches(msg, v.keys.Refresh):
 			v.loading = true
 			v.err = nil
 			return tea.Batch(v.spinner.Tick, v.loadSnapshots())
-
-		case key.Matches(msg, v.keys.Delete):
-			// Delete snapshot with confirmation
-			if row := v.table.SelectedRow(); row != nil {
-				snapshot := v.findSnapshotByName(row.ID)
-				if snapshot != nil {
-					// Emit delete request message
-					return func() tea.Msg {
-						return DeleteSnapshotRequestMsg{Snapshot: *snapshot}
-					}
-				}
-			}
 		}
 	}
 
@@ -278,6 +384,75 @@ func (v *SnapshotsView) Update(msg tea.Msg) tea.Cmd {
 	var cmd tea.Cmd
 	v.table, cmd = v.table.Update(msg)
 	return cmd
+}
+
+// buildActions creates the action menu items
+func (v *SnapshotsView) buildActions(snapshot *gcp.Snapshot) []actionmenu.Action {
+	return []actionmenu.Action{
+		{Key: 'c', Label: "Create Disk", Enabled: snapshot.IsReady()},
+		{Key: 'i', Label: "Create Image", Enabled: snapshot.IsReady()},
+		{Key: 'D', Label: "Delete", Enabled: true, Dangerous: true},
+	}
+}
+
+// executeAction performs the action selected from the menu
+func (v *SnapshotsView) executeAction(actionKey rune) tea.Cmd {
+	row := v.table.SelectedRow()
+	if row == nil {
+		return nil
+	}
+
+	snapshot := v.findSnapshotByName(row.ID)
+	if snapshot == nil {
+		return nil
+	}
+
+	switch actionKey {
+	case 'c':
+		// Create disk from snapshot
+		if snapshot.IsReady() {
+			return func() tea.Msg {
+				return DiskCreateFromSnapshotRequestMsg{
+					SnapshotName: snapshot.Name,
+					SnapshotSize: snapshot.SizeGB,
+				}
+			}
+		}
+	case 'i':
+		// Create image from snapshot
+		if snapshot.IsReady() {
+			return func() tea.Msg {
+				return ImageCreateFromSnapshotRequestMsg{
+					SnapshotName: snapshot.Name,
+				}
+			}
+		}
+	case 'D':
+		return v.showDeleteConfirmation(snapshot)
+	}
+
+	return nil
+}
+
+// showDeleteConfirmation opens the delete confirmation dialog
+func (v *SnapshotsView) showDeleteConfirmation(snapshot *gcp.Snapshot) tea.Cmd {
+	v.deleteConfirm = confirm.New(
+		"Delete Snapshot",
+		fmt.Sprintf("Are you sure you want to delete snapshot '%s'?", snapshot.Name),
+		[]string{
+			fmt.Sprintf("Size: %d GB", snapshot.SizeGB),
+			fmt.Sprintf("Source Disk: %s", snapshot.SourceDisk),
+			"This action cannot be undone.",
+		},
+	)
+	v.showDeleteConfirm = true
+	v.pendingDelete = snapshot
+	return nil
+}
+
+// IsMenuOpen returns true if the action menu or confirm dialog is currently open
+func (v *SnapshotsView) IsMenuOpen() bool {
+	return v.menuOpen || v.showDeleteConfirm
 }
 
 // DeleteSnapshotRequestMsg is emitted when user requests to delete a snapshot
@@ -315,9 +490,27 @@ func (v *SnapshotsView) View() string {
 
 	// Help text for actions
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
-	help := helpStyle.Render("\n  enter: details • D: delete • /: filter • r: refresh • esc: back")
+	help := helpStyle.Render("\n  enter: details • .: actions • c: create disk • i: create image • D: delete • /: filter • r: refresh • esc: back")
 
-	return v.table.View() + help
+	mainContent := v.table.View() + help
+
+	// Overlay action menu if open
+	if v.menuOpen && v.actionMenu != nil {
+		return v.renderWithOverlay(mainContent, v.actionMenu.View())
+	}
+
+	// Overlay delete confirmation if shown
+	if v.showDeleteConfirm && v.deleteConfirm != nil {
+		return v.renderWithOverlay(mainContent, v.deleteConfirm.View())
+	}
+
+	return mainContent
+}
+
+// renderWithOverlay overlays a dialog centered on top of the content
+func (v *SnapshotsView) renderWithOverlay(content, overlayContent string) string {
+	contentHeight := lipgloss.Height(content)
+	return overlay.Center(content, overlayContent, v.width, contentHeight)
 }
 
 // GetComputeClient returns the compute client for reuse in detail views
@@ -334,6 +527,8 @@ func (v *SnapshotsView) HasTextInputFocused() bool {
 // SetContext updates the view with shared program context
 func (v *SnapshotsView) SetContext(ctx *context.ProgramContext) {
 	v.ctx = ctx
+	v.width = ctx.ContentWidth
+	v.height = ctx.ContentHeight
 	v.table.SetSize(ctx.ContentWidth, ctx.ContentHeight-6)
 }
 

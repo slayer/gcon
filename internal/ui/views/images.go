@@ -11,9 +11,12 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components"
+	"github.com/slayer/gcon/internal/ui/components/actionmenu"
+	"github.com/slayer/gcon/internal/ui/components/confirm"
 	"github.com/slayer/gcon/internal/ui/components/table"
 	"github.com/slayer/gcon/internal/ui/context"
 	"github.com/slayer/gcon/internal/ui/mouse"
+	"github.com/slayer/gcon/internal/ui/overlay"
 	"github.com/slayer/gcon/internal/ui/symbols"
 )
 
@@ -28,12 +31,28 @@ type ImagesView struct {
 	err           error
 	images        []gcp.Image
 	keys          imageKeyMap
+
+	// Action menu state
+	actionMenu *actionmenu.ActionMenu
+	menuOpen   bool
+
+	// Delete confirmation state
+	deleteConfirm     *confirm.ConfirmDialog
+	showDeleteConfirm bool
+	pendingDelete     *gcp.Image // Image pending deletion
+
+	// View dimensions for overlay rendering
+	width  int
+	height int
 }
 
 // imageKeyMap defines image-specific key bindings
 type imageKeyMap struct {
-	Enter   key.Binding
-	Refresh key.Binding
+	Enter      key.Binding
+	Refresh    key.Binding
+	ActionMenu key.Binding
+	Delete     key.Binding
+	CreateDisk key.Binding
 }
 
 func defaultImageKeyMap() imageKeyMap {
@@ -45,6 +64,18 @@ func defaultImageKeyMap() imageKeyMap {
 		Refresh: key.NewBinding(
 			key.WithKeys("r"),
 			key.WithHelp("r", "refresh"),
+		),
+		ActionMenu: key.NewBinding(
+			key.WithKeys("."),
+			key.WithHelp(".", "actions"),
+		),
+		Delete: key.NewBinding(
+			key.WithKeys("D"),
+			key.WithHelp("D", "delete"),
+		),
+		CreateDisk: key.NewBinding(
+			key.WithKeys("c"),
+			key.WithHelp("c", "create disk"),
 		),
 	}
 }
@@ -190,6 +221,7 @@ func formatArchiveSize(bytes int64) string {
 }
 
 // Update handles messages for the images view
+//nolint:gocognit // Bubble Tea Update pattern - complexity 45
 func (v *ImagesView) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case imagesClientReadyMsg:
@@ -223,6 +255,32 @@ func (v *ImagesView) Update(msg tea.Msg) tea.Cmd {
 		}
 		return nil
 
+	case actionmenu.ActionSelectedMsg:
+		v.menuOpen = false
+		return v.executeAction(msg.Key)
+
+	case actionmenu.ActionMenuClosedMsg:
+		v.menuOpen = false
+		return nil
+
+	case confirm.ConfirmMsg:
+		v.showDeleteConfirm = false
+		if v.pendingDelete != nil {
+			image := v.pendingDelete
+			v.pendingDelete = nil
+			return func() tea.Msg {
+				return DeleteImageConfirmedMsg{
+					ImageName: image.Name,
+				}
+			}
+		}
+		return nil
+
+	case confirm.CancelMsg:
+		v.showDeleteConfirm = false
+		v.pendingDelete = nil
+		return nil
+
 	case spinner.TickMsg:
 		if v.loading {
 			var cmd tea.Cmd
@@ -232,6 +290,16 @@ func (v *ImagesView) Update(msg tea.Msg) tea.Cmd {
 		return nil
 
 	case tea.KeyMsg:
+		// Route to delete confirmation dialog when shown
+		if v.showDeleteConfirm && v.deleteConfirm != nil {
+			return v.deleteConfirm.Update(msg)
+		}
+
+		// Route to action menu when open
+		if v.menuOpen && v.actionMenu != nil {
+			return v.actionMenu.Update(msg)
+		}
+
 		// Don't handle custom keys during loading
 		if v.loading {
 			return nil
@@ -256,6 +324,42 @@ func (v *ImagesView) Update(msg tea.Msg) tea.Cmd {
 				}
 			}
 
+		case key.Matches(msg, v.keys.ActionMenu):
+			// Open action menu for selected image
+			if row := v.table.SelectedRow(); row != nil {
+				image := v.findImageByName(row.ID)
+				if image != nil {
+					v.actionMenu = actionmenu.New("Image Actions", v.buildActions(image))
+					v.menuOpen = true
+				}
+			}
+			return nil
+
+		case key.Matches(msg, v.keys.Delete):
+			// Direct hotkey for delete
+			if row := v.table.SelectedRow(); row != nil {
+				image := v.findImageByName(row.ID)
+				if image != nil {
+					return v.showDeleteConfirmation(image)
+				}
+			}
+			return nil
+
+		case key.Matches(msg, v.keys.CreateDisk):
+			// Direct hotkey for create disk from image
+			if row := v.table.SelectedRow(); row != nil {
+				image := v.findImageByName(row.ID)
+				if image != nil && image.IsReady() {
+					return func() tea.Msg {
+						return DiskCreateFromImageRequestMsg{
+							ImageName: image.Name,
+							ImageSize: image.DiskSizeGB,
+						}
+					}
+				}
+			}
+			return nil
+
 		case key.Matches(msg, v.keys.Refresh):
 			v.loading = true
 			v.err = nil
@@ -267,6 +371,65 @@ func (v *ImagesView) Update(msg tea.Msg) tea.Cmd {
 	var cmd tea.Cmd
 	v.table, cmd = v.table.Update(msg)
 	return cmd
+}
+
+// buildActions creates the action menu items
+func (v *ImagesView) buildActions(image *gcp.Image) []actionmenu.Action {
+	return []actionmenu.Action{
+		{Key: 'c', Label: "Create Disk", Enabled: image.IsReady()},
+		{Key: 'D', Label: "Delete", Enabled: true, Dangerous: true},
+	}
+}
+
+// executeAction performs the action selected from the menu
+func (v *ImagesView) executeAction(actionKey rune) tea.Cmd {
+	row := v.table.SelectedRow()
+	if row == nil {
+		return nil
+	}
+
+	image := v.findImageByName(row.ID)
+	if image == nil {
+		return nil
+	}
+
+	switch actionKey {
+	case 'c':
+		// Create disk from image
+		if image.IsReady() {
+			return func() tea.Msg {
+				return DiskCreateFromImageRequestMsg{
+					ImageName: image.Name,
+					ImageSize: image.DiskSizeGB,
+				}
+			}
+		}
+	case 'D':
+		return v.showDeleteConfirmation(image)
+	}
+
+	return nil
+}
+
+// showDeleteConfirmation opens the delete confirmation dialog
+func (v *ImagesView) showDeleteConfirmation(image *gcp.Image) tea.Cmd {
+	v.deleteConfirm = confirm.New(
+		"Delete Image",
+		fmt.Sprintf("Are you sure you want to delete image '%s'?", image.Name),
+		[]string{
+			fmt.Sprintf("Disk Size: %d GB", image.DiskSizeGB),
+			fmt.Sprintf("Family: %s", defaultIfEmpty(image.Family, "None")),
+			"This action cannot be undone.",
+		},
+	)
+	v.showDeleteConfirm = true
+	v.pendingDelete = image
+	return nil
+}
+
+// IsMenuOpen returns true if the action menu or confirm dialog is currently open
+func (v *ImagesView) IsMenuOpen() bool {
+	return v.menuOpen || v.showDeleteConfirm
 }
 
 // findImageByName looks up an image by name
@@ -299,9 +462,27 @@ func (v *ImagesView) View() string {
 
 	// Help text for actions
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
-	help := helpStyle.Render("\n  enter: details • /: filter • r: refresh • esc: back")
+	help := helpStyle.Render("\n  enter: details • .: actions • c: create disk • D: delete • /: filter • r: refresh • esc: back")
 
-	return v.table.View() + help
+	mainContent := v.table.View() + help
+
+	// Overlay action menu if open
+	if v.menuOpen && v.actionMenu != nil {
+		return v.renderWithOverlay(mainContent, v.actionMenu.View())
+	}
+
+	// Overlay delete confirmation if shown
+	if v.showDeleteConfirm && v.deleteConfirm != nil {
+		return v.renderWithOverlay(mainContent, v.deleteConfirm.View())
+	}
+
+	return mainContent
+}
+
+// renderWithOverlay overlays a dialog centered on top of the content
+func (v *ImagesView) renderWithOverlay(content, overlayContent string) string {
+	contentHeight := lipgloss.Height(content)
+	return overlay.Center(content, overlayContent, v.width, contentHeight)
 }
 
 // GetComputeClient returns the compute client for reuse in detail views
@@ -319,6 +500,8 @@ func (v *ImagesView) HasTextInputFocused() bool {
 // Reads dimensions from the context for consistent sizing.
 func (v *ImagesView) SetContext(ctx *context.ProgramContext) {
 	v.ctx = ctx
+	v.width = ctx.ContentWidth
+	v.height = ctx.ContentHeight
 	v.table.SetSize(ctx.ContentWidth, ctx.ContentHeight-6)
 }
 
