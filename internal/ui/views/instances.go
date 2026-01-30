@@ -11,11 +11,12 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
-	uierrors "github.com/slayer/gcon/internal/ui/errors"
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/actionmenu"
+	"github.com/slayer/gcon/internal/ui/components/confirm"
 	"github.com/slayer/gcon/internal/ui/components/table"
 	"github.com/slayer/gcon/internal/ui/context"
+	uierrors "github.com/slayer/gcon/internal/ui/errors"
 	"github.com/slayer/gcon/internal/ui/mouse"
 	"github.com/slayer/gcon/internal/ui/overlay"
 	"github.com/slayer/gcon/internal/ui/symbols"
@@ -36,6 +37,16 @@ type InstancesView struct {
 	keys          instanceKeyMap
 	actionMenu    *actionmenu.ActionMenu
 	menuOpen      bool
+
+	// Delete confirmation state
+	deleteConfirm     *confirm.TypeConfirmDialog
+	showDeleteConfirm bool
+	pendingDelete     *gcp.Instance        // Instance pending deletion
+	pendingDetails    *gcp.InstanceDetails // Details for deletion protection check
+
+	// View dimensions for overlay rendering
+	width  int
+	height int
 }
 
 // instanceKeyMap defines instance-specific key bindings
@@ -44,6 +55,9 @@ type instanceKeyMap struct {
 	Start      key.Binding
 	Stop       key.Binding
 	Reset      key.Binding
+	Suspend    key.Binding
+	Resume     key.Binding
+	Delete     key.Binding
 	SSH        key.Binding
 	Refresh    key.Binding
 	ActionMenu key.Binding
@@ -66,6 +80,18 @@ func defaultInstanceKeyMap() instanceKeyMap {
 		Reset: key.NewBinding(
 			key.WithKeys("R"),
 			key.WithHelp("R", "reset"),
+		),
+		Suspend: key.NewBinding(
+			key.WithKeys("z"),
+			key.WithHelp("z", "suspend"),
+		),
+		Resume: key.NewBinding(
+			key.WithKeys("Z"),
+			key.WithHelp("Z", "resume"),
+		),
+		Delete: key.NewBinding(
+			key.WithKeys("D"),
+			key.WithHelp("D", "delete"),
 		),
 		SSH: key.NewBinding(
 			key.WithKeys("S"),
@@ -160,6 +186,13 @@ type instanceActionMsg struct {
 	err      error
 }
 
+// instanceDeleteDetailsMsg contains instance details fetched for delete confirmation
+type instanceDeleteDetailsMsg struct {
+	instance *gcp.Instance
+	details  *gcp.InstanceDetails
+	err      error
+}
+
 // statusIcon returns a symbol indicator for instance status
 func statusIcon(status string) string {
 	return symbols.GetStatusSymbol(status)
@@ -245,6 +278,39 @@ func (v *InstancesView) Update(msg tea.Msg) tea.Cmd {
 		v.menuOpen = false
 		return nil
 
+	case instanceDeleteDetailsMsg:
+		// Details fetched for delete confirmation
+		v.actionLoading = false
+		v.clearTask("fetch-delete-details")
+		if msg.err != nil {
+			v.err = msg.err
+			return nil
+		}
+		v.pendingDelete = msg.instance
+		v.pendingDetails = msg.details
+		return v.showDeleteConfirmation()
+
+	case confirm.TypeConfirmMsg:
+		v.showDeleteConfirm = false
+		if v.pendingDelete != nil && v.pendingDetails != nil {
+			inst := v.pendingDelete
+			v.pendingDelete = nil
+			v.pendingDetails = nil
+			return func() tea.Msg {
+				return DeleteInstanceConfirmedMsg{
+					InstanceName: inst.Name,
+					Zone:         inst.Zone,
+				}
+			}
+		}
+		return nil
+
+	case confirm.TypeCancelMsg:
+		v.showDeleteConfirm = false
+		v.pendingDelete = nil
+		v.pendingDetails = nil
+		return nil
+
 	case table.RowDoubleClickedMsg:
 		// Handle double-click on table row - navigate to details
 		inst := v.findInstanceByName(msg.RowID)
@@ -264,6 +330,11 @@ func (v *InstancesView) Update(msg tea.Msg) tea.Cmd {
 		return nil
 
 	case tea.KeyMsg:
+		// Route to delete confirmation dialog when shown
+		if v.showDeleteConfirm && v.deleteConfirm != nil {
+			return v.deleteConfirm.Update(msg)
+		}
+
 		// Don't handle custom keys during filtering, action, or loading
 		if v.actionLoading || v.loading {
 			return nil
@@ -341,6 +412,41 @@ func (v *InstancesView) Update(msg tea.Msg) tea.Cmd {
 					return tea.Batch(v.spinner.Tick, v.resetInstance(*inst))
 				}
 			}
+
+		case key.Matches(msg, v.keys.Suspend):
+			if row := v.table.SelectedRow(); row != nil {
+				inst := v.findInstanceByName(row.ID)
+				if inst != nil && inst.IsRunning() {
+					v.actionLoading = true
+					v.actionMsg = fmt.Sprintf("Suspending %s...", inst.Name)
+					v.registerTask("action-"+inst.Name, "Suspending "+inst.Name+"...")
+					return tea.Batch(v.spinner.Tick, v.suspendInstance(*inst))
+				}
+			}
+
+		case key.Matches(msg, v.keys.Resume):
+			if row := v.table.SelectedRow(); row != nil {
+				inst := v.findInstanceByName(row.ID)
+				if inst != nil && inst.IsSuspended() {
+					v.actionLoading = true
+					v.actionMsg = fmt.Sprintf("Resuming %s...", inst.Name)
+					v.registerTask("action-"+inst.Name, "Resuming "+inst.Name+"...")
+					return tea.Batch(v.spinner.Tick, v.resumeInstance(*inst))
+				}
+			}
+
+		case key.Matches(msg, v.keys.Delete):
+			// Delete requires fetching details first to check deletion protection
+			if row := v.table.SelectedRow(); row != nil {
+				inst := v.findInstanceByName(row.ID)
+				if inst != nil {
+					v.actionLoading = true
+					v.actionMsg = fmt.Sprintf("Checking %s...", inst.Name)
+					v.registerTask("fetch-delete-details", "Checking deletion protection...")
+					return tea.Batch(v.spinner.Tick, v.fetchDeleteDetails(inst))
+				}
+			}
+			return nil
 		}
 	}
 
@@ -354,11 +460,15 @@ func (v *InstancesView) Update(msg tea.Msg) tea.Cmd {
 func (v *InstancesView) buildActions(inst gcp.Instance) []actionmenu.Action { //nolint:gocritic // Copying instance is acceptable
 	isRunning := inst.IsRunning()
 	isStopped := inst.IsStopped()
+	isSuspended := inst.IsSuspended()
 
 	return []actionmenu.Action{
 		{Key: 's', Label: "Start", Enabled: isStopped},
 		{Key: 'x', Label: "Stop", Enabled: isRunning},
+		{Key: 'z', Label: "Suspend", Enabled: isRunning},
+		{Key: 'Z', Label: "Resume", Enabled: isSuspended},
 		{Key: 'R', Label: "Reset", Enabled: isRunning, Dangerous: true},
+		{Key: 'D', Label: "Delete", Enabled: true, Dangerous: true},
 		{Key: 'S', Label: "SSH", Enabled: isRunning},
 		{Key: 'r', Label: "Refresh", Enabled: true},
 	}
@@ -388,12 +498,32 @@ func (v *InstancesView) executeAction(actionKey rune) tea.Cmd {
 			v.actionMsg = fmt.Sprintf("Stopping %s...", inst.Name)
 			return tea.Batch(v.spinner.Tick, v.stopInstance(*inst))
 		}
+	case 'z':
+		if inst.IsRunning() {
+			v.actionLoading = true
+			v.actionMsg = fmt.Sprintf("Suspending %s...", inst.Name)
+			v.registerTask("action-"+inst.Name, "Suspending "+inst.Name+"...")
+			return tea.Batch(v.spinner.Tick, v.suspendInstance(*inst))
+		}
+	case 'Z':
+		if inst.IsSuspended() {
+			v.actionLoading = true
+			v.actionMsg = fmt.Sprintf("Resuming %s...", inst.Name)
+			v.registerTask("action-"+inst.Name, "Resuming "+inst.Name+"...")
+			return tea.Batch(v.spinner.Tick, v.resumeInstance(*inst))
+		}
 	case 'R':
 		if inst.IsRunning() {
 			v.actionLoading = true
 			v.actionMsg = fmt.Sprintf("Resetting %s...", inst.Name)
 			return tea.Batch(v.spinner.Tick, v.resetInstance(*inst))
 		}
+	case 'D':
+		// Delete requires fetching details first to check deletion protection
+		v.actionLoading = true
+		v.actionMsg = fmt.Sprintf("Checking %s...", inst.Name)
+		v.registerTask("fetch-delete-details", "Checking deletion protection...")
+		return tea.Batch(v.spinner.Tick, v.fetchDeleteDetails(inst))
 	case 'S':
 		if inst.IsRunning() {
 			// SSH to instance is a planned feature
@@ -441,6 +571,68 @@ func (v *InstancesView) resetInstance(inst gcp.Instance) tea.Cmd {
 	}
 }
 
+//nolint:gocritic // hugeParam: Instance struct passed by value for clarity
+func (v *InstancesView) suspendInstance(inst gcp.Instance) tea.Cmd {
+	return func() tea.Msg {
+		err := v.computeClient.SuspendInstance(gocontext.Background(), v.projectID, inst.Zone, inst.Name)
+		return instanceActionMsg{action: "Suspend", instance: inst.Name, err: err}
+	}
+}
+
+//nolint:gocritic // hugeParam: Instance struct passed by value for clarity
+func (v *InstancesView) resumeInstance(inst gcp.Instance) tea.Cmd {
+	return func() tea.Msg {
+		err := v.computeClient.ResumeInstance(gocontext.Background(), v.projectID, inst.Zone, inst.Name)
+		return instanceActionMsg{action: "Resume", instance: inst.Name, err: err}
+	}
+}
+
+// fetchDeleteDetails fetches instance details to check deletion protection before showing dialog
+func (v *InstancesView) fetchDeleteDetails(inst *gcp.Instance) tea.Cmd {
+	return func() tea.Msg {
+		if v.computeClient == nil {
+			return instanceDeleteDetailsMsg{err: uierrors.ErrClientNotInitialized}
+		}
+		details, err := v.computeClient.GetInstanceDetails(gocontext.Background(), v.projectID, inst.Zone, inst.Name)
+		if err != nil {
+			return instanceDeleteDetailsMsg{err: err}
+		}
+		return instanceDeleteDetailsMsg{instance: inst, details: details}
+	}
+}
+
+// showDeleteConfirmation creates and shows the delete confirmation dialog
+func (v *InstancesView) showDeleteConfirmation() tea.Cmd {
+	if v.pendingDelete == nil || v.pendingDetails == nil {
+		return nil
+	}
+
+	inst := v.pendingDelete
+	details := v.pendingDetails
+
+	// Build detail lines for the dialog
+	detailLines := []string{
+		fmt.Sprintf("Zone: %s", inst.Zone),
+		fmt.Sprintf("Machine type: %s", inst.MachineType),
+		fmt.Sprintf("Status: %s", inst.Status),
+	}
+
+	v.deleteConfirm = confirm.NewTypeConfirmDialog(
+		"Delete Instance",
+		inst.Name,
+		detailLines,
+	)
+
+	// Check deletion protection
+	if details.DeletionProtection {
+		v.deleteConfirm.SetWarning("Deletion protection is enabled. Disable it in the GCP Console before deleting.")
+		v.deleteConfirm.SetCannotConfirm(true)
+	}
+
+	v.showDeleteConfirm = true
+	return v.deleteConfirm.Init()
+}
+
 // View renders the instances view
 func (v *InstancesView) View() string {
 	if v.loading && v.computeClient == nil {
@@ -472,34 +664,35 @@ func (v *InstancesView) View() string {
 
 	// Help text for actions - include '.' for action menu
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
-	help := helpStyle.Render("\n  enter: details • .: actions • s: start • x: stop • R: reset • /: filter • r: refresh")
+	help := helpStyle.Render("\n  enter: details • .: actions • s: start • x: stop • z: suspend • Z: resume • /: filter • r: refresh")
 
 	mainContent := header + v.table.View() + help
 
 	// Overlay action menu if open
 	if v.menuOpen && v.actionMenu != nil {
-		return v.renderWithActionMenu(mainContent)
+		return v.renderWithOverlay(mainContent, v.actionMenu.View())
+	}
+
+	// Overlay delete confirmation if shown
+	if v.showDeleteConfirm && v.deleteConfirm != nil {
+		return v.renderWithOverlay(mainContent, v.deleteConfirm.View())
 	}
 
 	return mainContent
 }
 
-// renderWithActionMenu overlays the action menu centered on top of the content
-func (v *InstancesView) renderWithActionMenu(content string) string {
-	menuView := v.actionMenu.View()
-
-	// Use context width for consistent centering (like command palette)
-	contentWidth := v.ctx.ContentWidth
+// renderWithOverlay overlays a dialog centered on top of the content
+func (v *InstancesView) renderWithOverlay(content, overlayContent string) string {
 	contentHeight := lipgloss.Height(content)
-
-	// Use overlay helper to composite menu on top of content
-	return overlay.Center(content, menuView, contentWidth, contentHeight)
+	return overlay.Center(content, overlayContent, v.width, contentHeight)
 }
 
 // SetContext updates the view with shared program context.
 // Reads dimensions from the context for consistent sizing.
 func (v *InstancesView) SetContext(ctx *context.ProgramContext) {
 	v.ctx = ctx
+	v.width = ctx.ContentWidth
+	v.height = ctx.ContentHeight
 	v.table.SetSize(ctx.ContentWidth, ctx.ContentHeight-6)
 }
 
@@ -516,14 +709,17 @@ func (v *InstancesView) GetComputeClient() *gcp.ComputeClient {
 	return v.computeClient
 }
 
-// IsMenuOpen returns true if the action menu is currently open
+// IsMenuOpen returns true if the action menu or delete confirm is open
 func (v *InstancesView) IsMenuOpen() bool {
-	return v.menuOpen
+	return v.menuOpen || v.showDeleteConfirm
 }
 
-// HasTextInputFocused returns true if the table filter is active.
+// HasTextInputFocused returns true if the table filter or delete confirm input is active.
 // Used to prevent global hotkeys (like 'q' for quit) from triggering while typing.
 func (v *InstancesView) HasTextInputFocused() bool {
+	if v.showDeleteConfirm && v.deleteConfirm != nil {
+		return v.deleteConfirm.HasTextInputFocused()
+	}
 	return v.table.HasTextInputFocused()
 }
 

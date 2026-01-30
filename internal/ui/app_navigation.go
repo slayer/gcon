@@ -495,6 +495,9 @@ func (a *App) clearAllViews() {
 	a.metadataView = nil
 	a.instanceEditorView = nil
 	a.bucketCreateView = nil
+	a.snapshotCreateView = nil
+	a.imageCreateView = nil
+	a.diskCreateView = nil
 
 	// Clear view stack
 	a.viewStack = nil
@@ -954,6 +957,470 @@ func (a *App) handleDiskActionResult(msg views.DiskActionResultMsg) tea.Cmd {
 			a.updateSidebarActiveView()
 		}
 		a.err = nil
+	}
+
+	return nil
+}
+
+// handleDeleteSnapshotConfirmed processes confirmed snapshot deletion
+func (a *App) handleDeleteSnapshotConfirmed(msg views.DeleteSnapshotConfirmedMsg) tea.Cmd {
+	// Get compute client from the appropriate view
+	var computeClient *gcp.ComputeClient
+	if a.snapshotsView != nil {
+		computeClient = a.snapshotsView.GetComputeClient()
+	} else if a.snapshotDetailsView != nil {
+		computeClient = a.snapshotDetailsView.GetComputeClient()
+	}
+
+	if computeClient == nil || a.selectedProject == nil {
+		return nil
+	}
+
+	projectID := a.selectedProject.ID
+	snapshotName := msg.SnapshotName
+
+	return func() tea.Msg {
+		err := computeClient.DeleteSnapshot(gocontext.Background(), projectID, snapshotName)
+		return views.SnapshotActionResultMsg{
+			Action:  "delete",
+			Success: err == nil,
+			Error:   err,
+		}
+	}
+}
+
+// handleSnapshotActionResult processes the result of a snapshot action
+func (a *App) handleSnapshotActionResult(msg views.SnapshotActionResultMsg) tea.Cmd {
+	if msg.Error != nil {
+		a.err = msg.Error
+		return nil
+	}
+
+	// On successful delete, navigate back to snapshots list and refresh
+	if msg.Action == "delete" {
+		// If we're in snapshot details view, go back to snapshots list
+		if a.currentView == ViewSnapshotDetails {
+			// Pop back to snapshots view
+			if len(a.viewStack) > 0 {
+				lastViewIndex := len(a.viewStack) - 1
+				a.currentView = a.viewStack[lastViewIndex]
+				a.viewStack = a.viewStack[:lastViewIndex]
+			}
+
+			// Clean up snapshot details view
+			a.snapshotDetailsView = nil
+			a.selectedSnapshot = nil
+
+			a.updateSidebarActiveView()
+		}
+
+		// Refresh snapshots list
+		if a.snapshotsView != nil {
+			return a.snapshotsView.Init()
+		}
+	}
+
+	// On successful disk creation, navigate to disks view
+	if msg.Action == "create_disk" {
+		// Pop back from disk create view
+		if a.currentView == ViewDiskCreate {
+			if len(a.viewStack) > 0 {
+				lastViewIndex := len(a.viewStack) - 1
+				a.currentView = a.viewStack[lastViewIndex]
+				a.viewStack = a.viewStack[:lastViewIndex]
+			}
+			a.diskCreateView = nil
+			a.updateSidebarActiveView()
+		}
+		a.err = nil
+	}
+
+	// On successful image creation, navigate back from create view
+	if msg.Action == "image" {
+		if a.currentView == ViewImageCreate {
+			// Pop back to previous view
+			if len(a.viewStack) > 0 {
+				lastViewIndex := len(a.viewStack) - 1
+				a.currentView = a.viewStack[lastViewIndex]
+				a.viewStack = a.viewStack[:lastViewIndex]
+			}
+			a.imageCreateView = nil
+			a.updateSidebarActiveView()
+		}
+		a.err = nil
+	}
+
+	return nil
+}
+
+// handleDiskCreateFromSnapshotRequest opens the disk creation form
+func (a *App) handleDiskCreateFromSnapshotRequest(msg views.DiskCreateFromSnapshotRequestMsg) tea.Cmd {
+	// Get compute client from the appropriate view
+	var computeClient *gcp.ComputeClient
+	if a.snapshotsView != nil {
+		computeClient = a.snapshotsView.GetComputeClient()
+	} else if a.snapshotDetailsView != nil {
+		computeClient = a.snapshotDetailsView.GetComputeClient()
+	}
+
+	if computeClient == nil || a.selectedProject == nil {
+		return nil
+	}
+
+	a.viewStack = append(a.viewStack, a.currentView)
+	a.currentView = ViewDiskCreate
+	a.diskCreateView = views.NewDiskCreateView(
+		a.selectedProject.ID,
+		msg.SnapshotName,
+		msg.SnapshotSize,
+		computeClient,
+	)
+	a.updateViewSizes()
+	return a.diskCreateView.Init()
+}
+
+// handleDiskCreateCanceled processes canceled disk creation
+func (a *App) handleDiskCreateCanceled() {
+	// Pop back to previous view
+	if len(a.viewStack) > 0 {
+		lastViewIndex := len(a.viewStack) - 1
+		a.currentView = a.viewStack[lastViewIndex]
+		a.viewStack = a.viewStack[:lastViewIndex]
+	}
+
+	// Clean up create view
+	a.diskCreateView = nil
+
+	a.updateSidebarActiveView()
+}
+
+// handleCreateDiskFromSnapshot processes disk creation from a snapshot
+func (a *App) handleCreateDiskFromSnapshot(msg views.CreateDiskFromSnapshotMsg) tea.Cmd {
+	// Get compute client from the disk create view or snapshot views
+	var computeClient *gcp.ComputeClient
+	switch {
+	case a.diskCreateView != nil:
+		computeClient = a.diskCreateView.GetComputeClient()
+	case a.snapshotsView != nil:
+		computeClient = a.snapshotsView.GetComputeClient()
+	case a.snapshotDetailsView != nil:
+		computeClient = a.snapshotDetailsView.GetComputeClient()
+	}
+
+	if computeClient == nil || a.selectedProject == nil {
+		return nil
+	}
+
+	projectID := a.selectedProject.ID
+	config := gcp.DiskCreateConfig{
+		Name:           msg.DiskName,
+		Description:    msg.Description,
+		Zone:           msg.Zone,
+		Type:           msg.DiskType,
+		SizeGB:         msg.SizeGB,
+		SourceSnapshot: msg.SnapshotName,
+		Labels:         msg.Labels,
+	}
+
+	return func() tea.Msg {
+		err := computeClient.CreateDiskFromSnapshot(
+			gocontext.Background(),
+			projectID,
+			config,
+		)
+		return views.SnapshotActionResultMsg{
+			Action:  "create_disk",
+			Success: err == nil,
+			Error:   err,
+		}
+	}
+}
+
+// handleImageCreateFromSnapshotRequest opens the image creation form for a snapshot
+func (a *App) handleImageCreateFromSnapshotRequest(msg views.ImageCreateFromSnapshotRequestMsg) tea.Cmd {
+	// Get compute client from the appropriate view
+	var computeClient *gcp.ComputeClient
+	if a.snapshotsView != nil {
+		computeClient = a.snapshotsView.GetComputeClient()
+	} else if a.snapshotDetailsView != nil {
+		computeClient = a.snapshotDetailsView.GetComputeClient()
+	}
+
+	if computeClient == nil || a.selectedProject == nil {
+		return nil
+	}
+
+	a.viewStack = append(a.viewStack, a.currentView)
+	a.currentView = ViewImageCreate
+	a.imageCreateView = views.NewImageCreateViewFromSnapshot(
+		a.selectedProject.ID,
+		msg.SnapshotName,
+		computeClient,
+	)
+	a.updateViewSizes()
+	return a.imageCreateView.Init()
+}
+
+// handleImageCreateFromSnapshotCanceled processes canceled image creation from snapshot
+func (a *App) handleImageCreateFromSnapshotCanceled() {
+	// Pop back to previous view
+	if len(a.viewStack) > 0 {
+		lastViewIndex := len(a.viewStack) - 1
+		a.currentView = a.viewStack[lastViewIndex]
+		a.viewStack = a.viewStack[:lastViewIndex]
+	}
+
+	// Clean up create view
+	a.imageCreateView = nil
+
+	a.updateSidebarActiveView()
+}
+
+// handleCreateImageFromSnapshot processes image creation from a snapshot
+func (a *App) handleCreateImageFromSnapshot(msg views.CreateImageFromSnapshotMsg) tea.Cmd {
+	// Get compute client from the image create view or snapshot views
+	var computeClient *gcp.ComputeClient
+	switch {
+	case a.imageCreateView != nil:
+		computeClient = a.imageCreateView.GetComputeClient()
+	case a.snapshotsView != nil:
+		computeClient = a.snapshotsView.GetComputeClient()
+	case a.snapshotDetailsView != nil:
+		computeClient = a.snapshotDetailsView.GetComputeClient()
+	}
+
+	if computeClient == nil || a.selectedProject == nil {
+		return nil
+	}
+
+	projectID := a.selectedProject.ID
+	config := gcp.ImageCreateConfig{
+		Name:            msg.ImageName,
+		Description:     msg.Description,
+		Family:          msg.Family,
+		Labels:          msg.Labels,
+		StorageLocation: msg.StorageLocation,
+		SourceSnapshot:  msg.SnapshotName,
+	}
+
+	return func() tea.Msg {
+		err := computeClient.CreateImageFromSnapshot(
+			gocontext.Background(),
+			projectID,
+			config,
+		)
+		return views.SnapshotActionResultMsg{
+			Action:  "image",
+			Success: err == nil,
+			Error:   err,
+		}
+	}
+}
+
+// handleDeleteImageConfirmed processes confirmed image deletion
+func (a *App) handleDeleteImageConfirmed(msg views.DeleteImageConfirmedMsg) tea.Cmd {
+	// Get compute client from the appropriate view
+	var computeClient *gcp.ComputeClient
+	if a.imagesView != nil {
+		computeClient = a.imagesView.GetComputeClient()
+	} else if a.imageDetailsView != nil {
+		computeClient = a.imageDetailsView.GetComputeClient()
+	}
+
+	if computeClient == nil || a.selectedProject == nil {
+		return nil
+	}
+
+	projectID := a.selectedProject.ID
+	imageName := msg.ImageName
+
+	return func() tea.Msg {
+		err := computeClient.DeleteImage(gocontext.Background(), projectID, imageName)
+		return views.ImageActionResultMsg{
+			Action:  "delete",
+			Success: err == nil,
+			Error:   err,
+		}
+	}
+}
+
+// handleImageActionResult processes the result of an image action
+func (a *App) handleImageActionResult(msg views.ImageActionResultMsg) tea.Cmd {
+	if msg.Error != nil {
+		a.err = msg.Error
+		return nil
+	}
+
+	// On successful delete, navigate back to images list and refresh
+	if msg.Action == "delete" {
+		// If we're in image details view, go back to images list
+		if a.currentView == ViewImageDetails {
+			// Pop back to images view
+			if len(a.viewStack) > 0 {
+				lastViewIndex := len(a.viewStack) - 1
+				a.currentView = a.viewStack[lastViewIndex]
+				a.viewStack = a.viewStack[:lastViewIndex]
+			}
+
+			// Clean up image details view
+			a.imageDetailsView = nil
+			a.selectedImage = nil
+
+			a.updateSidebarActiveView()
+		}
+
+		// Refresh images list
+		if a.imagesView != nil {
+			return a.imagesView.Init()
+		}
+	}
+
+	// On successful disk creation, navigate back from create view
+	if msg.Action == "create_disk" {
+		if a.currentView == ViewDiskCreate {
+			// Pop back to previous view
+			if len(a.viewStack) > 0 {
+				lastViewIndex := len(a.viewStack) - 1
+				a.currentView = a.viewStack[lastViewIndex]
+				a.viewStack = a.viewStack[:lastViewIndex]
+			}
+			a.diskCreateView = nil
+			a.updateSidebarActiveView()
+		}
+		a.err = nil
+	}
+
+	return nil
+}
+
+// handleDiskCreateFromImageRequest opens the disk creation form for an image
+func (a *App) handleDiskCreateFromImageRequest(msg views.DiskCreateFromImageRequestMsg) tea.Cmd {
+	// Get compute client from the appropriate view
+	var computeClient *gcp.ComputeClient
+	if a.imagesView != nil {
+		computeClient = a.imagesView.GetComputeClient()
+	} else if a.imageDetailsView != nil {
+		computeClient = a.imageDetailsView.GetComputeClient()
+	}
+
+	if computeClient == nil || a.selectedProject == nil {
+		return nil
+	}
+
+	a.viewStack = append(a.viewStack, a.currentView)
+	a.currentView = ViewDiskCreate
+	a.diskCreateView = views.NewDiskCreateViewFromImage(
+		a.selectedProject.ID,
+		msg.ImageName,
+		msg.ImageSize,
+		computeClient,
+	)
+	a.updateViewSizes()
+	return a.diskCreateView.Init()
+}
+
+// handleCreateDiskFromImage processes disk creation from an image
+func (a *App) handleCreateDiskFromImage(msg views.CreateDiskFromImageMsg) tea.Cmd {
+	// Get compute client from the disk create view or image views
+	var computeClient *gcp.ComputeClient
+	switch {
+	case a.diskCreateView != nil:
+		computeClient = a.diskCreateView.GetComputeClient()
+	case a.imagesView != nil:
+		computeClient = a.imagesView.GetComputeClient()
+	case a.imageDetailsView != nil:
+		computeClient = a.imageDetailsView.GetComputeClient()
+	}
+
+	if computeClient == nil || a.selectedProject == nil {
+		return nil
+	}
+
+	projectID := a.selectedProject.ID
+	config := gcp.DiskCreateConfig{
+		Name:        msg.DiskName,
+		Description: msg.Description,
+		Zone:        msg.Zone,
+		Type:        msg.DiskType,
+		SizeGB:      msg.SizeGB,
+		SourceImage: msg.ImageName,
+		Labels:      msg.Labels,
+	}
+
+	return func() tea.Msg {
+		err := computeClient.CreateDiskFromImage(
+			gocontext.Background(),
+			projectID,
+			config,
+		)
+		return views.ImageActionResultMsg{
+			Action:  "create_disk",
+			Success: err == nil,
+			Error:   err,
+		}
+	}
+}
+
+// handleDeleteInstanceConfirmed processes confirmed instance deletion
+func (a *App) handleDeleteInstanceConfirmed(msg views.DeleteInstanceConfirmedMsg) tea.Cmd {
+	// Get compute client from the appropriate view
+	var computeClient *gcp.ComputeClient
+	if a.instancesView != nil {
+		computeClient = a.instancesView.GetComputeClient()
+	} else if a.instanceDetailsView != nil {
+		computeClient = a.instanceDetailsView.GetComputeClient()
+	}
+
+	if computeClient == nil || a.selectedProject == nil {
+		return nil
+	}
+
+	projectID := a.selectedProject.ID
+	instanceName := msg.InstanceName
+	zone := msg.Zone
+
+	return func() tea.Msg {
+		err := computeClient.DeleteInstance(gocontext.Background(), projectID, zone, instanceName)
+		return views.InstanceActionResultMsg{
+			Action:  "delete",
+			Success: err == nil,
+			Error:   err,
+		}
+	}
+}
+
+// handleInstanceActionResult processes the result of an instance action
+func (a *App) handleInstanceActionResult(msg views.InstanceActionResultMsg) tea.Cmd {
+	if msg.Error != nil {
+		a.err = msg.Error
+		return nil
+	}
+
+	// On successful delete, navigate back to instances list and refresh
+	if msg.Action == "delete" {
+		// If we're in instance details view, go back to instances list
+		if a.currentView == ViewInstanceDetails {
+			// Pop back to instances view
+			if len(a.viewStack) > 0 {
+				lastViewIndex := len(a.viewStack) - 1
+				a.currentView = a.viewStack[lastViewIndex]
+				a.viewStack = a.viewStack[:lastViewIndex]
+			}
+
+			// Clean up instance details view
+			if a.instanceDetailsView != nil {
+				a.instanceDetailsView.Close()
+			}
+			a.instanceDetailsView = nil
+			a.selectedInstance = nil
+
+			a.updateSidebarActiveView()
+		}
+
+		// Refresh instances list
+		if a.instancesView != nil {
+			return a.instancesView.Init()
+		}
 	}
 
 	return nil

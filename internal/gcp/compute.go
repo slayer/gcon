@@ -304,6 +304,25 @@ func (c *ComputeClient) ResetInstance(ctx context.Context, projectID, zone, inst
 	return nil
 }
 
+// SuspendInstance suspends a running VM instance
+// Suspended instances preserve memory state and can be resumed later
+func (c *ComputeClient) SuspendInstance(ctx context.Context, projectID, zone, instanceName string) error {
+	_, err := c.service.Instances.Suspend(projectID, zone, instanceName).Context(ctx).Do()
+	if err != nil {
+		return WrapActionError(err, "suspend instance", instanceName)
+	}
+	return nil
+}
+
+// ResumeInstance resumes a suspended VM instance
+func (c *ComputeClient) ResumeInstance(ctx context.Context, projectID, zone, instanceName string) error {
+	_, err := c.service.Instances.Resume(projectID, zone, instanceName).Context(ctx).Do()
+	if err != nil {
+		return WrapActionError(err, "resume instance", instanceName)
+	}
+	return nil
+}
+
 // GetInstance returns details for a specific instance
 func (c *ComputeClient) GetInstance(ctx context.Context, projectID, zone, instanceName string) (*Instance, error) {
 	inst, err := c.service.Instances.Get(projectID, zone, instanceName).Context(ctx).Do()
@@ -615,6 +634,11 @@ func (i *Instance) IsRunning() bool {
 // IsStopped returns true if the instance is in TERMINATED or STOPPED state
 func (i *Instance) IsStopped() bool {
 	return i.Status == "TERMINATED" || i.Status == "STOPPED"
+}
+
+// IsSuspended returns true if the instance is in SUSPENDED state
+func (i *Instance) IsSuspended() bool {
+	return i.Status == "SUSPENDED"
 }
 
 // Image represents a simplified Compute Engine disk image
@@ -1074,6 +1098,7 @@ type ImageCreateConfig struct {
 	Labels          map[string]string
 	StorageLocation string // Regional or multi-regional (e.g., "us-central1", "us", "eu")
 	ForceCreate     bool   // If true, create even if disk is attached to running instance
+	SourceSnapshot  string // Snapshot name (not full URL) - for CreateImageFromSnapshot
 }
 
 // CreateImageFromDisk creates an image from a disk with the given configuration
@@ -1107,6 +1132,111 @@ func (c *ComputeClient) CreateImageFromDisk(ctx context.Context, projectID, zone
 	_, err := call.Do()
 	if err != nil {
 		return WrapActionError(err, "create image from disk", diskName)
+	}
+	return nil
+}
+
+// CreateImageFromSnapshot creates an image from a snapshot with the given configuration
+func (c *ComputeClient) CreateImageFromSnapshot(ctx context.Context, projectID string, config ImageCreateConfig) error {
+	// Build the full source snapshot URL
+	sourceSnapshot := fmt.Sprintf("projects/%s/global/snapshots/%s", projectID, config.SourceSnapshot)
+
+	image := &compute.Image{
+		Name:           config.Name,
+		Description:    config.Description,
+		SourceSnapshot: sourceSnapshot,
+	}
+
+	if config.Family != "" {
+		image.Family = config.Family
+	}
+
+	if len(config.Labels) > 0 {
+		image.Labels = config.Labels
+	}
+
+	if config.StorageLocation != "" {
+		image.StorageLocations = []string{config.StorageLocation}
+	}
+
+	_, err := c.service.Images.Insert(projectID, image).Context(ctx).Do()
+	if err != nil {
+		return WrapActionError(err, "create image from snapshot", config.SourceSnapshot)
+	}
+	return nil
+}
+
+// DiskCreateConfig holds configuration for creating a disk from a snapshot or image
+type DiskCreateConfig struct {
+	Name           string
+	Description    string
+	Zone           string
+	Type           string // pd-standard, pd-ssd, pd-balanced
+	SizeGB         int64  // Must be >= source size
+	SourceSnapshot string // Snapshot name (not full URL) - for CreateDiskFromSnapshot
+	SourceImage    string // Image name (not full URL) - for CreateDiskFromImage
+	Labels         map[string]string
+}
+
+// CreateDiskFromSnapshot creates a new persistent disk from a snapshot
+func (c *ComputeClient) CreateDiskFromSnapshot(ctx context.Context, projectID string, config DiskCreateConfig) error {
+	// Build full source snapshot URL
+	sourceSnapshot := fmt.Sprintf("projects/%s/global/snapshots/%s", projectID, config.SourceSnapshot)
+
+	// Build full disk type URL
+	diskType := fmt.Sprintf("zones/%s/diskTypes/%s", config.Zone, config.Type)
+
+	disk := &compute.Disk{
+		Name:           config.Name,
+		Description:    config.Description,
+		Type:           diskType,
+		SizeGb:         config.SizeGB,
+		SourceSnapshot: sourceSnapshot,
+	}
+
+	if len(config.Labels) > 0 {
+		disk.Labels = config.Labels
+	}
+
+	_, err := c.service.Disks.Insert(projectID, config.Zone, disk).Context(ctx).Do()
+	if err != nil {
+		return WrapActionError(err, "create disk from snapshot", config.SourceSnapshot)
+	}
+	return nil
+}
+
+// CreateDiskFromImage creates a new persistent disk from an image
+func (c *ComputeClient) CreateDiskFromImage(ctx context.Context, projectID string, config DiskCreateConfig) error {
+	// Build full source image URL
+	sourceImage := fmt.Sprintf("projects/%s/global/images/%s", projectID, config.SourceImage)
+
+	// Build full disk type URL
+	diskType := fmt.Sprintf("zones/%s/diskTypes/%s", config.Zone, config.Type)
+
+	disk := &compute.Disk{
+		Name:        config.Name,
+		Description: config.Description,
+		Type:        diskType,
+		SizeGb:      config.SizeGB,
+		SourceImage: sourceImage,
+	}
+
+	if len(config.Labels) > 0 {
+		disk.Labels = config.Labels
+	}
+
+	_, err := c.service.Disks.Insert(projectID, config.Zone, disk).Context(ctx).Do()
+	if err != nil {
+		return WrapActionError(err, "create disk from image", config.SourceImage)
+	}
+	return nil
+}
+
+// DeleteInstance deletes a VM instance. Returns error if deletion protection is enabled.
+func (c *ComputeClient) DeleteInstance(ctx context.Context, projectID, zone, instanceName string) error {
+	_, err := c.service.Instances.Delete(projectID, zone, instanceName).Context(ctx).Do()
+	if err != nil {
+		return WrapActionError(err, "delete instance", instanceName)
 	}
 	return nil
 }
