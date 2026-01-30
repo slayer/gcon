@@ -1111,6 +1111,15 @@ func (c *ComputeClient) CreateImageFromDisk(ctx context.Context, projectID, zone
 	return nil
 }
 
+// DeleteInstance deletes a VM instance. Returns error if deletion protection is enabled.
+func (c *ComputeClient) DeleteInstance(ctx context.Context, projectID, zone, instanceName string) error {
+	_, err := c.service.Instances.Delete(projectID, zone, instanceName).Context(ctx).Do()
+	if err != nil {
+		return WrapActionError(err, "delete instance", instanceName)
+	}
+	return nil
+}
+
 // GetInstanceMetadata retrieves metadata for a specific instance
 func (c *ComputeClient) GetInstanceMetadata(ctx context.Context, projectID, zone, instanceName string) (*InstanceMetadata, error) {
 	inst, err := c.service.Instances.Get(projectID, zone, instanceName).Context(ctx).Do()

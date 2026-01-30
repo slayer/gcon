@@ -42,9 +42,15 @@ description: Keyboard shortcuts reference for all views
 
 | Key | Action |
 |-----|--------|
+| `Enter` | View instance details |
+| `.` | Open action menu |
 | `s` | Start stopped instance |
 | `x` | Stop running instance |
 | `R` | Reset (hard reboot) |
+| `D` | Delete instance (with type-to-confirm) |
+| `/` | Filter instances |
+| `r` | Refresh list |
+| `Esc` | Go back |
 
 ## Instance Details
 
@@ -55,7 +61,11 @@ description: Keyboard shortcuts reference for all views
 | `s` | Start instance (if stopped) |
 | `x` | Stop instance (if running) |
 | `R` | Reset instance |
+| `D` | Delete instance (with type-to-confirm) |
 | `r` | Refresh details |
+| `↑/↓` | Scroll content |
+| `Tab` | Switch focus (tabs/links/content) |
+| `Esc` | Go back |
 
 ## Label Editor
 

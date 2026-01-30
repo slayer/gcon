@@ -15,12 +15,13 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
-	uierrors "github.com/slayer/gcon/internal/ui/errors"
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/actionmenu"
+	"github.com/slayer/gcon/internal/ui/components/confirm"
 	"github.com/slayer/gcon/internal/ui/components/links"
 	"github.com/slayer/gcon/internal/ui/components/tabs"
 	"github.com/slayer/gcon/internal/ui/context"
+	uierrors "github.com/slayer/gcon/internal/ui/errors"
 	"github.com/slayer/gcon/internal/ui/focus"
 	"github.com/slayer/gcon/internal/ui/overlay"
 	"github.com/slayer/gcon/internal/ui/symbols"
@@ -136,6 +137,9 @@ type InstanceDetailsView struct {
 	autoRefresh       bool
 	autoRefreshTicker *time.Ticker
 	gcpClient         *gcp.Client
+	// Delete confirmation state
+	deleteConfirm     *confirm.TypeConfirmDialog
+	showDeleteConfirm bool
 }
 
 type instanceDetailsKeyMap struct {
@@ -144,6 +148,7 @@ type instanceDetailsKeyMap struct {
 	Start      key.Binding
 	Stop       key.Binding
 	Reset      key.Binding
+	Delete     key.Binding
 	Refresh    key.Binding
 	ActionMenu key.Binding
 }
@@ -169,6 +174,10 @@ func defaultInstanceDetailsKeyMap() instanceDetailsKeyMap {
 		Reset: key.NewBinding(
 			key.WithKeys("R"),
 			key.WithHelp("R", "reset"),
+		),
+		Delete: key.NewBinding(
+			key.WithKeys("D"),
+			key.WithHelp("D", "delete"),
 		),
 		Refresh: key.NewBinding(
 			key.WithKeys("r"),
@@ -322,6 +331,22 @@ func (v *InstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 		v.menuOpen = false
 		return nil
 
+	case confirm.TypeConfirmMsg:
+		v.showDeleteConfirm = false
+		if v.details != nil {
+			return func() tea.Msg {
+				return DeleteInstanceConfirmedMsg{
+					InstanceName: v.instanceName,
+					Zone:         v.zone,
+				}
+			}
+		}
+		return nil
+
+	case confirm.TypeCancelMsg:
+		v.showDeleteConfirm = false
+		return nil
+
 	case spinner.TickMsg:
 		if v.loading || v.actionLoading {
 			var cmd tea.Cmd
@@ -380,6 +405,11 @@ func (v *InstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 		return nil
 
 	case tea.KeyMsg:
+		// Route to delete confirmation dialog when shown
+		if v.showDeleteConfirm && v.deleteConfirm != nil {
+			return v.deleteConfirm.Update(msg)
+		}
+
 		if v.actionLoading {
 			return nil
 		}
@@ -521,6 +551,11 @@ func (v *InstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 				v.actionMsg = fmt.Sprintf("Resetting %s...", v.instanceName)
 				return tea.Batch(v.spinner.Tick, v.resetInstance())
 			}
+
+		case key.Matches(msg, v.keys.Delete):
+			if v.details != nil {
+				return v.showDeleteConfirmation()
+			}
 		}
 	}
 
@@ -531,11 +566,14 @@ func (v *InstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 func (v *InstanceDetailsView) buildActions() []actionmenu.Action {
 	isRunning := v.isInstanceRunning()
 	isStopped := v.isInstanceStopped()
+	// Delete is always enabled in menu - protection check is shown in confirm dialog
+	isProtected := v.details != nil && v.details.DeletionProtection
 
 	return []actionmenu.Action{
 		{Key: 's', Label: "Start", Enabled: isStopped},
 		{Key: 'x', Label: "Stop", Enabled: isRunning},
 		{Key: 'R', Label: "Reset", Enabled: isRunning, Dangerous: true},
+		{Key: 'D', Label: "Delete" + protectionLabel(isProtected), Enabled: !isProtected, Dangerous: true},
 		{Key: 'l', Label: "Edit Labels", Enabled: true},
 		{Key: 'S', Label: "SSH", Enabled: isRunning},
 		{Key: 'r', Label: "Refresh", Enabled: true},
@@ -567,6 +605,9 @@ func (v *InstanceDetailsView) executeAction(actionKey rune) tea.Cmd {
 			v.actionMsg = fmt.Sprintf("Resetting %s...", v.instanceName)
 			return tea.Batch(v.spinner.Tick, v.resetInstance())
 		}
+	case 'D':
+		// Delete - show confirmation dialog
+		return v.showDeleteConfirmation()
 	case 'l':
 		// Edit Labels - emit message to app to navigate to editor
 		return func() tea.Msg {
@@ -618,6 +659,43 @@ func (v *InstanceDetailsView) resetInstance() tea.Cmd {
 		err := v.computeClient.ResetInstance(gocontext.Background(), v.projectID, v.zone, v.instanceName)
 		return instanceActionMsg{action: "Reset", instance: v.instanceName, err: err}
 	}
+}
+
+// showDeleteConfirmation creates and shows the delete confirmation dialog
+func (v *InstanceDetailsView) showDeleteConfirmation() tea.Cmd {
+	if v.details == nil {
+		return nil
+	}
+
+	// Build detail lines for the dialog
+	detailLines := []string{
+		fmt.Sprintf("Zone: %s", v.zone),
+		fmt.Sprintf("Machine type: %s", v.details.MachineType),
+		fmt.Sprintf("Status: %s", v.details.Status),
+	}
+
+	v.deleteConfirm = confirm.NewTypeConfirmDialog(
+		"Delete Instance",
+		v.instanceName,
+		detailLines,
+	)
+
+	// Check deletion protection
+	if v.details.DeletionProtection {
+		v.deleteConfirm.SetWarning("Deletion protection is enabled. Disable it in the GCP Console before deleting.")
+		v.deleteConfirm.SetCannotConfirm(true)
+	}
+
+	v.showDeleteConfirm = true
+	return v.deleteConfirm.Init()
+}
+
+// protectionLabel returns a label suffix for deletion protected resources
+func protectionLabel(isProtected bool) string {
+	if isProtected {
+		return " (protected)"
+	}
+	return ""
 }
 
 // loadMetrics fetches observability metrics from Cloud Monitoring
@@ -782,22 +860,21 @@ func (v *InstanceDetailsView) View() string {
 
 	// Overlay action menu if open
 	if v.menuOpen && v.actionMenu != nil {
-		return v.renderWithActionMenu(mainContent)
+		return v.renderWithOverlay(mainContent, v.actionMenu.View())
+	}
+
+	// Overlay delete confirmation if shown
+	if v.showDeleteConfirm && v.deleteConfirm != nil {
+		return v.renderWithOverlay(mainContent, v.deleteConfirm.View())
 	}
 
 	return mainContent
 }
 
-// renderWithActionMenu overlays the action menu centered on top of the content
-func (v *InstanceDetailsView) renderWithActionMenu(content string) string {
-	menuView := v.actionMenu.View()
-
-	// Use stored width for consistent centering (like command palette)
-	// Content width varies due to viewport padding, but we want centered in the full area
+// renderWithOverlay overlays a dialog centered on top of the content
+func (v *InstanceDetailsView) renderWithOverlay(content, overlayContent string) string {
 	contentHeight := lipgloss.Height(content)
-
-	// Use overlay helper to composite menu on top of content
-	return overlay.Center(content, menuView, v.width, contentHeight)
+	return overlay.Center(content, overlayContent, v.width, contentHeight)
 }
 
 // SetContext updates the view with shared program context.
@@ -809,9 +886,18 @@ func (v *InstanceDetailsView) SetContext(ctx *context.ProgramContext) {
 	v.applySize(ctx.ContentWidth, ctx.ContentHeight)
 }
 
-// IsMenuOpen returns true if the action menu is currently open
+// IsMenuOpen returns true if the action menu or delete confirm is open
 func (v *InstanceDetailsView) IsMenuOpen() bool {
-	return v.menuOpen
+	return v.menuOpen || v.showDeleteConfirm
+}
+
+// HasTextInputFocused returns true if the delete confirm input is active.
+// Used to prevent global hotkeys (like 'q' for quit) from triggering while typing.
+func (v *InstanceDetailsView) HasTextInputFocused() bool {
+	if v.showDeleteConfirm && v.deleteConfirm != nil {
+		return v.deleteConfirm.HasTextInputFocused()
+	}
+	return false
 }
 
 // applySize applies the given dimensions to the viewports

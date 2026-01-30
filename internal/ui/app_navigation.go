@@ -1081,3 +1081,68 @@ func (a *App) handleImageActionResult(msg views.ImageActionResultMsg) tea.Cmd {
 	return nil
 }
 
+// handleDeleteInstanceConfirmed processes confirmed instance deletion
+func (a *App) handleDeleteInstanceConfirmed(msg views.DeleteInstanceConfirmedMsg) tea.Cmd {
+	// Get compute client from the appropriate view
+	var computeClient *gcp.ComputeClient
+	if a.instancesView != nil {
+		computeClient = a.instancesView.GetComputeClient()
+	} else if a.instanceDetailsView != nil {
+		computeClient = a.instanceDetailsView.GetComputeClient()
+	}
+
+	if computeClient == nil || a.selectedProject == nil {
+		return nil
+	}
+
+	projectID := a.selectedProject.ID
+	instanceName := msg.InstanceName
+	zone := msg.Zone
+
+	return func() tea.Msg {
+		err := computeClient.DeleteInstance(gocontext.Background(), projectID, zone, instanceName)
+		return views.InstanceActionResultMsg{
+			Action:  "delete",
+			Success: err == nil,
+			Error:   err,
+		}
+	}
+}
+
+// handleInstanceActionResult processes the result of an instance action
+func (a *App) handleInstanceActionResult(msg views.InstanceActionResultMsg) tea.Cmd {
+	if msg.Error != nil {
+		a.err = msg.Error
+		return nil
+	}
+
+	// On successful delete, navigate back to instances list and refresh
+	if msg.Action == "delete" {
+		// If we're in instance details view, go back to instances list
+		if a.currentView == ViewInstanceDetails {
+			// Pop back to instances view
+			if len(a.viewStack) > 0 {
+				lastViewIndex := len(a.viewStack) - 1
+				a.currentView = a.viewStack[lastViewIndex]
+				a.viewStack = a.viewStack[:lastViewIndex]
+			}
+
+			// Clean up instance details view
+			if a.instanceDetailsView != nil {
+				a.instanceDetailsView.Close()
+			}
+			a.instanceDetailsView = nil
+			a.selectedInstance = nil
+
+			a.updateSidebarActiveView()
+		}
+
+		// Refresh instances list
+		if a.instancesView != nil {
+			return a.instancesView.Init()
+		}
+	}
+
+	return nil
+}
+
