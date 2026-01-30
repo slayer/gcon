@@ -1020,3 +1020,64 @@ func (a *App) handleSnapshotActionResult(msg views.SnapshotActionResultMsg) tea.
 	return nil
 }
 
+// handleDeleteImageConfirmed processes confirmed image deletion
+func (a *App) handleDeleteImageConfirmed(msg views.DeleteImageConfirmedMsg) tea.Cmd {
+	// Get compute client from the appropriate view
+	var computeClient *gcp.ComputeClient
+	if a.imagesView != nil {
+		computeClient = a.imagesView.GetComputeClient()
+	} else if a.imageDetailsView != nil {
+		computeClient = a.imageDetailsView.GetComputeClient()
+	}
+
+	if computeClient == nil || a.selectedProject == nil {
+		return nil
+	}
+
+	projectID := a.selectedProject.ID
+	imageName := msg.ImageName
+
+	return func() tea.Msg {
+		err := computeClient.DeleteImage(gocontext.Background(), projectID, imageName)
+		return views.ImageActionResultMsg{
+			Action:  "delete",
+			Success: err == nil,
+			Error:   err,
+		}
+	}
+}
+
+// handleImageActionResult processes the result of an image action
+func (a *App) handleImageActionResult(msg views.ImageActionResultMsg) tea.Cmd {
+	if msg.Error != nil {
+		a.err = msg.Error
+		return nil
+	}
+
+	// On successful delete, navigate back to images list and refresh
+	if msg.Action == "delete" {
+		// If we're in image details view, go back to images list
+		if a.currentView == ViewImageDetails {
+			// Pop back to images view
+			if len(a.viewStack) > 0 {
+				lastViewIndex := len(a.viewStack) - 1
+				a.currentView = a.viewStack[lastViewIndex]
+				a.viewStack = a.viewStack[:lastViewIndex]
+			}
+
+			// Clean up image details view
+			a.imageDetailsView = nil
+			a.selectedImage = nil
+
+			a.updateSidebarActiveView()
+		}
+
+		// Refresh images list
+		if a.imagesView != nil {
+			return a.imagesView.Init()
+		}
+	}
+
+	return nil
+}
+

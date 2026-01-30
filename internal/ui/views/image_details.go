@@ -12,7 +12,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
+	"github.com/slayer/gcon/internal/ui/components/actionmenu"
+	"github.com/slayer/gcon/internal/ui/components/confirm"
 	"github.com/slayer/gcon/internal/ui/context"
+	"github.com/slayer/gcon/internal/ui/overlay"
 	"github.com/slayer/gcon/internal/ui/symbols"
 	"github.com/slayer/gcon/internal/ui/timeutil"
 )
@@ -42,12 +45,22 @@ type ImageDetailsView struct {
 	height        int
 	keys          imageDetailsKeyMap
 	ready         bool
+
+	// Action menu state
+	actionMenu *actionmenu.ActionMenu
+	menuOpen   bool
+
+	// Delete confirmation state
+	deleteConfirm     *confirm.ConfirmDialog
+	showDeleteConfirm bool
 }
 
 type imageDetailsKeyMap struct {
-	Up      key.Binding
-	Down    key.Binding
-	Refresh key.Binding
+	Up         key.Binding
+	Down       key.Binding
+	Refresh    key.Binding
+	ActionMenu key.Binding
+	Delete     key.Binding
 }
 
 func defaultImageDetailsKeyMap() imageDetailsKeyMap {
@@ -63,6 +76,14 @@ func defaultImageDetailsKeyMap() imageDetailsKeyMap {
 		Refresh: key.NewBinding(
 			key.WithKeys("r"),
 			key.WithHelp("r", "refresh"),
+		),
+		ActionMenu: key.NewBinding(
+			key.WithKeys("."),
+			key.WithHelp(".", "actions"),
+		),
+		Delete: key.NewBinding(
+			key.WithKeys("D"),
+			key.WithHelp("D", "delete"),
 		),
 	}
 }
@@ -103,6 +124,7 @@ func (v *ImageDetailsView) loadDetails() tea.Cmd {
 }
 
 // Update handles messages for the image details view
+//nolint:gocognit // Bubble Tea Update pattern - complexity 45
 func (v *ImageDetailsView) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case imageDetailsLoadedMsg:
@@ -116,6 +138,26 @@ func (v *ImageDetailsView) Update(msg tea.Msg) tea.Cmd {
 		v.err = msg.err
 		return nil
 
+	case actionmenu.ActionSelectedMsg:
+		v.menuOpen = false
+		return v.executeAction(msg.Key)
+
+	case actionmenu.ActionMenuClosedMsg:
+		v.menuOpen = false
+		return nil
+
+	case confirm.ConfirmMsg:
+		v.showDeleteConfirm = false
+		return func() tea.Msg {
+			return DeleteImageConfirmedMsg{
+				ImageName: v.imageName,
+			}
+		}
+
+	case confirm.CancelMsg:
+		v.showDeleteConfirm = false
+		return nil
+
 	case spinner.TickMsg:
 		if v.loading {
 			var cmd tea.Cmd
@@ -125,7 +167,32 @@ func (v *ImageDetailsView) Update(msg tea.Msg) tea.Cmd {
 		return nil
 
 	case tea.KeyMsg:
-		if key.Matches(msg, v.keys.Refresh) {
+		// Route to delete confirmation dialog when shown
+		if v.showDeleteConfirm && v.deleteConfirm != nil {
+			return v.deleteConfirm.Update(msg)
+		}
+
+		// Route to action menu when open
+		if v.menuOpen && v.actionMenu != nil {
+			return v.actionMenu.Update(msg)
+		}
+
+		switch {
+		case key.Matches(msg, v.keys.ActionMenu):
+			if v.details != nil {
+				v.actionMenu = actionmenu.New("Image Actions", v.buildActions())
+				v.menuOpen = true
+			}
+			return nil
+
+		case key.Matches(msg, v.keys.Delete):
+			// Show delete confirmation dialog
+			if v.details != nil {
+				return v.showDeleteConfirmation()
+			}
+			return nil
+
+		case key.Matches(msg, v.keys.Refresh):
 			v.loading = true
 			v.err = nil
 			return tea.Batch(v.spinner.Tick, v.loadDetails())
@@ -140,6 +207,62 @@ func (v *ImageDetailsView) Update(msg tea.Msg) tea.Cmd {
 	}
 
 	return nil
+}
+
+// buildActions creates the action menu items
+func (v *ImageDetailsView) buildActions() []actionmenu.Action {
+	return []actionmenu.Action{
+		{Key: 'D', Label: "Delete", Enabled: true, Dangerous: true},
+		{Key: 'r', Label: "Refresh", Enabled: true},
+	}
+}
+
+// executeAction performs the action selected from the menu
+func (v *ImageDetailsView) executeAction(actionKey rune) tea.Cmd {
+	if v.details == nil {
+		return nil
+	}
+
+	switch actionKey {
+	case 'D':
+		return v.showDeleteConfirmation()
+	case 'r':
+		v.loading = true
+		v.err = nil
+		return tea.Batch(v.spinner.Tick, v.loadDetails())
+	}
+
+	return nil
+}
+
+// showDeleteConfirmation opens the delete confirmation dialog
+func (v *ImageDetailsView) showDeleteConfirmation() tea.Cmd {
+	details := []string{}
+	if v.details != nil {
+		details = append(details, fmt.Sprintf("Disk Size: %d GB", v.details.DiskSizeGB))
+		if v.details.Family != "" {
+			details = append(details, fmt.Sprintf("Family: %s", v.details.Family))
+		}
+	}
+	details = append(details, "This action cannot be undone.")
+
+	v.deleteConfirm = confirm.New(
+		"Delete Image",
+		fmt.Sprintf("Are you sure you want to delete image '%s'?", v.imageName),
+		details,
+	)
+	v.showDeleteConfirm = true
+	return nil
+}
+
+// IsMenuOpen returns true if the action menu or confirm dialog is currently open
+func (v *ImageDetailsView) IsMenuOpen() bool {
+	return v.menuOpen || v.showDeleteConfirm
+}
+
+// GetComputeClient returns the compute client for reuse in other views
+func (v *ImageDetailsView) GetComputeClient() *gcp.ComputeClient {
+	return v.computeClient
 }
 
 // View renders the image details view
@@ -164,9 +287,27 @@ func (v *ImageDetailsView) View() string {
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
 	scrollStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#4285F4"))
 	scrollInfo := scrollStyle.Render(fmt.Sprintf("%.0f%%", v.viewport.ScrollPercent()*100))
-	help := helpStyle.Render("\n  ↑/↓: scroll • r: refresh • esc: back") + " " + scrollInfo
+	help := helpStyle.Render("\n  ↑/↓: scroll • .: actions • D: delete • r: refresh • esc: back") + " " + scrollInfo
 
-	return v.viewport.View() + help
+	mainContent := v.viewport.View() + help
+
+	// Overlay action menu if open
+	if v.menuOpen && v.actionMenu != nil {
+		return v.renderWithOverlay(mainContent, v.actionMenu.View())
+	}
+
+	// Overlay delete confirmation if shown
+	if v.showDeleteConfirm && v.deleteConfirm != nil {
+		return v.renderWithOverlay(mainContent, v.deleteConfirm.View())
+	}
+
+	return mainContent
+}
+
+// renderWithOverlay overlays a dialog centered on top of the content
+func (v *ImageDetailsView) renderWithOverlay(content, overlayContent string) string {
+	contentHeight := lipgloss.Height(content)
+	return overlay.Center(content, overlayContent, v.width, contentHeight)
 }
 
 // SetContext updates the view with shared program context.

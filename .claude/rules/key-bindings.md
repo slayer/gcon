@@ -145,8 +145,21 @@ description: Keyboard shortcuts reference for all views
 | Key | Action |
 |-----|--------|
 | `Enter` | View image details |
+| `.` | Open action menu |
+| `D` | Delete image (with confirmation) |
 | `/` | Filter images |
 | `r` | Refresh list |
+| `Esc` | Go back |
+
+## Image Details View
+
+| Key | Action |
+|-----|--------|
+| `.` | Open action menu |
+| `D` | Delete image (with confirmation) |
+| `r` | Refresh details |
+| `↑/↓` | Scroll content |
+| `Esc` | Go back |
 
 ## Objects View (GCS Browser)
 
