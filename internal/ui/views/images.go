@@ -52,6 +52,7 @@ type imageKeyMap struct {
 	Refresh    key.Binding
 	ActionMenu key.Binding
 	Delete     key.Binding
+	CreateDisk key.Binding
 }
 
 func defaultImageKeyMap() imageKeyMap {
@@ -71,6 +72,10 @@ func defaultImageKeyMap() imageKeyMap {
 		Delete: key.NewBinding(
 			key.WithKeys("D"),
 			key.WithHelp("D", "delete"),
+		),
+		CreateDisk: key.NewBinding(
+			key.WithKeys("c"),
+			key.WithHelp("c", "create disk"),
 		),
 	}
 }
@@ -324,7 +329,7 @@ func (v *ImagesView) Update(msg tea.Msg) tea.Cmd {
 			if row := v.table.SelectedRow(); row != nil {
 				image := v.findImageByName(row.ID)
 				if image != nil {
-					v.actionMenu = actionmenu.New("Image Actions", v.buildActions())
+					v.actionMenu = actionmenu.New("Image Actions", v.buildActions(image))
 					v.menuOpen = true
 				}
 			}
@@ -336,6 +341,21 @@ func (v *ImagesView) Update(msg tea.Msg) tea.Cmd {
 				image := v.findImageByName(row.ID)
 				if image != nil {
 					return v.showDeleteConfirmation(image)
+				}
+			}
+			return nil
+
+		case key.Matches(msg, v.keys.CreateDisk):
+			// Direct hotkey for create disk from image
+			if row := v.table.SelectedRow(); row != nil {
+				image := v.findImageByName(row.ID)
+				if image != nil && image.IsReady() {
+					return func() tea.Msg {
+						return DiskCreateFromImageRequestMsg{
+							ImageName: image.Name,
+							ImageSize: image.DiskSizeGB,
+						}
+					}
 				}
 			}
 			return nil
@@ -354,8 +374,9 @@ func (v *ImagesView) Update(msg tea.Msg) tea.Cmd {
 }
 
 // buildActions creates the action menu items
-func (v *ImagesView) buildActions() []actionmenu.Action {
+func (v *ImagesView) buildActions(image *gcp.Image) []actionmenu.Action {
 	return []actionmenu.Action{
+		{Key: 'c', Label: "Create Disk", Enabled: image.IsReady()},
 		{Key: 'D', Label: "Delete", Enabled: true, Dangerous: true},
 	}
 }
@@ -372,7 +393,18 @@ func (v *ImagesView) executeAction(actionKey rune) tea.Cmd {
 		return nil
 	}
 
-	if actionKey == 'D' {
+	switch actionKey {
+	case 'c':
+		// Create disk from image
+		if image.IsReady() {
+			return func() tea.Msg {
+				return DiskCreateFromImageRequestMsg{
+					ImageName: image.Name,
+					ImageSize: image.DiskSizeGB,
+				}
+			}
+		}
+	case 'D':
 		return v.showDeleteConfirmation(image)
 	}
 
@@ -430,7 +462,7 @@ func (v *ImagesView) View() string {
 
 	// Help text for actions
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
-	help := helpStyle.Render("\n  enter: details • .: actions • D: delete • /: filter • r: refresh • esc: back")
+	help := helpStyle.Render("\n  enter: details • .: actions • c: create disk • D: delete • /: filter • r: refresh • esc: back")
 
 	mainContent := v.table.View() + help
 

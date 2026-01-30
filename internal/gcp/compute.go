@@ -1111,14 +1111,15 @@ func (c *ComputeClient) CreateImageFromDisk(ctx context.Context, projectID, zone
 	return nil
 }
 
-// DiskCreateConfig holds configuration for creating a disk from a snapshot
+// DiskCreateConfig holds configuration for creating a disk from a snapshot or image
 type DiskCreateConfig struct {
 	Name           string
 	Description    string
 	Zone           string
 	Type           string // pd-standard, pd-ssd, pd-balanced
-	SizeGB         int64  // Must be >= source snapshot size
-	SourceSnapshot string // Snapshot name (not full URL)
+	SizeGB         int64  // Must be >= source size
+	SourceSnapshot string // Snapshot name (not full URL) - for CreateDiskFromSnapshot
+	SourceImage    string // Image name (not full URL) - for CreateDiskFromImage
 	Labels         map[string]string
 }
 
@@ -1145,6 +1146,33 @@ func (c *ComputeClient) CreateDiskFromSnapshot(ctx context.Context, projectID st
 	_, err := c.service.Disks.Insert(projectID, config.Zone, disk).Context(ctx).Do()
 	if err != nil {
 		return WrapActionError(err, "create disk from snapshot", config.SourceSnapshot)
+	}
+	return nil
+}
+
+// CreateDiskFromImage creates a new persistent disk from an image
+func (c *ComputeClient) CreateDiskFromImage(ctx context.Context, projectID string, config DiskCreateConfig) error {
+	// Build full source image URL
+	sourceImage := fmt.Sprintf("projects/%s/global/images/%s", projectID, config.SourceImage)
+
+	// Build full disk type URL
+	diskType := fmt.Sprintf("zones/%s/diskTypes/%s", config.Zone, config.Type)
+
+	disk := &compute.Disk{
+		Name:        config.Name,
+		Description: config.Description,
+		Type:        diskType,
+		SizeGb:      config.SizeGB,
+		SourceImage: sourceImage,
+	}
+
+	if len(config.Labels) > 0 {
+		disk.Labels = config.Labels
+	}
+
+	_, err := c.service.Disks.Insert(projectID, config.Zone, disk).Context(ctx).Do()
+	if err != nil {
+		return WrapActionError(err, "create disk from image", config.SourceImage)
 	}
 	return nil
 }

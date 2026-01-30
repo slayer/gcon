@@ -61,6 +61,7 @@ type imageDetailsKeyMap struct {
 	Refresh    key.Binding
 	ActionMenu key.Binding
 	Delete     key.Binding
+	CreateDisk key.Binding
 }
 
 func defaultImageDetailsKeyMap() imageDetailsKeyMap {
@@ -84,6 +85,10 @@ func defaultImageDetailsKeyMap() imageDetailsKeyMap {
 		Delete: key.NewBinding(
 			key.WithKeys("D"),
 			key.WithHelp("D", "delete"),
+		),
+		CreateDisk: key.NewBinding(
+			key.WithKeys("c"),
+			key.WithHelp("c", "create disk"),
 		),
 	}
 }
@@ -192,6 +197,18 @@ func (v *ImageDetailsView) Update(msg tea.Msg) tea.Cmd {
 			}
 			return nil
 
+		case key.Matches(msg, v.keys.CreateDisk):
+			// Create disk from this image
+			if v.details != nil && v.details.Status == "READY" {
+				return func() tea.Msg {
+					return DiskCreateFromImageRequestMsg{
+						ImageName: v.details.Name,
+						ImageSize: v.details.DiskSizeGB,
+					}
+				}
+			}
+			return nil
+
 		case key.Matches(msg, v.keys.Refresh):
 			v.loading = true
 			v.err = nil
@@ -211,7 +228,10 @@ func (v *ImageDetailsView) Update(msg tea.Msg) tea.Cmd {
 
 // buildActions creates the action menu items
 func (v *ImageDetailsView) buildActions() []actionmenu.Action {
+	// Check if image is ready for disk creation
+	isReady := v.details != nil && v.details.Status == "READY"
 	return []actionmenu.Action{
+		{Key: 'c', Label: "Create Disk", Enabled: isReady},
 		{Key: 'D', Label: "Delete", Enabled: true, Dangerous: true},
 		{Key: 'r', Label: "Refresh", Enabled: true},
 	}
@@ -224,6 +244,16 @@ func (v *ImageDetailsView) executeAction(actionKey rune) tea.Cmd {
 	}
 
 	switch actionKey {
+	case 'c':
+		// Create disk from this image
+		if v.details.Status == "READY" {
+			return func() tea.Msg {
+				return DiskCreateFromImageRequestMsg{
+					ImageName: v.details.Name,
+					ImageSize: v.details.DiskSizeGB,
+				}
+			}
+		}
 	case 'D':
 		return v.showDeleteConfirmation()
 	case 'r':
@@ -287,7 +317,7 @@ func (v *ImageDetailsView) View() string {
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
 	scrollStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#4285F4"))
 	scrollInfo := scrollStyle.Render(fmt.Sprintf("%.0f%%", v.viewport.ScrollPercent()*100))
-	help := helpStyle.Render("\n  ↑/↓: scroll • .: actions • D: delete • r: refresh • esc: back") + " " + scrollInfo
+	help := helpStyle.Render("\n  ↑/↓: scroll • .: actions • c: create disk • D: delete • r: refresh • esc: back") + " " + scrollInfo
 
 	mainContent := v.viewport.View() + help
 

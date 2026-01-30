@@ -158,6 +158,7 @@ description: Keyboard shortcuts reference for all views
 |-----|--------|
 | `Enter` | View image details |
 | `.` | Open action menu |
+| `c` | Create disk from image |
 | `D` | Delete image (with confirmation) |
 | `/` | Filter images |
 | `r` | Refresh list |
@@ -168,6 +169,7 @@ description: Keyboard shortcuts reference for all views
 | Key | Action |
 |-----|--------|
 | `.` | Open action menu |
+| `c` | Create disk from image |
 | `D` | Delete image (with confirmation) |
 | `r` | Refresh details |
 | `↑/↓` | Scroll content |

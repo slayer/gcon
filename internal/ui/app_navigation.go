@@ -1179,7 +1179,90 @@ func (a *App) handleImageActionResult(msg views.ImageActionResultMsg) tea.Cmd {
 		}
 	}
 
+	// On successful disk creation, navigate back from create view
+	if msg.Action == "create_disk" {
+		if a.currentView == ViewDiskCreate {
+			// Pop back to previous view
+			if len(a.viewStack) > 0 {
+				lastViewIndex := len(a.viewStack) - 1
+				a.currentView = a.viewStack[lastViewIndex]
+				a.viewStack = a.viewStack[:lastViewIndex]
+			}
+			a.diskCreateView = nil
+			a.updateSidebarActiveView()
+		}
+		a.err = nil
+	}
+
 	return nil
+}
+
+// handleDiskCreateFromImageRequest opens the disk creation form for an image
+func (a *App) handleDiskCreateFromImageRequest(msg views.DiskCreateFromImageRequestMsg) tea.Cmd {
+	// Get compute client from the appropriate view
+	var computeClient *gcp.ComputeClient
+	if a.imagesView != nil {
+		computeClient = a.imagesView.GetComputeClient()
+	} else if a.imageDetailsView != nil {
+		computeClient = a.imageDetailsView.GetComputeClient()
+	}
+
+	if computeClient == nil || a.selectedProject == nil {
+		return nil
+	}
+
+	a.viewStack = append(a.viewStack, a.currentView)
+	a.currentView = ViewDiskCreate
+	a.diskCreateView = views.NewDiskCreateViewFromImage(
+		a.selectedProject.ID,
+		msg.ImageName,
+		msg.ImageSize,
+		computeClient,
+	)
+	a.updateViewSizes()
+	return a.diskCreateView.Init()
+}
+
+// handleCreateDiskFromImage processes disk creation from an image
+func (a *App) handleCreateDiskFromImage(msg views.CreateDiskFromImageMsg) tea.Cmd {
+	// Get compute client from the disk create view or image views
+	var computeClient *gcp.ComputeClient
+	switch {
+	case a.diskCreateView != nil:
+		computeClient = a.diskCreateView.GetComputeClient()
+	case a.imagesView != nil:
+		computeClient = a.imagesView.GetComputeClient()
+	case a.imageDetailsView != nil:
+		computeClient = a.imageDetailsView.GetComputeClient()
+	}
+
+	if computeClient == nil || a.selectedProject == nil {
+		return nil
+	}
+
+	projectID := a.selectedProject.ID
+	config := gcp.DiskCreateConfig{
+		Name:        msg.DiskName,
+		Description: msg.Description,
+		Zone:        msg.Zone,
+		Type:        msg.DiskType,
+		SizeGB:      msg.SizeGB,
+		SourceImage: msg.ImageName,
+		Labels:      msg.Labels,
+	}
+
+	return func() tea.Msg {
+		err := computeClient.CreateDiskFromImage(
+			gocontext.Background(),
+			projectID,
+			config,
+		)
+		return views.ImageActionResultMsg{
+			Action:  "create_disk",
+			Success: err == nil,
+			Error:   err,
+		}
+	}
 }
 
 // handleDeleteInstanceConfirmed processes confirmed instance deletion

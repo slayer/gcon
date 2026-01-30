@@ -44,12 +44,21 @@ func defaultDiskCreateKeyMap() diskCreateKeyMap {
 	}
 }
 
-// DiskCreateView allows creating disks from snapshots
+// DiskSourceType indicates whether creating disk from snapshot or image
+type DiskSourceType int
+
+const (
+	DiskSourceSnapshot DiskSourceType = iota
+	DiskSourceImage
+)
+
+// DiskCreateView allows creating disks from snapshots or images
 type DiskCreateView struct {
 	computeClient *gcp.ComputeClient
 	projectID     string
-	snapshotName  string
-	snapshotSize  int64 // Size in GB of the source snapshot
+	sourceName    string         // Snapshot or image name
+	sourceSize    int64          // Size in GB of the source
+	sourceType    DiskSourceType // Whether source is snapshot or image
 	ctx           *context.ProgramContext
 
 	// State machine
@@ -64,8 +73,18 @@ type DiskCreateView struct {
 	keys    diskCreateKeyMap
 }
 
-// NewDiskCreateView creates a new disk create view
+// NewDiskCreateView creates a new disk create view from a snapshot
 func NewDiskCreateView(projectID, snapshotName string, snapshotSize int64, computeClient *gcp.ComputeClient) *DiskCreateView {
+	return newDiskCreateViewInternal(projectID, snapshotName, snapshotSize, DiskSourceSnapshot, computeClient)
+}
+
+// NewDiskCreateViewFromImage creates a new disk create view from an image
+func NewDiskCreateViewFromImage(projectID, imageName string, imageSize int64, computeClient *gcp.ComputeClient) *DiskCreateView {
+	return newDiskCreateViewInternal(projectID, imageName, imageSize, DiskSourceImage, computeClient)
+}
+
+// newDiskCreateViewInternal creates a disk create view with the specified source type
+func newDiskCreateViewInternal(projectID, sourceName string, sourceSize int64, sourceType DiskSourceType, computeClient *gcp.ComputeClient) *DiskCreateView {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#4285F4"))
@@ -73,8 +92,9 @@ func NewDiskCreateView(projectID, snapshotName string, snapshotSize int64, compu
 	v := &DiskCreateView{
 		computeClient: computeClient,
 		projectID:     projectID,
-		snapshotName:  snapshotName,
-		snapshotSize:  snapshotSize,
+		sourceName:    sourceName,
+		sourceSize:    sourceSize,
+		sourceType:    sourceType,
 		spinner:       s,
 		state:         diskCreateStateForm,
 		keys:          defaultDiskCreateKeyMap(),
@@ -86,13 +106,20 @@ func NewDiskCreateView(projectID, snapshotName string, snapshotSize int64, compu
 
 // buildForm creates the disk creation form
 func (v *DiskCreateView) buildForm() {
+	// Set title and subtitle based on source type
+	sourceTypeLabel := "snapshot"
+	if v.sourceType == DiskSourceImage {
+		sourceTypeLabel = "image"
+	}
+	subtitle := fmt.Sprintf("Create a disk from %s '%s'", sourceTypeLabel, v.sourceName)
+
 	v.form = forms.NewForm("Create Disk", forms.FormModeCreate).
-		SetSubtitle(fmt.Sprintf("Create a disk from snapshot '%s'", v.snapshotName)).
+		SetSubtitle(subtitle).
 		EnableViewport()
 
 	// Basic Settings section
-	// Default name: truncate snapshot name if needed to fit 63-char GCP limit
-	defaultName := truncateForSuffix(v.snapshotName, "-disk", 63)
+	// Default name: truncate source name if needed to fit 63-char GCP limit
+	defaultName := truncateForSuffix(v.sourceName, "-disk", 63)
 	basicSection := forms.NewSection("basic", "Basic Settings").
 		AddField(forms.NewTextField("name", "Disk Name").
 			SetRequired(true).
@@ -120,6 +147,7 @@ func (v *DiskCreateView) buildForm() {
 	v.form.AddSection(zoneSection)
 
 	// Disk configuration section
+	sizeHelpText := fmt.Sprintf("Minimum size: %d GB (%s size)", v.sourceSize, sourceTypeLabel)
 	diskSection := forms.NewSection("disk", "Disk Configuration").
 		AddField(forms.NewDropdownField("disk_type", "Disk Type").
 			SetOptions([]forms.Option{
@@ -131,9 +159,9 @@ func (v *DiskCreateView) buildForm() {
 			SetHelpText("Type of persistent disk to create")).
 		AddField(forms.NewNumberField("size_gb", "Size (GB)").
 			SetRequired(true).
-			SetValue(v.snapshotSize).
-			SetValidator(forms.ValidateNumber(v.snapshotSize, 65536)). // Must be at least snapshot size, max 64TB
-			SetHelpText(fmt.Sprintf("Minimum size: %d GB (snapshot size)", v.snapshotSize)))
+			SetValue(v.sourceSize).
+			SetValidator(forms.ValidateNumber(v.sourceSize, 65536)). // Must be at least source size, max 64TB
+			SetHelpText(sizeHelpText))
 
 	v.form.AddSection(diskSection)
 
@@ -226,6 +254,15 @@ func (v *DiskCreateView) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case diskCreateSuccessMsg:
 		// Return to previous view via result message
+		// Use appropriate result message based on source type
+		if v.sourceType == DiskSourceImage {
+			return func() tea.Msg {
+				return ImageActionResultMsg{
+					Action:  "create_disk",
+					Success: true,
+				}
+			}
+		}
 		return func() tea.Msg {
 			return SnapshotActionResultMsg{
 				Action:  "create_disk",
@@ -299,8 +336,8 @@ func (v *DiskCreateView) handleSubmit() tea.Cmd {
 		diskType = dt
 	}
 
-	sizeGB := v.snapshotSize
-	if size, ok := data["size_gb"].(int64); ok && size >= v.snapshotSize {
+	sizeGB := v.sourceSize
+	if size, ok := data["size_gb"].(int64); ok && size >= v.sourceSize {
 		sizeGB = size
 	}
 
@@ -310,11 +347,30 @@ func (v *DiskCreateView) handleSubmit() tea.Cmd {
 	v.state = diskCreateStateSaving
 	v.err = nil
 
+	// Return appropriate message based on source type
+	if v.sourceType == DiskSourceImage {
+		return tea.Batch(
+			v.spinner.Tick,
+			func() tea.Msg {
+				return CreateDiskFromImageMsg{
+					ImageName:   v.sourceName,
+					DiskName:    name,
+					Description: description,
+					Zone:        zone,
+					DiskType:    diskType,
+					SizeGB:      sizeGB,
+					Labels:      labels,
+				}
+			},
+		)
+	}
+
+	// Default: create from snapshot
 	return tea.Batch(
 		v.spinner.Tick,
 		func() tea.Msg {
 			return CreateDiskFromSnapshotMsg{
-				SnapshotName: v.snapshotName,
+				SnapshotName: v.sourceName,
 				DiskName:     name,
 				Description:  description,
 				Zone:         zone,
@@ -365,9 +421,14 @@ func (v *DiskCreateView) HasTextInputFocused() bool {
 	return false
 }
 
-// GetSnapshotName returns the source snapshot name for breadcrumbs
-func (v *DiskCreateView) GetSnapshotName() string {
-	return v.snapshotName
+// GetSourceName returns the source name (snapshot or image) for breadcrumbs
+func (v *DiskCreateView) GetSourceName() string {
+	return v.sourceName
+}
+
+// GetSourceType returns whether source is snapshot or image
+func (v *DiskCreateView) GetSourceType() DiskSourceType {
+	return v.sourceType
 }
 
 // GetComputeClient returns the compute client for reuse
