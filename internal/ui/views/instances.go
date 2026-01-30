@@ -55,6 +55,8 @@ type instanceKeyMap struct {
 	Start      key.Binding
 	Stop       key.Binding
 	Reset      key.Binding
+	Suspend    key.Binding
+	Resume     key.Binding
 	Delete     key.Binding
 	SSH        key.Binding
 	Refresh    key.Binding
@@ -78,6 +80,14 @@ func defaultInstanceKeyMap() instanceKeyMap {
 		Reset: key.NewBinding(
 			key.WithKeys("R"),
 			key.WithHelp("R", "reset"),
+		),
+		Suspend: key.NewBinding(
+			key.WithKeys("z"),
+			key.WithHelp("z", "suspend"),
+		),
+		Resume: key.NewBinding(
+			key.WithKeys("Z"),
+			key.WithHelp("Z", "resume"),
 		),
 		Delete: key.NewBinding(
 			key.WithKeys("D"),
@@ -403,6 +413,28 @@ func (v *InstancesView) Update(msg tea.Msg) tea.Cmd {
 				}
 			}
 
+		case key.Matches(msg, v.keys.Suspend):
+			if row := v.table.SelectedRow(); row != nil {
+				inst := v.findInstanceByName(row.ID)
+				if inst != nil && inst.IsRunning() {
+					v.actionLoading = true
+					v.actionMsg = fmt.Sprintf("Suspending %s...", inst.Name)
+					v.registerTask("action-"+inst.Name, "Suspending "+inst.Name+"...")
+					return tea.Batch(v.spinner.Tick, v.suspendInstance(*inst))
+				}
+			}
+
+		case key.Matches(msg, v.keys.Resume):
+			if row := v.table.SelectedRow(); row != nil {
+				inst := v.findInstanceByName(row.ID)
+				if inst != nil && inst.IsSuspended() {
+					v.actionLoading = true
+					v.actionMsg = fmt.Sprintf("Resuming %s...", inst.Name)
+					v.registerTask("action-"+inst.Name, "Resuming "+inst.Name+"...")
+					return tea.Batch(v.spinner.Tick, v.resumeInstance(*inst))
+				}
+			}
+
 		case key.Matches(msg, v.keys.Delete):
 			// Delete requires fetching details first to check deletion protection
 			if row := v.table.SelectedRow(); row != nil {
@@ -428,10 +460,13 @@ func (v *InstancesView) Update(msg tea.Msg) tea.Cmd {
 func (v *InstancesView) buildActions(inst gcp.Instance) []actionmenu.Action { //nolint:gocritic // Copying instance is acceptable
 	isRunning := inst.IsRunning()
 	isStopped := inst.IsStopped()
+	isSuspended := inst.IsSuspended()
 
 	return []actionmenu.Action{
 		{Key: 's', Label: "Start", Enabled: isStopped},
 		{Key: 'x', Label: "Stop", Enabled: isRunning},
+		{Key: 'z', Label: "Suspend", Enabled: isRunning},
+		{Key: 'Z', Label: "Resume", Enabled: isSuspended},
 		{Key: 'R', Label: "Reset", Enabled: isRunning, Dangerous: true},
 		{Key: 'D', Label: "Delete", Enabled: true, Dangerous: true},
 		{Key: 'S', Label: "SSH", Enabled: isRunning},
@@ -462,6 +497,20 @@ func (v *InstancesView) executeAction(actionKey rune) tea.Cmd {
 			v.actionLoading = true
 			v.actionMsg = fmt.Sprintf("Stopping %s...", inst.Name)
 			return tea.Batch(v.spinner.Tick, v.stopInstance(*inst))
+		}
+	case 'z':
+		if inst.IsRunning() {
+			v.actionLoading = true
+			v.actionMsg = fmt.Sprintf("Suspending %s...", inst.Name)
+			v.registerTask("action-"+inst.Name, "Suspending "+inst.Name+"...")
+			return tea.Batch(v.spinner.Tick, v.suspendInstance(*inst))
+		}
+	case 'Z':
+		if inst.IsSuspended() {
+			v.actionLoading = true
+			v.actionMsg = fmt.Sprintf("Resuming %s...", inst.Name)
+			v.registerTask("action-"+inst.Name, "Resuming "+inst.Name+"...")
+			return tea.Batch(v.spinner.Tick, v.resumeInstance(*inst))
 		}
 	case 'R':
 		if inst.IsRunning() {
@@ -519,6 +568,22 @@ func (v *InstancesView) resetInstance(inst gcp.Instance) tea.Cmd {
 	return func() tea.Msg {
 		err := v.computeClient.ResetInstance(gocontext.Background(), v.projectID, inst.Zone, inst.Name)
 		return instanceActionMsg{action: "Reset", instance: inst.Name, err: err}
+	}
+}
+
+//nolint:gocritic // hugeParam: Instance struct passed by value for clarity
+func (v *InstancesView) suspendInstance(inst gcp.Instance) tea.Cmd {
+	return func() tea.Msg {
+		err := v.computeClient.SuspendInstance(gocontext.Background(), v.projectID, inst.Zone, inst.Name)
+		return instanceActionMsg{action: "Suspend", instance: inst.Name, err: err}
+	}
+}
+
+//nolint:gocritic // hugeParam: Instance struct passed by value for clarity
+func (v *InstancesView) resumeInstance(inst gcp.Instance) tea.Cmd {
+	return func() tea.Msg {
+		err := v.computeClient.ResumeInstance(gocontext.Background(), v.projectID, inst.Zone, inst.Name)
+		return instanceActionMsg{action: "Resume", instance: inst.Name, err: err}
 	}
 }
 
@@ -599,7 +664,7 @@ func (v *InstancesView) View() string {
 
 	// Help text for actions - include '.' for action menu
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
-	help := helpStyle.Render("\n  enter: details • .: actions • s: start • x: stop • R: reset • /: filter • r: refresh")
+	help := helpStyle.Render("\n  enter: details • .: actions • s: start • x: stop • z: suspend • Z: resume • /: filter • r: refresh")
 
 	mainContent := header + v.table.View() + help
 

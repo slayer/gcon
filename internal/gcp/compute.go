@@ -304,6 +304,25 @@ func (c *ComputeClient) ResetInstance(ctx context.Context, projectID, zone, inst
 	return nil
 }
 
+// SuspendInstance suspends a running VM instance
+// Suspended instances preserve memory state and can be resumed later
+func (c *ComputeClient) SuspendInstance(ctx context.Context, projectID, zone, instanceName string) error {
+	_, err := c.service.Instances.Suspend(projectID, zone, instanceName).Context(ctx).Do()
+	if err != nil {
+		return WrapActionError(err, "suspend instance", instanceName)
+	}
+	return nil
+}
+
+// ResumeInstance resumes a suspended VM instance
+func (c *ComputeClient) ResumeInstance(ctx context.Context, projectID, zone, instanceName string) error {
+	_, err := c.service.Instances.Resume(projectID, zone, instanceName).Context(ctx).Do()
+	if err != nil {
+		return WrapActionError(err, "resume instance", instanceName)
+	}
+	return nil
+}
+
 // GetInstance returns details for a specific instance
 func (c *ComputeClient) GetInstance(ctx context.Context, projectID, zone, instanceName string) (*Instance, error) {
 	inst, err := c.service.Instances.Get(projectID, zone, instanceName).Context(ctx).Do()
@@ -615,6 +634,11 @@ func (i *Instance) IsRunning() bool {
 // IsStopped returns true if the instance is in TERMINATED or STOPPED state
 func (i *Instance) IsStopped() bool {
 	return i.Status == "TERMINATED" || i.Status == "STOPPED"
+}
+
+// IsSuspended returns true if the instance is in SUSPENDED state
+func (i *Instance) IsSuspended() bool {
+	return i.Status == "SUSPENDED"
 }
 
 // Image represents a simplified Compute Engine disk image

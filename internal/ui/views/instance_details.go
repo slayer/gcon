@@ -147,6 +147,8 @@ type instanceDetailsKeyMap struct {
 	Down       key.Binding
 	Start      key.Binding
 	Stop       key.Binding
+	Suspend    key.Binding
+	Resume     key.Binding
 	Reset      key.Binding
 	Delete     key.Binding
 	Refresh    key.Binding
@@ -170,6 +172,14 @@ func defaultInstanceDetailsKeyMap() instanceDetailsKeyMap {
 		Stop: key.NewBinding(
 			key.WithKeys("x"),
 			key.WithHelp("x", "stop"),
+		),
+		Suspend: key.NewBinding(
+			key.WithKeys("z"),
+			key.WithHelp("z", "suspend"),
+		),
+		Resume: key.NewBinding(
+			key.WithKeys("Z"),
+			key.WithHelp("Z", "resume"),
 		),
 		Reset: key.NewBinding(
 			key.WithKeys("R"),
@@ -552,6 +562,20 @@ func (v *InstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 				return tea.Batch(v.spinner.Tick, v.resetInstance())
 			}
 
+		case key.Matches(msg, v.keys.Suspend):
+			if v.details != nil && v.isInstanceRunning() {
+				v.actionLoading = true
+				v.actionMsg = fmt.Sprintf("Suspending %s...", v.instanceName)
+				return tea.Batch(v.spinner.Tick, v.suspendInstance())
+			}
+
+		case key.Matches(msg, v.keys.Resume):
+			if v.details != nil && v.isInstanceSuspended() {
+				v.actionLoading = true
+				v.actionMsg = fmt.Sprintf("Resuming %s...", v.instanceName)
+				return tea.Batch(v.spinner.Tick, v.resumeInstance())
+			}
+
 		case key.Matches(msg, v.keys.Delete):
 			if v.details != nil {
 				return v.showDeleteConfirmation()
@@ -566,12 +590,15 @@ func (v *InstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 func (v *InstanceDetailsView) buildActions() []actionmenu.Action {
 	isRunning := v.isInstanceRunning()
 	isStopped := v.isInstanceStopped()
+	isSuspended := v.isInstanceSuspended()
 	// Delete is always enabled in menu - protection check is shown in confirm dialog
 	isProtected := v.details != nil && v.details.DeletionProtection
 
 	return []actionmenu.Action{
 		{Key: 's', Label: "Start", Enabled: isStopped},
 		{Key: 'x', Label: "Stop", Enabled: isRunning},
+		{Key: 'z', Label: "Suspend", Enabled: isRunning},
+		{Key: 'Z', Label: "Resume", Enabled: isSuspended},
 		{Key: 'R', Label: "Reset", Enabled: isRunning, Dangerous: true},
 		{Key: 'D', Label: "Delete" + protectionLabel(isProtected), Enabled: !isProtected, Dangerous: true},
 		{Key: 'l', Label: "Edit Labels", Enabled: true},
@@ -598,6 +625,18 @@ func (v *InstanceDetailsView) executeAction(actionKey rune) tea.Cmd {
 			v.actionLoading = true
 			v.actionMsg = fmt.Sprintf("Stopping %s...", v.instanceName)
 			return tea.Batch(v.spinner.Tick, v.stopInstance())
+		}
+	case 'z':
+		if v.isInstanceRunning() {
+			v.actionLoading = true
+			v.actionMsg = fmt.Sprintf("Suspending %s...", v.instanceName)
+			return tea.Batch(v.spinner.Tick, v.suspendInstance())
+		}
+	case 'Z':
+		if v.isInstanceSuspended() {
+			v.actionLoading = true
+			v.actionMsg = fmt.Sprintf("Resuming %s...", v.instanceName)
+			return tea.Batch(v.spinner.Tick, v.resumeInstance())
 		}
 	case 'R':
 		if v.isInstanceRunning() {
@@ -640,6 +679,10 @@ func (v *InstanceDetailsView) isInstanceStopped() bool {
 	return v.details != nil && (v.details.Status == "TERMINATED" || v.details.Status == "STOPPED")
 }
 
+func (v *InstanceDetailsView) isInstanceSuspended() bool {
+	return v.details != nil && v.details.Status == "SUSPENDED"
+}
+
 func (v *InstanceDetailsView) startInstance() tea.Cmd {
 	return func() tea.Msg {
 		err := v.computeClient.StartInstance(gocontext.Background(), v.projectID, v.zone, v.instanceName)
@@ -658,6 +701,20 @@ func (v *InstanceDetailsView) resetInstance() tea.Cmd {
 	return func() tea.Msg {
 		err := v.computeClient.ResetInstance(gocontext.Background(), v.projectID, v.zone, v.instanceName)
 		return instanceActionMsg{action: "Reset", instance: v.instanceName, err: err}
+	}
+}
+
+func (v *InstanceDetailsView) suspendInstance() tea.Cmd {
+	return func() tea.Msg {
+		err := v.computeClient.SuspendInstance(gocontext.Background(), v.projectID, v.zone, v.instanceName)
+		return instanceActionMsg{action: "Suspend", instance: v.instanceName, err: err}
+	}
+}
+
+func (v *InstanceDetailsView) resumeInstance() tea.Cmd {
+	return func() tea.Msg {
+		err := v.computeClient.ResumeInstance(gocontext.Background(), v.projectID, v.zone, v.instanceName)
+		return instanceActionMsg{action: "Resume", instance: v.instanceName, err: err}
 	}
 }
 

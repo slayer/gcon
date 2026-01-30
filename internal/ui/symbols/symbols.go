@@ -37,6 +37,7 @@ type SymbolSet struct {
 	Active           string
 	StatusRunning    string
 	StatusStopped    string
+	StatusSuspended  string
 	StatusTransition string
 	StatusUnknown    string
 	Folder           string
@@ -59,6 +60,7 @@ var (
 		Active:           "●",
 		StatusRunning:    "🟢",
 		StatusStopped:    "🔴",
+		StatusSuspended:  "🟠",
 		StatusTransition: "🟡",
 		StatusUnknown:    "⚪",
 		Folder:           "📁",
@@ -79,6 +81,7 @@ var (
 		Active:           "●",
 		StatusRunning:    colorGreen.Render("●"),
 		StatusStopped:    colorRed.Render("●"),
+		StatusSuspended:  colorOrange.Render("●"),
 		StatusTransition: colorYellow.Render("○"),
 		StatusUnknown:    colorGray.Render("◌"),
 		Folder:           "▪",
@@ -99,6 +102,7 @@ var (
 		Active:           "*",
 		StatusRunning:    colorGreen.Render("[OK]"),
 		StatusStopped:    colorRed.Render("[--]"),
+		StatusSuspended:  colorOrange.Render("[ZZ]"),
 		StatusTransition: colorYellow.Render("[..]"),
 		StatusUnknown:    colorGray.Render("[??]"),
 		Folder:           "[D]",
@@ -164,6 +168,7 @@ func Active() string    { return activeSet.Active }
 // Status symbols for instances
 func StatusRunning() string       { return activeSet.StatusRunning }
 func StatusStopped() string       { return activeSet.StatusStopped }
+func StatusSuspended() string     { return activeSet.StatusSuspended }
 func StatusTransitioning() string { return activeSet.StatusTransition }
 func StatusUnknown() string       { return activeSet.StatusUnknown }
 
@@ -174,7 +179,9 @@ func GetStatusSymbol(status string) string {
 		return StatusRunning()
 	case "TERMINATED", "STOPPED":
 		return StatusStopped()
-	case "STAGING", "PROVISIONING", "STOPPING", "SUSPENDING":
+	case "SUSPENDED":
+		return StatusSuspended()
+	case "STAGING", "PROVISIONING", "STOPPING", "SUSPENDING", "REPAIRING":
 		return StatusTransitioning()
 	default:
 		return StatusUnknown()

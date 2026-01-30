@@ -46,6 +46,8 @@ description: Keyboard shortcuts reference for all views
 | `.` | Open action menu |
 | `s` | Start stopped instance |
 | `x` | Stop running instance |
+| `z` | Suspend running instance |
+| `Z` | Resume suspended instance |
 | `R` | Reset (hard reboot) |
 | `D` | Delete instance (with type-to-confirm) |
 | `/` | Filter instances |
@@ -60,6 +62,8 @@ description: Keyboard shortcuts reference for all views
 | `l` | Edit labels |
 | `s` | Start instance (if stopped) |
 | `x` | Stop instance (if running) |
+| `z` | Suspend instance (if running) |
+| `Z` | Resume instance (if suspended) |
 | `R` | Reset instance |
 | `D` | Delete instance (with type-to-confirm) |
 | `r` | Refresh details |
