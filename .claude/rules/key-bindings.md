@@ -124,6 +124,7 @@ description: Keyboard shortcuts reference for all views
 | `Enter` | View snapshot details |
 | `.` | Open action menu |
 | `c` | Create disk from snapshot |
+| `i` | Create image from snapshot |
 | `D` | Delete snapshot (with confirmation) |
 | `/` | Filter snapshots |
 | `r` | Refresh list |
@@ -135,6 +136,7 @@ description: Keyboard shortcuts reference for all views
 |-----|--------|
 | `.` | Open action menu |
 | `c` | Create disk from snapshot |
+| `i` | Create image from snapshot |
 | `D` | Delete snapshot (with confirmation) |
 | `r` | Refresh details |
 | `↑/↓` | Scroll content |

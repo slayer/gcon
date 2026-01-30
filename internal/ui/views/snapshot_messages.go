@@ -33,3 +33,21 @@ type CreateDiskFromSnapshotMsg struct {
 	SizeGB       int64
 	Labels       map[string]string
 }
+
+// ImageCreateFromSnapshotRequestMsg requests opening the image creation form for a snapshot
+type ImageCreateFromSnapshotRequestMsg struct {
+	SnapshotName string
+}
+
+// ImageCreateFromSnapshotCanceledMsg indicates user canceled image creation from snapshot
+type ImageCreateFromSnapshotCanceledMsg struct{}
+
+// CreateImageFromSnapshotMsg is sent when creating an image from a snapshot
+type CreateImageFromSnapshotMsg struct {
+	SnapshotName    string
+	ImageName       string
+	Description     string
+	Family          string
+	Labels          map[string]string
+	StorageLocation string // Regional or multi-regional location
+}

@@ -13,6 +13,14 @@ import (
 	"github.com/slayer/gcon/internal/ui/context"
 )
 
+// ImageSourceType indicates the source type for image creation
+type ImageSourceType int
+
+const (
+	ImageSourceDisk ImageSourceType = iota
+	ImageSourceSnapshot
+)
+
 // imageCreateState represents the view's state machine
 type imageCreateState int
 
@@ -44,14 +52,18 @@ func defaultImageCreateKeyMap() imageCreateKeyMap {
 	}
 }
 
-// ImageCreateView allows creating images from disks
+// ImageCreateView allows creating images from disks or snapshots
 type ImageCreateView struct {
 	computeClient *gcp.ComputeClient
 	projectID     string
-	diskName      string
-	zone          string
-	attachedTo    string // Instance name if disk is attached
-	ctx           *context.ProgramContext
+
+	// Source information - either disk or snapshot
+	sourceType   ImageSourceType
+	sourceName   string // disk name or snapshot name
+	zone         string // only used for disk source
+	attachedTo   string // Instance name if disk is attached (only for disk source)
+
+	ctx *context.ProgramContext
 
 	// State machine
 	state imageCreateState
@@ -65,7 +77,7 @@ type ImageCreateView struct {
 	keys    imageCreateKeyMap
 }
 
-// NewImageCreateView creates a new image create view
+// NewImageCreateView creates a new image create view for creating from a disk
 func NewImageCreateView(projectID, diskName, zone, attachedTo string, computeClient *gcp.ComputeClient) *ImageCreateView {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
@@ -74,7 +86,8 @@ func NewImageCreateView(projectID, diskName, zone, attachedTo string, computeCli
 	v := &ImageCreateView{
 		computeClient: computeClient,
 		projectID:     projectID,
-		diskName:      diskName,
+		sourceType:    ImageSourceDisk,
+		sourceName:    diskName,
 		zone:          zone,
 		attachedTo:    attachedTo,
 		spinner:       s,
@@ -86,15 +99,43 @@ func NewImageCreateView(projectID, diskName, zone, attachedTo string, computeCli
 	return v
 }
 
+// NewImageCreateViewFromSnapshot creates a new image create view for creating from a snapshot
+func NewImageCreateViewFromSnapshot(projectID, snapshotName string, computeClient *gcp.ComputeClient) *ImageCreateView {
+	s := spinner.New()
+	s.Spinner = spinner.Dot
+	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#4285F4"))
+
+	v := &ImageCreateView{
+		computeClient: computeClient,
+		projectID:     projectID,
+		sourceType:    ImageSourceSnapshot,
+		sourceName:    snapshotName,
+		spinner:       s,
+		state:         imageCreateStateForm,
+		keys:          defaultImageCreateKeyMap(),
+	}
+
+	v.buildForm()
+	return v
+}
+
 // buildForm creates the image creation form
 func (v *ImageCreateView) buildForm() {
+	// Set subtitle based on source type
+	var subtitle string
+	if v.sourceType == ImageSourceDisk {
+		subtitle = fmt.Sprintf("Create an image from disk '%s'", v.sourceName)
+	} else {
+		subtitle = fmt.Sprintf("Create an image from snapshot '%s'", v.sourceName)
+	}
+
 	v.form = forms.NewForm("Create Image", forms.FormModeCreate).
-		SetSubtitle(fmt.Sprintf("Create an image from disk '%s'", v.diskName)).
+		SetSubtitle(subtitle).
 		EnableViewport()
 
 	// Basic Settings section
-	// Default name: truncate disk name if needed to fit 63-char GCP limit
-	defaultName := truncateForSuffix(v.diskName, "-image", 63)
+	// Default name: truncate source name if needed to fit 63-char GCP limit
+	defaultName := truncateForSuffix(v.sourceName, "-image", 63)
 	basicSection := forms.NewSection("basic", "Basic Settings").
 		AddField(forms.NewTextField("name", "Image Name").
 			SetRequired(true).
@@ -116,11 +157,11 @@ func (v *ImageCreateView) buildForm() {
 
 	v.form.AddSection(basicSection)
 
-	// Show warning if disk is attached
-	if v.attachedTo != "" {
+	// Show warning if disk is attached (only for disk source)
+	if v.sourceType == ImageSourceDisk && v.attachedTo != "" {
 		warningSection := forms.NewSection("warning", "Warning").
 			AddField(forms.NewReadOnlyField("warning_text", "",
-				fmt.Sprintf("⚠ This disk is attached to instance '%s'.", v.attachedTo))).
+				fmt.Sprintf("This disk is attached to instance '%s'.", v.attachedTo))).
 			AddField(forms.NewToggleField("force_create", "Keep instance running (not recommended)").
 				SetValue(false).
 				SetHelpText("Create image without stopping the instance (may result in inconsistent data)"))
@@ -157,7 +198,15 @@ func (v *ImageCreateView) Init() tea.Cmd {
 func (v *ImageCreateView) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case imageCreateSuccessMsg:
-		// Return to previous view
+		// Return appropriate result based on source type
+		if v.sourceType == ImageSourceSnapshot {
+			return func() tea.Msg {
+				return SnapshotActionResultMsg{
+					Action:  "image",
+					Success: true,
+				}
+			}
+		}
 		return func() tea.Msg {
 			return DiskActionResultMsg{
 				Action:  "image",
@@ -182,6 +231,12 @@ func (v *ImageCreateView) Update(msg tea.Msg) tea.Cmd {
 		return v.handleSubmit()
 
 	case forms.FormCancelMsg:
+		// Return appropriate cancel message based on source type
+		if v.sourceType == ImageSourceSnapshot {
+			return func() tea.Msg {
+				return ImageCreateFromSnapshotCanceledMsg{}
+			}
+		}
 		return func() tea.Msg {
 			return ImageCreateCanceledMsg{}
 		}
@@ -190,6 +245,11 @@ func (v *ImageCreateView) Update(msg tea.Msg) tea.Cmd {
 		// Allow cancel during saving
 		if v.state == imageCreateStateSaving {
 			if key.Matches(msg, v.keys.Cancel) {
+				if v.sourceType == ImageSourceSnapshot {
+					return func() tea.Msg {
+						return ImageCreateFromSnapshotCanceledMsg{}
+					}
+				}
 				return func() tea.Msg {
 					return ImageCreateCanceledMsg{}
 				}
@@ -231,23 +291,40 @@ func (v *ImageCreateView) handleSubmit() tea.Cmd {
 		storageLocation = loc
 	}
 
-	// Check force create flag (only present if disk is attached)
-	forceCreate := false
-	if fc, ok := data["force_create"].(bool); ok {
-		forceCreate = fc
-	}
-
 	// Parse labels from text
 	labels := parseLabelsFromText(data["labels_text"])
 
 	v.state = imageCreateStateSaving
 	v.err = nil
 
+	// Return appropriate message based on source type
+	if v.sourceType == ImageSourceSnapshot {
+		return tea.Batch(
+			v.spinner.Tick,
+			func() tea.Msg {
+				return CreateImageFromSnapshotMsg{
+					SnapshotName:    v.sourceName,
+					ImageName:       name,
+					Description:     description,
+					Family:          family,
+					Labels:          labels,
+					StorageLocation: storageLocation,
+				}
+			},
+		)
+	}
+
+	// Disk source - check force create flag (only present if disk is attached)
+	forceCreate := false
+	if fc, ok := data["force_create"].(bool); ok {
+		forceCreate = fc
+	}
+
 	return tea.Batch(
 		v.spinner.Tick,
 		func() tea.Msg {
 			return CreateImageFromDiskMsg{
-				DiskName:        v.diskName,
+				DiskName:        v.sourceName,
 				Zone:            v.zone,
 				ImageName:       name,
 				Description:     description,
@@ -299,9 +376,27 @@ func (v *ImageCreateView) HasTextInputFocused() bool {
 	return false
 }
 
-// GetDiskName returns the source disk name for breadcrumbs
+// GetSourceName returns the source name (disk or snapshot) for breadcrumbs
+func (v *ImageCreateView) GetSourceName() string {
+	return v.sourceName
+}
+
+// GetDiskName returns the source disk name for breadcrumbs (backward compatibility)
 func (v *ImageCreateView) GetDiskName() string {
-	return v.diskName
+	return v.sourceName
+}
+
+// GetSnapshotName returns the source snapshot name for breadcrumbs
+func (v *ImageCreateView) GetSnapshotName() string {
+	if v.sourceType == ImageSourceSnapshot {
+		return v.sourceName
+	}
+	return ""
+}
+
+// IsFromSnapshot returns true if image is being created from a snapshot
+func (v *ImageCreateView) IsFromSnapshot() bool {
+	return v.sourceType == ImageSourceSnapshot
 }
 
 // GetComputeClient returns the compute client for reuse

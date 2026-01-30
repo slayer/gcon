@@ -1074,6 +1074,7 @@ type ImageCreateConfig struct {
 	Labels          map[string]string
 	StorageLocation string // Regional or multi-regional (e.g., "us-central1", "us", "eu")
 	ForceCreate     bool   // If true, create even if disk is attached to running instance
+	SourceSnapshot  string // Snapshot name (not full URL) - for CreateImageFromSnapshot
 }
 
 // CreateImageFromDisk creates an image from a disk with the given configuration
@@ -1107,6 +1108,36 @@ func (c *ComputeClient) CreateImageFromDisk(ctx context.Context, projectID, zone
 	_, err := call.Do()
 	if err != nil {
 		return WrapActionError(err, "create image from disk", diskName)
+	}
+	return nil
+}
+
+// CreateImageFromSnapshot creates an image from a snapshot with the given configuration
+func (c *ComputeClient) CreateImageFromSnapshot(ctx context.Context, projectID string, config ImageCreateConfig) error {
+	// Build the full source snapshot URL
+	sourceSnapshot := fmt.Sprintf("projects/%s/global/snapshots/%s", projectID, config.SourceSnapshot)
+
+	image := &compute.Image{
+		Name:           config.Name,
+		Description:    config.Description,
+		SourceSnapshot: sourceSnapshot,
+	}
+
+	if config.Family != "" {
+		image.Family = config.Family
+	}
+
+	if len(config.Labels) > 0 {
+		image.Labels = config.Labels
+	}
+
+	if config.StorageLocation != "" {
+		image.StorageLocations = []string{config.StorageLocation}
+	}
+
+	_, err := c.service.Images.Insert(projectID, image).Context(ctx).Do()
+	if err != nil {
+		return WrapActionError(err, "create image from snapshot", config.SourceSnapshot)
 	}
 	return nil
 }

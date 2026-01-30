@@ -49,11 +49,12 @@ type SnapshotsView struct {
 
 // snapshotKeyMap defines snapshot-specific key bindings
 type snapshotKeyMap struct {
-	Enter      key.Binding
-	Refresh    key.Binding
-	ActionMenu key.Binding
-	Delete     key.Binding
-	CreateDisk key.Binding
+	Enter       key.Binding
+	Refresh     key.Binding
+	ActionMenu  key.Binding
+	Delete      key.Binding
+	CreateDisk  key.Binding
+	CreateImage key.Binding
 }
 
 func defaultSnapshotKeyMap() snapshotKeyMap {
@@ -77,6 +78,10 @@ func defaultSnapshotKeyMap() snapshotKeyMap {
 		CreateDisk: key.NewBinding(
 			key.WithKeys("c"),
 			key.WithHelp("c", "create disk"),
+		),
+		CreateImage: key.NewBinding(
+			key.WithKeys("i"),
+			key.WithHelp("i", "create image"),
 		),
 	}
 }
@@ -354,6 +359,20 @@ func (v *SnapshotsView) Update(msg tea.Msg) tea.Cmd {
 			}
 			return nil
 
+		case key.Matches(msg, v.keys.CreateImage):
+			// Direct hotkey for create image from snapshot
+			if row := v.table.SelectedRow(); row != nil {
+				snapshot := v.findSnapshotByName(row.ID)
+				if snapshot != nil && snapshot.IsReady() {
+					return func() tea.Msg {
+						return ImageCreateFromSnapshotRequestMsg{
+							SnapshotName: snapshot.Name,
+						}
+					}
+				}
+			}
+			return nil
+
 		case key.Matches(msg, v.keys.Refresh):
 			v.loading = true
 			v.err = nil
@@ -371,6 +390,7 @@ func (v *SnapshotsView) Update(msg tea.Msg) tea.Cmd {
 func (v *SnapshotsView) buildActions(snapshot *gcp.Snapshot) []actionmenu.Action {
 	return []actionmenu.Action{
 		{Key: 'c', Label: "Create Disk", Enabled: snapshot.IsReady()},
+		{Key: 'i', Label: "Create Image", Enabled: snapshot.IsReady()},
 		{Key: 'D', Label: "Delete", Enabled: true, Dangerous: true},
 	}
 }
@@ -395,6 +415,15 @@ func (v *SnapshotsView) executeAction(actionKey rune) tea.Cmd {
 				return DiskCreateFromSnapshotRequestMsg{
 					SnapshotName: snapshot.Name,
 					SnapshotSize: snapshot.SizeGB,
+				}
+			}
+		}
+	case 'i':
+		// Create image from snapshot
+		if snapshot.IsReady() {
+			return func() tea.Msg {
+				return ImageCreateFromSnapshotRequestMsg{
+					SnapshotName: snapshot.Name,
 				}
 			}
 		}
@@ -461,7 +490,7 @@ func (v *SnapshotsView) View() string {
 
 	// Help text for actions
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
-	help := helpStyle.Render("\n  enter: details • .: actions • c: create disk • D: delete • /: filter • r: refresh • esc: back")
+	help := helpStyle.Render("\n  enter: details • .: actions • c: create disk • i: create image • D: delete • /: filter • r: refresh • esc: back")
 
 	mainContent := v.table.View() + help
 

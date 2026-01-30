@@ -638,6 +638,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
 		return a, a.handleCreateDiskFromSnapshot(msg)
 
+	case views.ImageCreateFromSnapshotRequestMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleImageCreateFromSnapshotRequest(msg)
+
+	case views.ImageCreateFromSnapshotCanceledMsg:
+		a.handleImageCreateFromSnapshotCanceled()
+		return a, nil
+
+	case views.CreateImageFromSnapshotMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleCreateImageFromSnapshot(msg)
+
 	case views.DeleteImageConfirmedMsg:
 		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
 		return a, a.handleDeleteImageConfirmed(msg)

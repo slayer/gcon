@@ -1035,6 +1035,21 @@ func (a *App) handleSnapshotActionResult(msg views.SnapshotActionResultMsg) tea.
 		a.err = nil
 	}
 
+	// On successful image creation, navigate back from create view
+	if msg.Action == "image" {
+		if a.currentView == ViewImageCreate {
+			// Pop back to previous view
+			if len(a.viewStack) > 0 {
+				lastViewIndex := len(a.viewStack) - 1
+				a.currentView = a.viewStack[lastViewIndex]
+				a.viewStack = a.viewStack[:lastViewIndex]
+			}
+			a.imageCreateView = nil
+			a.updateSidebarActiveView()
+		}
+		a.err = nil
+	}
+
 	return nil
 }
 
@@ -1115,6 +1130,87 @@ func (a *App) handleCreateDiskFromSnapshot(msg views.CreateDiskFromSnapshotMsg) 
 		)
 		return views.SnapshotActionResultMsg{
 			Action:  "create_disk",
+			Success: err == nil,
+			Error:   err,
+		}
+	}
+}
+
+// handleImageCreateFromSnapshotRequest opens the image creation form for a snapshot
+func (a *App) handleImageCreateFromSnapshotRequest(msg views.ImageCreateFromSnapshotRequestMsg) tea.Cmd {
+	// Get compute client from the appropriate view
+	var computeClient *gcp.ComputeClient
+	if a.snapshotsView != nil {
+		computeClient = a.snapshotsView.GetComputeClient()
+	} else if a.snapshotDetailsView != nil {
+		computeClient = a.snapshotDetailsView.GetComputeClient()
+	}
+
+	if computeClient == nil || a.selectedProject == nil {
+		return nil
+	}
+
+	a.viewStack = append(a.viewStack, a.currentView)
+	a.currentView = ViewImageCreate
+	a.imageCreateView = views.NewImageCreateViewFromSnapshot(
+		a.selectedProject.ID,
+		msg.SnapshotName,
+		computeClient,
+	)
+	a.updateViewSizes()
+	return a.imageCreateView.Init()
+}
+
+// handleImageCreateFromSnapshotCanceled processes canceled image creation from snapshot
+func (a *App) handleImageCreateFromSnapshotCanceled() {
+	// Pop back to previous view
+	if len(a.viewStack) > 0 {
+		lastViewIndex := len(a.viewStack) - 1
+		a.currentView = a.viewStack[lastViewIndex]
+		a.viewStack = a.viewStack[:lastViewIndex]
+	}
+
+	// Clean up create view
+	a.imageCreateView = nil
+
+	a.updateSidebarActiveView()
+}
+
+// handleCreateImageFromSnapshot processes image creation from a snapshot
+func (a *App) handleCreateImageFromSnapshot(msg views.CreateImageFromSnapshotMsg) tea.Cmd {
+	// Get compute client from the image create view or snapshot views
+	var computeClient *gcp.ComputeClient
+	switch {
+	case a.imageCreateView != nil:
+		computeClient = a.imageCreateView.GetComputeClient()
+	case a.snapshotsView != nil:
+		computeClient = a.snapshotsView.GetComputeClient()
+	case a.snapshotDetailsView != nil:
+		computeClient = a.snapshotDetailsView.GetComputeClient()
+	}
+
+	if computeClient == nil || a.selectedProject == nil {
+		return nil
+	}
+
+	projectID := a.selectedProject.ID
+	config := gcp.ImageCreateConfig{
+		Name:            msg.ImageName,
+		Description:     msg.Description,
+		Family:          msg.Family,
+		Labels:          msg.Labels,
+		StorageLocation: msg.StorageLocation,
+		SourceSnapshot:  msg.SnapshotName,
+	}
+
+	return func() tea.Msg {
+		err := computeClient.CreateImageFromSnapshot(
+			gocontext.Background(),
+			projectID,
+			config,
+		)
+		return views.SnapshotActionResultMsg{
+			Action:  "image",
 			Success: err == nil,
 			Error:   err,
 		}

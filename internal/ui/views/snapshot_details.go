@@ -73,12 +73,13 @@ type SnapshotDetailsView struct {
 }
 
 type snapshotDetailsKeyMap struct {
-	Up         key.Binding
-	Down       key.Binding
-	Refresh    key.Binding
-	ActionMenu key.Binding
-	Delete     key.Binding
-	CreateDisk key.Binding
+	Up          key.Binding
+	Down        key.Binding
+	Refresh     key.Binding
+	ActionMenu  key.Binding
+	Delete      key.Binding
+	CreateDisk  key.Binding
+	CreateImage key.Binding
 }
 
 func defaultSnapshotDetailsKeyMap() snapshotDetailsKeyMap {
@@ -106,6 +107,10 @@ func defaultSnapshotDetailsKeyMap() snapshotDetailsKeyMap {
 		CreateDisk: key.NewBinding(
 			key.WithKeys("c"),
 			key.WithHelp("c", "create disk"),
+		),
+		CreateImage: key.NewBinding(
+			key.WithKeys("i"),
+			key.WithHelp("i", "create image"),
 		),
 	}
 }
@@ -280,6 +285,17 @@ func (v *SnapshotDetailsView) Update(msg tea.Msg) tea.Cmd {
 			}
 			return nil
 
+		case key.Matches(msg, v.keys.CreateImage):
+			// Create image from this snapshot
+			if v.details != nil && v.details.Status == "READY" {
+				return func() tea.Msg {
+					return ImageCreateFromSnapshotRequestMsg{
+						SnapshotName: v.details.Name,
+					}
+				}
+			}
+			return nil
+
 		case key.Matches(msg, v.keys.Refresh):
 			v.loading = true
 			v.err = nil
@@ -292,10 +308,11 @@ func (v *SnapshotDetailsView) Update(msg tea.Msg) tea.Cmd {
 
 // buildActions creates the action menu items
 func (v *SnapshotDetailsView) buildActions() []actionmenu.Action {
-	// Check if snapshot is ready for disk creation
+	// Check if snapshot is ready for disk/image creation
 	isReady := v.details != nil && v.details.Status == "READY"
 	return []actionmenu.Action{
 		{Key: 'c', Label: "Create Disk", Enabled: isReady},
+		{Key: 'i', Label: "Create Image", Enabled: isReady},
 		{Key: 'D', Label: "Delete", Enabled: true, Dangerous: true},
 		{Key: 'r', Label: "Refresh", Enabled: true},
 	}
@@ -315,6 +332,15 @@ func (v *SnapshotDetailsView) executeAction(actionKey rune) tea.Cmd {
 				return DiskCreateFromSnapshotRequestMsg{
 					SnapshotName: v.details.Name,
 					SnapshotSize: v.details.DiskSizeGB,
+				}
+			}
+		}
+	case 'i':
+		// Create image from this snapshot
+		if v.details.Status == "READY" {
+			return func() tea.Msg {
+				return ImageCreateFromSnapshotRequestMsg{
+					SnapshotName: v.details.Name,
 				}
 			}
 		}
