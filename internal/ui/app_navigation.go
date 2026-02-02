@@ -902,6 +902,12 @@ func (a *App) handleCreateImageFromDisk(msg views.CreateImageFromDiskMsg) tea.Cm
 func (a *App) handleDiskActionResult(msg views.DiskActionResultMsg) tea.Cmd {
 	if msg.Error != nil {
 		a.err = msg.Error
+		if msg.Action == "snapshot" && a.currentView == ViewSnapshotCreate && a.snapshotCreateView != nil {
+			a.snapshotCreateView.SetError(msg.Error)
+		}
+		if msg.Action == "image" && a.currentView == ViewImageCreate && a.imageCreateView != nil {
+			a.imageCreateView.SetError(msg.Error)
+		}
 		return nil
 	}
 
@@ -993,6 +999,12 @@ func (a *App) handleDeleteSnapshotConfirmed(msg views.DeleteSnapshotConfirmedMsg
 func (a *App) handleSnapshotActionResult(msg views.SnapshotActionResultMsg) tea.Cmd {
 	if msg.Error != nil {
 		a.err = msg.Error
+		if msg.Action == "create_disk" && a.currentView == ViewDiskCreate && a.diskCreateView != nil {
+			a.diskCreateView.SetError(msg.Error)
+		}
+		if msg.Action == "image" && a.currentView == ViewImageCreate && a.imageCreateView != nil {
+			a.imageCreateView.SetError(msg.Error)
+		}
 		return nil
 	}
 
@@ -1248,6 +1260,9 @@ func (a *App) handleDeleteImageConfirmed(msg views.DeleteImageConfirmedMsg) tea.
 func (a *App) handleImageActionResult(msg views.ImageActionResultMsg) tea.Cmd {
 	if msg.Error != nil {
 		a.err = msg.Error
+		if msg.Action == "create_disk" && a.currentView == ViewDiskCreate && a.diskCreateView != nil {
+			a.diskCreateView.SetError(msg.Error)
+		}
 		return nil
 	}
 
@@ -1425,4 +1440,3 @@ func (a *App) handleInstanceActionResult(msg views.InstanceActionResultMsg) tea.
 
 	return nil
 }
-
