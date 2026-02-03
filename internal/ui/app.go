@@ -122,8 +122,9 @@ type App struct {
 	recentTracker      *commandpalette.RecentTracker
 
 	// Project selector modal
-	projectSelector     *projectselector.Model
-	showProjectSelector bool
+	projectSelector                *projectselector.Model
+	showProjectSelector            bool
+	projectSelectorShownOnStartup  bool // Track if selector shown because no default project
 
 	// Header
 	header *components.Header
@@ -192,6 +193,7 @@ func NewApp(client *gcp.Client, opts AppOptions) *App {
 // ShowProjectSelectorOnStartup configures the app to show project selector on startup
 func (a *App) ShowProjectSelectorOnStartup() {
 	a.showProjectSelector = true
+	a.projectSelectorShownOnStartup = true
 	// Sidebar will be hidden automatically since selectedProject is nil
 }
 
@@ -336,9 +338,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if a.showProjectSelector {
 		switch msg := msg.(type) {
 		case projectselector.ProjectSelectedMsg:
+			// Project selected, no longer in startup mode
+			a.projectSelectorShownOnStartup = false
 			//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
 			return a, a.handleProjectSwitch(&msg.Project)
 		case projectselector.ProjectSelectorCanceledMsg:
+			// If project selector was shown on startup (no default project),
+			// exit the app when user cancels since no project is available
+			if a.projectSelectorShownOnStartup {
+				a.cleanup()
+				return a, tea.Quit
+			}
+			// Otherwise, just hide the selector (user was switching projects)
 			a.showProjectSelector = false
 			return a, nil
 		default:

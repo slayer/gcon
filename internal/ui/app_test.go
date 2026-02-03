@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/slayer/gcon/internal/gcp"
+	"github.com/slayer/gcon/internal/ui/components/projectselector"
 	"github.com/slayer/gcon/internal/ui/components/sidebar"
 	"github.com/slayer/gcon/internal/ui/views"
 	"github.com/stretchr/testify/assert"
@@ -288,6 +289,59 @@ func TestUploadKeyRoutedToObjectsView(t *testing.T) {
 
 	// File picker should be shown in objects view
 	assert.True(t, app.objectsView.IsFilePickerShown(), "file picker should open when 'u' is pressed in empty bucket")
+}
+
+func TestProjectSelectorCancelOnStartupQuitsApp(t *testing.T) {
+	app := createTestApp()
+
+	// Simulate startup with no default project
+	app.ShowProjectSelectorOnStartup()
+
+	// Verify project selector is configured to show on startup
+	assert.True(t, app.showProjectSelector, "project selector should be shown")
+	assert.True(t, app.projectSelectorShownOnStartup, "should track that selector shown on startup")
+
+	// Simulate user canceling project selector (pressing ESC)
+	model, cmd := app.Update(projectselector.ProjectSelectorCanceledMsg{})
+
+	// App should quit when user cancels on startup
+	assert.NotNil(t, cmd, "command should be returned")
+
+	// Execute command to check if it's a quit command
+	msg := cmd()
+	_, isQuitMsg := msg.(tea.QuitMsg)
+	assert.True(t, isQuitMsg, "should return quit message when project selector canceled on startup")
+
+	// Cast to verify it's still an App model
+	_, ok := model.(*App)
+	assert.True(t, ok, "should return App model")
+}
+
+func TestProjectSelectorCancelAfterStartupDoesNotQuit(t *testing.T) {
+	app := createTestApp()
+	simulateProjectSelection(app)
+
+	// User opens project selector from command palette (not on startup)
+	app.showProjectSelector = true
+	// projectSelectorShownOnStartup should be false (default)
+
+	// Simulate user canceling project selector
+	model, cmd := app.Update(projectselector.ProjectSelectorCanceledMsg{})
+
+	// App should NOT quit, just hide the selector
+	assert.False(t, app.showProjectSelector, "project selector should be hidden")
+
+	// Command can be nil or not a quit command
+	if cmd != nil {
+		msg := cmd()
+		_, isQuitMsg := msg.(tea.QuitMsg)
+		assert.False(t, isQuitMsg, "should NOT return quit message when canceling after startup")
+	}
+
+	// Cast to verify it's still an App model
+	appModel, ok := model.(*App)
+	assert.True(t, ok, "should return App model")
+	assert.NotNil(t, appModel.selectedProject, "should still have selected project")
 }
 
 // ViewType.String helper for test names
