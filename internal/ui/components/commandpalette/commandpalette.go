@@ -321,3 +321,10 @@ func (p *CommandPalette) CenterInScreen(screenWidth, screenHeight int) string {
 
 	return centered.Render(view)
 }
+
+// HasTextInputFocused returns true when the text input is focused.
+// Used to prevent global keys (like 'q' for quit) from being triggered while typing.
+func (p *CommandPalette) HasTextInputFocused() bool {
+	// Command palette always has text input focused when visible
+	return true
+}

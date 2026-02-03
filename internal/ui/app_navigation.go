@@ -498,6 +498,7 @@ func (a *App) clearAllViews() {
 	a.snapshotCreateView = nil
 	a.imageCreateView = nil
 	a.diskCreateView = nil
+	a.formDemoView = nil
 
 	// Clear view stack
 	a.viewStack = nil

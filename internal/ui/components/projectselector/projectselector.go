@@ -406,3 +406,10 @@ func (m *Model) renderProject(project gcp.Project, selected bool) string {
 	line := cursor + checkmark + " " + nameStyle.Render(name) + "  " + idStyle.Render("("+project.ID+")")
 	return line
 }
+
+// HasTextInputFocused returns true when the text input is focused.
+// Used to prevent global keys (like 'q' for quit) from being triggered while typing.
+func (m *Model) HasTextInputFocused() bool {
+	// Text input is always focused when the selector is visible and not in loading/error state
+	return !m.loading && m.err == nil
+}
