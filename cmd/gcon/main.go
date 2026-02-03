@@ -27,7 +27,7 @@ func init() {
 	flag.BoolVar(&noEmojisFlag, "unicode", false, "Use Unicode symbols instead of emojis (alias for --no-emojis)")
 	flag.BoolVar(&asciiFlag, "ascii", false, "Use ASCII-only characters (no Unicode or emojis)")
 	flag.BoolVar(&noMouseFlag, "no-mouse", false, "Disable mouse support (for accessibility or unsupported terminals)")
-	flag.BoolVar(&debugFlag, "debug", false, "Enable debug logging to /tmp/gcon-debug.log (slow!)")
+	flag.BoolVar(&debugFlag, "debug", false, "Enable debug logging to ./gcon-debug.log (slow!)")
 }
 
 func main() {

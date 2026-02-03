@@ -72,6 +72,8 @@ func errorIcon(code gcp.ErrorCode) string {
 		return "🔑"
 	case gcp.ErrorPermissionDenied:
 		return "🚫"
+	case gcp.ErrorAPINotEnabled:
+		return "⚙️"
 	case gcp.ErrorNotFound:
 		return "❓"
 	case gcp.ErrorRateLimited, gcp.ErrorQuotaExceeded:

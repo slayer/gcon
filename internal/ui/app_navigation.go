@@ -570,8 +570,12 @@ func (a *App) reloadCurrentView(projectID string) tea.Cmd {
 		return a.projectMetadataView.Init()
 
 	case ViewProjects:
-		// Already on projects view, just close modal
-		return nil
+		// Switch to instances view after selecting project
+		a.currentView = ViewInstances
+		a.instancesView = views.NewInstancesView(projectID)
+		a.updateSidebarActiveView()
+		a.updateViewSizes()
+		return a.instancesView.Init()
 
 	default:
 		// Default to instances view

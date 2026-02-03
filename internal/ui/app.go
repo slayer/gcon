@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"os"
 	"strings"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/slayer/gcon/internal/ui/context"
 	"github.com/slayer/gcon/internal/ui/layout"
 	"github.com/slayer/gcon/internal/ui/views"
+	"golang.org/x/term"
 )
 
 // ViewType represents different screens in the application
@@ -195,6 +197,25 @@ func (a *App) ShowProjectSelectorOnStartup() {
 
 // Init implements tea.Model
 func (a *App) Init() tea.Cmd {
+	// Workaround: Set default size in case WindowSizeMsg never arrives
+	// This can happen in some terminal emulators or environments (e.g., tmux/screen)
+	if a.width == 0 {
+		// Try to get actual terminal size first
+		width, height, err := term.GetSize(int(os.Stdout.Fd()))
+		if err != nil {
+			// Fall back to reasonable defaults if we can't detect size
+			width = 160
+			height = 50
+		}
+		a.width = width
+		a.height = height
+		a.layout.SetSize(a.width, a.height)
+		a.header.SetSize(a.width)
+		a.footer.SetWidth(a.width)
+		a.updateViewSizes()
+		a.syncContext()
+	}
+
 	// If project selector should be shown on startup
 	if a.showProjectSelector {
 		return a.projectSelector.Init()
@@ -794,7 +815,9 @@ func (a *App) updateViewSizes() {
 	}
 
 	// Propagate context to all views - they read dimensions from ctx
-	a.projectView.SetContext(a.ctx)
+	if a.projectView != nil {
+		a.projectView.SetContext(a.ctx)
+	}
 
 	if a.instancesView != nil {
 		a.instancesView.SetContext(a.ctx)

@@ -41,6 +41,16 @@ func TestParseError_APIErrors(t *testing.T) {
 			wantHintContains: "IAM permissions",
 		},
 		{
+			name:             "403 API not enabled",
+			httpCode:         403,
+			apiMessage:       "API [compute.googleapis.com] not enabled on project [my-project]",
+			operation:        "list instances",
+			resource:         "my-project",
+			expectedCode:     ErrorAPINotEnabled,
+			expectedMsg:      "API not enabled",
+			wantHintContains: "gcloud services enable",
+		},
+		{
 			name:             "403 quota exceeded",
 			httpCode:         403,
 			apiMessage:       "Quota exceeded for quota metric",
@@ -232,6 +242,29 @@ func TestContainsQuotaMessage(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.msg, func(t *testing.T) {
 			assert.Equal(t, tt.want, containsQuotaMessage(tt.msg))
+		})
+	}
+}
+
+func TestContainsAPIDisabledMessage(t *testing.T) {
+	tests := []struct {
+		msg  string
+		want bool
+	}{
+		{"API [compute.googleapis.com] not enabled on project [my-project]", true},
+		{"compute.googleapis.com API has not been used in project 123456789", true},
+		{"Service compute.googleapis.com is not enabled for the project", true},
+		{"SERVICE_DISABLED", true},
+		{"Enable it by visiting https://console.cloud.google.com/...", true},
+		{"API is not enabled", true},
+		{"Permission denied", false},
+		{"Quota exceeded", false},
+		{"Not found", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.msg, func(t *testing.T) {
+			assert.Equal(t, tt.want, containsAPIDisabledMessage(tt.msg))
 		})
 	}
 }
