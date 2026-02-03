@@ -126,7 +126,10 @@ func (a *App) handleRecentCommand(cmd commandpalette.Command) (tea.Model, tea.Cm
 	case "project":
 		// Go back to project list - user can select from there
 		a.currentView = ViewProjects
-		return a, nil
+		if a.projectView == nil {
+			a.projectView = views.NewProjectsView(a.gcpClient)
+		}
+		return a, a.projectView.Init()
 	case "bucket":
 		// Navigate to buckets view if we have a project
 		if a.selectedProject != nil {
