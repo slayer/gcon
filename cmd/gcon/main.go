@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/slayer/gcon/internal/config"
+	"github.com/slayer/gcon/internal/debug"
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui"
 	"github.com/slayer/gcon/internal/ui/symbols"
@@ -50,7 +51,15 @@ func run() error {
 
 	// Enable debug logging if --debug flag is set
 	if debugFlag {
-		ui.EnableDebug()
+		if err := debug.EnableDebug(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to enable debug logging: %v\n", err)
+		} else {
+			defer func() {
+				if err := debug.Close(); err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: Failed to close debug log: %v\n", err)
+				}
+			}()
+		}
 	}
 
 	// Initialize GCP client using Application Default Credentials
