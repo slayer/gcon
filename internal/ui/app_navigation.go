@@ -512,7 +512,8 @@ func (a *App) clearAllViews() {
 	a.selectedObject = nil
 }
 
-// reloadCurrentView recreates the current view with the new project ID
+// reloadCurrentView recreates or switches views for the new project ID.
+// For ViewProjects, switches to ViewInstances. For other views, reloads in-place.
 func (a *App) reloadCurrentView(projectID string) tea.Cmd {
 	switch a.currentView {
 	case ViewInstances, ViewInstanceDetails:

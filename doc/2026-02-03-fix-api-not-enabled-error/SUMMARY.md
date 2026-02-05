@@ -34,8 +34,8 @@ The error parsing in `internal/gcp/errors.go` did not detect "API not enabled" e
 - Helpful hint: "Enable the required API in Cloud Console or run: gcloud services enable <api-name>"
 
 ### 3. Window Size Fallback (`internal/ui/app.go`)
-- Added fallback initialization in `Init()` to set default 120x30 size if WindowSizeMsg never arrives
-- This ensures the app works in tmux/screen environments
+- Added fallback initialization in `Init()` to first try `term.GetSize` and, if no WindowSizeMsg arrives, fall back to a default 160x50 size
+- This ensures the app works reliably in tmux/screen environments where WindowSizeMsg may never be sent
 
 ### 4. Project Selector Navigation Fix (`internal/ui/app_navigation.go`)
 - Fixed `reloadCurrentView()` to switch from ViewProjects to ViewInstances after project selection
@@ -72,7 +72,7 @@ Verified with Compute Engine API disabled:
 - `internal/ui/app_navigation.go` - Fixed project selector navigation
 
 ### Debug Infrastructure (Optional)
-- `internal/debug/debug.go` - Created reusable debug logging package
+- `internal/debug/debug.go` - Created reusable debug logging package (logs to ./gcon-debug.log)
 
 ## Benefits
 

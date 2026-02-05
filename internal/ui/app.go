@@ -214,8 +214,8 @@ func (a *App) Init() tea.Cmd {
 		a.layout.SetSize(a.width, a.height)
 		a.header.SetSize(a.width)
 		a.footer.SetWidth(a.width)
+		a.help.Width = a.width
 		a.updateViewSizes()
-		a.syncContext()
 	}
 
 	// If project selector should be shown on startup

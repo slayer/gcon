@@ -129,6 +129,7 @@ func (a *App) handleRecentCommand(cmd commandpalette.Command) (tea.Model, tea.Cm
 		if a.projectView == nil {
 			a.projectView = views.NewProjectsView(a.gcpClient)
 		}
+		a.updateViewSizes()
 		return a, a.projectView.Init()
 	case "bucket":
 		// Navigate to buckets view if we have a project
