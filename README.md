@@ -99,7 +99,7 @@
   - Pagination for large buckets
 
 #### User Interface & Navigation
-- 🎯 **Command Palette** - Quick access to all actions with fuzzy search (Ctrl+P)
+- 🎯 **Command Palette** - Quick access to all actions with fuzzy search (`:` or `Ctrl+K`)
 - 📂 **Sidebar Navigation** - Persistent sidebar with resource categories
 - 🍞 **Breadcrumb Navigation** - Always know where you are in the resource hierarchy
 - 📜 **Recent Items** - Quick access to recently viewed resources
@@ -213,7 +213,7 @@ Once launched, gcon presents an intuitive interface with:
 
 | Key | Action | Description |
 |-----|--------|-------------|
-| `Ctrl+P` | Command Palette | Quick access to all commands with fuzzy search |
+| `:` / `Ctrl+K` | Command Palette | Quick access to all commands with fuzzy search |
 | `Ctrl+C` or `q` | Quit | Exit the application |
 | `Esc` | Go Back | Return to previous view |
 | `?` | Help | Show context-sensitive help |

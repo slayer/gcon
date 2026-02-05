@@ -21,7 +21,7 @@ Integrated disk details with the command palette's recent item tracking system. 
 1. Navigate to "Compute Engine" > "Disks" from the sidebar
 2. Select a disk and press `Enter` to view details
 3. The disk is now tracked in recent items
-4. Press `Ctrl+P` to open command palette
+4. Press `:` or `Ctrl+K` to open command palette
 5. Recent disks appear in the "Recent" section
 6. Select a recent disk to navigate back to the Disks view
 
