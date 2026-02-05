@@ -218,6 +218,10 @@ Once launched, gcon presents an intuitive interface with:
 | `Esc` | Go Back | Return to previous view |
 | `?` | Help | Show context-sensitive help |
 | `r` | Refresh | Reload current view |
+| `.` | Action Menu | Open context-sensitive action menu |
+| `[` | Focus Sidebar | Move focus to sidebar |
+| `]` | Focus Content | Move focus to main content area |
+| `{` | Toggle Sidebar | Show or hide the sidebar |
 
 #### Navigation
 
@@ -225,6 +229,8 @@ Once launched, gcon presents an intuitive interface with:
 |-----|--------|-------------|
 | `j` or `↓` | Move Down | Move cursor down in lists |
 | `k` or `↑` | Move Up | Move cursor up in lists |
+| `h` or `←` | Move Left | Move left in horizontal navigation |
+| `l` or `→` | Move Right | Move right in horizontal navigation |
 | `g` | Go to Top | Jump to first item |
 | `G` | Go to Bottom | Jump to last item |
 | `Ctrl+D` | Page Down | Scroll down one page |
