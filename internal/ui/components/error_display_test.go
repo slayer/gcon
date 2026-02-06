@@ -114,6 +114,7 @@ func TestErrorIcon(t *testing.T) {
 	}{
 		{gcp.ErrorUnauthenticated, "🔑"},
 		{gcp.ErrorPermissionDenied, "🚫"},
+		{gcp.ErrorAPINotEnabled, "⚙️"},
 		{gcp.ErrorNotFound, "❓"},
 		{gcp.ErrorRateLimited, "⏳"},
 		{gcp.ErrorQuotaExceeded, "⏳"},

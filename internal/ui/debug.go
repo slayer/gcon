@@ -1,56 +1,17 @@
 package ui
 
 import (
-	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
-
-	"github.com/charmbracelet/lipgloss"
+	"github.com/slayer/gcon/internal/debug"
 )
 
-var debugFile *os.File
-var debugEnabled bool
-
-// EnableDebug enables debug logging to /tmp/gcon-debug.log.
-// Warning: This significantly impacts performance due to disk sync on every log.
-func EnableDebug() {
-	debugEnabled = true
-	var err error
-	debugPath := filepath.Join(os.TempDir(), "gcon-debug.log")
-	debugFile, err = os.Create(debugPath)
-	if err != nil {
-		// Silently disable debug if we can't create the file
-		debugEnabled = false
-	}
-}
-
+// debugLog writes a formatted message to the debug log.
+// This is a wrapper around debug.Log for backward compatibility within the UI package.
 func debugLog(format string, args ...interface{}) {
-	if !debugEnabled || debugFile == nil {
-		return
-	}
-	_, _ = fmt.Fprintf(debugFile, format+"\n", args...) //nolint:errcheck // Debug logging
-	_ = debugFile.Sync() //nolint:errcheck // Debug logging
+	debug.Log(format, args...)
 }
 
+// debugLogView logs information about a rendered view for debugging layout issues.
+// This is a wrapper around debug.LogView for backward compatibility within the UI package.
 func debugLogView(name string, content string) {
-	if !debugEnabled {
-		return
-	}
-	lines := strings.Split(content, "\n")
-	debugLog("%s: height=%d (lipgloss=%d), lines=%d, width=%d",
-		name, len(lines), lipgloss.Height(content), len(lines), lipgloss.Width(content))
-	if len(lines) > 0 {
-		debugLog("  first (w=%d): %q", lipgloss.Width(lines[0]), truncStr(lines[0], 50))
-	}
-	if len(lines) > 1 {
-		debugLog("  last (w=%d): %q", lipgloss.Width(lines[len(lines)-1]), truncStr(lines[len(lines)-1], 50))
-	}
-}
-
-func truncStr(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	return s[:max] + "..."
+	debug.LogView(name, content)
 }

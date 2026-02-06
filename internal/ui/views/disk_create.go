@@ -405,6 +405,12 @@ func (v *DiskCreateView) renderSaving() string {
 	return fmt.Sprintf("\n  %s %s\n", v.spinner.View(), style.Render("Creating disk..."))
 }
 
+// SetError resets the view to form state and displays the error.
+func (v *DiskCreateView) SetError(err error) {
+	v.state = diskCreateStateForm
+	v.err = err
+}
+
 // SetContext updates the view with shared program context
 func (v *DiskCreateView) SetContext(ctx *context.ProgramContext) {
 	v.ctx = ctx

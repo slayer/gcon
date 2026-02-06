@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"os"
 	"strings"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/slayer/gcon/internal/ui/context"
 	"github.com/slayer/gcon/internal/ui/layout"
 	"github.com/slayer/gcon/internal/ui/views"
+	"golang.org/x/term"
 )
 
 // ViewType represents different screens in the application
@@ -120,8 +122,9 @@ type App struct {
 	recentTracker      *commandpalette.RecentTracker
 
 	// Project selector modal
-	projectSelector     *projectselector.Model
-	showProjectSelector bool
+	projectSelector                *projectselector.Model
+	showProjectSelector            bool
+	projectSelectorShownOnStartup  bool // Track if selector shown because no default project
 
 	// Header
 	header *components.Header
@@ -190,11 +193,31 @@ func NewApp(client *gcp.Client, opts AppOptions) *App {
 // ShowProjectSelectorOnStartup configures the app to show project selector on startup
 func (a *App) ShowProjectSelectorOnStartup() {
 	a.showProjectSelector = true
+	a.projectSelectorShownOnStartup = true
 	// Sidebar will be hidden automatically since selectedProject is nil
 }
 
 // Init implements tea.Model
 func (a *App) Init() tea.Cmd {
+	// Workaround: Set default size in case WindowSizeMsg never arrives
+	// This can happen in some terminal emulators or environments (e.g., tmux/screen)
+	if a.width == 0 {
+		// Try to get actual terminal size first
+		width, height, err := term.GetSize(int(os.Stdout.Fd()))
+		if err != nil {
+			// Fall back to reasonable defaults if we can't detect size
+			width = 160
+			height = 50
+		}
+		a.width = width
+		a.height = height
+		a.layout.SetSize(a.width, a.height)
+		a.header.SetSize(a.width)
+		a.footer.SetWidth(a.width)
+		a.help.Width = a.width
+		a.updateViewSizes()
+	}
+
 	// If project selector should be shown on startup
 	if a.showProjectSelector {
 		return a.projectSelector.Init()
@@ -315,9 +338,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if a.showProjectSelector {
 		switch msg := msg.(type) {
 		case projectselector.ProjectSelectedMsg:
+			// Project selected, no longer in startup mode
+			a.projectSelectorShownOnStartup = false
 			//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
 			return a, a.handleProjectSwitch(&msg.Project)
 		case projectselector.ProjectSelectorCanceledMsg:
+			// If project selector was shown on startup (no default project),
+			// exit the app when user cancels since no project is available
+			if a.projectSelectorShownOnStartup {
+				a.cleanup()
+				return a, tea.Quit
+			}
+			// Otherwise, just hide the selector (user was switching projects)
 			a.showProjectSelector = false
 			return a, nil
 		default:
@@ -794,7 +826,9 @@ func (a *App) updateViewSizes() {
 	}
 
 	// Propagate context to all views - they read dimensions from ctx
-	a.projectView.SetContext(a.ctx)
+	if a.projectView != nil {
+		a.projectView.SetContext(a.ctx)
+	}
 
 	if a.instancesView != nil {
 		a.instancesView.SetContext(a.ctx)

@@ -295,6 +295,12 @@ func (v *SnapshotCreateView) renderSaving() string {
 	return fmt.Sprintf("\n  %s %s\n", v.spinner.View(), style.Render("Creating snapshot..."))
 }
 
+// SetError resets the view to form state and displays the error.
+func (v *SnapshotCreateView) SetError(err error) {
+	v.state = snapshotCreateStateForm
+	v.err = err
+}
+
 // SetContext updates the view with shared program context
 func (v *SnapshotCreateView) SetContext(ctx *context.ProgramContext) {
 	v.ctx = ctx

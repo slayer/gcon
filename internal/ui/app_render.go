@@ -105,7 +105,9 @@ func (a *App) renderCurrentView() string {
 
 	switch a.currentView {
 	case ViewProjects:
-		return a.projectView.View()
+		if a.projectView != nil {
+			return a.projectView.View()
+		}
 	case ViewInstances:
 		if a.instancesView != nil {
 			return a.instancesView.View()

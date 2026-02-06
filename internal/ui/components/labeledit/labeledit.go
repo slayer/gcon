@@ -615,3 +615,9 @@ func itoa(n int) string {
 
 // SaveRequestedMsg is emitted when user presses Ctrl+S
 type SaveRequestedMsg struct{}
+
+// HasTextInputFocused returns true when a text input is focused.
+// Used to prevent global keys (like 'q' for quit) from being triggered while typing.
+func (e *Editor) HasTextInputFocused() bool {
+	return e.editing || e.adding
+}
