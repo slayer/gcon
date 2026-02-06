@@ -10,10 +10,11 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
-	uierrors "github.com/slayer/gcon/internal/ui/errors"
+	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/diff"
 	"github.com/slayer/gcon/internal/ui/components/forms"
 	"github.com/slayer/gcon/internal/ui/context"
+	uierrors "github.com/slayer/gcon/internal/ui/errors"
 )
 
 // BucketCreateRequestMsg requests opening the bucket create view
@@ -88,9 +89,7 @@ type BucketCreateView struct {
 
 // NewBucketCreateView creates a new bucket create view
 func NewBucketCreateView(projectID string, storageClient *gcp.StorageClient) *BucketCreateView {
-	s := spinner.New()
-	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#4285F4"))
+	s := components.NewGCPSpinner()
 
 	v := &BucketCreateView{
 		storageClient: storageClient,
@@ -198,7 +197,7 @@ func (v *BucketCreateView) applySize(width, height int) {
 	v.height = height
 
 	if v.form != nil {
-		v.form.SetSize(width-4, height-8)
+		v.form.SetSize(width-formWidthPadding, height-8)
 	}
 	if v.diffViewer != nil {
 		v.diffViewer.SetSize(width-8, height-10)
@@ -536,7 +535,7 @@ func (v *BucketCreateView) parseLabels(raw string) map[string]string {
 func (v *BucketCreateView) View() string {
 	switch v.state {
 	case bucketCreateStateSaving:
-		return v.renderLoading("Creating bucket...")
+		return renderLoading(v.spinner, "Creating bucket...")
 
 	case bucketCreateStateError:
 		return v.renderError()
@@ -548,12 +547,7 @@ func (v *BucketCreateView) View() string {
 		return v.form.View()
 	}
 
-	return v.renderLoading("Initializing...")
-}
-
-// renderLoading renders a loading state
-func (v *BucketCreateView) renderLoading(msg string) string {
-	return fmt.Sprintf("\n  %s %s\n", v.spinner.View(), msg)
+	return renderLoading(v.spinner, "Initializing...")
 }
 
 // renderError renders an error state
@@ -575,7 +569,7 @@ func (v *BucketCreateView) renderError() string {
 // renderDiff renders the diff confirmation view
 func (v *BucketCreateView) renderDiff() string {
 	if v.diffViewer == nil {
-		return v.renderLoading("Preparing preview...")
+		return renderLoading(v.spinner, "Preparing preview...")
 	}
 
 	var b strings.Builder

@@ -22,7 +22,6 @@ import (
 	"github.com/slayer/gcon/internal/ui/components/progress"
 	"github.com/slayer/gcon/internal/ui/components/table"
 	"github.com/slayer/gcon/internal/ui/context"
-	"github.com/slayer/gcon/internal/ui/mouse"
 	"github.com/slayer/gcon/internal/ui/symbols"
 	"github.com/slayer/gcon/internal/ui/timeutil"
 )
@@ -90,6 +89,7 @@ func objectColumns() []btable.Column {
 
 // ObjectsView displays and manages objects within a bucket using a table format
 type ObjectsView struct {
+	TableClickDelegate
 	storageClient *gcp.StorageClient
 	bucketName    string
 	currentPrefix string                  // Current folder path (e.g., "folder1/folder2/")
@@ -146,11 +146,9 @@ func NewObjectsView(bucketName string, storageClient *gcp.StorageClient) *Object
 	title := fmt.Sprintf("Bucket: %s", bucketName)
 	t := table.New(objectColumns(), title)
 
-	s := spinner.New()
-	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#4285F4"))
+	s := components.NewGCPSpinner()
 
-	return &ObjectsView{
+	v := &ObjectsView{
 		storageClient:    storageClient,
 		bucketName:       bucketName,
 		currentPrefix:    "",
@@ -165,6 +163,8 @@ func NewObjectsView(bucketName string, storageClient *gcp.StorageClient) *Object
 		uploadProgress:   progress.New(),
 		deleteProgress:   progress.New(),
 	}
+	v.Table = &v.table
+	return v
 }
 
 // Init initializes the view and starts loading objects
@@ -749,7 +749,7 @@ func (v *ObjectsView) View() string {
 		if v.currentPrefix != "" {
 			loadingMsg = fmt.Sprintf("Loading %s...", v.currentPrefix)
 		}
-		return v.renderLoading(loadingMsg)
+		return renderLoading(v.spinner, loadingMsg)
 	}
 
 	if v.err != nil {
@@ -856,12 +856,6 @@ func (v *ObjectsView) IsFilePickerShown() bool {
 // Used to prevent global hotkeys (like 'q' for quit) from triggering while typing.
 func (v *ObjectsView) HasTextInputFocused() bool {
 	return v.table.HasTextInputFocused()
-}
-
-// renderLoading renders a loading message
-// Height enforcement is handled by the app's View() method using lipgloss.MaxHeight()
-func (v *ObjectsView) renderLoading(msg string) string {
-	return fmt.Sprintf("\n  %s %s\n", v.spinner.View(), msg)
 }
 
 // ObjectsLoadedMsgForTest creates an objectsLoadedMsg for testing
@@ -1635,28 +1629,3 @@ func (v *ObjectsView) GetStorageClient() *gcp.StorageClient {
 	return v.storageClient
 }
 
-// UpdateRegions delegates to the table component.
-// Implements the components.Clickable interface.
-func (v *ObjectsView) UpdateRegions(offsetX, offsetY int) {
-	if clickable, ok := interface{}(&v.table).(components.Clickable); ok {
-		clickable.UpdateRegions(offsetX, offsetY)
-	}
-}
-
-// GetRegions delegates to the table component.
-// Implements the components.Clickable interface.
-func (v *ObjectsView) GetRegions() []mouse.Region {
-	if clickable, ok := interface{}(&v.table).(components.Clickable); ok {
-		return clickable.GetRegions()
-	}
-	return nil
-}
-
-// HandleRegionClick delegates to the table component.
-// Implements the components.Clickable interface.
-func (v *ObjectsView) HandleRegionClick(regionID string) tea.Cmd {
-	if clickable, ok := interface{}(&v.table).(components.Clickable); ok {
-		return clickable.HandleRegionClick(regionID)
-	}
-	return nil
-}

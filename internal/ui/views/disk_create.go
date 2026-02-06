@@ -4,45 +4,14 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components/forms"
-	"github.com/slayer/gcon/internal/ui/context"
-)
-
-// diskCreateState represents the view's state machine
-type diskCreateState int
-
-const (
-	diskCreateStateForm diskCreateState = iota
-	diskCreateStateSaving
 )
 
 // Internal message types
 type diskCreateSuccessMsg struct{}
 type diskCreateErrorMsg struct{ err error }
-
-// diskCreateKeyMap defines key bindings for the view
-type diskCreateKeyMap struct {
-	Submit key.Binding
-	Cancel key.Binding
-}
-
-func defaultDiskCreateKeyMap() diskCreateKeyMap {
-	return diskCreateKeyMap{
-		Submit: key.NewBinding(
-			key.WithKeys("ctrl+s"),
-			key.WithHelp("ctrl+s", "create disk"),
-		),
-		Cancel: key.NewBinding(
-			key.WithKeys("esc"),
-			key.WithHelp("esc", "cancel"),
-		),
-	}
-}
 
 // DiskSourceType indicates whether creating disk from snapshot or image
 type DiskSourceType int
@@ -54,23 +23,13 @@ const (
 
 // DiskCreateView allows creating disks from snapshots or images
 type DiskCreateView struct {
+	CreateViewBase
+
 	computeClient *gcp.ComputeClient
 	projectID     string
 	sourceName    string         // Snapshot or image name
 	sourceSize    int64          // Size in GB of the source
 	sourceType    DiskSourceType // Whether source is snapshot or image
-	ctx           *context.ProgramContext
-
-	// State machine
-	state diskCreateState
-
-	// UI components
-	form    *forms.Form
-	spinner spinner.Model
-	err     error
-	width   int
-	height  int
-	keys    diskCreateKeyMap
 }
 
 // NewDiskCreateView creates a new disk create view from a snapshot
@@ -85,19 +44,13 @@ func NewDiskCreateViewFromImage(projectID, imageName string, imageSize int64, co
 
 // newDiskCreateViewInternal creates a disk create view with the specified source type
 func newDiskCreateViewInternal(projectID, sourceName string, sourceSize int64, sourceType DiskSourceType, computeClient *gcp.ComputeClient) *DiskCreateView {
-	s := spinner.New()
-	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#4285F4"))
-
 	v := &DiskCreateView{
-		computeClient: computeClient,
-		projectID:     projectID,
-		sourceName:    sourceName,
-		sourceSize:    sourceSize,
-		sourceType:    sourceType,
-		spinner:       s,
-		state:         diskCreateStateForm,
-		keys:          defaultDiskCreateKeyMap(),
+		CreateViewBase: NewCreateViewBase("Creating disk..."),
+		computeClient:  computeClient,
+		projectID:      projectID,
+		sourceName:     sourceName,
+		sourceSize:     sourceSize,
+		sourceType:     sourceType,
 	}
 
 	v.buildForm()
@@ -113,7 +66,7 @@ func (v *DiskCreateView) buildForm() {
 	}
 	subtitle := fmt.Sprintf("Create a disk from %s '%s'", sourceTypeLabel, v.sourceName)
 
-	v.form = forms.NewForm("Create Disk", forms.FormModeCreate).
+	v.Form = forms.NewForm("Create Disk", forms.FormModeCreate).
 		SetSubtitle(subtitle).
 		EnableViewport()
 
@@ -135,7 +88,7 @@ func (v *DiskCreateView) buildForm() {
 			SetRows(3).
 			SetHelpText("Describe the purpose of this disk"))
 
-	v.form.AddSection(basicSection)
+	v.Form.AddSection(basicSection)
 
 	// Location section - Zone selection
 	zoneSection := forms.NewSection("location", "Location").
@@ -144,7 +97,7 @@ func (v *DiskCreateView) buildForm() {
 			SetOptionsFromStrings(computeZones()).
 			SetHelpText("Zone where the disk will be created"))
 
-	v.form.AddSection(zoneSection)
+	v.Form.AddSection(zoneSection)
 
 	// Disk configuration section
 	sizeHelpText := fmt.Sprintf("Minimum size: %d GB (%s size)", v.sourceSize, sourceTypeLabel)
@@ -163,7 +116,7 @@ func (v *DiskCreateView) buildForm() {
 			SetValidator(forms.ValidateNumber(v.sourceSize, 65536)). // Must be at least source size, max 64TB
 			SetHelpText(sizeHelpText))
 
-	v.form.AddSection(diskSection)
+	v.Form.AddSection(diskSection)
 
 	// Labels section (collapsible)
 	labelsSection := forms.NewSection("labels", "Labels (Optional)").
@@ -174,7 +127,7 @@ func (v *DiskCreateView) buildForm() {
 			SetRows(4).
 			SetHelpText("Enter labels as key=value pairs, one per line"))
 
-	v.form.AddSection(labelsSection)
+	v.Form.AddSection(labelsSection)
 }
 
 // computeZones returns a list of GCP compute zones
@@ -244,17 +197,16 @@ func computeZones() []string {
 	return zones
 }
 
-// Init initializes the view
-func (v *DiskCreateView) Init() tea.Cmd {
-	return v.form.Init()
-}
-
 // Update handles messages for the view
 func (v *DiskCreateView) Update(msg tea.Msg) tea.Cmd {
+	// Let base handle spinner ticks and cancel-during-saving
+	if cmd, handled := v.HandleBaseUpdate(msg, DiskCreateCanceledMsg{}); handled {
+		return cmd
+	}
+
 	switch msg := msg.(type) {
 	case diskCreateSuccessMsg:
-		// Return to previous view via result message
-		// Use appropriate result message based on source type
+		// Return appropriate result message based on source type
 		if v.sourceType == DiskSourceImage {
 			return func() tea.Msg {
 				return ImageActionResultMsg{
@@ -271,16 +223,7 @@ func (v *DiskCreateView) Update(msg tea.Msg) tea.Cmd {
 		}
 
 	case diskCreateErrorMsg:
-		v.state = diskCreateStateForm
-		v.err = msg.err
-		return nil
-
-	case spinner.TickMsg:
-		if v.state == diskCreateStateSaving {
-			var cmd tea.Cmd
-			v.spinner, cmd = v.spinner.Update(msg)
-			return cmd
-		}
+		v.SetError(msg.err)
 		return nil
 
 	case forms.FormSubmitMsg:
@@ -290,33 +233,19 @@ func (v *DiskCreateView) Update(msg tea.Msg) tea.Cmd {
 		return func() tea.Msg {
 			return DiskCreateCanceledMsg{}
 		}
-
-	case tea.KeyMsg:
-		// Allow cancel during saving
-		if v.state == diskCreateStateSaving {
-			if key.Matches(msg, v.keys.Cancel) {
-				return func() tea.Msg {
-					return DiskCreateCanceledMsg{}
-				}
-			}
-			return nil
-		}
 	}
 
-	// Update form
-	return v.form.Update(msg)
+	return v.UpdateForm(msg)
 }
 
 // handleSubmit processes form submission
 func (v *DiskCreateView) handleSubmit() tea.Cmd {
-	// Validate form
-	if errors := v.form.Validate(); len(errors) > 0 {
+	if errors := v.Form.Validate(); len(errors) > 0 {
 		return nil // Form displays errors
 	}
 
-	data := v.form.GetData()
+	data := v.Form.GetData()
 
-	// Extract values
 	name := ""
 	if n, ok := data["name"].(string); ok {
 		name = strings.TrimSpace(n)
@@ -341,16 +270,14 @@ func (v *DiskCreateView) handleSubmit() tea.Cmd {
 		sizeGB = size
 	}
 
-	// Parse labels from text
 	labels := parseLabelsFromText(data["labels_text"])
 
-	v.state = diskCreateStateSaving
-	v.err = nil
+	cmd := v.BeginSaving()
 
 	// Return appropriate message based on source type
 	if v.sourceType == DiskSourceImage {
 		return tea.Batch(
-			v.spinner.Tick,
+			cmd,
 			func() tea.Msg {
 				return CreateDiskFromImageMsg{
 					ImageName:   v.sourceName,
@@ -367,7 +294,7 @@ func (v *DiskCreateView) handleSubmit() tea.Cmd {
 
 	// Default: create from snapshot
 	return tea.Batch(
-		v.spinner.Tick,
+		cmd,
 		func() tea.Msg {
 			return CreateDiskFromSnapshotMsg{
 				SnapshotName: v.sourceName,
@@ -380,51 +307,6 @@ func (v *DiskCreateView) handleSubmit() tea.Cmd {
 			}
 		},
 	)
-}
-
-// View renders the view
-func (v *DiskCreateView) View() string {
-	if v.state == diskCreateStateSaving {
-		return v.renderSaving()
-	}
-
-	content := v.form.View()
-
-	// Show error if any
-	if v.err != nil {
-		errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#EA4335"))
-		content += "\n\n" + errorStyle.Render("Error: "+v.err.Error())
-	}
-
-	return content
-}
-
-// renderSaving renders the saving state
-func (v *DiskCreateView) renderSaving() string {
-	style := lipgloss.NewStyle().Foreground(lipgloss.Color("#4285F4"))
-	return fmt.Sprintf("\n  %s %s\n", v.spinner.View(), style.Render("Creating disk..."))
-}
-
-// SetError resets the view to form state and displays the error.
-func (v *DiskCreateView) SetError(err error) {
-	v.state = diskCreateStateForm
-	v.err = err
-}
-
-// SetContext updates the view with shared program context
-func (v *DiskCreateView) SetContext(ctx *context.ProgramContext) {
-	v.ctx = ctx
-	v.width = ctx.ContentWidth
-	v.height = ctx.ContentHeight
-	v.form.SetSize(ctx.ContentWidth-4, ctx.ContentHeight-4)
-}
-
-// HasTextInputFocused returns true if a text input field is focused
-func (v *DiskCreateView) HasTextInputFocused() bool {
-	if v.form != nil {
-		return v.form.HasTextInputFocused()
-	}
-	return false
 }
 
 // GetSourceName returns the source name (snapshot or image) for breadcrumbs

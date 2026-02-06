@@ -214,7 +214,7 @@ func TestInstanceMetadataViewRenderLoading(t *testing.T) {
 	client := &gcp.ComputeClient{}
 	view := NewInstanceMetadataView("test-project", "us-central1-a", "test-instance", client)
 
-	output := view.renderLoading("Test message")
+	output := renderLoading(view.spinner, "Test message")
 
 	assert.Contains(t, output, "Test message")
 }

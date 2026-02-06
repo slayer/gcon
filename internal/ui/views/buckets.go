@@ -13,7 +13,6 @@ import (
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/table"
 	"github.com/slayer/gcon/internal/ui/context"
-	"github.com/slayer/gcon/internal/ui/mouse"
 	"github.com/slayer/gcon/internal/ui/timeutil"
 )
 
@@ -53,6 +52,7 @@ func bucketColumns() []btable.Column {
 
 // BucketsView displays and manages Cloud Storage buckets in a table format
 type BucketsView struct {
+	TableClickDelegate
 	storageClient *gcp.StorageClient
 	projectID     string
 	ctx           *context.ProgramContext // Shared context for dimensions and styles
@@ -69,17 +69,17 @@ func NewBucketsView(projectID string) *BucketsView {
 	title := fmt.Sprintf("Cloud Storage Buckets - %s", projectID)
 	t := table.New(bucketColumns(), title)
 
-	s := spinner.New()
-	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#4285F4"))
+	s := components.NewGCPSpinner()
 
-	return &BucketsView{
+	v := &BucketsView{
 		projectID: projectID,
 		table:     t,
 		spinner:   s,
 		loading:   true,
 		keys:      defaultBucketKeyMap(),
 	}
+	v.Table = &v.table
+	return v
 }
 
 // Init initializes the view and starts loading buckets
@@ -241,11 +241,11 @@ func (v *BucketsView) findBucketByName(name string) *gcp.Bucket {
 // View renders the buckets view
 func (v *BucketsView) View() string {
 	if v.loading && v.storageClient == nil {
-		return v.renderLoading("Initializing Cloud Storage client...")
+		return renderLoading(v.spinner, "Initializing Cloud Storage client...")
 	}
 
 	if v.loading {
-		return v.renderLoading("Loading buckets...")
+		return renderLoading(v.spinner, "Loading buckets...")
 	}
 
 	if v.err != nil {
@@ -290,34 +290,3 @@ func (v *BucketsView) HasTextInputFocused() bool {
 	return v.table.HasTextInputFocused()
 }
 
-// renderLoading renders a loading message
-// Height enforcement is handled by the app's View() method using lipgloss.MaxHeight()
-func (v *BucketsView) renderLoading(msg string) string {
-	return fmt.Sprintf("\n  %s %s\n", v.spinner.View(), msg)
-}
-
-// UpdateRegions delegates to the table component.
-// Implements the components.Clickable interface.
-func (v *BucketsView) UpdateRegions(offsetX, offsetY int) {
-	if clickable, ok := interface{}(&v.table).(components.Clickable); ok {
-		clickable.UpdateRegions(offsetX, offsetY)
-	}
-}
-
-// GetRegions delegates to the table component.
-// Implements the components.Clickable interface.
-func (v *BucketsView) GetRegions() []mouse.Region {
-	if clickable, ok := interface{}(&v.table).(components.Clickable); ok {
-		return clickable.GetRegions()
-	}
-	return nil
-}
-
-// HandleRegionClick delegates to the table component.
-// Implements the components.Clickable interface.
-func (v *BucketsView) HandleRegionClick(regionID string) tea.Cmd {
-	if clickable, ok := interface{}(&v.table).(components.Clickable); ok {
-		return clickable.HandleRegionClick(regionID)
-	}
-	return nil
-}

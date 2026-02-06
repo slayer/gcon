@@ -17,20 +17,10 @@ When using `lipgloss.JoinHorizontal()` (e.g., sidebar + content), both sides mus
 container := styles.Container.Width(width).Height(s.height)
 return container.Render(content)  // outputs height-1 newlines
 
-// Content MUST match sidebar's newline count
-func (v *View) renderLoading(msg string) string {
-    content := fmt.Sprintf("\n  %s %s\n", v.spinner.View(), msg)
-    // Match sidebar: height-1 newlines (NOT height!)
-    targetNewlines := v.height - 1
-    if targetNewlines < 10 {
-        targetNewlines = 10
-    }
-    currentNewlines := strings.Count(content, "\n")
-    for i := currentNewlines; i < targetNewlines; i++ {
-        content += "\n"
-    }
-    return content
-}
+// Content MUST match sidebar's newline count.
+// Use the shared renderLoading() helper from views/helpers.go:
+//   renderLoading(v.spinner, "Loading instances...")
+// The app-level layout handles height matching via lipgloss containers.
 ```
 
 ## Testing Render Heights

@@ -107,6 +107,47 @@ func TestRenderError_DuplicateRetryHint(t *testing.T) {
 	assert.Contains(t, result, "Wait a moment and try again")
 }
 
+func TestRenderInlineError(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		wantMsg  string
+		wantEmpty bool
+	}{
+		{
+			name:      "nil error returns empty string",
+			err:       nil,
+			wantEmpty: true,
+		},
+		{
+			name:    "simple error includes message text",
+			err:     errors.New("disk quota exceeded"), //nolint:err113 // Test error
+			wantMsg: "disk quota exceeded",
+		},
+		{
+			name:    "wrapped error includes full message",
+			err:     fmt.Errorf("API call failed: %w", errors.New("timeout")), //nolint:err113 // Test error
+			wantMsg: "API call failed: timeout",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := RenderInlineError(tt.err)
+
+			if tt.wantEmpty {
+				assert.Empty(t, result)
+				return
+			}
+
+			assert.NotEmpty(t, result)
+			assert.Contains(t, result, tt.wantMsg)
+			// Inline errors should NOT include retry hints
+			assert.NotContains(t, result, "Press 'r' to retry")
+		})
+	}
+}
+
 func TestErrorIcon(t *testing.T) {
 	tests := []struct {
 		code     gcp.ErrorCode

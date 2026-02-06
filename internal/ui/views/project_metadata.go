@@ -96,9 +96,7 @@ func defaultProjectMetadataKeyMap() projectMetadataKeyMap {
 
 // NewProjectMetadataView creates a new project metadata view
 func NewProjectMetadataView(projectID string, computeClient *gcp.ComputeClient) *ProjectMetadataView {
-	s := spinner.New()
-	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#4285F4"))
+	s := components.NewGCPSpinner()
 
 	return &ProjectMetadataView{
 		computeClient: computeClient,
@@ -291,23 +289,23 @@ func (v *ProjectMetadataView) exitEditMode() {
 // View renders the project metadata view
 func (v *ProjectMetadataView) View() string {
 	if v.loading {
-		return v.renderLoading("Loading project metadata...")
+		return renderLoading(v.spinner, "Loading project metadata...")
 	}
 
 	if v.saving {
-		return v.renderLoading("Saving project metadata...")
+		return renderLoading(v.spinner, "Saving project metadata...")
 	}
 
 	if v.err != nil {
-		return v.renderLoading(fmt.Sprintf("Error: %v\n  Press 'r' to retry or 'esc' to go back", v.err))
+		return renderLoading(v.spinner, fmt.Sprintf("Error: %v\n  Press 'r' to retry or 'esc' to go back", v.err))
 	}
 
 	if v.metadata == nil {
-		return v.renderLoading("No metadata available.\n  Press 'esc' to go back.")
+		return renderLoading(v.spinner, "No metadata available.\n  Press 'esc' to go back.")
 	}
 
 	if !v.ready {
-		return v.renderLoading("Initializing view...")
+		return renderLoading(v.spinner, "Initializing view...")
 	}
 
 	// Warning mode - show confirmation dialog
@@ -549,9 +547,4 @@ func (v *ProjectMetadataView) getCustomMetadata() map[string]string {
 		}
 	}
 	return custom
-}
-
-// renderLoading renders a loading message
-func (v *ProjectMetadataView) renderLoading(msg string) string {
-	return fmt.Sprintf("\n  %s %s\n", v.spinner.View(), msg)
 }

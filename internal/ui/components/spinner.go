@@ -13,6 +13,14 @@ type LoadingSpinner struct {
 	style   lipgloss.Style
 }
 
+// NewGCPSpinner creates a spinner.Model with standard GCP blue styling.
+func NewGCPSpinner() spinner.Model {
+	s := spinner.New()
+	s.Spinner = spinner.Dot
+	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#4285F4"))
+	return s
+}
+
 // NewLoadingSpinner creates a new loading spinner with a message
 func NewLoadingSpinner(message string) LoadingSpinner {
 	s := spinner.New()

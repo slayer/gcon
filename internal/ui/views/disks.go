@@ -15,13 +15,13 @@ import (
 	"github.com/slayer/gcon/internal/ui/components/confirm"
 	"github.com/slayer/gcon/internal/ui/components/table"
 	"github.com/slayer/gcon/internal/ui/context"
-	"github.com/slayer/gcon/internal/ui/mouse"
 	"github.com/slayer/gcon/internal/ui/overlay"
 	"github.com/slayer/gcon/internal/ui/symbols"
 )
 
 // DisksView displays Compute Engine disks in a table format
 type DisksView struct {
+	TableClickDelegate
 	computeClient *gcp.ComputeClient
 	projectID     string
 	ctx           *context.ProgramContext // Shared context for dimensions and styles
@@ -101,17 +101,17 @@ func NewDisksView(projectID string) *DisksView {
 	title := fmt.Sprintf("Persistent Disks - %s", projectID)
 	t := table.New(diskColumns(), title)
 
-	s := spinner.New()
-	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#4285F4"))
+	s := components.NewGCPSpinner()
 
-	return &DisksView{
+	v := &DisksView{
 		projectID: projectID,
 		table:     t,
 		spinner:   s,
 		loading:   true,
 		keys:      defaultDiskKeyMap(),
 	}
+	v.Table = &v.table
+	return v
 }
 
 // Init initializes the view and starts loading disks
@@ -454,11 +454,11 @@ func (v *DisksView) findDiskByName(name string) *gcp.Disk {
 // View renders the disks view
 func (v *DisksView) View() string {
 	if v.loading && v.computeClient == nil {
-		return v.renderLoading("Initializing Compute Engine client...")
+		return renderLoading(v.spinner, "Initializing Compute Engine client...")
 	}
 
 	if v.loading {
-		return v.renderLoading("Loading disks...")
+		return renderLoading(v.spinner, "Loading disks...")
 	}
 
 	if v.err != nil {
@@ -508,33 +508,4 @@ func (v *DisksView) SetContext(ctx *context.ProgramContext) {
 	v.table.SetSize(ctx.ContentWidth, ctx.ContentHeight-6)
 }
 
-// renderLoading renders a loading message
-func (v *DisksView) renderLoading(msg string) string {
-	return fmt.Sprintf("\n  %s %s\n", v.spinner.View(), msg)
-}
 
-// UpdateRegions delegates to the table component.
-// Implements the components.Clickable interface.
-func (v *DisksView) UpdateRegions(offsetX, offsetY int) {
-	if clickable, ok := interface{}(&v.table).(components.Clickable); ok {
-		clickable.UpdateRegions(offsetX, offsetY)
-	}
-}
-
-// GetRegions delegates to the table component.
-// Implements the components.Clickable interface.
-func (v *DisksView) GetRegions() []mouse.Region {
-	if clickable, ok := interface{}(&v.table).(components.Clickable); ok {
-		return clickable.GetRegions()
-	}
-	return nil
-}
-
-// HandleRegionClick delegates to the table component.
-// Implements the components.Clickable interface.
-func (v *DisksView) HandleRegionClick(regionID string) tea.Cmd {
-	if clickable, ok := interface{}(&v.table).(components.Clickable); ok {
-		return clickable.HandleRegionClick(regionID)
-	}
-	return nil
-}

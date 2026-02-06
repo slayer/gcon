@@ -13,7 +13,6 @@ import (
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/table"
 	"github.com/slayer/gcon/internal/ui/context"
-	"github.com/slayer/gcon/internal/ui/mouse"
 	"github.com/slayer/gcon/internal/ui/symbols"
 )
 
@@ -47,6 +46,7 @@ func projectColumns() []btable.Column {
 
 // ProjectsView displays and manages the list of GCP projects in a table format
 type ProjectsView struct {
+	TableClickDelegate
 	client   *gcp.Client
 	ctx      *context.ProgramContext // Shared context for dimensions and styles
 	table    table.Model
@@ -61,17 +61,17 @@ type ProjectsView struct {
 func NewProjectsView(client *gcp.Client) *ProjectsView {
 	t := table.New(projectColumns(), "Select Project")
 
-	s := spinner.New()
-	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#4285F4"))
+	s := components.NewGCPSpinner()
 
-	return &ProjectsView{
+	v := &ProjectsView{
 		client:  client,
 		table:   t,
 		spinner: s,
 		loading: true,
 		keys:    defaultProjectKeyMap(),
 	}
+	v.Table = &v.table
+	return v
 }
 
 // Init starts loading projects
@@ -260,28 +260,3 @@ func (v *ProjectsView) HasTextInputFocused() bool {
 	return v.table.HasTextInputFocused()
 }
 
-// UpdateRegions delegates to the table component.
-// Implements the components.Clickable interface.
-func (v *ProjectsView) UpdateRegions(offsetX, offsetY int) {
-	if clickable, ok := interface{}(&v.table).(components.Clickable); ok {
-		clickable.UpdateRegions(offsetX, offsetY)
-	}
-}
-
-// GetRegions delegates to the table component.
-// Implements the components.Clickable interface.
-func (v *ProjectsView) GetRegions() []mouse.Region {
-	if clickable, ok := interface{}(&v.table).(components.Clickable); ok {
-		return clickable.GetRegions()
-	}
-	return nil
-}
-
-// HandleRegionClick delegates to the table component.
-// Implements the components.Clickable interface.
-func (v *ProjectsView) HandleRegionClick(regionID string) tea.Cmd {
-	if clickable, ok := interface{}(&v.table).(components.Clickable); ok {
-		return clickable.HandleRegionClick(regionID)
-	}
-	return nil
-}

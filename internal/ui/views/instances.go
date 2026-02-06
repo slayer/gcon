@@ -17,13 +17,13 @@ import (
 	"github.com/slayer/gcon/internal/ui/components/table"
 	"github.com/slayer/gcon/internal/ui/context"
 	uierrors "github.com/slayer/gcon/internal/ui/errors"
-	"github.com/slayer/gcon/internal/ui/mouse"
 	"github.com/slayer/gcon/internal/ui/overlay"
 	"github.com/slayer/gcon/internal/ui/symbols"
 )
 
 // InstancesView displays and manages Compute Engine instances in a table format
 type InstancesView struct {
+	TableClickDelegate
 	computeClient *gcp.ComputeClient
 	projectID     string
 	ctx           *context.ProgramContext // Shared context for dimensions and styles
@@ -124,17 +124,17 @@ func NewInstancesView(projectID string) *InstancesView {
 	title := fmt.Sprintf("Compute Engine Instances - %s", projectID)
 	t := table.New(instanceColumns(), title)
 
-	s := spinner.New()
-	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#4285F4"))
+	s := components.NewGCPSpinner()
 
-	return &InstancesView{
+	v := &InstancesView{
 		projectID: projectID,
 		table:     t,
 		spinner:   s,
 		loading:   true,
 		keys:      defaultInstanceKeyMap(),
 	}
+	v.Table = &v.table
+	return v
 }
 
 // Init initializes the view and starts loading instances
@@ -636,11 +636,11 @@ func (v *InstancesView) showDeleteConfirmation() tea.Cmd {
 // View renders the instances view
 func (v *InstancesView) View() string {
 	if v.loading && v.computeClient == nil {
-		return v.renderLoading("Initializing Compute Engine client...")
+		return renderLoading(v.spinner, "Initializing Compute Engine client...")
 	}
 
 	if v.loading {
-		return v.renderLoading("Loading instances...")
+		return renderLoading(v.spinner, "Loading instances...")
 	}
 
 	if v.actionLoading {
@@ -723,12 +723,6 @@ func (v *InstancesView) HasTextInputFocused() bool {
 	return v.table.HasTextInputFocused()
 }
 
-// renderLoading renders a loading message
-// Height enforcement is handled by the app's View() method using lipgloss.MaxHeight()
-func (v *InstancesView) renderLoading(msg string) string {
-	return fmt.Sprintf("\n  %s %s\n", v.spinner.View(), msg)
-}
-
 // Task registration helpers for status bar integration
 func (v *InstancesView) registerTask(id, description string) {
 	if v.ctx != nil {
@@ -778,28 +772,3 @@ func (v *InstancesView) failTask(id string, err error) tea.Cmd {
 	})
 }
 
-// UpdateRegions delegates to the table component.
-// Implements the components.Clickable interface.
-func (v *InstancesView) UpdateRegions(offsetX, offsetY int) {
-	if clickable, ok := interface{}(&v.table).(components.Clickable); ok {
-		clickable.UpdateRegions(offsetX, offsetY)
-	}
-}
-
-// GetRegions delegates to the table component.
-// Implements the components.Clickable interface.
-func (v *InstancesView) GetRegions() []mouse.Region {
-	if clickable, ok := interface{}(&v.table).(components.Clickable); ok {
-		return clickable.GetRegions()
-	}
-	return nil
-}
-
-// HandleRegionClick delegates to the table component.
-// Implements the components.Clickable interface.
-func (v *InstancesView) HandleRegionClick(regionID string) tea.Cmd {
-	if clickable, ok := interface{}(&v.table).(components.Clickable); ok {
-		return clickable.HandleRegionClick(regionID)
-	}
-	return nil
-}

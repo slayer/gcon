@@ -22,7 +22,7 @@ func TestInstancesView_RenderLoading(t *testing.T) {
 
 	// renderLoading should return a simple loading message
 	// Height enforcement is now handled at the app level
-	output := v.renderLoading("Loading...")
+	output := renderLoading(v.spinner, "Loading...")
 
 	assert.Contains(t, output, "Loading...")
 	assert.Contains(t, output, v.spinner.View())
