@@ -37,8 +37,13 @@ When tabs are focused:
   ▸ Tabs • h/l: switch tab • 1-9: go to tab • tab: next region • .: actions
 ```
 
+## Code Review Findings
+
+**Layout overflow risk (fixed):** The accent bar adds 1 character width to each line, but viewports were sized to the full content width. This caused focused content to overflow by 1 character on narrow terminals. Fixed by computing `viewportWidth = width - 1` in all three detail views' `applySize()` methods.
+
 ## Testing
 
 - `make build` — passes
 - `make test` — all tests pass
 - `make lint` — 0 issues
+- Manual testing recommended: verify accent bar doesn't cause overflow on narrow terminals (80 columns)
