@@ -43,6 +43,12 @@ func (a *App) handleMouseEvent(msg tea.MouseMsg) tea.Cmd {
 	if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
 		// Check footer first (if click is in footer area)
 		if msg.Y >= footerY {
+			// Focus content on footer click
+			if a.focusedPanel != FocusContent {
+				a.focusedPanel = FocusContent
+				a.sidebar.SetFocused(false)
+			}
+
 			if clickable, ok := interface{}(a.footer).(components.Clickable); ok {
 				// Update regions with footer position (x=0, y=footerY)
 				clickable.UpdateRegions(0, footerY)
@@ -55,6 +61,7 @@ func (a *App) handleMouseEvent(msg tea.MouseMsg) tea.Cmd {
 					}
 				}
 			}
+			return nil
 		}
 
 		// Check sidebar (if active and click is in sidebar area)
