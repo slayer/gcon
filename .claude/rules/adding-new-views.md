@@ -134,7 +134,70 @@ func (v *XxxView) HasTextInputFocused() bool {
 }
 ```
 
+**Note:** If your view embeds `CreateViewBase`, `HasTextInputFocused()` is already provided.
+
 **Test**: Type 'q' in any text field - it should NOT quit the app.
+
+## Shared Base Types
+
+### List Views — Use `TableClickDelegate`
+
+List views with a `table.Model` should embed `TableClickDelegate` to get mouse click handling for free:
+
+```go
+type XxxView struct {
+    TableClickDelegate  // Provides UpdateRegions, GetRegions, HandleRegionClick
+    table  table.Model
+    // ...
+}
+
+func NewXxxView() *XxxView {
+    t := table.New(columns, title)
+    v := &XxxView{table: t}
+    v.Table = &v.table  // Wire up the delegate
+    return v
+}
+```
+
+See: `projects.go`, `instances.go`, `disks.go`, `snapshots.go`, `images.go`, `buckets.go`, `objects.go`
+
+### Creation Views — Use `CreateViewBase`
+
+Views that create GCP resources via a form should embed `CreateViewBase` to get the full lifecycle for free:
+
+```go
+type XxxCreateView struct {
+    CreateViewBase  // Provides Init, View, SetError, SetContext, HasTextInputFocused, etc.
+    computeClient *gcp.ComputeClient
+    // ... view-specific fields
+}
+
+func NewXxxCreateView(...) *XxxCreateView {
+    v := &XxxCreateView{
+        CreateViewBase: NewCreateViewBase("Creating xxx..."),
+        // ... view-specific init
+    }
+    v.buildForm()
+    return v
+}
+```
+
+What `CreateViewBase` provides: `Init()`, `View()`, `SetError()`, `SetContext()`, `HasTextInputFocused()`, `BeginSaving()`, `HandleBaseUpdate()`, `UpdateForm()`.
+
+What you implement: `buildForm()`, `Update()` (handle view-specific messages, delegate to base), `handleSubmit()`.
+
+See: `snapshot_create.go`, `disk_create.go`, `image_create.go`
+
+**Note:** `bucket_create.go` has a more complex lifecycle (diff viewer, dedicated error state) and does NOT use `CreateViewBase`.
+
+### Shared Helpers
+
+- **Spinners**: Always use `components.NewGCPSpinner()` — never create `spinner.New()` inline
+- **Loading state**: Use `renderLoading(v.spinner, "Loading xxx...")` from `helpers.go`
+- **Saving state**: Use `renderSaving(v.spinner, "Creating xxx...")` from `helpers.go`
+- **Inline errors**: Use `components.RenderInlineError(v.err)` for form views (no retry hint)
+- **Full errors**: Use `components.RenderError(v.err)` for non-form views (includes retry hint)
+- **Form sizing**: Use `formWidthPadding` and `formHeightPadding` constants from `helpers.go`
 
 ## Common Symptoms
 

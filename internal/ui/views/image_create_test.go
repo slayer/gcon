@@ -11,11 +11,11 @@ var errImageCreateFailed = errors.New("image create failed")
 
 func TestImageCreateView_SetErrorResetsState(t *testing.T) {
 	view := NewImageCreateView("project-id", "disk-name", "zone-a", "", nil)
-	view.state = imageCreateStateSaving
+	view.State = createViewStateSaving
 
 	view.SetError(errImageCreateFailed)
 
-	assert.Equal(t, imageCreateStateForm, view.state)
-	assert.Equal(t, errImageCreateFailed, view.err)
+	assert.Equal(t, createViewStateForm, view.State)
+	assert.Equal(t, errImageCreateFailed, view.Err)
 	assert.Contains(t, view.View(), "Error: "+errImageCreateFailed.Error())
 }

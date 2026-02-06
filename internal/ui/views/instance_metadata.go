@@ -98,9 +98,7 @@ func defaultInstanceMetadataKeyMap() instanceMetadataKeyMap {
 
 // NewInstanceMetadataView creates a new instance metadata view
 func NewInstanceMetadataView(projectID, zone, instanceName string, computeClient *gcp.ComputeClient) *InstanceMetadataView {
-	s := spinner.New()
-	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#4285F4"))
+	s := components.NewGCPSpinner()
 
 	return &InstanceMetadataView{
 		computeClient: computeClient,
@@ -301,23 +299,23 @@ func (v *InstanceMetadataView) getCustomMetadata() map[string]string {
 // View renders the instance metadata view
 func (v *InstanceMetadataView) View() string {
 	if v.loading {
-		return v.renderLoading("Loading metadata...")
+		return renderLoading(v.spinner,"Loading metadata...")
 	}
 
 	if v.saving {
-		return v.renderLoading("Saving metadata...")
+		return renderLoading(v.spinner,"Saving metadata...")
 	}
 
 	if v.err != nil {
-		return v.renderLoading(fmt.Sprintf("Error: %v\n  Press 'r' to retry or 'esc' to go back", v.err))
+		return renderLoading(v.spinner,fmt.Sprintf("Error: %v\n  Press 'r' to retry or 'esc' to go back", v.err))
 	}
 
 	if v.instanceMetadata == nil {
-		return v.renderLoading("No metadata available.\n  Press 'esc' to go back.")
+		return renderLoading(v.spinner,"No metadata available.\n  Press 'esc' to go back.")
 	}
 
 	if !v.ready {
-		return v.renderLoading("Initializing view...")
+		return renderLoading(v.spinner,"Initializing view...")
 	}
 
 	// Edit mode
@@ -541,7 +539,3 @@ func (v *InstanceMetadataView) parseInstanceSSHKeys() []gcp.SSHKey {
 	return gcp.ParseSSHKeys(sshKeysValue)
 }
 
-// renderLoading renders a loading message
-func (v *InstanceMetadataView) renderLoading(msg string) string {
-	return fmt.Sprintf("\n  %s %s\n", v.spinner.View(), msg)
-}

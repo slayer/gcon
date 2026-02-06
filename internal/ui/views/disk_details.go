@@ -12,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
+	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/actionmenu"
 	"github.com/slayer/gcon/internal/ui/components/confirm"
 	"github.com/slayer/gcon/internal/ui/context"
@@ -106,9 +107,7 @@ func defaultDiskDetailsKeyMap() diskDetailsKeyMap {
 
 // NewDiskDetailsView creates a new disk details view
 func NewDiskDetailsView(projectID, zone, diskName string, computeClient *gcp.ComputeClient) *DiskDetailsView {
-	s := spinner.New()
-	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#4285F4"))
+	s := components.NewGCPSpinner()
 
 	return &DiskDetailsView{
 		computeClient: computeClient,
@@ -349,19 +348,19 @@ func (v *DiskDetailsView) IsMenuOpen() bool {
 // View renders the disk details view
 func (v *DiskDetailsView) View() string {
 	if v.loading {
-		return v.renderLoading("Loading disk details...")
+		return renderLoading(v.spinner,"Loading disk details...")
 	}
 
 	if v.err != nil {
-		return v.renderLoading(fmt.Sprintf("Error: %v\n  Press 'esc' to go back", v.err))
+		return renderLoading(v.spinner,fmt.Sprintf("Error: %v\n  Press 'esc' to go back", v.err))
 	}
 
 	if v.details == nil {
-		return v.renderLoading("No disk details available.\n  Press 'esc' to go back.")
+		return renderLoading(v.spinner,"No disk details available.\n  Press 'esc' to go back.")
 	}
 
 	if !v.ready {
-		return v.renderLoading("Initializing view...")
+		return renderLoading(v.spinner,"Initializing view...")
 	}
 
 	// Help text
@@ -567,11 +566,6 @@ func formatDiskType(diskType string) string {
 	default:
 		return defaultIfEmpty(diskType, "Unknown")
 	}
-}
-
-// renderLoading renders a loading message
-func (v *DiskDetailsView) renderLoading(msg string) string {
-	return fmt.Sprintf("\n  %s %s\n", v.spinner.View(), msg)
 }
 
 // GetDiskName returns the disk name for use in breadcrumbs

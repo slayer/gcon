@@ -19,7 +19,7 @@ func TestDiskDetailsView_NewDiskDetailsView(t *testing.T) {
 func TestDiskDetailsView_RenderLoading(t *testing.T) {
 	v := NewDiskDetailsView("test-project", "us-central1-a", "test-disk", nil)
 
-	output := v.renderLoading("Loading disk details...")
+	output := renderLoading(v.spinner, "Loading disk details...")
 
 	assert.Contains(t, output, "Loading disk details...")
 	assert.Contains(t, output, v.spinner.View())

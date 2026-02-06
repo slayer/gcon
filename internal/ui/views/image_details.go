@@ -12,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
+	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/actionmenu"
 	"github.com/slayer/gcon/internal/ui/components/confirm"
 	"github.com/slayer/gcon/internal/ui/context"
@@ -95,9 +96,7 @@ func defaultImageDetailsKeyMap() imageDetailsKeyMap {
 
 // NewImageDetailsView creates a new image details view
 func NewImageDetailsView(projectID, imageName string, computeClient *gcp.ComputeClient) *ImageDetailsView {
-	s := spinner.New()
-	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#4285F4"))
+	s := components.NewGCPSpinner()
 
 	return &ImageDetailsView{
 		computeClient: computeClient,
@@ -298,19 +297,19 @@ func (v *ImageDetailsView) GetComputeClient() *gcp.ComputeClient {
 // View renders the image details view
 func (v *ImageDetailsView) View() string {
 	if v.loading {
-		return v.renderLoading("Loading image details...")
+		return renderLoading(v.spinner,"Loading image details...")
 	}
 
 	if v.err != nil {
-		return v.renderLoading(fmt.Sprintf("Error: %v\n  Press 'esc' to go back", v.err))
+		return renderLoading(v.spinner,fmt.Sprintf("Error: %v\n  Press 'esc' to go back", v.err))
 	}
 
 	if v.details == nil {
-		return v.renderLoading("No image details available.\n  Press 'esc' to go back.")
+		return renderLoading(v.spinner,"No image details available.\n  Press 'esc' to go back.")
 	}
 
 	if !v.ready {
-		return v.renderLoading("Initializing view...")
+		return renderLoading(v.spinner,"Initializing view...")
 	}
 
 	// Help text
@@ -560,11 +559,6 @@ func formatBytes(bytes int64) string {
 		exp = len(units) - 1
 	}
 	return fmt.Sprintf("%.1f %s", float64(bytes)/float64(div), units[exp])
-}
-
-// renderLoading renders a loading message
-func (v *ImageDetailsView) renderLoading(msg string) string {
-	return fmt.Sprintf("\n  %s %s\n", v.spinner.View(), msg)
 }
 
 // GetImageName returns the image name for use in breadcrumbs

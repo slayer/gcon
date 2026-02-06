@@ -15,13 +15,13 @@ import (
 	"github.com/slayer/gcon/internal/ui/components/confirm"
 	"github.com/slayer/gcon/internal/ui/components/table"
 	"github.com/slayer/gcon/internal/ui/context"
-	"github.com/slayer/gcon/internal/ui/mouse"
 	"github.com/slayer/gcon/internal/ui/overlay"
 	"github.com/slayer/gcon/internal/ui/symbols"
 )
 
 // ImagesView displays Compute Engine disk images in a table format
 type ImagesView struct {
+	TableClickDelegate
 	computeClient *gcp.ComputeClient
 	projectID     string
 	ctx           *context.ProgramContext // Shared context for dimensions and styles
@@ -97,17 +97,17 @@ func NewImagesView(projectID string) *ImagesView {
 	title := fmt.Sprintf("Disk Images - %s", projectID)
 	t := table.New(imageColumns(), title)
 
-	s := spinner.New()
-	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#4285F4"))
+	s := components.NewGCPSpinner()
 
-	return &ImagesView{
+	v := &ImagesView{
 		projectID: projectID,
 		table:     t,
 		spinner:   s,
 		loading:   true,
 		keys:      defaultImageKeyMap(),
 	}
+	v.Table = &v.table
+	return v
 }
 
 // Init initializes the view and starts loading images
@@ -445,11 +445,11 @@ func (v *ImagesView) findImageByName(name string) *gcp.Image {
 // View renders the images view
 func (v *ImagesView) View() string {
 	if v.loading && v.computeClient == nil {
-		return v.renderLoading("Initializing Compute Engine client...")
+		return renderLoading(v.spinner, "Initializing Compute Engine client...")
 	}
 
 	if v.loading {
-		return v.renderLoading("Loading disk images...")
+		return renderLoading(v.spinner, "Loading disk images...")
 	}
 
 	if v.err != nil {
@@ -505,33 +505,4 @@ func (v *ImagesView) SetContext(ctx *context.ProgramContext) {
 	v.table.SetSize(ctx.ContentWidth, ctx.ContentHeight-6)
 }
 
-// renderLoading renders a loading message
-func (v *ImagesView) renderLoading(msg string) string {
-	return fmt.Sprintf("\n  %s %s\n", v.spinner.View(), msg)
-}
 
-// UpdateRegions delegates to the table component.
-// Implements the components.Clickable interface.
-func (v *ImagesView) UpdateRegions(offsetX, offsetY int) {
-	if clickable, ok := interface{}(&v.table).(components.Clickable); ok {
-		clickable.UpdateRegions(offsetX, offsetY)
-	}
-}
-
-// GetRegions delegates to the table component.
-// Implements the components.Clickable interface.
-func (v *ImagesView) GetRegions() []mouse.Region {
-	if clickable, ok := interface{}(&v.table).(components.Clickable); ok {
-		return clickable.GetRegions()
-	}
-	return nil
-}
-
-// HandleRegionClick delegates to the table component.
-// Implements the components.Clickable interface.
-func (v *ImagesView) HandleRegionClick(regionID string) tea.Cmd {
-	if clickable, ok := interface{}(&v.table).(components.Clickable); ok {
-		return clickable.HandleRegionClick(regionID)
-	}
-	return nil
-}

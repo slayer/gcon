@@ -22,7 +22,7 @@ func TestDisksView_RenderLoading(t *testing.T) {
 	ctx := &context.ProgramContext{ContentWidth: 80, ContentHeight: 30}
 	v.SetContext(ctx)
 
-	output := v.renderLoading("Loading disks...")
+	output := renderLoading(v.spinner, "Loading disks...")
 
 	assert.Contains(t, output, "Loading disks...")
 	assert.Contains(t, output, v.spinner.View())

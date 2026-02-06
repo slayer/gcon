@@ -65,6 +65,16 @@ func RenderError(err error) string {
 	return result
 }
 
+// RenderInlineError formats an error as a simple styled message for form/creation views.
+// Unlike RenderError, it omits retry hints since forms have their own navigation.
+func RenderInlineError(err error) string {
+	if err == nil {
+		return ""
+	}
+	errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#EA4335"))
+	return "\n\n" + errorStyle.Render("Error: "+err.Error())
+}
+
 // errorIcon returns an appropriate icon for each error type
 func errorIcon(code gcp.ErrorCode) string {
 	switch code {

@@ -18,7 +18,7 @@ func TestSnapshotDetailsView_NewSnapshotDetailsView(t *testing.T) {
 func TestSnapshotDetailsView_RenderLoading(t *testing.T) {
 	v := NewSnapshotDetailsView("test-project", "test-snapshot", nil)
 
-	output := v.renderLoading("Loading snapshot details...")
+	output := renderLoading(v.spinner, "Loading snapshot details...")
 
 	assert.Contains(t, output, "Loading snapshot details...")
 	assert.Contains(t, output, v.spinner.View())

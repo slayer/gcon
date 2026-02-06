@@ -4,13 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components/forms"
-	"github.com/slayer/gcon/internal/ui/context"
 )
 
 // ImageSourceType indicates the source type for image creation
@@ -21,78 +17,34 @@ const (
 	ImageSourceSnapshot
 )
 
-// imageCreateState represents the view's state machine
-type imageCreateState int
-
-const (
-	imageCreateStateForm imageCreateState = iota
-	imageCreateStateSaving
-)
-
 // Internal message types
 type imageCreateSuccessMsg struct{}
 type imageCreateErrorMsg struct{ err error }
 
-// imageCreateKeyMap defines key bindings for the view
-type imageCreateKeyMap struct {
-	Submit key.Binding
-	Cancel key.Binding
-}
-
-func defaultImageCreateKeyMap() imageCreateKeyMap {
-	return imageCreateKeyMap{
-		Submit: key.NewBinding(
-			key.WithKeys("ctrl+s"),
-			key.WithHelp("ctrl+s", "create image"),
-		),
-		Cancel: key.NewBinding(
-			key.WithKeys("esc"),
-			key.WithHelp("esc", "cancel"),
-		),
-	}
-}
-
 // ImageCreateView allows creating images from disks or snapshots
 type ImageCreateView struct {
+	CreateViewBase
+
 	computeClient *gcp.ComputeClient
 	projectID     string
 
 	// Source information - either disk or snapshot
-	sourceType   ImageSourceType
-	sourceName   string // disk name or snapshot name
-	zone         string // only used for disk source
-	attachedTo   string // Instance name if disk is attached (only for disk source)
-
-	ctx *context.ProgramContext
-
-	// State machine
-	state imageCreateState
-
-	// UI components
-	form    *forms.Form
-	spinner spinner.Model
-	err     error
-	width   int
-	height  int
-	keys    imageCreateKeyMap
+	sourceType ImageSourceType
+	sourceName string // disk name or snapshot name
+	zone       string // only used for disk source
+	attachedTo string // Instance name if disk is attached (only for disk source)
 }
 
 // NewImageCreateView creates a new image create view for creating from a disk
 func NewImageCreateView(projectID, diskName, zone, attachedTo string, computeClient *gcp.ComputeClient) *ImageCreateView {
-	s := spinner.New()
-	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#4285F4"))
-
 	v := &ImageCreateView{
-		computeClient: computeClient,
-		projectID:     projectID,
-		sourceType:    ImageSourceDisk,
-		sourceName:    diskName,
-		zone:          zone,
-		attachedTo:    attachedTo,
-		spinner:       s,
-		state:         imageCreateStateForm,
-		keys:          defaultImageCreateKeyMap(),
+		CreateViewBase: NewCreateViewBase("Creating image..."),
+		computeClient:  computeClient,
+		projectID:      projectID,
+		sourceType:     ImageSourceDisk,
+		sourceName:     diskName,
+		zone:           zone,
+		attachedTo:     attachedTo,
 	}
 
 	v.buildForm()
@@ -101,18 +53,12 @@ func NewImageCreateView(projectID, diskName, zone, attachedTo string, computeCli
 
 // NewImageCreateViewFromSnapshot creates a new image create view for creating from a snapshot
 func NewImageCreateViewFromSnapshot(projectID, snapshotName string, computeClient *gcp.ComputeClient) *ImageCreateView {
-	s := spinner.New()
-	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#4285F4"))
-
 	v := &ImageCreateView{
-		computeClient: computeClient,
-		projectID:     projectID,
-		sourceType:    ImageSourceSnapshot,
-		sourceName:    snapshotName,
-		spinner:       s,
-		state:         imageCreateStateForm,
-		keys:          defaultImageCreateKeyMap(),
+		CreateViewBase: NewCreateViewBase("Creating image..."),
+		computeClient:  computeClient,
+		projectID:      projectID,
+		sourceType:     ImageSourceSnapshot,
+		sourceName:     snapshotName,
 	}
 
 	v.buildForm()
@@ -129,7 +75,7 @@ func (v *ImageCreateView) buildForm() {
 		subtitle = fmt.Sprintf("Create an image from snapshot '%s'", v.sourceName)
 	}
 
-	v.form = forms.NewForm("Create Image", forms.FormModeCreate).
+	v.Form = forms.NewForm("Create Image", forms.FormModeCreate).
 		SetSubtitle(subtitle).
 		EnableViewport()
 
@@ -155,7 +101,7 @@ func (v *ImageCreateView) buildForm() {
 			SetHelpText("Optional family name for grouping related images").
 			SetValidator(forms.ValidateGCPResourceName))
 
-	v.form.AddSection(basicSection)
+	v.Form.AddSection(basicSection)
 
 	// Show warning if disk is attached (only for disk source)
 	if v.sourceType == ImageSourceDisk && v.attachedTo != "" {
@@ -166,7 +112,7 @@ func (v *ImageCreateView) buildForm() {
 				SetValue(false).
 				SetHelpText("Create image without stopping the instance (may result in inconsistent data)"))
 
-		v.form.AddSection(warningSection)
+		v.Form.AddSection(warningSection)
 	}
 
 	// Storage Location section
@@ -175,7 +121,7 @@ func (v *ImageCreateView) buildForm() {
 			SetOptionsFromStrings(append([]string{"(default)"}, gcp.AllStorageLocations...)).
 			SetHelpText("Where to store the image (multi-regional: us, eu, asia; or regional)"))
 
-	v.form.AddSection(locationSection)
+	v.Form.AddSection(locationSection)
 
 	// Labels section (collapsible)
 	labelsSection := forms.NewSection("labels", "Labels (Optional)").
@@ -186,16 +132,24 @@ func (v *ImageCreateView) buildForm() {
 			SetRows(4).
 			SetHelpText("Enter labels as key=value pairs, one per line"))
 
-	v.form.AddSection(labelsSection)
-}
-
-// Init initializes the view
-func (v *ImageCreateView) Init() tea.Cmd {
-	return v.form.Init()
+	v.Form.AddSection(labelsSection)
 }
 
 // Update handles messages for the view
 func (v *ImageCreateView) Update(msg tea.Msg) tea.Cmd {
+	// Determine cancel message based on source type
+	var cancelMsg tea.Msg
+	if v.sourceType == ImageSourceSnapshot {
+		cancelMsg = ImageCreateFromSnapshotCanceledMsg{}
+	} else {
+		cancelMsg = ImageCreateCanceledMsg{}
+	}
+
+	// Let base handle spinner ticks and cancel-during-saving
+	if cmd, handled := v.HandleBaseUpdate(msg, cancelMsg); handled {
+		return cmd
+	}
+
 	switch msg := msg.(type) {
 	case imageCreateSuccessMsg:
 		// Return appropriate result based on source type
@@ -215,63 +169,27 @@ func (v *ImageCreateView) Update(msg tea.Msg) tea.Cmd {
 		}
 
 	case imageCreateErrorMsg:
-		v.state = imageCreateStateForm
-		v.err = msg.err
-		return nil
-
-	case spinner.TickMsg:
-		if v.state == imageCreateStateSaving {
-			var cmd tea.Cmd
-			v.spinner, cmd = v.spinner.Update(msg)
-			return cmd
-		}
+		v.SetError(msg.err)
 		return nil
 
 	case forms.FormSubmitMsg:
 		return v.handleSubmit()
 
 	case forms.FormCancelMsg:
-		// Return appropriate cancel message based on source type
-		if v.sourceType == ImageSourceSnapshot {
-			return func() tea.Msg {
-				return ImageCreateFromSnapshotCanceledMsg{}
-			}
-		}
-		return func() tea.Msg {
-			return ImageCreateCanceledMsg{}
-		}
-
-	case tea.KeyMsg:
-		// Allow cancel during saving
-		if v.state == imageCreateStateSaving {
-			if key.Matches(msg, v.keys.Cancel) {
-				if v.sourceType == ImageSourceSnapshot {
-					return func() tea.Msg {
-						return ImageCreateFromSnapshotCanceledMsg{}
-					}
-				}
-				return func() tea.Msg {
-					return ImageCreateCanceledMsg{}
-				}
-			}
-			return nil
-		}
+		return func() tea.Msg { return cancelMsg }
 	}
 
-	// Update form
-	return v.form.Update(msg)
+	return v.UpdateForm(msg)
 }
 
 // handleSubmit processes form submission
 func (v *ImageCreateView) handleSubmit() tea.Cmd {
-	// Validate form
-	if errors := v.form.Validate(); len(errors) > 0 {
+	if errors := v.Form.Validate(); len(errors) > 0 {
 		return nil // Form displays errors
 	}
 
-	data := v.form.GetData()
+	data := v.Form.GetData()
 
-	// Extract values
 	name := ""
 	if n, ok := data["name"].(string); ok {
 		name = strings.TrimSpace(n)
@@ -291,16 +209,14 @@ func (v *ImageCreateView) handleSubmit() tea.Cmd {
 		storageLocation = loc
 	}
 
-	// Parse labels from text
 	labels := parseLabelsFromText(data["labels_text"])
 
-	v.state = imageCreateStateSaving
-	v.err = nil
+	cmd := v.BeginSaving()
 
 	// Return appropriate message based on source type
 	if v.sourceType == ImageSourceSnapshot {
 		return tea.Batch(
-			v.spinner.Tick,
+			cmd,
 			func() tea.Msg {
 				return CreateImageFromSnapshotMsg{
 					SnapshotName:    v.sourceName,
@@ -321,7 +237,7 @@ func (v *ImageCreateView) handleSubmit() tea.Cmd {
 	}
 
 	return tea.Batch(
-		v.spinner.Tick,
+		cmd,
 		func() tea.Msg {
 			return CreateImageFromDiskMsg{
 				DiskName:        v.sourceName,
@@ -335,51 +251,6 @@ func (v *ImageCreateView) handleSubmit() tea.Cmd {
 			}
 		},
 	)
-}
-
-// View renders the view
-func (v *ImageCreateView) View() string {
-	if v.state == imageCreateStateSaving {
-		return v.renderSaving()
-	}
-
-	content := v.form.View()
-
-	// Show error if any
-	if v.err != nil {
-		errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#EA4335"))
-		content += "\n\n" + errorStyle.Render("Error: "+v.err.Error())
-	}
-
-	return content
-}
-
-// renderSaving renders the saving state
-func (v *ImageCreateView) renderSaving() string {
-	style := lipgloss.NewStyle().Foreground(lipgloss.Color("#4285F4"))
-	return fmt.Sprintf("\n  %s %s\n", v.spinner.View(), style.Render("Creating image..."))
-}
-
-// SetError resets the view to form state and displays the error.
-func (v *ImageCreateView) SetError(err error) {
-	v.state = imageCreateStateForm
-	v.err = err
-}
-
-// SetContext updates the view with shared program context
-func (v *ImageCreateView) SetContext(ctx *context.ProgramContext) {
-	v.ctx = ctx
-	v.width = ctx.ContentWidth
-	v.height = ctx.ContentHeight
-	v.form.SetSize(ctx.ContentWidth-4, ctx.ContentHeight-4)
-}
-
-// HasTextInputFocused returns true if a text input field is focused
-func (v *ImageCreateView) HasTextInputFocused() bool {
-	if v.form != nil {
-		return v.form.HasTextInputFocused()
-	}
-	return false
 }
 
 // GetSourceName returns the source name (disk or snapshot) for breadcrumbs
