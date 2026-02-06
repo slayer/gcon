@@ -893,15 +893,15 @@ func (v *InstanceDetailsView) View() string {
 		header = successStyle.Render("  "+v.actionMsg) + "\n\n"
 	}
 
-	// Render tab bar
-	tabBar := "  " + v.tabs.View()
+	// Render tab bar with focus accent
+	tabBar := focus.RenderAccent("  "+v.tabs.View(), v.focusMgr.IsActive(regionIDTabs))
 
-	// Get active tab viewport
+	// Get active tab viewport with focus accent
 	activeIdx := v.tabs.ActiveIndex()
 	var viewportContent string
 	var scrollPercent float64
 	if activeIdx >= 0 && activeIdx < len(v.tabViewports) {
-		viewportContent = v.tabViewports[activeIdx].View()
+		viewportContent = focus.RenderAccent(v.tabViewports[activeIdx].View(), v.focusMgr.IsActive(regionIDViewport))
 		scrollPercent = v.tabViewports[activeIdx].ScrollPercent()
 	}
 
@@ -1610,6 +1610,10 @@ func (v *InstanceDetailsView) GetInstanceName() string {
 func (v *InstanceDetailsView) buildHelpText() string {
 	bindings := focus.HelpForRegion(v.focusMgr.ActiveType(), v.getRegionLabel())
 	helpStr := focus.FormatHelp(bindings)
+	badge := focus.FormatRegionBadge(v.focusMgr.Active())
+	if badge != "" {
+		return "\n  " + badge + " • " + helpStr + " • .: actions"
+	}
 	return "\n  " + helpStr + " • .: actions"
 }
 

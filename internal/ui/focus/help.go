@@ -1,5 +1,7 @@
 package focus
 
+import "github.com/charmbracelet/lipgloss"
+
 // HelpBinding represents a key binding shown in help text.
 type HelpBinding struct {
 	Key  string
@@ -54,6 +56,20 @@ func HelpForRegion(regionType RegionType, label string) []HelpBinding {
 			{Key: "tab", Desc: "next region"},
 		}
 	}
+}
+
+// regionBadgeStyle renders the active region label in bold blue.
+var regionBadgeStyle = lipgloss.NewStyle().
+	Foreground(lipgloss.Color("#4285F4")).
+	Bold(true)
+
+// FormatRegionBadge returns a styled "▸ Label" badge for the active region.
+// Returns empty string if region is nil or has no label.
+func FormatRegionBadge(region *Region) string {
+	if region == nil || region.Label == "" {
+		return ""
+	}
+	return regionBadgeStyle.Render("▸ " + region.Label)
 }
 
 // FormatHelp formats help bindings as a single string for display.

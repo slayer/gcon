@@ -637,15 +637,15 @@ func (v *ObjectDetailsView) View() string {
 		return v.renderLoading("Initializing view...")
 	}
 
-	// Render tab bar
-	tabBar := "  " + v.tabs.View()
+	// Render tab bar with focus accent
+	tabBar := focus.RenderAccent("  "+v.tabs.View(), v.focusMgr.IsActive(objectRegionIDTabs))
 
-	// Get active tab viewport
+	// Get active tab viewport with focus accent
 	activeIdx := v.tabs.ActiveIndex()
 	var viewportContent string
 	var scrollPercent float64
 	if activeIdx >= 0 && activeIdx < len(v.tabViewports) {
-		viewportContent = v.tabViewports[activeIdx].View()
+		viewportContent = focus.RenderAccent(v.tabViewports[activeIdx].View(), v.focusMgr.IsActive(objectRegionIDViewport))
 		scrollPercent = v.tabViewports[activeIdx].ScrollPercent()
 	}
 
@@ -919,6 +919,10 @@ func (v *ObjectDetailsView) renderPreviewTab() string {
 func (v *ObjectDetailsView) buildHelpText() string {
 	bindings := focus.HelpForRegion(v.focusMgr.ActiveType(), "")
 	helpStr := focus.FormatHelp(bindings)
+	badge := focus.FormatRegionBadge(v.focusMgr.Active())
+	if badge != "" {
+		return "\n  " + badge + " • " + helpStr + " • v:preview • o:open • d:download • D:delete • .:menu"
+	}
 	return "\n  " + helpStr + " • v:preview • o:open • d:download • D:delete • .:menu"
 }
 
