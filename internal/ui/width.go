@@ -101,7 +101,6 @@ func isWideEmoji(r rune) bool {
 	// These apply to both Emoji and Unicode modes since both use these symbols.
 	switch r {
 	case '☁', // Cloud (header) - U+2601
-		'☰', // Hamburger menu (sidebar) - U+2630
 
 		// Arrows (sidebar navigation)
 		'◀', '▶', '▸',
