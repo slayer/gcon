@@ -97,6 +97,53 @@ func TestHelpForRegionLinksLabel(t *testing.T) {
 	assert.True(t, foundSelectItem, "expected 'select item' description when label is empty")
 }
 
+func TestFormatRegionBadge(t *testing.T) {
+	tests := []struct {
+		name   string
+		region *Region
+		want   string
+	}{
+		{
+			name:   "nil region",
+			region: nil,
+			want:   "",
+		},
+		{
+			name:   "empty label",
+			region: &Region{Label: ""},
+			want:   "",
+		},
+		{
+			name:   "region with label",
+			region: &Region{Label: "Content"},
+			want:   "", // non-empty check below
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := FormatRegionBadge(tt.region)
+			if tt.region == nil || tt.region.Label == "" {
+				assert.Empty(t, got)
+			} else {
+				assert.Contains(t, got, "▸")
+				assert.Contains(t, got, tt.region.Label)
+			}
+		})
+	}
+}
+
+func TestFormatRegionBadge_Labels(t *testing.T) {
+	// Verify different labels render correctly
+	labels := []string{"Tabs", "Content", "Disks", "Source Disk"}
+	for _, label := range labels {
+		region := &Region{Label: label}
+		badge := FormatRegionBadge(region)
+		assert.Contains(t, badge, "▸")
+		assert.Contains(t, badge, label)
+	}
+}
+
 func TestFormatHelp(t *testing.T) {
 	tests := []struct {
 		name     string
