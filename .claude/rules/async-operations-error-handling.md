@@ -6,7 +6,51 @@ This document describes the consistent pattern for handling errors in views that
 
 Views with async operations (create, update, delete) must implement robust error handling to prevent getting stuck in loading/saving states.
 
-## Required Components
+## Preferred Pattern: CreateViewBase
+
+For creation views (form → submit → async operation), embed `CreateViewBase` instead of
+implementing the state machine manually. It provides state management, error handling,
+spinner, cancel-during-saving, and form sizing out of the box.
+
+```go
+type XxxCreateView struct {
+    CreateViewBase  // State, Err, Spinner, Form, etc.
+    client *gcp.ComputeClient
+}
+
+func NewXxxCreateView(...) *XxxCreateView {
+    v := &XxxCreateView{
+        CreateViewBase: NewCreateViewBase("Creating xxx..."),
+    }
+    v.buildForm()
+    return v
+}
+
+func (v *XxxCreateView) Update(msg tea.Msg) tea.Cmd {
+    if cmd, handled := v.HandleBaseUpdate(msg, XxxCanceledMsg{}); handled {
+        return cmd
+    }
+    switch msg := msg.(type) {
+    case xxxSuccessMsg:
+        return func() tea.Msg { return XxxResultMsg{Success: true} }
+    case xxxErrorMsg:
+        v.SetError(msg.err)
+        return nil
+    case forms.FormSubmitMsg:
+        return v.handleSubmit()
+    case forms.FormCancelMsg:
+        return func() tea.Msg { return XxxCanceledMsg{} }
+    }
+    return v.UpdateForm(msg)
+}
+```
+
+See: `snapshot_create.go`, `disk_create.go`, `image_create.go`
+
+## Manual Pattern (For Complex Views)
+
+For views with more complex lifecycles (e.g., `bucket_create.go` with diff preview,
+`instance_editor.go` with label editing), implement the components manually:
 
 ### 1. State Machine
 
@@ -65,25 +109,26 @@ case diskCreateErrorMsg:
 
 ### 4. Error Display
 
-Show errors inline with the form using consistent styling:
+Use `components.RenderInlineError()` for form/creation views (no retry hint),
+or `components.RenderError()` for non-form views (includes retry hint).
 
 ```go
 func (v *DiskCreateView) View() string {
     if v.state == diskCreateStateSaving {
-        return v.renderSaving()
+        return renderSaving(v.spinner, "Creating disk...")
     }
 
     content := v.form.View()
 
-    // Show error if any
     if v.err != nil {
-        errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#EA4335"))
-        content += "\n\n" + errorStyle.Render("Error: "+v.err.Error())
+        content += components.RenderInlineError(v.err)
     }
 
     return content
 }
 ```
+
+**Note:** `CreateViewBase.View()` handles this automatically if you embed it.
 
 **Color standard:** Use `#EA4335` (Google red) for error text.
 
@@ -228,12 +273,26 @@ case tea.KeyMsg:
 
 ## Checklist for New Async Views
 
+### If using `CreateViewBase` (preferred for simple form → submit → async):
+
+- [ ] Embed `CreateViewBase` and call `NewCreateViewBase("Creating xxx...")`
+- [ ] Implement `buildForm()` with view-specific fields
+- [ ] Implement `Update()` — call `HandleBaseUpdate()` first, handle view-specific messages
+- [ ] Implement `handleSubmit()` — validate, extract data, call `BeginSaving()`
+- [ ] Define internal error message type (e.g., `xxxErrorMsg`)
+- [ ] Define result message type (e.g., `XxxActionResultMsg`)
+- [ ] Create app handler for result messages
+- [ ] **Call `SetError()` in app handler when operation fails**
+
+### If implementing manually:
+
 - [ ] Define state machine with at least `stateForm` and `stateSaving`
 - [ ] Add `err error` field to view struct
 - [ ] Implement `SetError(err error)` method
 - [ ] Define internal error message type (e.g., `xxxErrorMsg`)
 - [ ] Handle error messages in `Update()`
-- [ ] Display errors inline in `View()` with `#EA4335` color
+- [ ] Display errors with `components.RenderInlineError(v.err)`
+- [ ] Use `renderSaving(v.spinner, "...")` for saving state
 - [ ] Define result message type (e.g., `XxxActionResultMsg`)
 - [ ] Create app handler for result messages
 - [ ] **Call `SetError()` in app handler when operation fails**
@@ -242,7 +301,7 @@ case tea.KeyMsg:
 
 ## Examples
 
-**Simple pattern:** `disk_create.go`, `snapshot_create.go`, `image_create.go`
+**CreateViewBase pattern:** `snapshot_create.go`, `disk_create.go`, `image_create.go`
 
 **Advanced pattern with error state:** `bucket_create.go`
 
@@ -302,15 +361,14 @@ func (v *DiskCreateView) View() string {
 }
 ```
 
-### ✅ Correct
+### ✅ Correct (or just embed CreateViewBase which handles this)
 
 ```go
 func (v *DiskCreateView) View() string {
     content := v.form.View()
 
     if v.err != nil {
-        errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#EA4335"))
-        content += "\n\n" + errorStyle.Render("Error: "+v.err.Error())
+        content += components.RenderInlineError(v.err)
     }
 
     return content

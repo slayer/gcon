@@ -12,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
+	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/symbols"
 )
 
@@ -92,8 +93,7 @@ func New(client *gcp.Client, currentProjectID string) *Model {
 	ti.Width = minWidth
 	ti.Placeholder = "Filter projects..."
 
-	sp := spinner.New()
-	sp.Spinner = spinner.Dot
+	sp := components.NewGCPSpinner()
 
 	return &Model{
 		client:         client,

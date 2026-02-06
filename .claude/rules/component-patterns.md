@@ -6,6 +6,21 @@ globs:
 
 # Component Patterns
 
+## Shared Helpers and Base Types
+
+Use the shared helpers in `internal/ui/views/helpers.go` and `internal/ui/components/` to avoid boilerplate:
+
+| Helper | Location | Use |
+|--------|----------|-----|
+| `components.NewGCPSpinner()` | `components/spinner.go` | Always use instead of inline `spinner.New()` |
+| `renderLoading(spinner, msg)` | `views/helpers.go` | Standard loading state with spinner |
+| `renderSaving(spinner, msg)` | `views/helpers.go` | Saving state with GCP-blue styled message |
+| `components.RenderInlineError(err)` | `components/error_display.go` | Form-context errors (no retry hint) |
+| `components.RenderError(err)` | `components/error_display.go` | Full error display with retry hint |
+| `formWidthPadding` / `formHeightPadding` | `views/helpers.go` | Standard form sizing padding (both = 4) |
+| `TableClickDelegate` | `views/helpers.go` | Embed in list views for mouse click delegation |
+| `CreateViewBase` | `views/create_view_base.go` | Embed in creation views for full lifecycle |
+
 ## Always Create Fresh Modal Instances
 
 When opening modals/overlays, always create a new instance with current state rather than reusing stale instances:

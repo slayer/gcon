@@ -13,6 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
+	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/actionmenu"
 	"github.com/slayer/gcon/internal/ui/components/confirm"
 	"github.com/slayer/gcon/internal/ui/components/links"
@@ -117,9 +118,7 @@ func defaultSnapshotDetailsKeyMap() snapshotDetailsKeyMap {
 
 // NewSnapshotDetailsView creates a new snapshot details view
 func NewSnapshotDetailsView(projectID, snapshotName string, computeClient *gcp.ComputeClient) *SnapshotDetailsView {
-	s := spinner.New()
-	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#4285F4"))
+	s := components.NewGCPSpinner()
 
 	// Initialize focus manager - links region starts disabled until disk info loads
 	fm := focus.NewManager()
@@ -160,6 +159,7 @@ func (v *SnapshotDetailsView) loadDetails() tea.Cmd {
 }
 
 // Update handles messages for the snapshot details view
+//
 //nolint:gocognit // Bubble Tea Update pattern - complexity 45
 func (v *SnapshotDetailsView) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
@@ -383,19 +383,19 @@ func (v *SnapshotDetailsView) IsMenuOpen() bool {
 // View renders the snapshot details view
 func (v *SnapshotDetailsView) View() string {
 	if v.loading {
-		return v.renderLoading("Loading snapshot details...")
+		return renderLoading(v.spinner, "Loading snapshot details...")
 	}
 
 	if v.err != nil {
-		return v.renderLoading(fmt.Sprintf("Error: %v\n  Press 'esc' to go back", v.err))
+		return renderLoading(v.spinner, fmt.Sprintf("Error: %v\n  Press 'esc' to go back", v.err))
 	}
 
 	if v.details == nil {
-		return v.renderLoading("No snapshot details available.\n  Press 'esc' to go back.")
+		return renderLoading(v.spinner, "No snapshot details available.\n  Press 'esc' to go back.")
 	}
 
 	if !v.ready {
-		return v.renderLoading("Initializing view...")
+		return renderLoading(v.spinner, "Initializing view...")
 	}
 
 	// Help text - context-sensitive based on focused region
@@ -612,11 +612,6 @@ func snapshotDetailStatusIcon(status string) string {
 	default:
 		return symbols.StatusUnknown() // Unknown status
 	}
-}
-
-// renderLoading renders a loading message
-func (v *SnapshotDetailsView) renderLoading(msg string) string {
-	return fmt.Sprintf("\n  %s %s\n", v.spinner.View(), msg)
 }
 
 // GetSnapshotName returns the snapshot name for use in breadcrumbs

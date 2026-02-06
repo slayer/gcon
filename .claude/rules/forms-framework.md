@@ -147,7 +147,63 @@ func (v *MyView) HasTextInputFocused() bool {
 
 This prevents global keys like 'q' (quit) from being triggered when typing.
 
-### Complete View Integration
+### Complete View Integration (Creation Views)
+
+For creation views, embed `CreateViewBase` which handles Init, View, SetError, SetContext,
+HasTextInputFocused, spinner, and form sizing automatically:
+
+```go
+type ResourceCreateView struct {
+    CreateViewBase  // Embeds form lifecycle
+    client *gcp.Client
+}
+
+func NewResourceCreateView(client *gcp.Client) *ResourceCreateView {
+    v := &ResourceCreateView{
+        CreateViewBase: NewCreateViewBase("Creating resource..."),
+        client:         client,
+    }
+    v.buildForm()
+    return v
+}
+
+func (v *ResourceCreateView) buildForm() {
+    v.Form = forms.NewForm("Create Resource", forms.FormModeCreate).
+        EnableViewport()
+    // Add sections and fields...
+}
+
+func (v *ResourceCreateView) Update(msg tea.Msg) tea.Cmd {
+    // Base handles spinner ticks and cancel-during-saving
+    if cmd, handled := v.HandleBaseUpdate(msg, ResourceCanceledMsg{}); handled {
+        return cmd
+    }
+    switch msg := msg.(type) {
+    case forms.FormSubmitMsg:
+        return v.handleSubmit()
+    case forms.FormCancelMsg:
+        return func() tea.Msg { return ResourceCanceledMsg{} }
+    }
+    return v.UpdateForm(msg)
+}
+
+func (v *ResourceCreateView) handleSubmit() tea.Cmd {
+    if errors := v.Form.Validate(); len(errors) > 0 {
+        return nil
+    }
+    data := v.Form.GetData()
+    cmd := v.BeginSaving()
+    return tea.Batch(cmd, func() tea.Msg {
+        return CreateResourceMsg{Name: data["name"].(string)}
+    })
+}
+```
+
+See: `snapshot_create.go`, `disk_create.go`, `image_create.go`
+
+### Complete View Integration (Editor Views)
+
+For more complex views (diff preview, multiple states), implement manually:
 
 ```go
 type ResourceEditView struct {
@@ -180,9 +236,11 @@ func (v *ResourceEditView) HasTextInputFocused() bool {
 }
 
 func (v *ResourceEditView) SetSize(width, height int) {
-    v.form.SetSize(width-4, height-8)  // Account for padding
+    v.form.SetSize(width-formWidthPadding, height-formHeightPadding)
 }
 ```
+
+See: `bucket_create.go`, `instance_editor.go`
 
 ## Form Keyboard Shortcuts
 

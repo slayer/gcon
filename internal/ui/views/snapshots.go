@@ -15,7 +15,6 @@ import (
 	"github.com/slayer/gcon/internal/ui/components/confirm"
 	"github.com/slayer/gcon/internal/ui/components/table"
 	"github.com/slayer/gcon/internal/ui/context"
-	"github.com/slayer/gcon/internal/ui/mouse"
 	"github.com/slayer/gcon/internal/ui/overlay"
 	"github.com/slayer/gcon/internal/ui/symbols"
 	"github.com/slayer/gcon/internal/ui/timeutil"
@@ -23,6 +22,7 @@ import (
 
 // SnapshotsView displays Compute Engine disk snapshots in a table format
 type SnapshotsView struct {
+	TableClickDelegate
 	computeClient *gcp.ComputeClient
 	projectID     string
 	ctx           *context.ProgramContext // Shared context for dimensions and styles
@@ -103,17 +103,17 @@ func NewSnapshotsView(projectID string) *SnapshotsView {
 	title := fmt.Sprintf("Disk Snapshots - %s", projectID)
 	t := table.New(snapshotColumns(), title)
 
-	s := spinner.New()
-	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#4285F4"))
+	s := components.NewGCPSpinner()
 
-	return &SnapshotsView{
+	v := &SnapshotsView{
 		projectID: projectID,
 		table:     t,
 		spinner:   s,
 		loading:   true,
 		keys:      defaultSnapshotKeyMap(),
 	}
+	v.Table = &v.table
+	return v
 }
 
 // Init initializes the view and starts loading snapshots
@@ -473,11 +473,11 @@ func (v *SnapshotsView) findSnapshotByName(name string) *gcp.Snapshot {
 // View renders the snapshots view
 func (v *SnapshotsView) View() string {
 	if v.loading && v.computeClient == nil {
-		return v.renderLoading("Initializing Compute Engine client...")
+		return renderLoading(v.spinner, "Initializing Compute Engine client...")
 	}
 
 	if v.loading {
-		return v.renderLoading("Loading snapshots...")
+		return renderLoading(v.spinner, "Loading snapshots...")
 	}
 
 	if v.err != nil {
@@ -532,33 +532,4 @@ func (v *SnapshotsView) SetContext(ctx *context.ProgramContext) {
 	v.table.SetSize(ctx.ContentWidth, ctx.ContentHeight-6)
 }
 
-// renderLoading renders a loading message
-func (v *SnapshotsView) renderLoading(msg string) string {
-	return fmt.Sprintf("\n  %s %s\n", v.spinner.View(), msg)
-}
 
-// UpdateRegions delegates to the table component.
-// Implements the components.Clickable interface.
-func (v *SnapshotsView) UpdateRegions(offsetX, offsetY int) {
-	if clickable, ok := interface{}(&v.table).(components.Clickable); ok {
-		clickable.UpdateRegions(offsetX, offsetY)
-	}
-}
-
-// GetRegions delegates to the table component.
-// Implements the components.Clickable interface.
-func (v *SnapshotsView) GetRegions() []mouse.Region {
-	if clickable, ok := interface{}(&v.table).(components.Clickable); ok {
-		return clickable.GetRegions()
-	}
-	return nil
-}
-
-// HandleRegionClick delegates to the table component.
-// Implements the components.Clickable interface.
-func (v *SnapshotsView) HandleRegionClick(regionID string) tea.Cmd {
-	if clickable, ok := interface{}(&v.table).(components.Clickable); ok {
-		return clickable.HandleRegionClick(regionID)
-	}
-	return nil
-}

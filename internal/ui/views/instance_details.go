@@ -202,9 +202,7 @@ func defaultInstanceDetailsKeyMap() instanceDetailsKeyMap {
 
 // NewInstanceDetailsView creates a new instance details view
 func NewInstanceDetailsView(projectID, zone, instanceName string, computeClient *gcp.ComputeClient, gcpClient *gcp.Client) *InstanceDetailsView {
-	s := spinner.New()
-	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#4285F4"))
+	s := components.NewGCPSpinner()
 
 	// Initialize tabs
 	tabsComponent := tabs.New([]tabs.Tab{
@@ -271,6 +269,7 @@ func (v *InstanceDetailsView) loadDetails() tea.Cmd {
 }
 
 // Update handles messages for the instance details view
+//
 //nolint:gocognit // Bubble Tea Update pattern - complexity 90
 func (v *InstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
@@ -867,23 +866,23 @@ func (v *InstanceDetailsView) tickAutoRefresh() tea.Cmd {
 // View renders the instance details view
 func (v *InstanceDetailsView) View() string {
 	if v.loading {
-		return v.renderLoading("Loading instance details...")
+		return renderLoading(v.spinner, "Loading instance details...")
 	}
 
 	if v.actionLoading {
-		return v.renderLoading(v.actionMsg)
+		return renderLoading(v.spinner, v.actionMsg)
 	}
 
 	if v.err != nil {
-		return v.renderLoading(fmt.Sprintf("Error: %v\n  Press 'esc' to go back", v.err))
+		return renderLoading(v.spinner, fmt.Sprintf("Error: %v\n  Press 'esc' to go back", v.err))
 	}
 
 	if v.details == nil {
-		return v.renderLoading("No instance details available.\n  Press 'esc' to go back.")
+		return renderLoading(v.spinner, "No instance details available.\n  Press 'esc' to go back.")
 	}
 
 	if !v.ready {
-		return v.renderLoading("Initializing view...")
+		return renderLoading(v.spinner, "Initializing view...")
 	}
 
 	// Show action result if any
@@ -1226,6 +1225,7 @@ func (v *InstanceDetailsView) renderDetailsTab() string {
 }
 
 // renderObservabilityTab generates the Observability tab content with real-time metrics
+//
 //nolint:gocognit // Metrics rendering with multiple sections - complexity 31
 func (v *InstanceDetailsView) renderObservabilityTab() string {
 	d := v.details
@@ -1629,10 +1629,4 @@ func (v *InstanceDetailsView) getRegionLabel() string {
 		return "disk"
 	}
 	return ""
-}
-
-// renderLoading renders a loading message
-// Height enforcement is handled by the app's View() method using lipgloss.MaxHeight()
-func (v *InstanceDetailsView) renderLoading(msg string) string {
-	return fmt.Sprintf("\n  %s %s\n", v.spinner.View(), msg)
 }
