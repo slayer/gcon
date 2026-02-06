@@ -637,15 +637,15 @@ func (v *ObjectDetailsView) View() string {
 		return v.renderLoading("Initializing view...")
 	}
 
-	// Render tab bar
-	tabBar := "  " + v.tabs.View()
+	// Render tab bar with focus accent
+	tabBar := focus.RenderAccent("  "+v.tabs.View(), v.focusMgr.IsActive(objectRegionIDTabs))
 
-	// Get active tab viewport
+	// Get active tab viewport with focus accent
 	activeIdx := v.tabs.ActiveIndex()
 	var viewportContent string
 	var scrollPercent float64
 	if activeIdx >= 0 && activeIdx < len(v.tabViewports) {
-		viewportContent = v.tabViewports[activeIdx].View()
+		viewportContent = focus.RenderAccent(v.tabViewports[activeIdx].View(), v.focusMgr.IsActive(objectRegionIDViewport))
 		scrollPercent = v.tabViewports[activeIdx].ScrollPercent()
 	}
 
@@ -707,15 +707,21 @@ func (v *ObjectDetailsView) applySize(width, height int) {
 		viewportHeight = 1
 	}
 
+	// Reserve 1 char for focus accent bar
+	viewportWidth := width - 1
+	if viewportWidth < 1 {
+		viewportWidth = 1
+	}
+
 	if !v.ready {
 		for i := range v.tabViewports {
-			v.tabViewports[i] = viewport.New(width, viewportHeight)
+			v.tabViewports[i] = viewport.New(viewportWidth, viewportHeight)
 			v.tabViewports[i].Style = lipgloss.NewStyle().Padding(0, 2)
 		}
 		v.ready = true
 	} else {
 		for i := range v.tabViewports {
-			v.tabViewports[i].Width = width
+			v.tabViewports[i].Width = viewportWidth
 			v.tabViewports[i].Height = viewportHeight
 		}
 	}
@@ -919,6 +925,10 @@ func (v *ObjectDetailsView) renderPreviewTab() string {
 func (v *ObjectDetailsView) buildHelpText() string {
 	bindings := focus.HelpForRegion(v.focusMgr.ActiveType(), "")
 	helpStr := focus.FormatHelp(bindings)
+	badge := focus.FormatRegionBadge(v.focusMgr.Active())
+	if badge != "" {
+		return "\n  " + badge + " • " + helpStr + " • v:preview • o:open • d:download • D:delete • .:menu"
+	}
 	return "\n  " + helpStr + " • v:preview • o:open • d:download • D:delete • .:menu"
 }
 

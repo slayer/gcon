@@ -406,7 +406,8 @@ func (v *SnapshotDetailsView) View() string {
 	helpText := v.buildHelpText()
 	help := helpStyle.Render(helpText) + " " + scrollInfo
 
-	mainContent := v.viewport.View() + help
+	// Wrap viewport with focus accent
+	mainContent := focus.RenderAccent(v.viewport.View(), v.focusMgr.IsActive(snapshotRegionIDViewport)) + help
 
 	// Overlay action menu if open
 	if v.menuOpen && v.actionMenu != nil {
@@ -444,12 +445,18 @@ func (v *SnapshotDetailsView) applySize(width, height int) {
 		viewportHeight = 1
 	}
 
+	// Reserve 1 char for focus accent bar
+	viewportWidth := width - 1
+	if viewportWidth < 1 {
+		viewportWidth = 1
+	}
+
 	if !v.ready {
-		v.viewport = viewport.New(width, viewportHeight)
+		v.viewport = viewport.New(viewportWidth, viewportHeight)
 		v.viewport.Style = lipgloss.NewStyle().Padding(0, 2)
 		v.ready = true
 	} else {
-		v.viewport.Width = width
+		v.viewport.Width = viewportWidth
 		v.viewport.Height = viewportHeight
 	}
 
@@ -678,6 +685,10 @@ func (v *SnapshotDetailsView) populateDiskLink() {
 func (v *SnapshotDetailsView) buildHelpText() string {
 	bindings := focus.HelpForRegion(v.focusMgr.ActiveType(), v.getRegionLabel())
 	helpStr := focus.FormatHelp(bindings)
+	badge := focus.FormatRegionBadge(v.focusMgr.Active())
+	if badge != "" {
+		return "\n  " + badge + " • " + helpStr + " • .: actions • D: delete • r: refresh"
+	}
 	return "\n  " + helpStr + " • .: actions • D: delete • r: refresh"
 }
 
