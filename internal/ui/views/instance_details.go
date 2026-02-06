@@ -965,17 +965,23 @@ func (v *InstanceDetailsView) applySize(width, height int) {
 		viewportHeight = 1
 	}
 
+	// Reserve 1 char for focus accent bar
+	viewportWidth := width - 1
+	if viewportWidth < 1 {
+		viewportWidth = 1
+	}
+
 	if !v.ready {
 		// Initialize viewport for each tab
 		for i := range v.tabViewports {
-			v.tabViewports[i] = viewport.New(width, viewportHeight)
+			v.tabViewports[i] = viewport.New(viewportWidth, viewportHeight)
 			v.tabViewports[i].Style = lipgloss.NewStyle().Padding(0, 2)
 		}
 		v.ready = true
 	} else {
 		// Update dimensions for all tab viewports
 		for i := range v.tabViewports {
-			v.tabViewports[i].Width = width
+			v.tabViewports[i].Width = viewportWidth
 			v.tabViewports[i].Height = viewportHeight
 		}
 	}

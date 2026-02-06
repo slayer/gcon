@@ -445,12 +445,18 @@ func (v *SnapshotDetailsView) applySize(width, height int) {
 		viewportHeight = 1
 	}
 
+	// Reserve 1 char for focus accent bar
+	viewportWidth := width - 1
+	if viewportWidth < 1 {
+		viewportWidth = 1
+	}
+
 	if !v.ready {
-		v.viewport = viewport.New(width, viewportHeight)
+		v.viewport = viewport.New(viewportWidth, viewportHeight)
 		v.viewport.Style = lipgloss.NewStyle().Padding(0, 2)
 		v.ready = true
 	} else {
-		v.viewport.Width = width
+		v.viewport.Width = viewportWidth
 		v.viewport.Height = viewportHeight
 	}
 
