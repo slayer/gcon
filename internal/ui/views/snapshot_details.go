@@ -159,6 +159,7 @@ func (v *SnapshotDetailsView) loadDetails() tea.Cmd {
 }
 
 // Update handles messages for the snapshot details view
+//
 //nolint:gocognit // Bubble Tea Update pattern - complexity 45
 func (v *SnapshotDetailsView) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
@@ -382,19 +383,19 @@ func (v *SnapshotDetailsView) IsMenuOpen() bool {
 // View renders the snapshot details view
 func (v *SnapshotDetailsView) View() string {
 	if v.loading {
-		return renderLoading(v.spinner,"Loading snapshot details...")
+		return renderLoading(v.spinner, "Loading snapshot details...")
 	}
 
 	if v.err != nil {
-		return renderLoading(v.spinner,fmt.Sprintf("Error: %v\n  Press 'esc' to go back", v.err))
+		return renderLoading(v.spinner, fmt.Sprintf("Error: %v\n  Press 'esc' to go back", v.err))
 	}
 
 	if v.details == nil {
-		return renderLoading(v.spinner,"No snapshot details available.\n  Press 'esc' to go back.")
+		return renderLoading(v.spinner, "No snapshot details available.\n  Press 'esc' to go back.")
 	}
 
 	if !v.ready {
-		return renderLoading(v.spinner,"Initializing view...")
+		return renderLoading(v.spinner, "Initializing view...")
 	}
 
 	// Help text - context-sensitive based on focused region

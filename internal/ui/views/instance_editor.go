@@ -11,11 +11,11 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
-	uierrors "github.com/slayer/gcon/internal/ui/errors"
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/diff"
 	"github.com/slayer/gcon/internal/ui/components/labeledit"
 	"github.com/slayer/gcon/internal/ui/context"
+	uierrors "github.com/slayer/gcon/internal/ui/errors"
 )
 
 // Editor state machine states
@@ -353,10 +353,10 @@ func (v *InstanceEditorView) showDiffPreview() tea.Cmd {
 func (v *InstanceEditorView) View() string {
 	switch v.state {
 	case stateLoading:
-		return renderLoading(v.spinner,"Loading labels...")
+		return renderLoading(v.spinner, "Loading labels...")
 
 	case stateSaving:
-		return renderLoading(v.spinner,"Saving labels...")
+		return renderLoading(v.spinner, "Saving labels...")
 
 	case stateError:
 		return v.renderError()
@@ -368,7 +368,7 @@ func (v *InstanceEditorView) View() string {
 		return v.renderForm()
 	}
 
-	return renderLoading(v.spinner,"Initializing...")
+	return renderLoading(v.spinner, "Initializing...")
 }
 
 // renderError renders an error state with retry option
@@ -390,7 +390,7 @@ func (v *InstanceEditorView) renderError() string {
 // renderDiff renders the diff confirmation view
 func (v *InstanceEditorView) renderDiff() string {
 	if v.diffViewer == nil {
-		return renderLoading(v.spinner,"Preparing diff...")
+		return renderLoading(v.spinner, "Preparing diff...")
 	}
 
 	var b strings.Builder

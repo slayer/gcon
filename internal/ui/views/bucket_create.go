@@ -10,11 +10,11 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
-	uierrors "github.com/slayer/gcon/internal/ui/errors"
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/diff"
 	"github.com/slayer/gcon/internal/ui/components/forms"
 	"github.com/slayer/gcon/internal/ui/context"
+	uierrors "github.com/slayer/gcon/internal/ui/errors"
 )
 
 // BucketCreateRequestMsg requests opening the bucket create view
@@ -535,7 +535,7 @@ func (v *BucketCreateView) parseLabels(raw string) map[string]string {
 func (v *BucketCreateView) View() string {
 	switch v.state {
 	case bucketCreateStateSaving:
-		return renderLoading(v.spinner,"Creating bucket...")
+		return renderLoading(v.spinner, "Creating bucket...")
 
 	case bucketCreateStateError:
 		return v.renderError()
@@ -547,7 +547,7 @@ func (v *BucketCreateView) View() string {
 		return v.form.View()
 	}
 
-	return renderLoading(v.spinner,"Initializing...")
+	return renderLoading(v.spinner, "Initializing...")
 }
 
 // renderError renders an error state
@@ -569,7 +569,7 @@ func (v *BucketCreateView) renderError() string {
 // renderDiff renders the diff confirmation view
 func (v *BucketCreateView) renderDiff() string {
 	if v.diffViewer == nil {
-		return renderLoading(v.spinner,"Preparing preview...")
+		return renderLoading(v.spinner, "Preparing preview...")
 	}
 
 	var b strings.Builder

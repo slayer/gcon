@@ -299,23 +299,23 @@ func (v *InstanceMetadataView) getCustomMetadata() map[string]string {
 // View renders the instance metadata view
 func (v *InstanceMetadataView) View() string {
 	if v.loading {
-		return renderLoading(v.spinner,"Loading metadata...")
+		return renderLoading(v.spinner, "Loading metadata...")
 	}
 
 	if v.saving {
-		return renderLoading(v.spinner,"Saving metadata...")
+		return renderLoading(v.spinner, "Saving metadata...")
 	}
 
 	if v.err != nil {
-		return renderLoading(v.spinner,fmt.Sprintf("Error: %v\n  Press 'r' to retry or 'esc' to go back", v.err))
+		return renderLoading(v.spinner, fmt.Sprintf("Error: %v\n  Press 'r' to retry or 'esc' to go back", v.err))
 	}
 
 	if v.instanceMetadata == nil {
-		return renderLoading(v.spinner,"No metadata available.\n  Press 'esc' to go back.")
+		return renderLoading(v.spinner, "No metadata available.\n  Press 'esc' to go back.")
 	}
 
 	if !v.ready {
-		return renderLoading(v.spinner,"Initializing view...")
+		return renderLoading(v.spinner, "Initializing view...")
 	}
 
 	// Edit mode
@@ -538,4 +538,3 @@ func (v *InstanceMetadataView) parseInstanceSSHKeys() []gcp.SSHKey {
 
 	return gcp.ParseSSHKeys(sshKeysValue)
 }
-

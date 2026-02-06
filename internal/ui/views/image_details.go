@@ -128,6 +128,7 @@ func (v *ImageDetailsView) loadDetails() tea.Cmd {
 }
 
 // Update handles messages for the image details view
+//
 //nolint:gocognit // Bubble Tea Update pattern - complexity 45
 func (v *ImageDetailsView) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
@@ -297,19 +298,19 @@ func (v *ImageDetailsView) GetComputeClient() *gcp.ComputeClient {
 // View renders the image details view
 func (v *ImageDetailsView) View() string {
 	if v.loading {
-		return renderLoading(v.spinner,"Loading image details...")
+		return renderLoading(v.spinner, "Loading image details...")
 	}
 
 	if v.err != nil {
-		return renderLoading(v.spinner,fmt.Sprintf("Error: %v\n  Press 'esc' to go back", v.err))
+		return renderLoading(v.spinner, fmt.Sprintf("Error: %v\n  Press 'esc' to go back", v.err))
 	}
 
 	if v.details == nil {
-		return renderLoading(v.spinner,"No image details available.\n  Press 'esc' to go back.")
+		return renderLoading(v.spinner, "No image details available.\n  Press 'esc' to go back.")
 	}
 
 	if !v.ready {
-		return renderLoading(v.spinner,"Initializing view...")
+		return renderLoading(v.spinner, "Initializing view...")
 	}
 
 	// Help text
@@ -381,6 +382,7 @@ func (v *ImageDetailsView) updateViewportContent() {
 }
 
 // renderContent generates the full details content
+//
 //nolint:gocognit // Detail rendering with multiple sections - complexity 37
 func (v *ImageDetailsView) renderContent() string {
 	d := v.details

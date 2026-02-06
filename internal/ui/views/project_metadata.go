@@ -289,23 +289,23 @@ func (v *ProjectMetadataView) exitEditMode() {
 // View renders the project metadata view
 func (v *ProjectMetadataView) View() string {
 	if v.loading {
-		return renderLoading(v.spinner,"Loading project metadata...")
+		return renderLoading(v.spinner, "Loading project metadata...")
 	}
 
 	if v.saving {
-		return renderLoading(v.spinner,"Saving project metadata...")
+		return renderLoading(v.spinner, "Saving project metadata...")
 	}
 
 	if v.err != nil {
-		return renderLoading(v.spinner,fmt.Sprintf("Error: %v\n  Press 'r' to retry or 'esc' to go back", v.err))
+		return renderLoading(v.spinner, fmt.Sprintf("Error: %v\n  Press 'r' to retry or 'esc' to go back", v.err))
 	}
 
 	if v.metadata == nil {
-		return renderLoading(v.spinner,"No metadata available.\n  Press 'esc' to go back.")
+		return renderLoading(v.spinner, "No metadata available.\n  Press 'esc' to go back.")
 	}
 
 	if !v.ready {
-		return renderLoading(v.spinner,"Initializing view...")
+		return renderLoading(v.spinner, "Initializing view...")
 	}
 
 	// Warning mode - show confirmation dialog
@@ -548,4 +548,3 @@ func (v *ProjectMetadataView) getCustomMetadata() map[string]string {
 	}
 	return custom
 }
-

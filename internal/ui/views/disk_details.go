@@ -140,6 +140,7 @@ func (v *DiskDetailsView) loadDetails() tea.Cmd {
 }
 
 // Update handles messages for the disk details view
+//
 //nolint:gocognit // Bubble Tea Update pattern - complexity 45
 func (v *DiskDetailsView) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
@@ -348,19 +349,19 @@ func (v *DiskDetailsView) IsMenuOpen() bool {
 // View renders the disk details view
 func (v *DiskDetailsView) View() string {
 	if v.loading {
-		return renderLoading(v.spinner,"Loading disk details...")
+		return renderLoading(v.spinner, "Loading disk details...")
 	}
 
 	if v.err != nil {
-		return renderLoading(v.spinner,fmt.Sprintf("Error: %v\n  Press 'esc' to go back", v.err))
+		return renderLoading(v.spinner, fmt.Sprintf("Error: %v\n  Press 'esc' to go back", v.err))
 	}
 
 	if v.details == nil {
-		return renderLoading(v.spinner,"No disk details available.\n  Press 'esc' to go back.")
+		return renderLoading(v.spinner, "No disk details available.\n  Press 'esc' to go back.")
 	}
 
 	if !v.ready {
-		return renderLoading(v.spinner,"Initializing view...")
+		return renderLoading(v.spinner, "Initializing view...")
 	}
 
 	// Help text

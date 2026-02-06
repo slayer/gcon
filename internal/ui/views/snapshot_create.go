@@ -158,47 +158,6 @@ func (v *SnapshotCreateView) handleSubmit() tea.Cmd {
 	)
 }
 
-// truncateForSuffix truncates a name to fit within maxLen when suffix is added.
-// GCP resource names have a 63 character limit.
-func truncateForSuffix(name, suffix string, maxLen int) string {
-	combined := name + suffix
-	if len(combined) <= maxLen {
-		return combined
-	}
-	// Truncate name to fit suffix within maxLen
-	maxNameLen := maxLen - len(suffix)
-	if maxNameLen < 1 {
-		maxNameLen = 1
-	}
-	return name[:maxNameLen] + suffix
-}
-
-// parseLabelsFromText parses labels from key=value text format
-func parseLabelsFromText(data any) map[string]string {
-	labels := make(map[string]string)
-	text, ok := data.(string)
-	if !ok || text == "" {
-		return labels
-	}
-
-	lines := strings.Split(text, "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		parts := strings.SplitN(line, "=", 2)
-		if len(parts) == 2 {
-			key := strings.TrimSpace(parts[0])
-			value := strings.TrimSpace(parts[1])
-			if key != "" {
-				labels[key] = value
-			}
-		}
-	}
-	return labels
-}
-
 // GetDiskName returns the source disk name for breadcrumbs
 func (v *SnapshotCreateView) GetDiskName() string {
 	return v.diskName

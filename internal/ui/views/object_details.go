@@ -16,12 +16,12 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
-	uierrors "github.com/slayer/gcon/internal/ui/errors"
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/actionmenu"
 	"github.com/slayer/gcon/internal/ui/components/confirm"
 	"github.com/slayer/gcon/internal/ui/components/tabs"
 	"github.com/slayer/gcon/internal/ui/context"
+	uierrors "github.com/slayer/gcon/internal/ui/errors"
 	"github.com/slayer/gcon/internal/ui/focus"
 	"github.com/slayer/gcon/internal/ui/overlay"
 	"github.com/slayer/gcon/internal/ui/timeutil"
@@ -249,6 +249,7 @@ func (v *ObjectDetailsView) loadPreview(objectSize int64) tea.Cmd {
 }
 
 // Update handles messages for the object details view
+//
 //nolint:gocognit // Bubble Tea Update pattern - complexity 69
 func (v *ObjectDetailsView) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
@@ -617,23 +618,23 @@ func (v *ObjectDetailsView) createDeleteConfirmDialog() *confirm.ConfirmDialog {
 // View renders the object details view
 func (v *ObjectDetailsView) View() string {
 	if v.loading {
-		return renderLoading(v.spinner,"Loading object details...")
+		return renderLoading(v.spinner, "Loading object details...")
 	}
 
 	if v.deleting {
-		return renderLoading(v.spinner,"Deleting object...")
+		return renderLoading(v.spinner, "Deleting object...")
 	}
 
 	if v.err != nil {
-		return renderLoading(v.spinner,fmt.Sprintf("Error: %v\n  Press 'esc' to go back", v.err))
+		return renderLoading(v.spinner, fmt.Sprintf("Error: %v\n  Press 'esc' to go back", v.err))
 	}
 
 	if v.metadata == nil {
-		return renderLoading(v.spinner,"No object details available.\n  Press 'esc' to go back.")
+		return renderLoading(v.spinner, "No object details available.\n  Press 'esc' to go back.")
 	}
 
 	if !v.ready {
-		return renderLoading(v.spinner,"Initializing view...")
+		return renderLoading(v.spinner, "Initializing view...")
 	}
 
 	// Render tab bar with focus accent
