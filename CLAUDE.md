@@ -146,6 +146,25 @@ Required scopes:
   - generics, error wrapping where appropriate
   - `any` instead of `interface{}` when type is truly generic
 
+## Documentation Guidelines
+
+### Internal Package Documentation
+
+Internal packages should include README.md files when they:
+- Have non-obvious behavior or performance characteristics
+- Provide reusable functionality across multiple packages
+- Have complex APIs with multiple functions
+- Require setup/teardown or lifecycle management
+
+Example: `internal/debug/README.md` documents the debug logging API, performance warnings, and usage patterns.
+
+README.md files in internal packages should include:
+- Brief overview of the package's purpose
+- API reference with code examples
+- Usage instructions and best practices
+- Performance or security considerations (if applicable)
+- Testing guidance
+
 ## UI/UX Guidelines
 
 - Show loading spinners during API calls

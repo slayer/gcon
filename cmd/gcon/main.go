@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/slayer/gcon/internal/config"
+	"github.com/slayer/gcon/internal/debug"
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui"
 	"github.com/slayer/gcon/internal/ui/symbols"
@@ -27,7 +28,7 @@ func init() {
 	flag.BoolVar(&noEmojisFlag, "unicode", false, "Use Unicode symbols instead of emojis (alias for --no-emojis)")
 	flag.BoolVar(&asciiFlag, "ascii", false, "Use ASCII-only characters (no Unicode or emojis)")
 	flag.BoolVar(&noMouseFlag, "no-mouse", false, "Disable mouse support (for accessibility or unsupported terminals)")
-	flag.BoolVar(&debugFlag, "debug", false, "Enable debug logging to /tmp/gcon-debug.log (slow!)")
+	flag.BoolVar(&debugFlag, "debug", false, "Enable debug logging to ./gcon-debug.log (slow!)")
 }
 
 func main() {
@@ -50,7 +51,15 @@ func run() error {
 
 	// Enable debug logging if --debug flag is set
 	if debugFlag {
-		ui.EnableDebug()
+		if err := debug.EnableDebug(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to enable debug logging: %v\n", err)
+		} else {
+			defer func() {
+				if err := debug.Close(); err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: Failed to close debug log: %v\n", err)
+				}
+			}()
+		}
 	}
 
 	// Initialize GCP client using Application Default Credentials

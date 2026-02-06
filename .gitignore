@@ -6,3 +6,5 @@
 
 # Claude Code (keep commands, ignore local settings)
 .claude/settings.local.json
+
+*.log

@@ -14,6 +14,7 @@ const (
 	ErrorUnknown            ErrorCode = iota
 	ErrorUnauthenticated              // 401 - credentials invalid or expired
 	ErrorPermissionDenied             // 403 - missing IAM permissions
+	ErrorAPINotEnabled                // 403 - API not enabled for project
 	ErrorNotFound                     // 404 - resource doesn't exist
 	ErrorRateLimited                  // 429 - too many requests
 	ErrorQuotaExceeded                // 429 with quota message
@@ -62,6 +63,15 @@ func ParseError(err error, operation, resource string) *GCPError {
 
 	// Handle non-API errors (network issues, timeouts, etc.)
 	errMsg := err.Error()
+
+	// Check for API not enabled in non-googleapi.Error types (wrapped errors)
+	if containsAPIDisabledMessage(errMsg) {
+		gcpErr.Code = ErrorAPINotEnabled
+		gcpErr.Message = "API not enabled"
+		gcpErr.Hint = "Enable the required API in Cloud Console or run: gcloud services enable <api-name>"
+		return gcpErr
+	}
+
 	if strings.Contains(errMsg, "connection") ||
 		strings.Contains(errMsg, "timeout") ||
 		strings.Contains(errMsg, "dial") {
@@ -86,6 +96,12 @@ func classifyAPIError(apiErr *googleapi.Error) (code ErrorCode, title, suggestio
 			"Run 'gcloud auth application-default login' to authenticate"
 
 	case 403:
+		// Check for API not enabled errors first (most specific)
+		if containsAPIDisabledMessage(apiErr.Message) {
+			return ErrorAPINotEnabled,
+				"API not enabled",
+				"Enable the required API in Cloud Console or run: gcloud services enable <api-name>"
+		}
 		// Distinguish quota errors from permission errors
 		if containsQuotaMessage(apiErr.Message) {
 			return ErrorQuotaExceeded,
@@ -122,6 +138,26 @@ func classifyAPIError(apiErr *googleapi.Error) (code ErrorCode, title, suggestio
 func containsQuotaMessage(msg string) bool {
 	msgLower := strings.ToLower(msg)
 	keywords := []string{"quota", "limit exceeded", "rate limit"}
+	for _, kw := range keywords {
+		if strings.Contains(msgLower, kw) {
+			return true
+		}
+	}
+	return false
+}
+
+// containsAPIDisabledMessage checks if the error message indicates an API is not enabled
+func containsAPIDisabledMessage(msg string) bool {
+	msgLower := strings.ToLower(msg)
+	keywords := []string{
+		"api has not been used",
+		"not enabled",
+		"service_disabled",
+		"enable it by visiting",
+		"api is not enabled",
+		"is not enabled",
+		"has not been enabled",
+	}
 	for _, kw := range keywords {
 		if strings.Contains(msgLower, kw) {
 			return true

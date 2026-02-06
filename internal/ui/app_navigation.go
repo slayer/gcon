@@ -498,6 +498,7 @@ func (a *App) clearAllViews() {
 	a.snapshotCreateView = nil
 	a.imageCreateView = nil
 	a.diskCreateView = nil
+	a.formDemoView = nil
 
 	// Clear view stack
 	a.viewStack = nil
@@ -511,7 +512,8 @@ func (a *App) clearAllViews() {
 	a.selectedObject = nil
 }
 
-// reloadCurrentView recreates the current view with the new project ID
+// reloadCurrentView recreates or switches views for the new project ID.
+// For ViewProjects, switches to ViewInstances. For other views, reloads in-place.
 func (a *App) reloadCurrentView(projectID string) tea.Cmd {
 	switch a.currentView {
 	case ViewInstances, ViewInstanceDetails:
@@ -570,8 +572,12 @@ func (a *App) reloadCurrentView(projectID string) tea.Cmd {
 		return a.projectMetadataView.Init()
 
 	case ViewProjects:
-		// Already on projects view, just close modal
-		return nil
+		// Switch to instances view after selecting project
+		a.currentView = ViewInstances
+		a.instancesView = views.NewInstancesView(projectID)
+		a.updateSidebarActiveView()
+		a.updateViewSizes()
+		return a.instancesView.Init()
 
 	default:
 		// Default to instances view
@@ -902,6 +908,12 @@ func (a *App) handleCreateImageFromDisk(msg views.CreateImageFromDiskMsg) tea.Cm
 func (a *App) handleDiskActionResult(msg views.DiskActionResultMsg) tea.Cmd {
 	if msg.Error != nil {
 		a.err = msg.Error
+		if msg.Action == "snapshot" && a.currentView == ViewSnapshotCreate && a.snapshotCreateView != nil {
+			a.snapshotCreateView.SetError(msg.Error)
+		}
+		if msg.Action == "image" && a.currentView == ViewImageCreate && a.imageCreateView != nil {
+			a.imageCreateView.SetError(msg.Error)
+		}
 		return nil
 	}
 
@@ -993,6 +1005,12 @@ func (a *App) handleDeleteSnapshotConfirmed(msg views.DeleteSnapshotConfirmedMsg
 func (a *App) handleSnapshotActionResult(msg views.SnapshotActionResultMsg) tea.Cmd {
 	if msg.Error != nil {
 		a.err = msg.Error
+		if msg.Action == "create_disk" && a.currentView == ViewDiskCreate && a.diskCreateView != nil {
+			a.diskCreateView.SetError(msg.Error)
+		}
+		if msg.Action == "image" && a.currentView == ViewImageCreate && a.imageCreateView != nil {
+			a.imageCreateView.SetError(msg.Error)
+		}
 		return nil
 	}
 
@@ -1248,6 +1266,9 @@ func (a *App) handleDeleteImageConfirmed(msg views.DeleteImageConfirmedMsg) tea.
 func (a *App) handleImageActionResult(msg views.ImageActionResultMsg) tea.Cmd {
 	if msg.Error != nil {
 		a.err = msg.Error
+		if msg.Action == "create_disk" && a.currentView == ViewDiskCreate && a.diskCreateView != nil {
+			a.diskCreateView.SetError(msg.Error)
+		}
 		return nil
 	}
 
@@ -1425,4 +1446,3 @@ func (a *App) handleInstanceActionResult(msg views.InstanceActionResultMsg) tea.
 
 	return nil
 }
-
