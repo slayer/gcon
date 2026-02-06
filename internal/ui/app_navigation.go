@@ -84,6 +84,7 @@ func (a *App) handleMouseEvent(msg tea.MouseMsg) tea.Cmd {
 					}
 				}
 			}
+			return nil
 		} else {
 			// Focus content on click
 			if a.focusedPanel != FocusContent {
@@ -108,6 +109,7 @@ func (a *App) handleMouseEvent(msg tea.MouseMsg) tea.Cmd {
 					}
 				}
 			}
+			return nil
 		}
 	}
 
