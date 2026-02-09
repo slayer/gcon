@@ -19,6 +19,7 @@ import (
 	"github.com/slayer/gcon/internal/ui/components/links"
 	"github.com/slayer/gcon/internal/ui/context"
 	"github.com/slayer/gcon/internal/ui/focus"
+	"github.com/slayer/gcon/internal/ui/mouse"
 	"github.com/slayer/gcon/internal/ui/overlay"
 	"github.com/slayer/gcon/internal/ui/symbols"
 	"github.com/slayer/gcon/internal/ui/timeutil"
@@ -63,6 +64,7 @@ type SnapshotDetailsView struct {
 	ready         bool
 	diskLink      *links.Links   // Navigable link to source disk
 	focusMgr      *focus.Manager // Focus management for routing keys between regions
+	regionMgr     *mouse.RegionManager // Mouse click regions
 
 	// Action menu state
 	actionMenu *actionmenu.ActionMenu
@@ -136,6 +138,7 @@ func NewSnapshotDetailsView(projectID, snapshotName string, computeClient *gcp.C
 		keys:          defaultSnapshotDetailsKeyMap(),
 		diskLink:      links.New(),
 		focusMgr:      fm,
+		regionMgr:     mouse.NewRegionManager(),
 	}
 }
 
