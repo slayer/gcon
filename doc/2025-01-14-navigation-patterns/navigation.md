@@ -15,7 +15,8 @@ Design a comprehensive, consistent navigation and hotkey framework for current a
 | `?` | Toggle help overlay | Discoverability |
 | `Esc` | Context-dependent back | Primary escape action |
 | `Tab` / `Shift+Tab` | Cycle focus panels | Focus management |
-| `[` | Toggle sidebar | Layout control |
+| `[` / `]` | Focus sidebar / content | Panel focus |
+| `{` | Pin/unpin sidebar | Auto-hide / always-open mode |
 
 ### 1.2 Reserved Navigation Keys
 

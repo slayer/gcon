@@ -18,6 +18,16 @@ const (
 	CollapsedWidth = 4  // Content width for icon-only sidebar
 )
 
+// SidebarMode controls sidebar visibility behavior
+type SidebarMode int
+
+const (
+	// SidebarModeAutoHide collapses the sidebar after leaf item selection
+	SidebarModeAutoHide SidebarMode = iota
+	// SidebarModeAlwaysOpen keeps the sidebar expanded at all times
+	SidebarModeAlwaysOpen
+)
+
 // KeyMap defines sidebar-specific key bindings
 type KeyMap struct {
 	Up      key.Binding
@@ -71,6 +81,7 @@ type Sidebar struct {
 	width        int        // Current width
 	height       int        // Available height
 	activeView   ViewType   // Currently active view (for highlighting)
+	mode         SidebarMode
 	styles       Styles
 	keys         KeyMap
 	hoverIndex   int                  // Index of item being hovered (-1 if none)
@@ -85,9 +96,10 @@ func New() *Sidebar {
 		currentItems: menu,
 		path:         []string{},
 		cursor:       0,
-		collapsed:    false,
+		collapsed:    true, // Start collapsed in auto-hide mode
 		focused:      false,
-		width:        ExpandedWidth,
+		width:        CollapsedWidth,
+		mode:         SidebarModeAutoHide,
 		styles:       DefaultStyles(),
 		keys:         DefaultKeyMap(),
 		activeView:   ViewInstances,
@@ -301,11 +313,21 @@ func (s *Sidebar) View() string {
 
 	// Show "< Back" when drilled down
 	if len(s.path) > 0 {
-		backLabel := fmt.Sprintf(" %s Back", symbols.Back())
-		if s.collapsed {
+		backSelected := s.cursor == -1 && s.focused
+		var backLabel string
+		switch {
+		case s.collapsed:
 			backLabel = symbols.Back()
+		case backSelected:
+			backLabel = fmt.Sprintf("%s %s Back", symbols.Cursor(), symbols.Back())
+		default:
+			backLabel = fmt.Sprintf("  %s Back", symbols.Back())
 		}
-		lines = append(lines, styles.BackItem.Render(backLabel))
+		backStyle := styles.BackItem
+		if backSelected {
+			backStyle = styles.ItemSelected
+		}
+		lines = append(lines, backStyle.Render(backLabel))
 		lines = append(lines, "") // Empty line separator
 	}
 
@@ -454,7 +476,12 @@ func (s *Sidebar) highlightHotkey(label string, hotkey rune, styles Styles, isSe
 
 // moveUp moves cursor up
 func (s *Sidebar) moveUp() {
-	if s.cursor > 0 {
+	// Allow cursor -1 when drilled down (selects "Back" item)
+	minCursor := 0
+	if len(s.path) > 0 {
+		minCursor = -1
+	}
+	if s.cursor > minCursor {
 		s.cursor--
 	}
 }
@@ -468,6 +495,12 @@ func (s *Sidebar) moveDown() {
 
 // selectItem handles selection of current item
 func (s *Sidebar) selectItem() tea.Cmd {
+	// cursor -1 means "Back" is selected
+	if s.cursor == -1 {
+		s.goBack()
+		return nil
+	}
+
 	if s.cursor >= len(s.currentItems) {
 		return nil
 	}
@@ -541,6 +574,38 @@ func (s *Sidebar) Toggle() {
 // IsCollapsed returns whether sidebar is in collapsed mode
 func (s *Sidebar) IsCollapsed() bool {
 	return s.collapsed
+}
+
+// Collapse collapses the sidebar if not already collapsed
+func (s *Sidebar) Collapse() {
+	if !s.collapsed {
+		s.collapsed = true
+		s.width = CollapsedWidth
+	}
+}
+
+// Expand expands the sidebar if not already expanded
+func (s *Sidebar) Expand() {
+	if s.collapsed {
+		s.collapsed = false
+		s.width = ExpandedWidth
+	}
+}
+
+// Mode returns the current sidebar mode
+func (s *Sidebar) Mode() SidebarMode {
+	return s.mode
+}
+
+// SetMode sets the sidebar mode and adjusts collapsed state accordingly
+func (s *Sidebar) SetMode(mode SidebarMode) {
+	s.mode = mode
+	switch mode {
+	case SidebarModeAutoHide:
+		s.Collapse()
+	case SidebarModeAlwaysOpen:
+		s.Expand()
+	}
 }
 
 // Width returns the current sidebar width including the border

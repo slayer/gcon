@@ -344,6 +344,7 @@ func (s *Section) ToggleCollapse() {
 }
 
 // Update handles input messages
+//
 //nolint:gocognit // Section input handling - complexity 38
 func (s *Section) Update(msg tea.Msg) tea.Cmd {
 	if s.Collapsed {

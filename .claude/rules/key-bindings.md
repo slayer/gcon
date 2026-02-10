@@ -16,6 +16,9 @@ description: Keyboard shortcuts reference for all views
 | `/` | Search/Filter |
 | `Enter` | Select/Confirm |
 | `:` or `Ctrl+K` | Open command palette |
+| `[` | Focus sidebar (expands if auto-hidden) |
+| `]` | Focus content (collapses sidebar if auto-hide) |
+| `{` | Pin/unpin sidebar (toggle auto-hide/always-open) |
 
 ## Command Palette
 
@@ -23,7 +26,7 @@ description: Keyboard shortcuts reference for all views
 |---------|-------------|
 | Switch Project | Open project selector modal to switch between GCP projects |
 | Refresh | Refresh current view |
-| Toggle sidebar | Show/hide sidebar navigation |
+| Toggle sidebar | Pin/unpin sidebar (auto-hide/always-open) |
 | Help | Toggle help display |
 | Quit | Exit application |
 
