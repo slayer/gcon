@@ -329,6 +329,7 @@ func (f *Field) SetCharLimit(limit int) *Field {
 // Value accessors
 
 // SetValue sets the field value
+//
 //nolint:gocognit // Field value type handling - complexity 32
 func (f *Field) SetValue(value any) *Field {
 	f.value = value

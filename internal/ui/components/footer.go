@@ -123,6 +123,7 @@ func (f *Footer) SetWidth(width int) {
 }
 
 // SetStyles sets custom footer styles
+//
 //nolint:gocritic // hugeParam: FooterStyles struct passed by value for clarity
 func (f *Footer) SetStyles(styles FooterStyles) {
 	f.styles = styles

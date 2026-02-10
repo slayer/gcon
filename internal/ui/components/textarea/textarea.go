@@ -97,6 +97,7 @@ func New() Model {
 }
 
 // WithTitle sets the textarea title
+//
 //nolint:gocritic // hugeParam: Model size from embedded textarea
 func (m Model) WithTitle(title string) Model {
 	m.title = title
@@ -104,6 +105,7 @@ func (m Model) WithTitle(title string) Model {
 }
 
 // WithPlaceholder sets the placeholder text
+//
 //nolint:gocritic // hugeParam: Model size from embedded textarea
 func (m Model) WithPlaceholder(placeholder string) Model {
 	m.textarea.Placeholder = placeholder
@@ -111,6 +113,7 @@ func (m Model) WithPlaceholder(placeholder string) Model {
 }
 
 // WithCharLimit sets the character limit (0 for no limit)
+//
 //nolint:gocritic // hugeParam: Model size from embedded textarea
 func (m Model) WithCharLimit(limit int) Model {
 	m.textarea.CharLimit = limit

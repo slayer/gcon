@@ -96,6 +96,7 @@ func downsample(data []float64, targetSize int) []float64 {
 }
 
 // findMinMax finds the minimum and maximum values in a slice
+//
 //nolint:gocritic // unnamedResult: simple min/max return is clear from context
 func findMinMax(data []float64) (float64, float64) {
 	if len(data) == 0 {

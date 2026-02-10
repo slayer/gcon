@@ -221,6 +221,7 @@ func formatArchiveSize(bytes int64) string {
 }
 
 // Update handles messages for the images view
+//
 //nolint:gocognit // Bubble Tea Update pattern - complexity 45
 func (v *ImagesView) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
@@ -504,5 +505,3 @@ func (v *ImagesView) SetContext(ctx *context.ProgramContext) {
 	v.height = ctx.ContentHeight
 	v.table.SetSize(ctx.ContentWidth, ctx.ContentHeight-6)
 }
-
-

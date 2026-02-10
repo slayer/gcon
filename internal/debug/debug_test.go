@@ -12,8 +12,8 @@ import (
 func TestEnableDebug(t *testing.T) {
 	// Clean up any existing debug log
 	defer func() {
-		_ = Close()                            //nolint:errcheck // Test cleanup
-		_ = os.Remove("gcon-debug.log")        //nolint:errcheck // Test cleanup
+		_ = Close()                     //nolint:errcheck // Test cleanup
+		_ = os.Remove("gcon-debug.log") //nolint:errcheck // Test cleanup
 	}()
 
 	// Initially should be disabled
@@ -32,8 +32,8 @@ func TestEnableDebug(t *testing.T) {
 func TestLog(t *testing.T) {
 	// Clean up any existing debug log
 	defer func() {
-		_ = Close()                            //nolint:errcheck // Test cleanup
-		_ = os.Remove("gcon-debug.log")        //nolint:errcheck // Test cleanup
+		_ = Close()                     //nolint:errcheck // Test cleanup
+		_ = os.Remove("gcon-debug.log") //nolint:errcheck // Test cleanup
 	}()
 
 	// Enable debug logging
@@ -68,8 +68,8 @@ func TestLogWhenDisabled(t *testing.T) {
 func TestLogView(t *testing.T) {
 	// Clean up any existing debug log
 	defer func() {
-		_ = Close()                            //nolint:errcheck // Test cleanup
-		_ = os.Remove("gcon-debug.log")        //nolint:errcheck // Test cleanup
+		_ = Close()                     //nolint:errcheck // Test cleanup
+		_ = os.Remove("gcon-debug.log") //nolint:errcheck // Test cleanup
 	}()
 
 	// Enable debug logging
@@ -154,8 +154,8 @@ func TestTruncStr(t *testing.T) {
 func TestMultipleLogCalls(t *testing.T) {
 	// Clean up any existing debug log
 	defer func() {
-		_ = Close()                            //nolint:errcheck // Test cleanup
-		_ = os.Remove("gcon-debug.log")        //nolint:errcheck // Test cleanup
+		_ = Close()                     //nolint:errcheck // Test cleanup
+		_ = os.Remove("gcon-debug.log") //nolint:errcheck // Test cleanup
 	}()
 
 	// Enable debug logging

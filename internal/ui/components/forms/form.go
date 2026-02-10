@@ -501,6 +501,7 @@ func (f *Form) SetData(data map[string]interface{}) {
 }
 
 // Update handles input messages
+//
 //nolint:gocognit // Form input handling - complexity 58
 func (f *Form) Update(msg tea.Msg) tea.Cmd {
 	keyMsg, ok := msg.(tea.KeyMsg)
