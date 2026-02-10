@@ -102,6 +102,12 @@ func (a *App) handleMouseEvent(msg tea.MouseMsg) tea.Cmd {
 				a.sidebar.SetFocused(false)
 			}
 
+			// Collapse sidebar when clicking content area in auto-hide mode
+			if a.sidebarActive() && a.sidebar.Mode() == sidebar.SidebarModeAutoHide && !a.sidebar.IsCollapsed() {
+				a.sidebar.Collapse()
+				a.updateViewSizes()
+			}
+
 			// Check content area
 			if model := a.getCurrentViewModel(); model != nil {
 				if clickable, ok := model.(components.Clickable); ok {
