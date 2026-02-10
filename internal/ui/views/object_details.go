@@ -23,7 +23,6 @@ import (
 	"github.com/slayer/gcon/internal/ui/context"
 	uierrors "github.com/slayer/gcon/internal/ui/errors"
 	"github.com/slayer/gcon/internal/ui/focus"
-	"github.com/slayer/gcon/internal/ui/mouse"
 	"github.com/slayer/gcon/internal/ui/overlay"
 	"github.com/slayer/gcon/internal/ui/timeutil"
 )
@@ -155,7 +154,6 @@ type ObjectDetailsView struct {
 
 	// Focus management
 	focusMgr *focus.Manager
-	regionMgr     *mouse.RegionManager // Mouse click regions
 
 	// Action menu
 	actionMenu *actionmenu.ActionMenu
@@ -204,7 +202,6 @@ func NewObjectDetailsView(bucketName, objectName, displayName string, storageCli
 		tabs:          tabsComponent,
 		tabViewports:  make([]viewport.Model, 2),
 		focusMgr:      fm,
-		regionMgr:     mouse.NewRegionManager(),
 		pendingAction: action,
 	}
 }

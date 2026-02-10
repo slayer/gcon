@@ -1689,10 +1689,6 @@ func (v *InstanceDetailsView) GetRegions() []mouse.Region {
 // HandleRegionClick processes a click on a specific region by focusing it.
 // Implements components.Clickable interface.
 func (v *InstanceDetailsView) HandleRegionClick(regionID string) tea.Cmd {
-	// Set focus to the clicked region
-	if v.focusMgr.SetActive(regionID) {
-		// Focus changed, no additional command needed
-		return nil
-	}
+	v.focusMgr.SetActive(regionID)
 	return nil
 }
