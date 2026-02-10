@@ -220,6 +220,7 @@ func snapshotToRow(snapshot gcp.Snapshot) table.Row { //nolint:gocritic // Copyi
 }
 
 // Update handles messages for the snapshots view
+//
 //nolint:gocognit // Bubble Tea Update pattern - complexity 45
 func (v *SnapshotsView) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
@@ -531,5 +532,3 @@ func (v *SnapshotsView) SetContext(ctx *context.ProgramContext) {
 	v.height = ctx.ContentHeight
 	v.table.SetSize(ctx.ContentWidth, ctx.ContentHeight-6)
 }
-
-

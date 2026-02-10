@@ -8,6 +8,7 @@ import (
 )
 
 // renderHeader creates the header with breadcrumb navigation
+//
 //nolint:gocognit // Header rendering with breadcrumbs - complexity 35
 func (a *App) renderHeader() string {
 	// Update header state based on current view
@@ -96,6 +97,7 @@ func (a *App) renderHeader() string {
 }
 
 // renderCurrentView renders the content area based on current view
+//
 //nolint:gocognit // View routing and rendering - complexity 32
 func (a *App) renderCurrentView() string {
 	// Show loading message while fetching initial project from config

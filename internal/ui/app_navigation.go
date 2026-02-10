@@ -13,6 +13,7 @@ import (
 
 // handleMouseEvent processes mouse events and routes them to appropriate components.
 // Uses region-based click handling for better maintainability and correctness.
+//
 //nolint:gocognit // Mouse event routing - complexity 59
 func (a *App) handleMouseEvent(msg tea.MouseMsg) tea.Cmd {
 	// Fast path: ignore motion events entirely - they're too frequent and cause lag
@@ -66,6 +67,15 @@ func (a *App) handleMouseEvent(msg tea.MouseMsg) tea.Cmd {
 
 		// Check sidebar (if active and click is in sidebar area)
 		if a.sidebarActive() && msg.X < sidebarWidth {
+			// When collapsed in auto-hide mode, just expand + focus (no item selection)
+			if a.sidebar.IsCollapsed() && a.sidebar.Mode() == sidebar.SidebarModeAutoHide {
+				a.sidebar.Expand()
+				a.focusedPanel = FocusSidebar
+				a.sidebar.SetFocused(true)
+				a.updateViewSizes()
+				return nil
+			}
+
 			// Focus sidebar on click
 			if a.focusedPanel != FocusSidebar {
 				a.focusedPanel = FocusSidebar
@@ -90,6 +100,12 @@ func (a *App) handleMouseEvent(msg tea.MouseMsg) tea.Cmd {
 			if a.focusedPanel != FocusContent {
 				a.focusedPanel = FocusContent
 				a.sidebar.SetFocused(false)
+			}
+
+			// Collapse sidebar when clicking content area in auto-hide mode
+			if a.sidebarActive() && a.sidebar.Mode() == sidebar.SidebarModeAutoHide && !a.sidebar.IsCollapsed() {
+				a.sidebar.Collapse()
+				a.updateViewSizes()
 			}
 
 			// Check content area
@@ -137,6 +153,7 @@ func (a *App) handleMouseEvent(msg tea.MouseMsg) tea.Cmd {
 }
 
 // handleSidebarNavigation processes sidebar navigation messages and initializes views
+//
 //nolint:gocognit // Sidebar navigation routing - complexity 35
 func (a *App) handleSidebarNavigation(msg sidebar.NavigateMsg) tea.Cmd {
 	var cmd tea.Cmd
@@ -220,6 +237,12 @@ func (a *App) handleSidebarNavigation(msg sidebar.NavigateMsg) tea.Cmd {
 	a.focusedPanel = FocusContent
 	a.sidebar.SetFocused(false)
 
+	// Auto-collapse sidebar after leaf item selection in auto-hide mode
+	if a.sidebar.Mode() == sidebar.SidebarModeAutoHide {
+		a.sidebar.Collapse()
+		a.updateViewSizes()
+	}
+
 	return cmd
 }
 
@@ -260,6 +283,7 @@ func (a *App) handleProjectSelected(msg views.ProjectSelectedMsg) tea.Cmd {
 }
 
 // handleInstanceSelected processes instance selection and navigates to details view
+//
 //nolint:gocritic // hugeParam: message struct passed by value
 func (a *App) handleInstanceSelected(msg views.InstanceSelectedMsg) tea.Cmd {
 	inst := msg.Instance
@@ -285,6 +309,7 @@ func (a *App) handleInstanceSelected(msg views.InstanceSelectedMsg) tea.Cmd {
 }
 
 // handleDiskSelected processes disk selection from disks view and navigates to details view
+//
 //nolint:gocritic // hugeParam: message struct passed by value
 func (a *App) handleDiskSelected(msg views.DiskSelectedMsg) tea.Cmd {
 	disk := msg.Disk
@@ -326,6 +351,7 @@ func (a *App) handleInstanceDiskSelected(msg views.InstanceDiskSelectedMsg) tea.
 }
 
 // handleSnapshotSelected processes snapshot selection and navigates to details view
+//
 //nolint:gocritic // hugeParam: message struct passed by value
 func (a *App) handleSnapshotSelected(msg views.SnapshotSelectedMsg) tea.Cmd {
 	snapshot := msg.Snapshot
@@ -347,6 +373,7 @@ func (a *App) handleSnapshotSelected(msg views.SnapshotSelectedMsg) tea.Cmd {
 }
 
 // handleImageSelected processes image selection and navigates to details view
+//
 //nolint:gocritic // hugeParam: message struct passed by value
 func (a *App) handleImageSelected(msg views.ImageSelectedMsg) tea.Cmd {
 	image := msg.Image
@@ -409,6 +436,7 @@ func (a *App) handleSnapshotDiskSelected(msg views.SnapshotDiskSelectedMsg) tea.
 }
 
 // handleObjectSelected processes object selection and navigates to details view
+//
 //nolint:gocritic // hugeParam: message struct passed by value
 func (a *App) handleObjectSelected(msg views.ObjectSelectedMsg) tea.Cmd {
 	if a.objectsView == nil {

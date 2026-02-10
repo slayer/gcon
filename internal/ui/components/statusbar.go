@@ -44,6 +44,7 @@ func (s *StatusBar) SetRight(content string) {
 }
 
 // View renders the status bar
+//
 //nolint:gocritic // hugeParam: StatusBar size from embedded spinner
 func (s StatusBar) View() string {
 	if s.width == 0 {

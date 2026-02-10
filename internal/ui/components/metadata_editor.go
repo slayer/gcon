@@ -58,12 +58,14 @@ func NewMetadataEditor() MetadataEditor {
 }
 
 // Init initializes the editor
+//
 //nolint:gocritic // hugeParam: Model size from embedded textarea
 func (m MetadataEditor) Init() tea.Cmd {
 	return textarea.Blink
 }
 
 // Update handles textarea messages
+//
 //nolint:gocritic // hugeParam: Model size from embedded textarea
 func (m MetadataEditor) Update(msg tea.Msg) (MetadataEditor, tea.Cmd) {
 	var cmd tea.Cmd
@@ -72,6 +74,7 @@ func (m MetadataEditor) Update(msg tea.Msg) (MetadataEditor, tea.Cmd) {
 }
 
 // View renders the editor
+//
 //nolint:gocritic // hugeParam: Model size from embedded textarea
 func (m MetadataEditor) View() string {
 	return m.style.Render(m.textarea.View())

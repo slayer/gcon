@@ -128,7 +128,7 @@ func TestCountWideEmojis(t *testing.T) {
 	}{
 		{"hello", 0},
 		{"☁", 1},
-		{"☁ ≡", 1}, // ≡ is not a wide emoji
+		{"☁ ≡", 1},   // ≡ is not a wide emoji
 		{"🟢🔴🟡", 0},   // lipgloss already counts these correctly
 		{"▶ ▸ ◀", 3}, // lipgloss miscounts these
 		{"● active", 1},

@@ -14,7 +14,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
-	uierrors "github.com/slayer/gcon/internal/ui/errors"
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/actionmenu"
 	"github.com/slayer/gcon/internal/ui/components/confirm"
@@ -22,6 +21,7 @@ import (
 	"github.com/slayer/gcon/internal/ui/components/progress"
 	"github.com/slayer/gcon/internal/ui/components/table"
 	"github.com/slayer/gcon/internal/ui/context"
+	uierrors "github.com/slayer/gcon/internal/ui/errors"
 	"github.com/slayer/gcon/internal/ui/symbols"
 	"github.com/slayer/gcon/internal/ui/timeutil"
 )
@@ -298,6 +298,7 @@ type deleteCompleteMsg struct {
 }
 
 // Update handles messages for the objects view
+//
 //nolint:gocognit // Bubble Tea Update pattern - complexity 108
 func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
@@ -1049,6 +1050,7 @@ func (v *ObjectsView) overlayProgress(content string) string {
 }
 
 // startUpload begins the actual upload process in a background goroutine
+//
 //nolint:gocognit // Upload orchestration with progress tracking - complexity 41
 func (v *ObjectsView) startUpload() tea.Cmd {
 	files := v.uploadFiles
@@ -1509,6 +1511,7 @@ func (v *ObjectsView) overlayActionMenu(content string) string {
 }
 
 // buildObjectActions creates action menu items for the selected object
+//
 //nolint:gocritic // hugeParam: StorageObject struct passed by value for clarity
 func (v *ObjectsView) buildObjectActions(obj gcp.StorageObject) []actionmenu.Action {
 	if obj.IsFolder {
@@ -1628,4 +1631,3 @@ func (v *ObjectsView) IsMenuOpen() bool {
 func (v *ObjectsView) GetStorageClient() *gcp.StorageClient {
 	return v.storageClient
 }
-

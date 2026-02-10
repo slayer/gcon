@@ -17,8 +17,9 @@ func TestNew(t *testing.T) {
 	assert.Len(t, s.currentItems, 3, "currentItems should start with root menu")
 	assert.Empty(t, s.path, "path should be empty initially")
 	assert.Equal(t, 0, s.cursor, "cursor should start at 0")
-	assert.False(t, s.collapsed, "should not be collapsed initially")
+	assert.True(t, s.collapsed, "should start collapsed in auto-hide mode")
 	assert.False(t, s.focused, "should not be focused initially")
+	assert.Equal(t, SidebarModeAutoHide, s.mode, "default mode should be auto-hide")
 }
 
 func TestMoveUpDown(t *testing.T) {
@@ -80,6 +81,39 @@ func TestGoBack(t *testing.T) {
 	assert.Len(t, s.currentItems, 3, "should be back at root menu")
 }
 
+func TestBackItemSelectableByArrows(t *testing.T) {
+	s := New()
+	s.SetFocused(true)
+
+	// Drill into Compute Engine
+	s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	assert.Equal(t, []string{"compute"}, s.path)
+	assert.Equal(t, 0, s.cursor)
+
+	// Move up past first item to reach "Back"
+	s.Update(tea.KeyMsg{Type: tea.KeyUp})
+	assert.Equal(t, -1, s.cursor, "cursor should be on Back item")
+
+	// Can't go above Back
+	s.Update(tea.KeyMsg{Type: tea.KeyUp})
+	assert.Equal(t, -1, s.cursor, "cursor should stay on Back item")
+
+	// Press Enter on Back item to go back
+	cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	assert.Nil(t, cmd, "going back should not emit navigation")
+	assert.Empty(t, s.path, "should be back at root")
+	assert.Equal(t, 0, s.cursor, "cursor should reset to 0 after going back")
+}
+
+func TestBackItemNotReachableAtRoot(t *testing.T) {
+	s := New()
+	s.SetFocused(true)
+
+	// At root level, cursor should not go below 0
+	s.Update(tea.KeyMsg{Type: tea.KeyUp})
+	assert.Equal(t, 0, s.cursor, "cursor should not go to -1 at root level")
+}
+
 func TestSelectLeafItem(t *testing.T) {
 	s := New()
 	s.SetFocused(true)
@@ -102,16 +136,17 @@ func TestSelectLeafItem(t *testing.T) {
 func TestToggleCollapsed(t *testing.T) {
 	s := New()
 
-	assert.False(t, s.IsCollapsed())
-	assert.Equal(t, ExpandedWidth+1, s.Width()) // +1 for right border
-
-	s.Toggle()
+	// Starts collapsed in auto-hide mode
 	assert.True(t, s.IsCollapsed())
 	assert.Equal(t, CollapsedWidth+1, s.Width()) // +1 for right border
 
 	s.Toggle()
 	assert.False(t, s.IsCollapsed())
 	assert.Equal(t, ExpandedWidth+1, s.Width()) // +1 for right border
+
+	s.Toggle()
+	assert.True(t, s.IsCollapsed())
+	assert.Equal(t, CollapsedWidth+1, s.Width()) // +1 for right border
 }
 
 func TestUnfocusedIgnoresKeys(t *testing.T) {
@@ -231,6 +266,7 @@ func TestViewWithFocusedAndUnfocused(t *testing.T) {
 
 func TestRenderHeader(t *testing.T) {
 	s := New()
+	s.Expand() // Expand to see full text
 	s.SetSize(20)
 
 	// At root, header should show "☰ Menu"
@@ -244,6 +280,54 @@ func TestRenderHeader(t *testing.T) {
 	// Header should now show category name
 	output = s.View()
 	assert.Contains(t, output, "Compute Engine")
+}
+
+func TestSidebarMode_DefaultAutoHide(t *testing.T) {
+	s := New()
+
+	assert.Equal(t, SidebarModeAutoHide, s.Mode())
+	assert.True(t, s.IsCollapsed(), "auto-hide mode starts collapsed")
+}
+
+func TestSetMode_AutoHide_Collapses(t *testing.T) {
+	s := New()
+	s.Expand() // Start expanded
+
+	assert.False(t, s.IsCollapsed())
+
+	s.SetMode(SidebarModeAutoHide)
+	assert.True(t, s.IsCollapsed(), "switching to auto-hide should collapse")
+	assert.Equal(t, SidebarModeAutoHide, s.Mode())
+}
+
+func TestSetMode_AlwaysOpen_Expands(t *testing.T) {
+	s := New()
+
+	assert.True(t, s.IsCollapsed())
+
+	s.SetMode(SidebarModeAlwaysOpen)
+	assert.False(t, s.IsCollapsed(), "switching to always-open should expand")
+	assert.Equal(t, SidebarModeAlwaysOpen, s.Mode())
+}
+
+func TestCollapse_Idempotent(t *testing.T) {
+	s := New()
+	// Already collapsed from New()
+	assert.True(t, s.IsCollapsed())
+
+	s.Collapse()
+	assert.True(t, s.IsCollapsed(), "collapsing already-collapsed sidebar should be no-op")
+	assert.Equal(t, CollapsedWidth+1, s.Width())
+}
+
+func TestExpand_Idempotent(t *testing.T) {
+	s := New()
+	s.Expand()
+	assert.False(t, s.IsCollapsed())
+
+	s.Expand()
+	assert.False(t, s.IsCollapsed(), "expanding already-expanded sidebar should be no-op")
+	assert.Equal(t, ExpandedWidth+1, s.Width())
 }
 
 func TestSidebar_ViewHeightConsistency(t *testing.T) {

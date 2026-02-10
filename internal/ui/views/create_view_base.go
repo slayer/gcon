@@ -13,7 +13,7 @@ import (
 type createViewState int
 
 const (
-	createViewStateForm   createViewState = iota
+	createViewStateForm createViewState = iota
 	createViewStateSaving
 )
 

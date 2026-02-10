@@ -109,9 +109,9 @@ func TestRenderError_DuplicateRetryHint(t *testing.T) {
 
 func TestRenderInlineError(t *testing.T) {
 	tests := []struct {
-		name     string
-		err      error
-		wantMsg  string
+		name      string
+		err       error
+		wantMsg   string
 		wantEmpty bool
 	}{
 		{
