@@ -81,6 +81,39 @@ func TestGoBack(t *testing.T) {
 	assert.Len(t, s.currentItems, 3, "should be back at root menu")
 }
 
+func TestBackItemSelectableByArrows(t *testing.T) {
+	s := New()
+	s.SetFocused(true)
+
+	// Drill into Compute Engine
+	s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	assert.Equal(t, []string{"compute"}, s.path)
+	assert.Equal(t, 0, s.cursor)
+
+	// Move up past first item to reach "Back"
+	s.Update(tea.KeyMsg{Type: tea.KeyUp})
+	assert.Equal(t, -1, s.cursor, "cursor should be on Back item")
+
+	// Can't go above Back
+	s.Update(tea.KeyMsg{Type: tea.KeyUp})
+	assert.Equal(t, -1, s.cursor, "cursor should stay on Back item")
+
+	// Press Enter on Back item to go back
+	cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	assert.Nil(t, cmd, "going back should not emit navigation")
+	assert.Empty(t, s.path, "should be back at root")
+	assert.Equal(t, 0, s.cursor, "cursor should reset to 0 after going back")
+}
+
+func TestBackItemNotReachableAtRoot(t *testing.T) {
+	s := New()
+	s.SetFocused(true)
+
+	// At root level, cursor should not go below 0
+	s.Update(tea.KeyMsg{Type: tea.KeyUp})
+	assert.Equal(t, 0, s.cursor, "cursor should not go to -1 at root level")
+}
+
 func TestSelectLeafItem(t *testing.T) {
 	s := New()
 	s.SetFocused(true)

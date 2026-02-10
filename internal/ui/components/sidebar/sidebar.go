@@ -313,11 +313,21 @@ func (s *Sidebar) View() string {
 
 	// Show "< Back" when drilled down
 	if len(s.path) > 0 {
-		backLabel := fmt.Sprintf(" %s Back", symbols.Back())
-		if s.collapsed {
+		backSelected := s.cursor == -1 && s.focused
+		var backLabel string
+		switch {
+		case s.collapsed:
 			backLabel = symbols.Back()
+		case backSelected:
+			backLabel = fmt.Sprintf("%s %s Back", symbols.Cursor(), symbols.Back())
+		default:
+			backLabel = fmt.Sprintf("  %s Back", symbols.Back())
 		}
-		lines = append(lines, styles.BackItem.Render(backLabel))
+		backStyle := styles.BackItem
+		if backSelected {
+			backStyle = styles.ItemSelected
+		}
+		lines = append(lines, backStyle.Render(backLabel))
 		lines = append(lines, "") // Empty line separator
 	}
 
@@ -466,7 +476,12 @@ func (s *Sidebar) highlightHotkey(label string, hotkey rune, styles Styles, isSe
 
 // moveUp moves cursor up
 func (s *Sidebar) moveUp() {
-	if s.cursor > 0 {
+	// Allow cursor -1 when drilled down (selects "Back" item)
+	minCursor := 0
+	if len(s.path) > 0 {
+		minCursor = -1
+	}
+	if s.cursor > minCursor {
 		s.cursor--
 	}
 }
@@ -480,6 +495,12 @@ func (s *Sidebar) moveDown() {
 
 // selectItem handles selection of current item
 func (s *Sidebar) selectItem() tea.Cmd {
+	// cursor -1 means "Back" is selected
+	if s.cursor == -1 {
+		s.goBack()
+		return nil
+	}
+
 	if s.cursor >= len(s.currentItems) {
 		return nil
 	}
