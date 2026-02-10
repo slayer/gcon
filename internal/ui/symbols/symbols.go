@@ -53,7 +53,7 @@ type SymbolSet struct {
 var (
 	emojiSet = SymbolSet{
 		Cloud:            "☁",
-		Hamburger:        "☰",
+		Hamburger:        "≡", // U+2261: consistent 1-cell width across terminals (☰ is 2-wide in Kitty)
 		Back:             "◀",
 		Expand:           "▸",
 		Cursor:           "▶",
@@ -74,7 +74,7 @@ var (
 
 	unicodeSet = SymbolSet{
 		Cloud:            "☁",
-		Hamburger:        "☰",
+		Hamburger:        "≡", // U+2261: consistent 1-cell width across terminals (☰ is 2-wide in Kitty)
 		Back:             "◀",
 		Expand:           "▸",
 		Cursor:           "▶",

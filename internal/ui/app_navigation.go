@@ -43,6 +43,12 @@ func (a *App) handleMouseEvent(msg tea.MouseMsg) tea.Cmd {
 	if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
 		// Check footer first (if click is in footer area)
 		if msg.Y >= footerY {
+			// Focus content on footer click
+			if a.focusedPanel != FocusContent {
+				a.focusedPanel = FocusContent
+				a.sidebar.SetFocused(false)
+			}
+
 			if clickable, ok := interface{}(a.footer).(components.Clickable); ok {
 				// Update regions with footer position (x=0, y=footerY)
 				clickable.UpdateRegions(0, footerY)
@@ -55,10 +61,17 @@ func (a *App) handleMouseEvent(msg tea.MouseMsg) tea.Cmd {
 					}
 				}
 			}
+			return nil
 		}
 
 		// Check sidebar (if active and click is in sidebar area)
 		if a.sidebarActive() && msg.X < sidebarWidth {
+			// Focus sidebar on click
+			if a.focusedPanel != FocusSidebar {
+				a.focusedPanel = FocusSidebar
+				a.sidebar.SetFocused(true)
+			}
+
 			if clickable, ok := interface{}(a.sidebar).(components.Clickable); ok {
 				// Update regions with sidebar position (x=0, y=headerHeight)
 				clickable.UpdateRegions(0, headerHeight)
@@ -71,7 +84,14 @@ func (a *App) handleMouseEvent(msg tea.MouseMsg) tea.Cmd {
 					}
 				}
 			}
+			return nil
 		} else {
+			// Focus content on click
+			if a.focusedPanel != FocusContent {
+				a.focusedPanel = FocusContent
+				a.sidebar.SetFocused(false)
+			}
+
 			// Check content area
 			if model := a.getCurrentViewModel(); model != nil {
 				if clickable, ok := model.(components.Clickable); ok {
@@ -89,6 +109,7 @@ func (a *App) handleMouseEvent(msg tea.MouseMsg) tea.Cmd {
 					}
 				}
 			}
+			return nil
 		}
 	}
 

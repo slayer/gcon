@@ -23,6 +23,7 @@ import (
 	"github.com/slayer/gcon/internal/ui/context"
 	uierrors "github.com/slayer/gcon/internal/ui/errors"
 	"github.com/slayer/gcon/internal/ui/focus"
+	"github.com/slayer/gcon/internal/ui/mouse"
 	"github.com/slayer/gcon/internal/ui/overlay"
 	"github.com/slayer/gcon/internal/ui/symbols"
 	"github.com/slayer/gcon/internal/ui/timeutil"
@@ -126,6 +127,8 @@ type InstanceDetailsView struct {
 	diskLinks *links.Links
 	// Focus management for routing keys between regions
 	focusMgr *focus.Manager
+	// Mouse click regions
+	regionMgr *mouse.RegionManager
 	// Observability tab state
 	metrics           *gcp.ObservabilityMetrics
 	logs              []gcp.LogEntry
@@ -232,6 +235,7 @@ func NewInstanceDetailsView(projectID, zone, instanceName string, computeClient 
 		tabViewports:  make([]viewport.Model, 2), // One viewport per tab
 		diskLinks:     links.New(),
 		focusMgr:      fm,
+		regionMgr:     mouse.NewRegionManager(),
 		timeRange:     6 * time.Hour, // Default to 6 hours
 		autoRefresh:   true,          // Auto-refresh enabled by default
 	}
@@ -1629,4 +1633,62 @@ func (v *InstanceDetailsView) getRegionLabel() string {
 		return "disk"
 	}
 	return ""
+}
+
+// UpdateRegions calculates clickable regions for tabs, links, and viewport.
+// Implements components.Clickable interface.
+func (v *InstanceDetailsView) UpdateRegions(offsetX, offsetY int) {
+	v.regionMgr.Clear()
+
+	if !v.ready || v.loading {
+		return
+	}
+
+	y := offsetY
+
+	// Tab bar region (always present)
+	tabHeight := 1
+	v.regionMgr.Add(regionIDTabs, mouse.Rect{
+		X:      offsetX,
+		Y:      y,
+		Width:  v.width,
+		Height: tabHeight,
+	}, nil)
+	y += tabHeight + 1 // +1 for separator line
+
+	// Links region (only in Details tab, if links exist)
+	if v.tabs.ActiveTab().ID == tabIDDetails && v.diskLinks != nil && v.diskLinks.Count() > 0 {
+		linksHeight := v.diskLinks.Count() // One line per link
+		v.regionMgr.Add(regionIDLinks, mouse.Rect{
+			X:      offsetX,
+			Y:      y,
+			Width:  v.width,
+			Height: linksHeight,
+		}, nil)
+		y += linksHeight
+	}
+
+	// Viewport region (remaining space)
+	viewportHeight := v.height - (y - offsetY)
+	if viewportHeight > 0 {
+		v.regionMgr.Add(regionIDViewport, mouse.Rect{
+			X:      offsetX,
+			Y:      y,
+			Width:  v.width,
+			Height: viewportHeight,
+		}, nil)
+	}
+}
+
+// GetRegions returns the current clickable regions.
+// Implements components.Clickable interface.
+func (v *InstanceDetailsView) GetRegions() []mouse.Region {
+	return v.regionMgr.GetRegions()
+}
+
+// HandleRegionClick processes a click on a specific region by focusing it.
+// Implements components.Clickable interface.
+func (v *InstanceDetailsView) HandleRegionClick(regionID string) tea.Cmd {
+	v.focusMgr.SetActive(regionID)
+	return nil
 }
