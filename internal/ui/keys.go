@@ -84,7 +84,7 @@ func DefaultKeyMap() KeyMap {
 		),
 		ToggleSidebar: key.NewBinding(
 			key.WithKeys("{"),
-			key.WithHelp("{", "hide sidebar"),
+			key.WithHelp("{", "pin sidebar"),
 		),
 		ActionMenu: key.NewBinding(
 			key.WithKeys("."),

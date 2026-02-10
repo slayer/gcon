@@ -219,9 +219,9 @@ Once launched, gcon presents an intuitive interface with:
 | `?` | Help | Show context-sensitive help |
 | `r` | Refresh | Reload current view |
 | `.` | Action Menu | Open context-sensitive action menu |
-| `[` | Focus Sidebar | Move focus to sidebar |
-| `]` | Focus Content | Move focus to main content area |
-| `{` | Toggle Sidebar | Show or hide the sidebar |
+| `[` | Focus Sidebar | Move focus to sidebar (expands if auto-hidden) |
+| `]` | Focus Content | Move focus to main content (collapses if auto-hide) |
+| `{` | Pin Sidebar | Toggle auto-hide / always-open mode |
 
 #### Navigation
 

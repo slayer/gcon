@@ -122,9 +122,9 @@ type App struct {
 	recentTracker      *commandpalette.RecentTracker
 
 	// Project selector modal
-	projectSelector                *projectselector.Model
-	showProjectSelector            bool
-	projectSelectorShownOnStartup  bool // Track if selector shown because no default project
+	projectSelector               *projectselector.Model
+	showProjectSelector           bool
+	projectSelectorShownOnStartup bool // Track if selector shown because no default project
 
 	// Header
 	header *components.Header
@@ -332,6 +332,7 @@ func (a *App) getCurrentViewModel() views.View {
 }
 
 // Update implements tea.Model
+//
 //nolint:gocognit // Bubble Tea Update pattern - complexity 60
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Handle project selector messages first (highest priority when active)
@@ -391,9 +392,20 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, a.updateCurrentView(msg)
 			}
 
-			// If sidebar is focused and drilled down, go back in sidebar
-			if a.focusedPanel == FocusSidebar && len(a.sidebar.GetPath()) > 0 {
-				a.sidebar.Update(msg)
+			// If sidebar is focused, handle Esc within sidebar context
+			if a.focusedPanel == FocusSidebar {
+				if len(a.sidebar.GetPath()) > 0 {
+					// Drilled down — go back one level in sidebar
+					a.sidebar.Update(msg)
+					return a, nil
+				}
+				// At root level — unfocus sidebar and return to content
+				a.focusedPanel = FocusContent
+				a.sidebar.SetFocused(false)
+				if a.sidebar.Mode() == sidebar.SidebarModeAutoHide {
+					a.sidebar.Collapse()
+					a.updateViewSizes()
+				}
 				return a, nil
 			}
 
@@ -476,23 +488,40 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.showHelp = !a.showHelp
 			return a, nil
 		case key.Matches(msg, a.keys.SelectSidebar):
-			// '[' - Focus sidebar (if visible)
+			// '[' - Focus sidebar (if visible), expand if in auto-hide mode
 			if a.sidebarActive() && a.focusedPanel != FocusSidebar {
+				if a.sidebar.Mode() == sidebar.SidebarModeAutoHide {
+					a.sidebar.Expand()
+					a.updateViewSizes()
+				}
 				a.focusedPanel = FocusSidebar
 				a.sidebar.SetFocused(true)
 			}
 			return a, nil
 		case key.Matches(msg, a.keys.SelectContent):
-			// ']' - Focus content
+			// ']' - Focus content, collapse sidebar in auto-hide mode
 			if a.focusedPanel != FocusContent {
 				a.focusedPanel = FocusContent
 				a.sidebar.SetFocused(false)
+				if a.sidebar.Mode() == sidebar.SidebarModeAutoHide {
+					a.sidebar.Collapse()
+					a.updateViewSizes()
+				}
 			}
 			return a, nil
 		case key.Matches(msg, a.keys.ToggleSidebar):
-			// '{' - Show/hide sidebar
+			// '{' - Toggle sidebar mode (auto-hide ↔ always-open/pinned)
 			if a.sidebarActive() {
-				a.sidebar.Toggle()
+				if a.sidebar.Mode() == sidebar.SidebarModeAutoHide {
+					a.sidebar.SetMode(sidebar.SidebarModeAlwaysOpen)
+				} else {
+					a.sidebar.SetMode(sidebar.SidebarModeAutoHide)
+					// Unfocus sidebar when switching to auto-hide
+					if a.focusedPanel == FocusSidebar {
+						a.focusedPanel = FocusContent
+						a.sidebar.SetFocused(false)
+					}
+				}
 				a.updateViewSizes()
 			}
 			return a, nil
@@ -737,6 +766,7 @@ func (a *App) cleanup() {
 
 // startTask registers a new async task and returns a command to animate the spinner.
 // Tasks are tracked in the context and displayed in the footer.
+//
 //nolint:gocritic // hugeParam: task struct size is acceptable for clarity
 func (a *App) startTask(task context.Task) tea.Cmd {
 	task.StartTime = time.Now()

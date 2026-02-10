@@ -34,6 +34,7 @@ func (a *App) openCommandPalette(showPrefix bool) {
 }
 
 // handleCommandSelected processes a selected command from the palette
+//
 //nolint:gocritic // hugeParam: Command struct passed by value for clarity
 func (a *App) handleCommandSelected(cmd commandpalette.Command) (tea.Model, tea.Cmd) {
 	a.showCommandPalette = false
@@ -52,6 +53,7 @@ func (a *App) handleCommandSelected(cmd commandpalette.Command) (tea.Model, tea.
 }
 
 // handleNavigationCommand navigates to the selected view from command palette
+//
 //nolint:gocritic // hugeParam: Command struct passed by value for clarity
 func (a *App) handleNavigationCommand(cmd commandpalette.Command) (tea.Model, tea.Cmd) {
 	// Navigation commands require a project to be selected
@@ -66,14 +68,24 @@ func (a *App) handleNavigationCommand(cmd commandpalette.Command) (tea.Model, te
 }
 
 // handleActionCommand executes the selected action from command palette
+//
 //nolint:gocritic // hugeParam: Command struct passed by value for clarity
 func (a *App) handleActionCommand(cmd commandpalette.Command) (tea.Model, tea.Cmd) {
 	switch cmd.ID {
 	case "action:refresh":
 		return a, func() tea.Msg { return RefreshMsg{} }
 	case "action:toggle-sidebar":
+		// Toggle sidebar mode (matches `{` key behavior)
 		if a.sidebarActive() {
-			a.sidebar.Toggle()
+			if a.sidebar.Mode() == sidebar.SidebarModeAutoHide {
+				a.sidebar.SetMode(sidebar.SidebarModeAlwaysOpen)
+			} else {
+				a.sidebar.SetMode(sidebar.SidebarModeAutoHide)
+				if a.focusedPanel == FocusSidebar {
+					a.focusedPanel = FocusContent
+					a.sidebar.SetFocused(false)
+				}
+			}
 			a.updateViewSizes()
 		}
 		return a, nil
