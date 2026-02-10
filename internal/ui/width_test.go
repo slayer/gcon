@@ -24,8 +24,8 @@ func TestTerminalWidth(t *testing.T) {
 		},
 		{
 			name:     "with hamburger menu",
-			input:    "☰ Menu",
-			expected: 7, // lipgloss: 6, miscounted emoji: 1
+			input:    "≡ Menu",
+			expected: 6, // ≡ (U+2261) is consistently 1-cell wide, no adjustment needed
 		},
 		{
 			name:     "with status emoji green",
@@ -39,8 +39,8 @@ func TestTerminalWidth(t *testing.T) {
 		},
 		{
 			name:     "multiple emojis mixed",
-			input:    "☁ gcon • ☰ Menu • 🟢",
-			expected: 22, // lipgloss: 20, miscounted emojis: 2 (☁, ☰)
+			input:    "☁ gcon • ≡ Menu • 🟢",
+			expected: 21, // lipgloss: 20, miscounted emojis: 1 (☁); ≡ is 1-wide
 		},
 		{
 			name:     "sidebar arrows",
@@ -84,26 +84,26 @@ func TestSafeWidth(t *testing.T) {
 		{
 			name:          "multiple emojis on same line",
 			terminalWidth: 100,
-			content:       "☁ gcon • ☰ Menu • 🟢 RUNNING",
-			expected:      98, // 100 - 2 miscounted emojis (☁, ☰); 🟢 is already 2-wide in lipgloss
+			content:       "☁ gcon • ≡ Menu • 🟢 RUNNING",
+			expected:      99, // 100 - 1 miscounted emoji (☁); ≡ is 1-wide, 🟢 is already 2-wide in lipgloss
 		},
 		{
 			name:          "multiline uses max per line",
 			terminalWidth: 100,
-			content:       "☁ header\n☰ ● menu\nplain text",
-			expected:      98, // Line 2 has 2 emojis (☰, ●) - max of any line
+			content:       "☁ header\n≡ ● menu\nplain text",
+			expected:      99, // Line 2 has 1 emoji (●); ≡ is 1-wide. Line 1 has 1 emoji (☁). Max = 1
 		},
 		{
 			name:          "multiline emoji count not summed",
 			terminalWidth: 100,
-			content:       "☁ line1\n☰ line2\n● line3", // 3 total, but max 1 per line
+			content:       "☁ line1\n≡ line2\n● line3", // ☁ and ● are miscounted, ≡ is fine
 			expected:      99,                          // Only reduce by 1 (max per line)
 		},
 		{
 			name:          "minimum width enforced",
 			terminalWidth: 12,
-			content:       "☁ ☰ ● ▶", // 4 miscounted emojis
-			expected:      10,        // Would be 8, but min is 10
+			content:       "☁ ≡ ● ▶", // 3 miscounted emojis (☁, ●, ▶); ≡ is fine
+			expected:      10,        // Would be 9, but min is 10
 		},
 	}
 
@@ -128,7 +128,7 @@ func TestCountWideEmojis(t *testing.T) {
 	}{
 		{"hello", 0},
 		{"☁", 1},
-		{"☁ ☰", 2},
+		{"☁ ≡", 1}, // ≡ is not a wide emoji
 		{"🟢🔴🟡", 0},   // lipgloss already counts these correctly
 		{"▶ ▸ ◀", 3}, // lipgloss miscounts these
 		{"● active", 1},
