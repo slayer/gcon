@@ -346,6 +346,10 @@ func (v *DisksView) Update(msg tea.Msg) tea.Cmd {
 		case key.Matches(msg, v.keys.Refresh):
 			v.loading = true
 			v.err = nil
+			// Re-initialize client if previous attempt failed
+			if v.computeClient == nil {
+				return tea.Batch(v.spinner.Tick, v.initComputeClient())
+			}
 			return tea.Batch(v.spinner.Tick, v.loadDisks())
 		}
 	}

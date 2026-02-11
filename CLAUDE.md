@@ -221,9 +221,13 @@ On developing or updating a new feature keep in mind the following guidelines:
   - Async project loading with spinner
   - Shows automatically on startup if no default project
   - Reloads all views when switching projects
+- [x] VPC Networks list view
 
 ## Planned Features
 
+- [ ] VPC Network details view
+- [ ] Firewall rules list and management
+- [ ] Subnets list and management
 - [ ] Disk image deletion with confirmation
 - [ ] Disk image creation from disks/snapshots
 - [ ] Cloud Logging viewer with filters
