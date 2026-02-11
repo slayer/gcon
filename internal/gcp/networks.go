@@ -93,6 +93,9 @@ func (c *ComputeClient) ListSubnetsByNetwork(ctx context.Context, projectID, net
 	req := c.service.Subnetworks.AggregatedList(projectID)
 	err := req.Pages(ctx, func(page *compute.SubnetworkAggregatedList) error {
 		for _, scopedList := range page.Items {
+			if scopedList.Subnetworks == nil {
+				continue
+			}
 			for _, s := range scopedList.Subnetworks {
 				// Only include subnets that belong to our target network
 				if strings.HasSuffix(s.Network, networkSuffix) {
