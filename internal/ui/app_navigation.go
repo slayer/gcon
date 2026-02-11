@@ -566,7 +566,6 @@ func (a *App) clearAllViews() {
 	a.selectedImage = nil
 	a.selectedBucket = nil
 	a.selectedObject = nil
-	a.selectedNetwork = nil
 }
 
 // reloadCurrentView recreates or switches views for the new project ID.

@@ -102,9 +102,8 @@ type App struct {
 	selectedDisk     *gcp.Disk
 	selectedSnapshot *gcp.Snapshot
 	selectedImage    *gcp.Image
-	selectedBucket   *gcp.Bucket
-	selectedObject   *gcp.StorageObject
-	selectedNetwork  *gcp.Network
+	selectedBucket  *gcp.Bucket
+	selectedObject  *gcp.StorageObject
 
 	// UI state
 	showHelp              bool
@@ -590,10 +589,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case views.ImageSelectedMsg:
 		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
 		return a, a.handleImageSelected(msg)
-
-	case views.NetworkSelectedMsg:
-		// Network details view not implemented yet — no-op
-		return a, nil
 
 	case InitialProjectLoadedMsg:
 		// Initial project loaded successfully, go directly to instances view

@@ -200,7 +200,6 @@ description: Keyboard shortcuts reference for all views
 
 | Key | Action |
 |-----|--------|
-| `Enter` | View network details (future) |
 | `/` | Filter networks |
 | `r` | Refresh list |
 | `Esc` | Go back |

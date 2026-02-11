@@ -34,16 +34,11 @@ type NetworksView struct {
 
 // networkKeyMap defines network-specific key bindings
 type networkKeyMap struct {
-	Enter   key.Binding
 	Refresh key.Binding
 }
 
 func defaultNetworkKeyMap() networkKeyMap {
 	return networkKeyMap{
-		Enter: key.NewBinding(
-			key.WithKeys("enter"),
-			key.WithHelp("enter", "details"),
-		),
 		Refresh: key.NewBinding(
 			key.WithKeys("r"),
 			key.WithHelp("r", "refresh"),
@@ -123,11 +118,6 @@ type networksErrorMsg struct {
 	err error
 }
 
-// NetworkSelectedMsg is emitted when a network is selected for details
-type NetworkSelectedMsg struct {
-	Network gcp.Network
-}
-
 // networkToRow converts a GCP network to a table row
 func networkToRow(network gcp.Network) table.Row { //nolint:gocritic // Copying network is acceptable
 	subnetMode := "Auto"
@@ -171,15 +161,6 @@ func (v *NetworksView) Update(msg tea.Msg) tea.Cmd {
 		v.err = msg.err
 		return nil
 
-	case table.RowDoubleClickedMsg:
-		network := v.findNetworkByName(msg.RowID)
-		if network != nil {
-			return func() tea.Msg {
-				return NetworkSelectedMsg{Network: *network}
-			}
-		}
-		return nil
-
 	case spinner.TickMsg:
 		if v.loading {
 			var cmd tea.Cmd
@@ -200,20 +181,13 @@ func (v *NetworksView) Update(msg tea.Msg) tea.Cmd {
 			return cmd
 		}
 
-		switch {
-		case key.Matches(msg, v.keys.Enter):
-			if row := v.table.SelectedRow(); row != nil {
-				network := v.findNetworkByName(row.ID)
-				if network != nil {
-					return func() tea.Msg {
-						return NetworkSelectedMsg{Network: *network}
-					}
-				}
-			}
-
-		case key.Matches(msg, v.keys.Refresh):
+		if key.Matches(msg, v.keys.Refresh) {
 			v.loading = true
 			v.err = nil
+			// Re-initialize client if previous attempt failed
+			if v.computeClient == nil {
+				return tea.Batch(v.spinner.Tick, v.initComputeClient())
+			}
 			return tea.Batch(v.spinner.Tick, v.loadNetworks())
 		}
 	}
@@ -227,16 +201,6 @@ func (v *NetworksView) Update(msg tea.Msg) tea.Cmd {
 // HasTextInputFocused returns true if the table filter is active.
 func (v *NetworksView) HasTextInputFocused() bool {
 	return v.table.HasTextInputFocused()
-}
-
-// findNetworkByName looks up a network by name
-func (v *NetworksView) findNetworkByName(name string) *gcp.Network {
-	for _, network := range v.networks {
-		if network.Name == name {
-			return &network
-		}
-	}
-	return nil
 }
 
 // View renders the networks view
@@ -258,7 +222,7 @@ func (v *NetworksView) View() string {
 	}
 
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
-	help := helpStyle.Render("\n  enter: details • /: filter • r: refresh • esc: back")
+	help := helpStyle.Render("\n  /: filter • r: refresh • esc: back")
 
 	return v.table.View() + help
 }
