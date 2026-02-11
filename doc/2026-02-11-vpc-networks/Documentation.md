@@ -12,7 +12,7 @@ Added a VPC Networks list view that replaces the placeholder sidebar entry with 
 - `internal/ui/views/networks_test.go` — Unit tests for view creation, loading state, and row conversion
 
 ### Modified Files
-- `internal/ui/app.go` — Added `networksView` field, `selectedNetwork` field, `getCurrentViewModel()` case, `NetworkSelectedMsg` handler, `updateViewSizes()` context propagation
+- `internal/ui/app.go` — Added `networksView` field, `getCurrentViewModel()` case, `updateViewSizes()` context propagation
 - `internal/ui/app_render.go` — Replaced placeholder with actual view rendering in `renderCurrentView()`
 - `internal/ui/app_navigation.go` — Implemented sidebar navigation handler, added to `clearAllViews()`, added to `reloadCurrentView()` for project switching
 - `.claude/rules/key-bindings.md` — Added Networks View key bindings section
@@ -36,10 +36,11 @@ Added a VPC Networks list view that replaces the placeholder sidebar entry with 
 | Created | `network.CreationTimestamp` | ISO timestamp from API |
 
 ### Key Bindings
-- `Enter` — Select network (emits `NetworkSelectedMsg`, no details view yet)
 - `/` — Filter networks by name, mode, or routing
 - `r` — Refresh network list
 - `Esc` — Go back
+
+*Note: Enter/selection handling was intentionally omitted since there is no details view yet. It will be added when a network details view is implemented.*
 
 ## Future Work
 - VPC Network details view (subnets, peerings, firewall rules count)

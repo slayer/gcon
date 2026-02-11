@@ -26,4 +26,4 @@ Implement a VPC Networks list view that replaces the placeholder sidebar entry w
 
 - Reuse ComputeClient since VPC Networks are part of Compute Engine API
 - No details view in this iteration (future work)
-- NetworkSelectedMsg emitted on Enter but no navigation target yet
+- No Enter/selection binding since there is no details view to navigate to yet
