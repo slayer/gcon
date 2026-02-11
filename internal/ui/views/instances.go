@@ -380,6 +380,10 @@ func (v *InstancesView) Update(msg tea.Msg) tea.Cmd {
 			v.loading = true
 			v.err = nil
 			v.registerTask("load-instances", "Refreshing...")
+			// Re-initialize client if previous attempt failed
+			if v.computeClient == nil {
+				return tea.Batch(v.spinner.Tick, v.initComputeClient())
+			}
 			return tea.Batch(v.spinner.Tick, v.loadInstances())
 
 		case key.Matches(msg, v.keys.Start):

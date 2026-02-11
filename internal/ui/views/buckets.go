@@ -214,6 +214,10 @@ func (v *BucketsView) Update(msg tea.Msg) tea.Cmd {
 		case key.Matches(msg, v.keys.Refresh):
 			v.loading = true
 			v.err = nil
+			// Re-initialize client if previous attempt failed
+			if v.storageClient == nil {
+				return tea.Batch(v.spinner.Tick, v.initStorageClient())
+			}
 			return tea.Batch(v.spinner.Tick, v.loadBuckets())
 
 		case key.Matches(msg, v.keys.Create):
