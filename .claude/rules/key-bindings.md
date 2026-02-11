@@ -196,6 +196,14 @@ description: Keyboard shortcuts reference for all views
 | `n` | Next page |
 | `p` | Previous page |
 
+## Networks View
+
+| Key | Action |
+|-----|--------|
+| `/` | Filter networks |
+| `r` | Refresh list |
+| `Esc` | Go back |
+
 ## Object Details View
 
 | Key | Action |

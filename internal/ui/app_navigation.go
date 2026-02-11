@@ -225,8 +225,14 @@ func (a *App) handleSidebarNavigation(msg sidebar.NavigateMsg) tea.Cmd {
 			}
 		}
 	case sidebar.ViewNetworks:
-		a.currentView = ViewNetworks
-		// Placeholder - view not implemented yet
+		if a.currentView != ViewNetworks {
+			a.currentView = ViewNetworks
+			if a.networksView == nil {
+				a.networksView = views.NewNetworksView(a.selectedProject.ID)
+				a.updateViewSizes()
+				cmd = a.networksView.Init()
+			}
+		}
 	case sidebar.ViewFirewall:
 		a.currentView = ViewFirewall
 		// Placeholder - view not implemented yet
@@ -547,6 +553,7 @@ func (a *App) clearAllViews() {
 	a.snapshotCreateView = nil
 	a.imageCreateView = nil
 	a.diskCreateView = nil
+	a.networksView = nil
 	a.formDemoView = nil
 
 	// Clear view stack
@@ -604,6 +611,13 @@ func (a *App) reloadCurrentView(projectID string) tea.Cmd {
 		a.updateSidebarActiveView()
 		a.updateViewSizes()
 		return a.bucketsView.Init()
+
+	case ViewNetworks:
+		a.currentView = ViewNetworks
+		a.networksView = views.NewNetworksView(projectID)
+		a.updateSidebarActiveView()
+		a.updateViewSizes()
+		return a.networksView.Init()
 
 	case ViewProjectMetadata:
 		// Reload metadata view

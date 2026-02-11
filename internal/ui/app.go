@@ -93,6 +93,7 @@ type App struct {
 	snapshotCreateView  *views.SnapshotCreateView
 	imageCreateView     *views.ImageCreateView
 	diskCreateView      *views.DiskCreateView
+	networksView        *views.NetworksView
 	formDemoView        *views.FormDemoView
 
 	// Selected context
@@ -101,8 +102,8 @@ type App struct {
 	selectedDisk     *gcp.Disk
 	selectedSnapshot *gcp.Snapshot
 	selectedImage    *gcp.Image
-	selectedBucket   *gcp.Bucket
-	selectedObject   *gcp.StorageObject
+	selectedBucket  *gcp.Bucket
+	selectedObject  *gcp.StorageObject
 
 	// UI state
 	showHelp              bool
@@ -325,6 +326,8 @@ func (a *App) getCurrentViewModel() views.View {
 		return a.imageCreateView
 	case ViewDiskCreate:
 		return a.diskCreateView
+	case ViewNetworks:
+		return a.networksView
 	case ViewFormDemo:
 		return a.formDemoView
 	}
@@ -913,6 +916,9 @@ func (a *App) updateViewSizes() {
 	}
 	if a.diskCreateView != nil {
 		a.diskCreateView.SetContext(a.ctx)
+	}
+	if a.networksView != nil {
+		a.networksView.SetContext(a.ctx)
 	}
 }
 

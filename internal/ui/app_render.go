@@ -183,7 +183,9 @@ func (a *App) renderCurrentView() string {
 			return a.diskCreateView.View()
 		}
 	case ViewNetworks:
-		return a.renderPlaceholder("VPC Networks")
+		if a.networksView != nil {
+			return a.networksView.View()
+		}
 	case ViewFirewall:
 		return a.renderPlaceholder("Firewall Rules")
 	case ViewFormDemo:
