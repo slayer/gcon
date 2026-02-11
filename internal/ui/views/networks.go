@@ -32,13 +32,23 @@ type NetworksView struct {
 	height int
 }
 
+// NetworkSelectedMsg is sent when a network is selected from the list
+type NetworkSelectedMsg struct {
+	Network gcp.Network
+}
+
 // networkKeyMap defines network-specific key bindings
 type networkKeyMap struct {
+	Select  key.Binding
 	Refresh key.Binding
 }
 
 func defaultNetworkKeyMap() networkKeyMap {
 	return networkKeyMap{
+		Select: key.NewBinding(
+			key.WithKeys("enter"),
+			key.WithHelp("enter", "details"),
+		),
 		Refresh: key.NewBinding(
 			key.WithKeys("r"),
 			key.WithHelp("r", "refresh"),
@@ -181,7 +191,14 @@ func (v *NetworksView) Update(msg tea.Msg) tea.Cmd {
 			return cmd
 		}
 
-		if key.Matches(msg, v.keys.Refresh) {
+		switch {
+		case key.Matches(msg, v.keys.Select):
+			if network, ok := v.findNetworkByID(v.table.SelectedRow().ID); ok {
+				return func() tea.Msg { return NetworkSelectedMsg{Network: network} }
+			}
+			return nil
+
+		case key.Matches(msg, v.keys.Refresh):
 			v.loading = true
 			v.err = nil
 			// Re-initialize client if previous attempt failed
@@ -222,9 +239,19 @@ func (v *NetworksView) View() string {
 	}
 
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
-	help := helpStyle.Render("\n  /: filter • r: refresh • esc: back")
+	help := helpStyle.Render("\n  enter: details • /: filter • r: refresh • esc: back")
 
 	return v.table.View() + help
+}
+
+// findNetworkByID finds a network in the loaded list by name (used as ID)
+func (v *NetworksView) findNetworkByID(id string) (gcp.Network, bool) {
+	for _, n := range v.networks {
+		if n.Name == id {
+			return n, true
+		}
+	}
+	return gcp.Network{}, false
 }
 
 // GetComputeClient returns the compute client for reuse in detail views

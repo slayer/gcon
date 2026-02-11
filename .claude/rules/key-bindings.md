@@ -200,8 +200,20 @@ description: Keyboard shortcuts reference for all views
 
 | Key | Action |
 |-----|--------|
+| `Enter` | View network details |
 | `/` | Filter networks |
 | `r` | Refresh list |
+| `Esc` | Go back |
+
+## Network Details View
+
+| Key | Action |
+|-----|--------|
+| `.` | Open action menu |
+| `r` | Refresh details and subnets |
+| `Tab` | Switch focus (tabs/links/content) |
+| `h/l` or `1/2` | Switch tabs (Details/Subnets) |
+| `j/k` or `↓/↑` | Navigate subnet links or scroll content |
 | `Esc` | Go back |
 
 ## Object Details View
