@@ -49,6 +49,7 @@ const (
 	ViewNetworks
 	ViewNetworkDetails
 	ViewFirewall
+	ViewFirewallDetails
 	ViewLogs
 	ViewFormDemo // Demo view for testing form components
 )
@@ -96,6 +97,8 @@ type App struct {
 	diskCreateView      *views.DiskCreateView
 	networksView        *views.NetworksView
 	networkDetailsView  *views.NetworkDetailsView
+	firewallsView       *views.FirewallsView
+	firewallDetailsView *views.FirewallDetailsView
 	formDemoView        *views.FormDemoView
 
 	// Selected context
@@ -106,7 +109,8 @@ type App struct {
 	selectedImage    *gcp.Image
 	selectedBucket  *gcp.Bucket
 	selectedObject  *gcp.StorageObject
-	selectedNetwork *gcp.Network
+	selectedNetwork  *gcp.Network
+	selectedFirewall *gcp.FirewallRule
 
 	// UI state
 	showHelp              bool
@@ -333,6 +337,10 @@ func (a *App) getCurrentViewModel() views.View {
 		return a.networksView
 	case ViewNetworkDetails:
 		return a.networkDetailsView
+	case ViewFirewall:
+		return a.firewallsView
+	case ViewFirewallDetails:
+		return a.firewallDetailsView
 	case ViewFormDemo:
 		return a.formDemoView
 	}
@@ -449,6 +457,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case ViewNetworkDetails:
 					a.networkDetailsView = nil
 					a.selectedNetwork = nil
+				case ViewFirewallDetails:
+					a.firewallDetailsView = nil
+					a.selectedFirewall = nil
 				}
 
 				a.updateSidebarActiveView()
@@ -742,6 +753,22 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
 		return a, a.handleNetworkSelected(msg)
 
+	case views.FirewallSelectedMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleFirewallSelected(msg)
+
+	case views.DeleteFirewallConfirmedMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleDeleteFirewallConfirmed(msg)
+
+	case views.ToggleFirewallMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleToggleFirewall(msg)
+
+	case views.FirewallActionResultMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleFirewallActionResult(msg)
+
 	case views.DeleteInstanceConfirmedMsg:
 		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
 		return a, a.handleDeleteInstanceConfirmed(msg)
@@ -934,6 +961,12 @@ func (a *App) updateViewSizes() {
 	}
 	if a.networkDetailsView != nil {
 		a.networkDetailsView.SetContext(a.ctx)
+	}
+	if a.firewallsView != nil {
+		a.firewallsView.SetContext(a.ctx)
+	}
+	if a.firewallDetailsView != nil {
+		a.firewallDetailsView.SetContext(a.ctx)
 	}
 }
 
