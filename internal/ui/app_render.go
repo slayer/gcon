@@ -29,7 +29,7 @@ func (a *App) renderHeader() string {
 			category = "Compute Engine"
 		case ViewBuckets, ViewObjects, ViewObjectDetails:
 			category = "Cloud Storage"
-		case ViewNetworks, ViewFirewall:
+		case ViewNetworks, ViewNetworkDetails, ViewFirewall:
 			category = "VPC Network"
 		}
 	}
@@ -89,6 +89,10 @@ func (a *App) renderHeader() string {
 		// Show instance name and "Edit Labels" when editing
 		if a.selectedInstance != nil {
 			resources = append(resources, a.selectedInstance.Name, "Edit Labels")
+		}
+	case ViewNetworkDetails:
+		if a.selectedNetwork != nil {
+			resources = append(resources, a.selectedNetwork.Name)
 		}
 	}
 	a.header.SetResources(resources)
@@ -185,6 +189,10 @@ func (a *App) renderCurrentView() string {
 	case ViewNetworks:
 		if a.networksView != nil {
 			return a.networksView.View()
+		}
+	case ViewNetworkDetails:
+		if a.networkDetailsView != nil {
+			return a.networkDetailsView.View()
 		}
 	case ViewFirewall:
 		return a.renderPlaceholder("Firewall Rules")
