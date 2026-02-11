@@ -47,6 +47,7 @@ const (
 	ViewImageCreate    // Creating an image from a disk
 	ViewDiskCreate     // Creating a disk from a snapshot
 	ViewNetworks
+	ViewNetworkDetails
 	ViewFirewall
 	ViewLogs
 	ViewFormDemo // Demo view for testing form components
@@ -94,6 +95,7 @@ type App struct {
 	imageCreateView     *views.ImageCreateView
 	diskCreateView      *views.DiskCreateView
 	networksView        *views.NetworksView
+	networkDetailsView  *views.NetworkDetailsView
 	formDemoView        *views.FormDemoView
 
 	// Selected context
@@ -104,6 +106,7 @@ type App struct {
 	selectedImage    *gcp.Image
 	selectedBucket  *gcp.Bucket
 	selectedObject  *gcp.StorageObject
+	selectedNetwork *gcp.Network
 
 	// UI state
 	showHelp              bool
@@ -328,6 +331,8 @@ func (a *App) getCurrentViewModel() views.View {
 		return a.diskCreateView
 	case ViewNetworks:
 		return a.networksView
+	case ViewNetworkDetails:
+		return a.networkDetailsView
 	case ViewFormDemo:
 		return a.formDemoView
 	}
@@ -441,6 +446,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case ViewObjectDetails:
 					a.objectDetailsView = nil
 					a.selectedObject = nil
+				case ViewNetworkDetails:
+					a.networkDetailsView = nil
+					a.selectedNetwork = nil
 				}
 
 				a.updateSidebarActiveView()
@@ -730,6 +738,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
 		return a, a.handleCreateDiskFromImage(msg)
 
+	case views.NetworkSelectedMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleNetworkSelected(msg)
+
 	case views.DeleteInstanceConfirmedMsg:
 		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
 		return a, a.handleDeleteInstanceConfirmed(msg)
@@ -919,6 +931,9 @@ func (a *App) updateViewSizes() {
 	}
 	if a.networksView != nil {
 		a.networksView.SetContext(a.ctx)
+	}
+	if a.networkDetailsView != nil {
+		a.networkDetailsView.SetContext(a.ctx)
 	}
 }
 

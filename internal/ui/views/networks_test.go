@@ -108,3 +108,35 @@ func TestNetworkToRow_FilterValue(t *testing.T) {
 	assert.Contains(t, row.FilterValue, "Auto")
 	assert.Contains(t, row.FilterValue, "GLOBAL")
 }
+
+func TestNetworksView_FindNetworkByID(t *testing.T) {
+	v := NewNetworksView("test-project")
+	v.networks = []gcp.Network{
+		{Name: "default", ID: 1},
+		{Name: "custom-vpc", ID: 2},
+	}
+
+	// Found
+	network, ok := v.findNetworkByID("custom-vpc")
+	assert.True(t, ok)
+	assert.Equal(t, "custom-vpc", network.Name)
+
+	// Not found
+	_, ok = v.findNetworkByID("nonexistent")
+	assert.False(t, ok)
+}
+
+func TestNetworksView_HelpTextIncludesEnter(t *testing.T) {
+	v := NewNetworksView("test-project")
+	v.loading = false
+	v.networks = []gcp.Network{{Name: "default"}}
+
+	rows := []table.Row{networkToRow(v.networks[0])}
+	v.table.SetRows(rows)
+
+	ctx := &context.ProgramContext{ContentWidth: 100, ContentHeight: 40}
+	v.SetContext(ctx)
+
+	output := v.View()
+	assert.Contains(t, output, "enter: details")
+}

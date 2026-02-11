@@ -225,7 +225,7 @@ func (a *App) handleSidebarNavigation(msg sidebar.NavigateMsg) tea.Cmd {
 			}
 		}
 	case sidebar.ViewNetworks:
-		if a.currentView != ViewNetworks {
+		if a.currentView != ViewNetworks && a.currentView != ViewNetworkDetails {
 			a.currentView = ViewNetworks
 			if a.networksView == nil {
 				a.networksView = views.NewNetworksView(a.selectedProject.ID)
@@ -265,7 +265,7 @@ func (a *App) updateSidebarActiveView() {
 		a.sidebar.SetActiveView(sidebar.ViewImages)
 	case ViewBuckets, ViewObjects, ViewObjectDetails:
 		a.sidebar.SetActiveView(sidebar.ViewBuckets)
-	case ViewNetworks:
+	case ViewNetworks, ViewNetworkDetails:
 		a.sidebar.SetActiveView(sidebar.ViewNetworks)
 	case ViewFirewall:
 		a.sidebar.SetActiveView(sidebar.ViewFirewall)
@@ -554,6 +554,7 @@ func (a *App) clearAllViews() {
 	a.imageCreateView = nil
 	a.diskCreateView = nil
 	a.networksView = nil
+	a.networkDetailsView = nil
 	a.formDemoView = nil
 
 	// Clear view stack
@@ -566,6 +567,7 @@ func (a *App) clearAllViews() {
 	a.selectedImage = nil
 	a.selectedBucket = nil
 	a.selectedObject = nil
+	a.selectedNetwork = nil
 }
 
 // reloadCurrentView recreates or switches views for the new project ID.
@@ -612,7 +614,8 @@ func (a *App) reloadCurrentView(projectID string) tea.Cmd {
 		a.updateViewSizes()
 		return a.bucketsView.Init()
 
-	case ViewNetworks:
+	case ViewNetworks, ViewNetworkDetails:
+		// Return to networks list on project switch
 		a.currentView = ViewNetworks
 		a.networksView = views.NewNetworksView(projectID)
 		a.updateSidebarActiveView()
@@ -650,6 +653,28 @@ func (a *App) reloadCurrentView(projectID string) tea.Cmd {
 		a.updateViewSizes()
 		return a.instancesView.Init()
 	}
+}
+
+// handleNetworkSelected processes network selection and navigates to details view
+//
+//nolint:gocritic // hugeParam: message struct passed by value
+func (a *App) handleNetworkSelected(msg views.NetworkSelectedMsg) tea.Cmd {
+	network := msg.Network
+	a.selectedNetwork = &network
+	// Track recent network access
+	a.recentTracker.Track("network", network.Name, network.Name)
+	// Push current view onto stack for back navigation
+	a.viewStack = append(a.viewStack, a.currentView)
+	a.currentView = ViewNetworkDetails
+	// Pass compute client from networks view to avoid re-initialization
+	a.networkDetailsView = views.NewNetworkDetailsView(
+		a.selectedProject.ID,
+		network.Name,
+		a.networksView.GetComputeClient(),
+	)
+	a.updateSidebarActiveView()
+	a.updateViewSizes()
+	return a.networkDetailsView.Init()
 }
 
 // handleInstanceEditRequest processes request to open instance editor
