@@ -229,6 +229,10 @@ On developing or updating a new feature keep in mind the following guidelines:
   - Enable/disable firewall rules
   - Delete firewall rules with confirmation
   - Navigate to associated VPC network
+- [x] Table enhancements
+  - Column sorting via popup sort menu (`S` key) with numeric-aware comparison
+  - Field-based filtering (`field:value` syntax, e.g. `status:running zone:us`)
+  - Infinite scroll for Objects view (replaces page navigation)
 
 ## Planned Features
 - [ ] Subnets list and management

@@ -6,7 +6,6 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
-	btable "github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
@@ -87,21 +86,21 @@ func defaultSnapshotKeyMap() snapshotKeyMap {
 }
 
 // Table column definitions
-func snapshotColumns() []btable.Column {
-	return []btable.Column{
-		{Title: "Name", Width: 28},
+func snapshotColumns() []table.Column {
+	return []table.Column{
+		{Title: "Name", Width: 28, Grow: true, Sortable: true},
 		{Title: "Source Disk", Width: 22},
-		{Title: "Size", Width: 10},
+		{Title: "Size", Width: 10, Sortable: true},
 		{Title: "Location", Width: 15},
-		{Title: "Created", Width: 20},
-		{Title: "Status", Width: 12},
+		{Title: "Created", Width: 20, Sortable: true},
+		{Title: "Status", Width: 12, Sortable: true},
 	}
 }
 
 // NewSnapshotsView creates a new snapshots view with table display
 func NewSnapshotsView(projectID string) *SnapshotsView {
 	title := fmt.Sprintf("Disk Snapshots - %s", projectID)
-	t := table.New(snapshotColumns(), title)
+	t := table.NewWithColumns(snapshotColumns(), title)
 
 	s := components.NewGCPSpinner()
 
@@ -305,6 +304,13 @@ func (v *SnapshotsView) Update(msg tea.Msg) tea.Cmd {
 			return nil
 		}
 
+		// Delegate to table when sort menu is open
+		if v.table.IsSortMenuOpen() {
+			var cmd tea.Cmd
+			v.table, cmd = v.table.Update(msg)
+			return cmd
+		}
+
 		// Let table handle filtering mode
 		if v.table.IsFiltering() {
 			var cmd tea.Cmd
@@ -495,7 +501,7 @@ func (v *SnapshotsView) View() string {
 
 	// Help text for actions
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
-	help := helpStyle.Render("\n  enter: details • .: actions • c: create disk • i: create image • D: delete • /: filter • r: refresh • esc: back")
+	help := helpStyle.Render("\n  enter: details • .: actions • c: create disk • i: create image • D: delete • S: sort • /: filter • r: refresh • esc: back")
 
 	mainContent := v.table.View() + help
 

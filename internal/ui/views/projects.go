@@ -6,7 +6,6 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
-	btable "github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
@@ -36,10 +35,10 @@ func defaultProjectKeyMap() projectKeyMap {
 }
 
 // Table column definitions for projects
-func projectColumns() []btable.Column {
-	return []btable.Column{
-		{Title: "Name", Width: 35},
-		{Title: "Project ID", Width: 35},
+func projectColumns() []table.Column {
+	return []table.Column{
+		{Title: "Name", Width: 35, Grow: true, Sortable: true},
+		{Title: "Project ID", Width: 35, Sortable: true},
 		{Title: "State", Width: 15},
 	}
 }
@@ -59,7 +58,7 @@ type ProjectsView struct {
 
 // NewProjectsView creates a new projects view with table display
 func NewProjectsView(client *gcp.Client) *ProjectsView {
-	t := table.New(projectColumns(), "Select Project")
+	t := table.NewWithColumns(projectColumns(), "Select Project")
 
 	s := components.NewGCPSpinner()
 
@@ -171,6 +170,13 @@ func (v *ProjectsView) Update(msg tea.Msg) tea.Cmd {
 			return nil
 		}
 
+		// Delegate to table when sort menu is open
+		if v.table.IsSortMenuOpen() {
+			var cmd tea.Cmd
+			v.table, cmd = v.table.Update(msg)
+			return cmd
+		}
+
 		// Let table handle filtering mode
 		if v.table.IsFiltering() {
 			var cmd tea.Cmd
@@ -233,7 +239,7 @@ func (v *ProjectsView) View() string {
 
 	// Help text
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
-	help := helpStyle.Render("\n  enter: select • /: filter • r: refresh • q: quit")
+	help := helpStyle.Render("\n  enter: select • S: sort • /: filter • r: refresh • q: quit")
 
 	return v.table.View() + help
 }

@@ -7,7 +7,6 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
-	btable "github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
@@ -82,15 +81,15 @@ func defaultFirewallKeyMap() firewallKeyMap {
 }
 
 // Table column definitions
-func firewallColumns() []btable.Column {
-	return []btable.Column{
-		{Title: "Name", Width: 25},
-		{Title: "Direction", Width: 10},
-		{Title: "Priority", Width: 8},
-		{Title: "Action", Width: 8},
+func firewallColumns() []table.Column {
+	return []table.Column{
+		{Title: "Name", Width: 25, Grow: true, Sortable: true},
+		{Title: "Direction", Width: 10, Sortable: true},
+		{Title: "Priority", Width: 8, Sortable: true},
+		{Title: "Action", Width: 8, Sortable: true},
 		{Title: "Protocols", Width: 25},
 		{Title: "Network", Width: 15},
-		{Title: "Status", Width: 8},
+		{Title: "Status", Width: 8, Sortable: true},
 	}
 }
 
@@ -102,7 +101,7 @@ type firewallsErrorMsg struct{ err error }
 // NewFirewallsView creates a new firewall rules view with table display
 func NewFirewallsView(projectID string) *FirewallsView {
 	title := fmt.Sprintf("Firewall Rules - %s", projectID)
-	t := table.New(firewallColumns(), title)
+	t := table.NewWithColumns(firewallColumns(), title)
 
 	s := components.NewGCPSpinner()
 
@@ -253,6 +252,13 @@ func (v *FirewallsView) Update(msg tea.Msg) tea.Cmd {
 			return v.actionMenu.Update(msg)
 		}
 
+		// Delegate to table when sort menu is open
+		if v.table.IsSortMenuOpen() {
+			var cmd tea.Cmd
+			v.table, cmd = v.table.Update(msg)
+			return cmd
+		}
+
 		// Let table handle filtering mode
 		if v.table.IsFiltering() {
 			var cmd tea.Cmd
@@ -397,7 +403,7 @@ func (v *FirewallsView) View() string {
 	}
 
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
-	help := helpStyle.Render("\n  enter: details • .: actions • t: enable/disable • D: delete • /: filter • r: refresh • esc: back")
+	help := helpStyle.Render("\n  enter: details • .: actions • t: enable/disable • D: delete • S: sort • /: filter • r: refresh • esc: back")
 
 	mainContent := v.table.View() + help
 
