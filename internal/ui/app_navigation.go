@@ -1613,15 +1613,21 @@ func (a *App) handleFirewallActionResult(msg views.FirewallActionResultMsg) tea.
 		}
 	}
 
-	// On successful enable/disable, refresh both views
+	// On successful enable/disable, refresh both views so list stays in sync
 	if msg.Action == "enable" || msg.Action == "disable" {
-		// Refresh details view if active
+		var cmds []tea.Cmd
 		if a.currentView == ViewFirewallDetails && a.firewallDetailsView != nil {
-			return a.firewallDetailsView.Init()
+			if cmd := a.firewallDetailsView.Init(); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 		}
-		// Refresh list view
 		if a.firewallsView != nil {
-			return a.firewallsView.Init()
+			if cmd := a.firewallsView.Init(); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+		if len(cmds) > 0 {
+			return tea.Batch(cmds...)
 		}
 	}
 
