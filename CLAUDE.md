@@ -223,9 +223,14 @@ On developing or updating a new feature keep in mind the following guidelines:
   - Reloads all views when switching projects
 - [x] VPC Networks list view
 - [x] VPC Network details view with tabs (Details/Subnets)
+- [x] Firewall rules list and details view
+  - List firewall rules with direction, priority, action, protocols, status
+  - View rule details with allowed/denied entries, source/destination ranges
+  - Enable/disable firewall rules
+  - Delete firewall rules with confirmation
+  - Navigate to associated VPC network
 
 ## Planned Features
-- [ ] Firewall rules list and management
 - [ ] Subnets list and management
 - [ ] Disk image deletion with confirmation
 - [ ] Disk image creation from disks/snapshots

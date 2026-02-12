@@ -98,9 +98,24 @@
   - View object details and metadata
   - Pagination for large buckets
 
+#### VPC Networking
+- 🌐 **VPC Network Management**
+  - List all VPC networks with subnet counts and routing mode
+  - View network details (MTU, routing mode, subnet mode, peerings)
+  - IPv6 configuration and ULA range information
+  - Browse subnets within each network with IP ranges and regions
+  - Navigate between related network resources
+
+- 🔥 **Firewall Rules**
+  - List all firewall rules with direction, priority, action, protocols, and status
+  - View detailed rule information (allowed/denied entries, source/destination ranges, tags)
+  - Enable and disable firewall rules
+  - Delete rules with type-to-confirm dialogs
+  - Navigate to associated VPC networks from rule details
+
 #### User Interface & Navigation
 - 🎯 **Command Palette** - Quick access to all actions with fuzzy search (`:` or `Ctrl+K`)
-- 📂 **Sidebar Navigation** - Persistent sidebar with resource categories
+- 📂 **Sidebar Navigation** - Collapsible sidebar with auto-hide mode and resource categories
 - 🍞 **Breadcrumb Navigation** - Always know where you are in the resource hierarchy
 - 📜 **Recent Items** - Quick access to recently viewed resources
 - ⌨️ **Keyboard Shortcuts** - Vim-style navigation throughout the interface
@@ -130,7 +145,7 @@ The following features are planned for future releases:
   - Role assignments
 - [ ] **Cloud SQL** - Database instance management
 - [ ] **Cloud Functions** - Function deployment and monitoring
-- [ ] **VPC Networks** - Network topology and firewall rules
+- [ ] **Subnets** - Standalone subnet list and management
 - [ ] **Load Balancers** - Load balancer configuration and health
 - [ ] **Cost Explorer** - Resource cost analysis and budgets
 
@@ -305,6 +320,51 @@ Once launched, gcon presents an intuitive interface with:
 | `p` | Previous Page | Navigate to previous page |
 | `Backspace` | Go Up | Go to parent folder |
 
+#### VPC Networks
+
+| Key | Action | Description |
+|-----|--------|-------------|
+| `Enter` | View Details | Show detailed network information |
+| `/` | Filter | Filter networks by name |
+| `r` | Refresh | Reload network list |
+| `Esc` | Go Back | Return to previous view |
+
+#### VPC Network Details
+
+| Key | Action | Description |
+|-----|--------|-------------|
+| `.` | Action Menu | Open context-sensitive action menu |
+| `r` | Refresh | Refresh network details and subnets |
+| `Tab` | Switch Focus | Switch focus between tabs, links, and content |
+| `h`/`l` or `1`/`2` | Switch Tabs | Switch between Details and Subnets tabs |
+| `j`/`k` or `↓`/`↑` | Navigate | Navigate subnet links or scroll content |
+| `Esc` | Go Back | Return to networks list |
+
+#### Firewall Rules
+
+| Key | Action | Description |
+|-----|--------|-------------|
+| `Enter` | View Details | Show detailed firewall rule information |
+| `.` | Action Menu | Open context-sensitive action menu |
+| `t` | Toggle | Enable or disable firewall rule |
+| `D` | Delete | Delete firewall rule (with confirmation) |
+| `/` | Filter | Filter rules by name, direction, network |
+| `r` | Refresh | Reload firewall rules list |
+| `Esc` | Go Back | Return to previous view |
+
+#### Firewall Rule Details
+
+| Key | Action | Description |
+|-----|--------|-------------|
+| `.` | Action Menu | Open context-sensitive action menu |
+| `t` | Toggle | Enable or disable firewall rule |
+| `D` | Delete | Delete firewall rule (with confirmation) |
+| `r` | Refresh | Refresh rule details |
+| `Tab` | Switch Focus | Switch focus between tabs, links, and content |
+| `h`/`l` or `1`/`2` | Switch Tabs | Switch between Details and Rules tabs |
+| `Enter` | Navigate | Navigate to associated VPC network |
+| `Esc` | Go Back | Return to firewall rules list |
+
 #### Label & Metadata Editors
 
 | Key | Action | Description |
@@ -388,7 +448,9 @@ gcon/
 │   │   ├── storage.go     # Cloud Storage operations
 │   │   ├── monitoring.go  # Cloud Monitoring (metrics)
 │   │   ├── logging.go     # Cloud Logging
-│   │   └── metadata.go    # Metadata and labels
+│   │   ├── metadata.go    # Metadata and labels
+│   │   ├── networks.go    # VPC Networks and subnets
+│   │   └── firewalls.go   # Firewall rules
 │   └── ui/
 │       ├── app.go         # Main application controller
 │       ├── keys.go        # Global key bindings
@@ -405,7 +467,11 @@ gcon/
 │           ├── snapshots.go
 │           ├── images.go
 │           ├── buckets.go
-│           └── objects.go
+│           ├── objects.go
+│           ├── networks.go
+│           ├── network_details.go
+│           ├── firewalls.go
+│           └── firewall_details.go
 ├── doc/                   # Feature documentation
 ├── Makefile
 └── README.md
