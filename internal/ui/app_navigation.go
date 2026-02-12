@@ -234,8 +234,16 @@ func (a *App) handleSidebarNavigation(msg sidebar.NavigateMsg) tea.Cmd {
 			}
 		}
 	case sidebar.ViewFirewall:
-		a.currentView = ViewFirewall
-		// Placeholder - view not implemented yet
+		if a.currentView != ViewFirewall && a.currentView != ViewFirewallDetails {
+			a.currentView = ViewFirewall
+			a.firewallDetailsView = nil
+			a.selectedFirewall = nil
+			if a.firewallsView == nil {
+				a.firewallsView = views.NewFirewallsView(a.selectedProject.ID)
+				a.updateViewSizes()
+				cmd = a.firewallsView.Init()
+			}
+		}
 	}
 
 	a.updateSidebarActiveView()
@@ -267,7 +275,7 @@ func (a *App) updateSidebarActiveView() {
 		a.sidebar.SetActiveView(sidebar.ViewBuckets)
 	case ViewNetworks, ViewNetworkDetails:
 		a.sidebar.SetActiveView(sidebar.ViewNetworks)
-	case ViewFirewall:
+	case ViewFirewall, ViewFirewallDetails:
 		a.sidebar.SetActiveView(sidebar.ViewFirewall)
 	}
 }
@@ -555,6 +563,8 @@ func (a *App) clearAllViews() {
 	a.diskCreateView = nil
 	a.networksView = nil
 	a.networkDetailsView = nil
+	a.firewallsView = nil
+	a.firewallDetailsView = nil
 	a.formDemoView = nil
 
 	// Clear view stack
@@ -568,6 +578,7 @@ func (a *App) clearAllViews() {
 	a.selectedBucket = nil
 	a.selectedObject = nil
 	a.selectedNetwork = nil
+	a.selectedFirewall = nil
 }
 
 // reloadCurrentView recreates or switches views for the new project ID.
@@ -622,6 +633,14 @@ func (a *App) reloadCurrentView(projectID string) tea.Cmd {
 		a.updateViewSizes()
 		return a.networksView.Init()
 
+	case ViewFirewall, ViewFirewallDetails:
+		// Return to firewalls list on project switch
+		a.currentView = ViewFirewall
+		a.firewallsView = views.NewFirewallsView(projectID)
+		a.updateSidebarActiveView()
+		a.updateViewSizes()
+		return a.firewallsView.Init()
+
 	case ViewProjectMetadata:
 		// Reload metadata view
 		a.currentView = ViewProjectMetadata
@@ -666,11 +685,17 @@ func (a *App) handleNetworkSelected(msg views.NetworkSelectedMsg) tea.Cmd {
 	// Push current view onto stack for back navigation
 	a.viewStack = append(a.viewStack, a.currentView)
 	a.currentView = ViewNetworkDetails
-	// Pass compute client from networks view to avoid re-initialization
+	// Reuse compute client from whichever view emitted the message
+	var computeClient *gcp.ComputeClient
+	if a.networksView != nil {
+		computeClient = a.networksView.GetComputeClient()
+	} else if a.firewallDetailsView != nil {
+		computeClient = a.firewallDetailsView.GetComputeClient()
+	}
 	a.networkDetailsView = views.NewNetworkDetailsView(
 		a.selectedProject.ID,
 		network.Name,
-		a.networksView.GetComputeClient(),
+		computeClient,
 	)
 	a.updateSidebarActiveView()
 	a.updateViewSizes()
@@ -1468,6 +1493,145 @@ func (a *App) handleCreateDiskFromImage(msg views.CreateDiskFromImageMsg) tea.Cm
 			Error:   err,
 		}
 	}
+}
+
+// handleFirewallSelected processes firewall rule selection and navigates to details view
+//
+//nolint:gocritic // hugeParam: message struct passed by value
+func (a *App) handleFirewallSelected(msg views.FirewallSelectedMsg) tea.Cmd {
+	fw := msg.Firewall
+	a.selectedFirewall = &fw
+	// Track recent firewall access
+	a.recentTracker.Track("firewall", fw.Name, fw.Name)
+	// Push current view onto stack for back navigation
+	a.viewStack = append(a.viewStack, a.currentView)
+	a.currentView = ViewFirewallDetails
+
+	// Pass compute client from firewalls view to avoid re-initialization
+	var computeClient *gcp.ComputeClient
+	if a.firewallsView != nil {
+		computeClient = a.firewallsView.GetComputeClient()
+	}
+
+	a.firewallDetailsView = views.NewFirewallDetailsView(
+		a.selectedProject.ID,
+		fw.Name,
+		computeClient,
+	)
+	a.updateSidebarActiveView()
+	a.updateViewSizes()
+	return a.firewallDetailsView.Init()
+}
+
+// handleDeleteFirewallConfirmed processes confirmed firewall rule deletion
+func (a *App) handleDeleteFirewallConfirmed(msg views.DeleteFirewallConfirmedMsg) tea.Cmd {
+	// Get compute client from the appropriate view
+	var computeClient *gcp.ComputeClient
+	if a.firewallsView != nil {
+		computeClient = a.firewallsView.GetComputeClient()
+	} else if a.firewallDetailsView != nil {
+		computeClient = a.firewallDetailsView.GetComputeClient()
+	}
+
+	if computeClient == nil || a.selectedProject == nil {
+		return nil
+	}
+
+	projectID := a.selectedProject.ID
+	ruleName := msg.RuleName
+
+	return func() tea.Msg {
+		err := computeClient.DeleteFirewallRule(gocontext.Background(), projectID, ruleName)
+		return views.FirewallActionResultMsg{
+			Action:  "delete",
+			Success: err == nil,
+			Error:   err,
+		}
+	}
+}
+
+// handleToggleFirewall processes firewall enable/disable toggle
+func (a *App) handleToggleFirewall(msg views.ToggleFirewallMsg) tea.Cmd {
+	// Get compute client from the appropriate view
+	var computeClient *gcp.ComputeClient
+	if a.firewallsView != nil {
+		computeClient = a.firewallsView.GetComputeClient()
+	} else if a.firewallDetailsView != nil {
+		computeClient = a.firewallDetailsView.GetComputeClient()
+	}
+
+	if computeClient == nil || a.selectedProject == nil {
+		return nil
+	}
+
+	projectID := a.selectedProject.ID
+	ruleName := msg.RuleName
+	disable := msg.Disable
+
+	action := "enable"
+	if disable {
+		action = "disable"
+	}
+
+	return func() tea.Msg {
+		err := computeClient.SetFirewallRuleDisabled(gocontext.Background(), projectID, ruleName, disable)
+		return views.FirewallActionResultMsg{
+			Action:  action,
+			Success: err == nil,
+			Error:   err,
+		}
+	}
+}
+
+// handleFirewallActionResult processes the result of a firewall action
+func (a *App) handleFirewallActionResult(msg views.FirewallActionResultMsg) tea.Cmd {
+	if msg.Error != nil {
+		a.err = msg.Error
+		return nil
+	}
+
+	// On successful delete, navigate back to firewalls list and refresh
+	if msg.Action == "delete" {
+		if a.currentView == ViewFirewallDetails {
+			// Pop back to firewalls view
+			if len(a.viewStack) > 0 {
+				lastViewIndex := len(a.viewStack) - 1
+				a.currentView = a.viewStack[lastViewIndex]
+				a.viewStack = a.viewStack[:lastViewIndex]
+			}
+
+			// Clean up firewall details view
+			a.firewallDetailsView = nil
+			a.selectedFirewall = nil
+
+			a.updateSidebarActiveView()
+		}
+
+		// Refresh firewalls list
+		if a.firewallsView != nil {
+			return a.firewallsView.Init()
+		}
+	}
+
+	// On successful enable/disable, refresh both views so list stays in sync
+	if msg.Action == "enable" || msg.Action == "disable" {
+		var cmds []tea.Cmd
+		if a.currentView == ViewFirewallDetails && a.firewallDetailsView != nil {
+			if cmd := a.firewallDetailsView.Init(); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+		if a.firewallsView != nil {
+			if cmd := a.firewallsView.Init(); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+		if len(cmds) > 0 {
+			return tea.Batch(cmds...)
+		}
+	}
+
+	return nil
 }
 
 // handleDeleteInstanceConfirmed processes confirmed instance deletion

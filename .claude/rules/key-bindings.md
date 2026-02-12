@@ -216,6 +216,31 @@ description: Keyboard shortcuts reference for all views
 | `j/k` or `↓/↑` | Navigate subnet links or scroll content |
 | `Esc` | Go back |
 
+## Firewalls View
+
+| Key | Action |
+|-----|--------|
+| `Enter` | View firewall rule details |
+| `.` | Open action menu |
+| `t` | Enable/disable firewall rule |
+| `D` | Delete firewall rule (with confirmation) |
+| `/` | Filter rules |
+| `r` | Refresh list |
+| `Esc` | Go back |
+
+## Firewall Details View
+
+| Key | Action |
+|-----|--------|
+| `.` | Open action menu |
+| `t` | Enable/disable firewall rule |
+| `D` | Delete firewall rule (with confirmation) |
+| `r` | Refresh details |
+| `Tab` | Switch focus (tabs/links/content) |
+| `h/l` or `1/2` | Switch tabs (Details/Rules) |
+| `Enter` | Navigate to VPC network (when link focused) |
+| `Esc` | Go back |
+
 ## Object Details View
 
 | Key | Action |
