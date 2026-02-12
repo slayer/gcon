@@ -1691,3 +1691,4 @@ func (v *ObjectsView) IsMenuOpen() bool {
 func (v *ObjectsView) GetStorageClient() *gcp.StorageClient {
 	return v.storageClient
 }
+

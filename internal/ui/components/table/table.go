@@ -656,6 +656,21 @@ func (m *Model) checkNearBottom() tea.Cmd {
 	return nil
 }
 
+// ScrollPercent returns 0.0–1.0 based on cursor position within all rows.
+// First item = 0%, last item = 100%. Returns 0 when all rows fit on screen.
+func (m *Model) ScrollPercent() float64 {
+	total := len(m.rows)
+	if total <= 1 || total <= m.table.Height() {
+		return 0
+	}
+	return float64(m.table.Cursor()) / float64(total-1)
+}
+
+// IsScrollable returns true when total rows exceed visible height.
+func (m *Model) IsScrollable() bool {
+	return len(m.rows) > m.table.Height()
+}
+
 // SelectedRow returns the currently selected row, or nil if none
 func (m *Model) SelectedRow() *Row {
 	cursor := m.table.Cursor()
@@ -1130,28 +1145,34 @@ func (m Model) View() string {
 	}
 
 	// Table
-	b.WriteString(m.table.View())
+	tableView := m.table.View()
+	b.WriteString(tableView)
 
-	// Status bar
-	statusStyle := lipgloss.NewStyle().
-		Foreground(ColorMuted).
-		MarginTop(1)
+	// Status bar: item count on left, scroll % right-aligned
+	statusStyle := lipgloss.NewStyle().Foreground(ColorMuted)
 
-	var status string
+	leftText := m.statusText()
 	if m.filter.Value() != "" {
-		status = lipgloss.NewStyle().Render(
-			statusStyle.Render(
-				strings.Join([]string{
-					m.statusText(),
-					"(filtered)",
-				}, " "),
-			),
-		)
-	} else {
-		status = statusStyle.Render(m.statusText())
+		leftText += " (filtered)"
 	}
+
 	b.WriteString("\n")
-	b.WriteString(status)
+	if m.IsScrollable() {
+		scrollStyle := lipgloss.NewStyle().Foreground(ColorPrimary)
+		rightText := fmt.Sprintf("%.0f%%", m.ScrollPercent()*100)
+
+		// Use actual rendered table width so the status bar aligns with the table
+		lineWidth := lipgloss.Width(strings.SplitN(tableView, "\n", 2)[0])
+		gap := lineWidth - len(leftText) - len(rightText)
+		if gap < 1 {
+			gap = 1
+		}
+		b.WriteString(statusStyle.Render(leftText))
+		b.WriteString(strings.Repeat(" ", gap))
+		b.WriteString(scrollStyle.Render(rightText))
+	} else {
+		b.WriteString(statusStyle.Render(leftText))
+	}
 
 	content := b.String()
 

@@ -265,3 +265,4 @@ func (v *ProjectsView) SelectedProject() *gcp.Project {
 func (v *ProjectsView) HasTextInputFocused() bool {
 	return v.table.HasTextInputFocused()
 }
+

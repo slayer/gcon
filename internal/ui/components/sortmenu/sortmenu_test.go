@@ -26,7 +26,7 @@ func TestNew(t *testing.T) {
 
 func TestNew_CursorOnActiveColumn(t *testing.T) {
 	m := New(testColumns(), 2, true) // Size is active
-	assert.Equal(t, 2, m.cursor)    // Cursor should be on Size (index 2)
+	assert.Equal(t, 2, m.cursor)     // Cursor should be on Size (index 2)
 }
 
 func TestNavigation(t *testing.T) {

@@ -272,3 +272,4 @@ func (v *NetworksView) SetContext(ctx *context.ProgramContext) {
 	v.height = ctx.ContentHeight
 	v.table.SetSize(ctx.ContentWidth, ctx.ContentHeight-6)
 }
+

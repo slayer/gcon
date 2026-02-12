@@ -87,8 +87,8 @@ func TestParseFilter_MultipleFieldFilters(t *testing.T) {
 	spec := m.parseFilter("zone:us status:running")
 
 	require.Len(t, spec.fieldFilters, 2)
-	assert.Equal(t, "us", spec.fieldFilters[1])       // Zone is visible column index 1
-	assert.Equal(t, "running", spec.fieldFilters[2])   // Status is visible column index 2
+	assert.Equal(t, "us", spec.fieldFilters[1])      // Zone is visible column index 1
+	assert.Equal(t, "running", spec.fieldFilters[2]) // Status is visible column index 2
 	assert.Empty(t, spec.freeText)
 }
 
