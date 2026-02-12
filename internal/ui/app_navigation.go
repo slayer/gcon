@@ -685,11 +685,17 @@ func (a *App) handleNetworkSelected(msg views.NetworkSelectedMsg) tea.Cmd {
 	// Push current view onto stack for back navigation
 	a.viewStack = append(a.viewStack, a.currentView)
 	a.currentView = ViewNetworkDetails
-	// Pass compute client from networks view to avoid re-initialization
+	// Reuse compute client from whichever view emitted the message
+	var computeClient *gcp.ComputeClient
+	if a.networksView != nil {
+		computeClient = a.networksView.GetComputeClient()
+	} else if a.firewallDetailsView != nil {
+		computeClient = a.firewallDetailsView.GetComputeClient()
+	}
 	a.networkDetailsView = views.NewNetworkDetailsView(
 		a.selectedProject.ID,
 		network.Name,
-		a.networksView.GetComputeClient(),
+		computeClient,
 	)
 	a.updateSidebarActiveView()
 	a.updateViewSizes()
