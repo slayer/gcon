@@ -20,9 +20,10 @@ type DeleteSQLInstanceConfirmedMsg struct {
 
 // SQLInstanceActionResultMsg reports the result of an async SQL instance operation
 type SQLInstanceActionResultMsg struct {
-	Action  string // "start", "stop", "restart", "delete"
-	Success bool
-	Error   error
+	InstanceName string
+	Action       string // "start", "stop", "restart", "delete"
+	Success      bool
+	Error        error
 }
 
 // CreateSQLBackupMsg is sent when user requests an on-demand backup

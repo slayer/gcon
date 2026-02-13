@@ -8,6 +8,7 @@ import (
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/sidebar"
+	"github.com/slayer/gcon/internal/ui/context"
 	"github.com/slayer/gcon/internal/ui/views"
 )
 
@@ -1767,7 +1768,15 @@ func (a *App) handleSQLInstanceAction(msg views.SQLInstanceActionMsg) tea.Cmd {
 	instanceName := msg.InstanceName
 	action := msg.Action
 
-	return func() tea.Msg {
+	// Show progress in footer status bar
+	taskID := "sql-" + action + "-" + instanceName
+	actionLabels := map[string]string{"start": "Starting", "stop": "Stopping", "restart": "Restarting"}
+	taskCmd := a.startTask(context.Task{
+		ID:          taskID,
+		Description: actionLabels[action] + " " + instanceName + "...",
+	})
+
+	apiCmd := func() tea.Msg {
 		var err error
 		switch action {
 		case "start":
@@ -1778,11 +1787,14 @@ func (a *App) handleSQLInstanceAction(msg views.SQLInstanceActionMsg) tea.Cmd {
 			err = sqlClient.RestartInstance(gocontext.Background(), projectID, instanceName)
 		}
 		return views.SQLInstanceActionResultMsg{
-			Action:  action,
-			Success: err == nil,
-			Error:   err,
+			InstanceName: instanceName,
+			Action:       action,
+			Success:      err == nil,
+			Error:        err,
 		}
 	}
+
+	return tea.Batch(taskCmd, apiCmd)
 }
 
 // handleDeleteSQLInstanceConfirmed processes confirmed SQL instance deletion
@@ -1805,15 +1817,20 @@ func (a *App) handleDeleteSQLInstanceConfirmed(msg views.DeleteSQLInstanceConfir
 	return func() tea.Msg {
 		err := sqlClient.DeleteInstance(gocontext.Background(), projectID, instanceName)
 		return views.SQLInstanceActionResultMsg{
-			Action:  "delete",
-			Success: err == nil,
-			Error:   err,
+			InstanceName: instanceName,
+			Action:       "delete",
+			Success:      err == nil,
+			Error:        err,
 		}
 	}
 }
 
 // handleSQLInstanceActionResult processes the result of a SQL instance action
 func (a *App) handleSQLInstanceActionResult(msg views.SQLInstanceActionResultMsg) tea.Cmd {
+	// Clear the progress task from status bar
+	taskID := "sql-" + msg.Action + "-" + msg.InstanceName
+	delete(a.ctx.Tasks, taskID)
+
 	if msg.Error != nil {
 		a.err = msg.Error
 		return nil

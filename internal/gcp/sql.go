@@ -124,11 +124,14 @@ func (c *SQLClient) GetInstance(ctx context.Context, projectID, instanceName str
 	return sqlInstanceDetailsFromAPI(inst), nil
 }
 
-// StartInstance starts a stopped Cloud SQL instance by setting activation policy to ALWAYS
+// StartInstance starts a stopped Cloud SQL instance by setting activation policy to ALWAYS.
+// ForceSendFields ensures only ActivationPolicy is sent — without it, the Patch sends
+// zero-value Settings fields that GCP rejects as unauthorized property changes.
 func (c *SQLClient) StartInstance(ctx context.Context, projectID, instanceName string) error {
 	_, err := c.service.Instances.Patch(projectID, instanceName, &sqladmin.DatabaseInstance{
 		Settings: &sqladmin.Settings{
 			ActivationPolicy: "ALWAYS",
+			ForceSendFields:  []string{"ActivationPolicy"},
 		},
 	}).Context(ctx).Do()
 	if err != nil {
@@ -137,11 +140,14 @@ func (c *SQLClient) StartInstance(ctx context.Context, projectID, instanceName s
 	return nil
 }
 
-// StopInstance stops a running Cloud SQL instance by setting activation policy to NEVER
+// StopInstance stops a running Cloud SQL instance by setting activation policy to NEVER.
+// ForceSendFields ensures only ActivationPolicy is sent — without it, the Patch sends
+// zero-value Settings fields that GCP rejects as unauthorized property changes.
 func (c *SQLClient) StopInstance(ctx context.Context, projectID, instanceName string) error {
 	_, err := c.service.Instances.Patch(projectID, instanceName, &sqladmin.DatabaseInstance{
 		Settings: &sqladmin.Settings{
 			ActivationPolicy: "NEVER",
+			ForceSendFields:  []string{"ActivationPolicy"},
 		},
 	}).Context(ctx).Do()
 	if err != nil {
