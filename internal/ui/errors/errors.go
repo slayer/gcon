@@ -6,6 +6,7 @@ import "errors"
 var (
 	ErrClientNotInitialized        = errors.New("compute client not initialized")
 	ErrStorageClientNotInitialized = errors.New("storage client not initialized")
+	ErrSQLClientNotInitialized     = errors.New("SQL client not initialized")
 	ErrDetailsNotAvailable         = errors.New("details not available")
 	ErrSSHNotImplemented           = errors.New("SSH action not yet implemented")
 	ErrUnsupportedOS               = errors.New("unsupported operating system")
