@@ -6,7 +6,6 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
-	btable "github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
@@ -86,12 +85,12 @@ func defaultDiskKeyMap() diskKeyMap {
 }
 
 // Table column definitions
-func diskColumns() []btable.Column {
-	return []btable.Column{
-		{Title: "Name", Width: 30},
-		{Title: "Zone", Width: 18},
-		{Title: "Size", Width: 8},
-		{Title: "Type", Width: 12},
+func diskColumns() []table.Column {
+	return []table.Column{
+		{Title: "Name", Width: 30, Grow: true, Sortable: true},
+		{Title: "Zone", Width: 18, Sortable: true},
+		{Title: "Size", Width: 8, Sortable: true},
+		{Title: "Type", Width: 12, Sortable: true},
 		{Title: "Attached To", Width: 20},
 	}
 }
@@ -99,7 +98,7 @@ func diskColumns() []btable.Column {
 // NewDisksView creates a new disks view with table display
 func NewDisksView(projectID string) *DisksView {
 	title := fmt.Sprintf("Persistent Disks - %s", projectID)
-	t := table.New(diskColumns(), title)
+	t := table.NewWithColumns(diskColumns(), title)
 
 	s := components.NewGCPSpinner()
 
@@ -281,6 +280,13 @@ func (v *DisksView) Update(msg tea.Msg) tea.Cmd {
 		// Don't handle custom keys during loading
 		if v.loading {
 			return nil
+		}
+
+		// Delegate to table when sort menu is open
+		if v.table.IsSortMenuOpen() {
+			var cmd tea.Cmd
+			v.table, cmd = v.table.Update(msg)
+			return cmd
 		}
 
 		// Let table handle filtering mode
@@ -476,7 +482,7 @@ func (v *DisksView) View() string {
 
 	// Help text for actions
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
-	help := helpStyle.Render("\n  enter: details • .: actions • s: snapshot • i: image • /: filter • r: refresh • esc: back")
+	help := helpStyle.Render("\n  enter: details • .: actions • s: snapshot • i: image • S: sort • /: filter • r: refresh • esc: back")
 
 	mainContent := v.table.View() + help
 
@@ -510,5 +516,6 @@ func (v *DisksView) SetContext(ctx *context.ProgramContext) {
 	v.ctx = ctx
 	v.width = ctx.ContentWidth
 	v.height = ctx.ContentHeight
-	v.table.SetSize(ctx.ContentWidth, ctx.ContentHeight-6)
+	v.table.SetSize(ctx.ContentWidth, ctx.ContentHeight-2)
 }
+

@@ -9,6 +9,7 @@ import (
 	"github.com/slayer/gcon/internal/ui/components/confirm"
 	"github.com/slayer/gcon/internal/ui/components/filepicker"
 	"github.com/slayer/gcon/internal/ui/components/progress"
+	"github.com/slayer/gcon/internal/ui/components/table"
 	"github.com/slayer/gcon/internal/ui/context"
 	"github.com/slayer/gcon/internal/ui/symbols"
 	"github.com/stretchr/testify/assert"
@@ -81,7 +82,7 @@ func TestNewObjectsView(t *testing.T) {
 	assert.Equal(t, "", view.currentPrefix)
 	assert.Empty(t, view.prefixStack)
 	assert.True(t, view.loading)
-	assert.Equal(t, 1, view.currentPage)
+	assert.False(t, view.allLoaded)
 }
 
 func TestObjectsViewUpdate(t *testing.T) {
@@ -94,15 +95,16 @@ func TestObjectsViewUpdate(t *testing.T) {
 		}
 
 		view.Update(objectsLoadedMsg{
-			objects:   objects,
-			nextToken: "next-token",
-			hasMore:   true,
+			objects:    objects,
+			nextToken:  "next-token",
+			hasMore:    true,
+			generation: 0,
 		})
 
 		assert.False(t, view.loading)
 		assert.Equal(t, 2, len(view.objects))
 		assert.Equal(t, "next-token", view.nextPageToken)
-		assert.True(t, view.hasMore)
+		assert.False(t, view.allLoaded)
 	})
 
 	t.Run("handles objectsErrorMsg", func(t *testing.T) {
@@ -159,133 +161,164 @@ func TestObjectsViewSetSize(t *testing.T) {
 	assert.Equal(t, 50, view.height)
 }
 
-func TestObjectsViewPagination(t *testing.T) {
-	t.Run("resetPagination clears all pagination state", func(t *testing.T) {
+func TestObjectsViewInfiniteScroll(t *testing.T) {
+	t.Run("resetScrollState clears all scroll state", func(t *testing.T) {
 		view := NewObjectsView("test-bucket", nil)
-		view.currentPage = 3
 		view.nextPageToken = "some-token"
-		view.currentPageToken = "current-token"
-		view.pageTokenHistory = []string{"token1", "token2"}
-		view.hasMore = true
+		view.loadingMore = true
+		view.allLoaded = true
+		view.objects = []gcp.StorageObject{{Name: "test.txt"}}
 
-		view.resetPagination()
+		initialGen := view.loadGeneration
+		view.resetScrollState()
 
-		assert.Equal(t, 1, view.currentPage)
 		assert.Empty(t, view.nextPageToken)
-		assert.Empty(t, view.currentPageToken)
-		assert.Empty(t, view.pageTokenHistory)
-		assert.False(t, view.hasMore)
+		assert.False(t, view.loadingMore)
+		assert.False(t, view.allLoaded)
+		assert.Nil(t, view.objects)
+		assert.Equal(t, initialGen+1, view.loadGeneration, "generation should increment")
 	})
 
-	t.Run("NextPage updates pagination state correctly", func(t *testing.T) {
+	t.Run("objectsMoreLoadedMsg appends objects", func(t *testing.T) {
 		view := NewObjectsView("test-bucket", nil)
 		view.loading = false
-		view.currentPage = 1
-		view.currentPageToken = ""
-		view.nextPageToken = "page2-token"
-		view.hasMore = true
+		view.loadingMore = true
+		view.SetContext(testContext())
 
-		// Simulate pressing 'n' for next page
-		view.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+		// Load initial batch
+		view.objects = []gcp.StorageObject{
+			{Name: "file1.txt", DisplayName: "file1.txt"},
+		}
+		view.table.SetRows([]table.Row{objectToRow(view.objects[0])})
 
-		// State should be updated for loading next page
+		// Append more data
+		view.Update(objectsMoreLoadedMsg{
+			objects: []gcp.StorageObject{
+				{Name: "file2.txt", DisplayName: "file2.txt"},
+			},
+			nextToken:  "next-token",
+			hasMore:    true,
+			generation: 0,
+		})
+
+		assert.False(t, view.loadingMore)
+		assert.Equal(t, 2, len(view.objects))
+		assert.Equal(t, "next-token", view.nextPageToken)
+		assert.False(t, view.allLoaded)
+	})
+
+	t.Run("objectsMoreLoadedMsg marks all loaded when no more", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.loading = false
+		view.loadingMore = true
+		view.SetContext(testContext())
+
+		view.objects = []gcp.StorageObject{{Name: "file1.txt", DisplayName: "file1.txt"}}
+		view.table.SetRows([]table.Row{objectToRow(view.objects[0])})
+
+		view.Update(objectsMoreLoadedMsg{
+			objects: []gcp.StorageObject{
+				{Name: "file2.txt", DisplayName: "file2.txt"},
+			},
+			hasMore:    false,
+			generation: 0,
+		})
+
+		assert.True(t, view.allLoaded)
+	})
+
+	t.Run("stale objectsMoreLoadedMsg is ignored but resets loadingMore", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.loading = false
+		view.loadingMore = true
+		view.loadGeneration = 2
+
+		view.Update(objectsMoreLoadedMsg{
+			objects:    []gcp.StorageObject{{Name: "stale.txt"}},
+			generation: 1, // Stale generation
+		})
+
+		// Stale data discarded, but loadingMore cleared so UI doesn't get stuck
+		assert.False(t, view.loadingMore)
+		assert.Empty(t, view.objects)
+	})
+
+	t.Run("stale objectsLoadedMsg is ignored", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.loading = true
+		view.loadGeneration = 3
+
+		view.Update(objectsLoadedMsg{
+			objects:    []gcp.StorageObject{{Name: "stale.txt"}},
+			generation: 2, // Stale generation
+		})
+
+		// Should still be loading since stale response was ignored
 		assert.True(t, view.loading)
-		assert.Equal(t, 2, view.currentPage)
-		assert.Equal(t, "page2-token", view.currentPageToken)
-		// History should contain the previous page token (empty for first page)
-		assert.Equal(t, []string{""}, view.pageTokenHistory)
+		assert.Empty(t, view.objects)
 	})
 
-	t.Run("PrevPage updates pagination state correctly", func(t *testing.T) {
+	t.Run("NearBottomMsg triggers loadMore when data available", func(t *testing.T) {
 		view := NewObjectsView("test-bucket", nil)
 		view.loading = false
-		view.currentPage = 2
-		view.currentPageToken = "page2-token"
-		view.nextPageToken = "page3-token"
-		view.pageTokenHistory = []string{""} // First page token
-		view.hasMore = true
+		view.loadingMore = false
+		view.allLoaded = false
+		view.nextPageToken = "some-token"
 
-		// Simulate pressing 'p' for previous page
-		view.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+		cmd := view.Update(table.NearBottomMsg{})
 
-		// State should be updated for loading previous page
-		assert.True(t, view.loading)
-		assert.Equal(t, 1, view.currentPage)
-		assert.Equal(t, "", view.currentPageToken)
-		assert.Empty(t, view.pageTokenHistory)
+		assert.True(t, view.loadingMore)
+		assert.NotNil(t, cmd)
 	})
 
-	t.Run("NextPage does nothing when no more pages", func(t *testing.T) {
+	t.Run("NearBottomMsg ignored when already loading more", func(t *testing.T) {
 		view := NewObjectsView("test-bucket", nil)
 		view.loading = false
-		view.currentPage = 1
-		view.hasMore = false
-		view.nextPageToken = ""
+		view.loadingMore = true
 
-		view.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+		cmd := view.Update(table.NearBottomMsg{})
 
-		// State should not change
-		assert.False(t, view.loading)
-		assert.Equal(t, 1, view.currentPage)
+		assert.Nil(t, cmd)
 	})
 
-	t.Run("PrevPage does nothing on first page", func(t *testing.T) {
+	t.Run("NearBottomMsg ignored when all loaded", func(t *testing.T) {
 		view := NewObjectsView("test-bucket", nil)
 		view.loading = false
-		view.currentPage = 1
-		view.pageTokenHistory = []string{}
+		view.allLoaded = true
 
-		view.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+		cmd := view.Update(table.NearBottomMsg{})
 
-		// State should not change
-		assert.False(t, view.loading)
-		assert.Equal(t, 1, view.currentPage)
+		assert.Nil(t, cmd)
 	})
 
-	t.Run("multi-page navigation maintains correct history", func(t *testing.T) {
+	t.Run("NearBottomMsg ignored when max objects reached", func(t *testing.T) {
 		view := NewObjectsView("test-bucket", nil)
 		view.loading = false
+		view.allLoaded = false
+		view.nextPageToken = "some-token"
+		// Simulate hitting the cap
+		view.objects = make([]gcp.StorageObject, maxLoadedObjects)
 
-		// Setup: on page 1
-		view.currentPage = 1
-		view.currentPageToken = ""
-		view.nextPageToken = "page2-token"
-		view.hasMore = true
-		view.pageTokenHistory = []string{}
+		cmd := view.Update(table.NearBottomMsg{})
 
-		// Navigate to page 2
-		view.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
-		assert.Equal(t, 2, view.currentPage)
-		assert.Equal(t, "page2-token", view.currentPageToken)
-		assert.Equal(t, []string{""}, view.pageTokenHistory)
+		assert.False(t, view.loadingMore, "should not start loading when cap reached")
+		assert.Nil(t, cmd)
+	})
 
-		// Simulate page 2 loaded with next token
+	t.Run("objectsMoreErrorMsg preserves existing data", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
 		view.loading = false
-		view.nextPageToken = "page3-token"
+		view.loadingMore = true
+		view.objects = []gcp.StorageObject{
+			{Name: "existing.txt", DisplayName: "existing.txt"},
+		}
 
-		// Navigate to page 3
-		view.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
-		assert.Equal(t, 3, view.currentPage)
-		assert.Equal(t, "page3-token", view.currentPageToken)
-		assert.Equal(t, []string{"", "page2-token"}, view.pageTokenHistory)
+		view.Update(objectsMoreErrorMsg{err: assert.AnError})
 
-		// Simulate page 3 loaded
-		view.loading = false
-
-		// Navigate back to page 2
-		view.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
-		assert.Equal(t, 2, view.currentPage)
-		assert.Equal(t, "page2-token", view.currentPageToken)
-		assert.Equal(t, []string{""}, view.pageTokenHistory)
-
-		// Simulate page 2 loaded
-		view.loading = false
-
-		// Navigate back to page 1
-		view.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
-		assert.Equal(t, 1, view.currentPage)
-		assert.Equal(t, "", view.currentPageToken)
-		assert.Empty(t, view.pageTokenHistory)
+		assert.False(t, view.loadingMore, "loadingMore should be cleared")
+		assert.NotNil(t, view.loadMoreErr, "load-more error should be set")
+		assert.Nil(t, view.err, "main error should NOT be set")
+		assert.Len(t, view.objects, 1, "existing objects should be preserved")
 	})
 }
 

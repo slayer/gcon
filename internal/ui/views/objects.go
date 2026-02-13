@@ -10,7 +10,6 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
-	btable "github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
@@ -26,14 +25,16 @@ import (
 	"github.com/slayer/gcon/internal/ui/timeutil"
 )
 
-const defaultPageSize = 100
+// Larger page size reduces round-trips for infinite scroll
+const defaultPageSize = 200
+
+// Cap prevents unbounded memory growth in large buckets
+const maxLoadedObjects = 10000
 
 // objectKeyMap defines object-specific key bindings
 type objectKeyMap struct {
 	Enter      key.Binding
 	Refresh    key.Binding
-	NextPage   key.Binding
-	PrevPage   key.Binding
 	Download   key.Binding
 	Upload     key.Binding
 	Delete     key.Binding
@@ -49,14 +50,6 @@ func defaultObjectKeyMap() objectKeyMap {
 		Refresh: key.NewBinding(
 			key.WithKeys("r"),
 			key.WithHelp("r", "refresh"),
-		),
-		NextPage: key.NewBinding(
-			key.WithKeys("n"),
-			key.WithHelp("n", "next page"),
-		),
-		PrevPage: key.NewBinding(
-			key.WithKeys("p"),
-			key.WithHelp("p", "prev page"),
 		),
 		Download: key.NewBinding(
 			key.WithKeys("d"),
@@ -77,10 +70,10 @@ func defaultObjectKeyMap() objectKeyMap {
 	}
 }
 
-// Table column definitions for objects
-func objectColumns() []btable.Column {
-	return []btable.Column{
-		{Title: "Name", Width: 40},
+// Table column definitions for objects (no sorting or field filtering)
+func objectColumns() []table.Column {
+	return []table.Column{
+		{Title: "Name", Width: 40, Grow: true},
 		{Title: "Size", Width: 12},
 		{Title: "Content Type", Width: 20},
 		{Title: "Modified", Width: 12},
@@ -104,13 +97,12 @@ type ObjectsView struct {
 	objects       []gcp.StorageObject
 	keys          objectKeyMap
 
-	// Pagination state
-	currentPage      int
-	nextPageToken    string   // Token for loading next page
-	currentPageToken string   // Token used to load current page (empty for first page)
-	pageTokenHistory []string // History of page tokens used (for back navigation)
-	hasMore          bool
-	totalLoaded      int // Total objects loaded across pages
+	// Infinite scroll state
+	nextPageToken  string // Token for loading next page
+	loadingMore    bool   // Currently fetching next batch
+	allLoaded      bool   // No more data available
+	loadMoreErr    error  // Non-fatal error from last load-more attempt
+	loadGeneration int    // Increments on folder navigation to discard stale responses
 
 	// Download state
 	downloading      bool
@@ -144,7 +136,7 @@ type ObjectsView struct {
 // NewObjectsView creates a new objects view with table display
 func NewObjectsView(bucketName string, storageClient *gcp.StorageClient) *ObjectsView {
 	title := fmt.Sprintf("Bucket: %s", bucketName)
-	t := table.New(objectColumns(), title)
+	t := table.NewWithColumns(objectColumns(), title)
 
 	s := components.NewGCPSpinner()
 
@@ -157,13 +149,13 @@ func NewObjectsView(bucketName string, storageClient *gcp.StorageClient) *Object
 		spinner:          s,
 		loading:          true,
 		keys:             defaultObjectKeyMap(),
-		currentPage:      1,
-		pageTokenHistory: make([]string, 0),
 		downloadProgress: progress.New(),
 		uploadProgress:   progress.New(),
 		deleteProgress:   progress.New(),
 	}
 	v.Table = &v.table
+	// Enable near-bottom detection for infinite scroll
+	v.table.SetNearBottomThreshold(5)
 	return v
 }
 
@@ -171,39 +163,80 @@ func NewObjectsView(bucketName string, storageClient *gcp.StorageClient) *Object
 func (v *ObjectsView) Init() tea.Cmd {
 	return tea.Batch(
 		v.spinner.Tick,
-		v.loadObjects(""), // Load first page
+		v.loadObjects(),
 	)
 }
 
-// loadObjects fetches objects from the bucket
-func (v *ObjectsView) loadObjects(pageToken string) tea.Cmd {
+// loadObjects fetches the initial batch of objects from the bucket
+func (v *ObjectsView) loadObjects() tea.Cmd {
+	gen := v.loadGeneration
 	return func() tea.Msg {
 		result, err := v.storageClient.ListObjects(
 			gocontext.Background(),
 			v.bucketName,
 			v.currentPrefix,
-			pageToken,
+			"",
 			defaultPageSize,
 		)
 		if err != nil {
 			return objectsErrorMsg{err: err}
 		}
 		return objectsLoadedMsg{
-			objects:   result.Objects,
-			nextToken: result.NextToken,
-			hasMore:   result.HasMore,
+			objects:    result.Objects,
+			nextToken:  result.NextToken,
+			hasMore:    result.HasMore,
+			generation: gen,
+		}
+	}
+}
+
+// loadMoreObjects fetches the next batch for infinite scroll.
+// Returns objectsMoreErrorMsg (non-fatal) on failure to preserve existing data.
+func (v *ObjectsView) loadMoreObjects() tea.Cmd {
+	gen := v.loadGeneration
+	token := v.nextPageToken
+	return func() tea.Msg {
+		result, err := v.storageClient.ListObjects(
+			gocontext.Background(),
+			v.bucketName,
+			v.currentPrefix,
+			token,
+			defaultPageSize,
+		)
+		if err != nil {
+			return objectsMoreErrorMsg{err: err}
+		}
+		return objectsMoreLoadedMsg{
+			objects:    result.Objects,
+			nextToken:  result.NextToken,
+			hasMore:    result.HasMore,
+			generation: gen,
 		}
 	}
 }
 
 // Message types for objects view
 type objectsLoadedMsg struct {
-	objects   []gcp.StorageObject
-	nextToken string
-	hasMore   bool
+	objects    []gcp.StorageObject
+	nextToken  string
+	hasMore    bool
+	generation int // Matches loadGeneration to discard stale responses
+}
+
+type objectsMoreLoadedMsg struct {
+	objects    []gcp.StorageObject
+	nextToken  string
+	hasMore    bool
+	generation int
 }
 
 type objectsErrorMsg struct {
+	err error
+}
+
+// objectsMoreErrorMsg is a non-fatal error from loading more data.
+// Unlike objectsErrorMsg, it preserves already-loaded objects.
+type objectsMoreErrorMsg struct {
 	err error
 }
 
@@ -303,11 +336,14 @@ type deleteCompleteMsg struct {
 func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case objectsLoadedMsg:
+		// Discard stale responses from previous folder
+		if msg.generation != v.loadGeneration {
+			return nil
+		}
 		v.loading = false
 		v.objects = msg.objects
 		v.nextPageToken = msg.nextToken
-		v.hasMore = msg.hasMore
-		v.totalLoaded = len(msg.objects)
+		v.allLoaded = !msg.hasMore
 
 		// Convert to table rows
 		rows := make([]table.Row, len(msg.objects))
@@ -317,9 +353,44 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 		v.table.SetRows(rows)
 		return nil
 
+	case objectsMoreLoadedMsg:
+		// Discard stale responses from previous folder
+		if msg.generation != v.loadGeneration {
+			v.loadingMore = false
+			return nil
+		}
+		v.loadingMore = false
+		v.objects = append(v.objects, msg.objects...)
+		v.nextPageToken = msg.nextToken
+		v.allLoaded = !msg.hasMore
+
+		// Append to table (preserves cursor position)
+		newRows := make([]table.Row, len(msg.objects))
+		for i, obj := range msg.objects {
+			newRows[i] = objectToRow(obj)
+		}
+		v.table.AppendRows(newRows)
+		return nil
+
+	case table.NearBottomMsg:
+		// Infinite scroll: load more when cursor approaches bottom
+		if !v.loadingMore && !v.allLoaded && v.nextPageToken != "" && len(v.objects) < maxLoadedObjects {
+			v.loadingMore = true
+			v.loadMoreErr = nil
+			return v.loadMoreObjects()
+		}
+		return nil
+
 	case objectsErrorMsg:
 		v.loading = false
+		v.loadingMore = false
 		v.err = msg.err
+		return nil
+
+	case objectsMoreErrorMsg:
+		// Non-fatal: keep existing data visible, just stop loading more
+		v.loadingMore = false
+		v.loadMoreErr = msg.err
 		return nil
 
 	case table.RowDoubleClickedMsg:
@@ -329,9 +400,9 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 			// Push current prefix to stack and navigate into folder
 			v.prefixStack = append(v.prefixStack, v.currentPrefix)
 			v.currentPrefix = obj.Name
-			v.resetPagination()
+			v.resetScrollState()
 			v.loading = true
-			return tea.Batch(v.spinner.Tick, v.loadObjects(""))
+			return tea.Batch(v.spinner.Tick, v.loadObjects())
 		}
 		return nil
 
@@ -458,8 +529,9 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 			v.err = msg.err
 		} else {
 			// Refresh the list after successful upload
+			v.resetScrollState()
 			v.loading = true
-			return tea.Batch(v.spinner.Tick, v.loadObjects(""))
+			return tea.Batch(v.spinner.Tick, v.loadObjects())
 		}
 		return nil
 
@@ -555,8 +627,9 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 			}
 		} else {
 			// Refresh list after successful deletion
+			v.resetScrollState()
 			v.loading = true
-			return tea.Batch(v.spinner.Tick, v.loadObjects(""))
+			return tea.Batch(v.spinner.Tick, v.loadObjects())
 		}
 		return nil
 
@@ -646,9 +719,9 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 						// Navigate into folder
 						v.prefixStack = append(v.prefixStack, v.currentPrefix)
 						v.currentPrefix = obj.Name
-						v.resetPagination()
+						v.resetScrollState()
 						v.loading = true
-						return tea.Batch(v.spinner.Tick, v.loadObjects(""))
+						return tea.Batch(v.spinner.Tick, v.loadObjects())
 					}
 					// For files, emit selection message to open details view
 					selectedObj := *obj
@@ -659,31 +732,10 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 			}
 
 		case key.Matches(msg, v.keys.Refresh):
-			v.resetPagination()
+			v.resetScrollState()
 			v.loading = true
 			v.err = nil
-			return tea.Batch(v.spinner.Tick, v.loadObjects(""))
-
-		case key.Matches(msg, v.keys.NextPage):
-			if v.hasMore && v.nextPageToken != "" {
-				// Save current page token to history before navigating forward
-				v.pageTokenHistory = append(v.pageTokenHistory, v.currentPageToken)
-				v.currentPageToken = v.nextPageToken
-				v.currentPage++
-				v.loading = true
-				return tea.Batch(v.spinner.Tick, v.loadObjects(v.currentPageToken))
-			}
-
-		case key.Matches(msg, v.keys.PrevPage):
-			if v.currentPage > 1 && len(v.pageTokenHistory) > 0 {
-				// Pop previous page token from history
-				prevToken := v.pageTokenHistory[len(v.pageTokenHistory)-1]
-				v.pageTokenHistory = v.pageTokenHistory[:len(v.pageTokenHistory)-1]
-				v.currentPageToken = prevToken
-				v.currentPage--
-				v.loading = true
-				return tea.Batch(v.spinner.Tick, v.loadObjects(prevToken))
-			}
+			return tea.Batch(v.spinner.Tick, v.loadObjects())
 		}
 
 	default:
@@ -715,21 +767,41 @@ func (v *ObjectsView) HandleBack() (handled bool, cmd tea.Cmd) {
 	if len(v.prefixStack) > 0 {
 		v.currentPrefix = v.prefixStack[len(v.prefixStack)-1]
 		v.prefixStack = v.prefixStack[:len(v.prefixStack)-1]
-		v.resetPagination()
+		v.resetScrollState()
 		v.loading = true
-		return true, tea.Batch(v.spinner.Tick, v.loadObjects(""))
+		return true, tea.Batch(v.spinner.Tick, v.loadObjects())
 	}
 	// At root, signal to return to buckets view
 	return false, nil
 }
 
-// resetPagination resets pagination state
-func (v *ObjectsView) resetPagination() {
-	v.currentPage = 1
+// resetScrollState resets infinite scroll state for folder navigation
+func (v *ObjectsView) resetScrollState() {
 	v.nextPageToken = ""
-	v.currentPageToken = ""
-	v.pageTokenHistory = make([]string, 0)
-	v.hasMore = false
+	v.loadingMore = false
+	v.allLoaded = false
+	v.loadMoreErr = nil
+	v.loadGeneration++ // Invalidate any in-flight responses
+	v.objects = nil
+	v.table.ResetNearBottom()
+}
+
+// scrollInfo returns the infinite scroll state suffix for the status bar.
+func (v *ObjectsView) scrollInfo() string {
+	switch {
+	case v.loadMoreErr != nil:
+		return "(load error, press r to retry)"
+	case v.loadingMore:
+		return "(loading more...)"
+	case len(v.objects) >= maxLoadedObjects && v.nextPageToken != "":
+		return fmt.Sprintf("(showing first %d, use filter to narrow)", maxLoadedObjects)
+	case v.allLoaded:
+		return "(all loaded)"
+	case v.nextPageToken != "":
+		return "(scroll for more)"
+	default:
+		return ""
+	}
 }
 
 // buildTitle builds the title showing current path
@@ -772,29 +844,15 @@ func (v *ObjectsView) View() string {
 		return fmt.Sprintf("\n  %s\n  Press 'u' to upload files, 'esc' to go back.", msg)
 	}
 
-	// Build pagination info
-	pageInfo := ""
-	if v.hasMore || v.currentPage > 1 {
-		pageInfo = fmt.Sprintf(" • Page %d", v.currentPage)
-		if v.hasMore {
-			pageInfo += " (more available)"
-		}
-	}
-
-	// Status line with path and pagination
-	statusStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
-	status := statusStyle.Render(fmt.Sprintf("  %d items%s", len(v.objects), pageInfo))
+	// Keep table title and status in sync with current state
+	v.table.SetTitle(v.buildTitle())
+	v.table.SetStatusSuffix(v.scrollInfo())
 
 	// Help text for actions
-	help := statusStyle.Render("\n  enter: open • d: download • u: upload • D: delete • .: menu • n/p: page • /: filter • r: refresh • esc: back")
+	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
+	help := helpStyle.Render("\n  enter: open • d: download • u: upload • D: delete • .: menu • /: filter • r: refresh • esc: back")
 
-	// Build title with current path
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("#4285F4")).
-		MarginBottom(1)
-
-	content := titleStyle.Render(v.buildTitle()) + "\n" + v.table.View() + "\n" + status + help
+	content := v.table.View() + help
 
 	// Overlay action menu when shown
 	if v.menuOpen && v.actionMenu != nil {
@@ -835,7 +893,7 @@ func (v *ObjectsView) SetContext(ctx *context.ProgramContext) {
 	v.ctx = ctx
 	v.width = ctx.ContentWidth
 	v.height = ctx.ContentHeight
-	v.table.SetSize(ctx.ContentWidth, ctx.ContentHeight-8)
+	v.table.SetSize(ctx.ContentWidth, ctx.ContentHeight-2)
 }
 
 // GetCurrentPath returns the current folder path being browsed
@@ -862,9 +920,10 @@ func (v *ObjectsView) HasTextInputFocused() bool {
 // ObjectsLoadedMsgForTest creates an objectsLoadedMsg for testing
 func ObjectsLoadedMsgForTest(objects []gcp.StorageObject, nextToken string, hasMore bool) objectsLoadedMsg {
 	return objectsLoadedMsg{
-		objects:   objects,
-		nextToken: nextToken,
-		hasMore:   hasMore,
+		objects:    objects,
+		nextToken:  nextToken,
+		hasMore:    hasMore,
+		generation: 0, // Default generation for tests
 	}
 }
 
@@ -1604,9 +1663,9 @@ func (v *ObjectsView) executeMenuAction(actionKey rune) tea.Cmd {
 			// Navigate into folder
 			v.prefixStack = append(v.prefixStack, v.currentPrefix)
 			v.currentPrefix = obj.Name
-			v.resetPagination()
+			v.resetScrollState()
 			v.loading = true
-			return tea.Batch(v.spinner.Tick, v.loadObjects(""))
+			return tea.Batch(v.spinner.Tick, v.loadObjects())
 		}
 		// For files, open details view
 		selectedObj := *obj
@@ -1631,3 +1690,4 @@ func (v *ObjectsView) IsMenuOpen() bool {
 func (v *ObjectsView) GetStorageClient() *gcp.StorageClient {
 	return v.storageClient
 }
+

@@ -6,7 +6,6 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
-	btable "github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
@@ -41,12 +40,12 @@ func defaultBucketKeyMap() bucketKeyMap {
 }
 
 // Table column definitions for buckets
-func bucketColumns() []btable.Column {
-	return []btable.Column{
-		{Title: "Name", Width: 40},
-		{Title: "Location", Width: 15},
-		{Title: "Storage Class", Width: 15},
-		{Title: "Created", Width: 12},
+func bucketColumns() []table.Column {
+	return []table.Column{
+		{Title: "Name", Width: 40, Grow: true, Sortable: true},
+		{Title: "Location", Width: 15, Sortable: true},
+		{Title: "Storage Class", Width: 15, Sortable: true},
+		{Title: "Created", Width: 12, Sortable: true},
 	}
 }
 
@@ -67,7 +66,7 @@ type BucketsView struct {
 // NewBucketsView creates a new buckets view with table display
 func NewBucketsView(projectID string) *BucketsView {
 	title := fmt.Sprintf("Cloud Storage Buckets - %s", projectID)
-	t := table.New(bucketColumns(), title)
+	t := table.NewWithColumns(bucketColumns(), title)
 
 	s := components.NewGCPSpinner()
 
@@ -192,6 +191,13 @@ func (v *BucketsView) Update(msg tea.Msg) tea.Cmd {
 			return nil
 		}
 
+		// Delegate to table when sort menu is open
+		if v.table.IsSortMenuOpen() {
+			var cmd tea.Cmd
+			v.table, cmd = v.table.Update(msg)
+			return cmd
+		}
+
 		// Let table handle filtering mode
 		if v.table.IsFiltering() {
 			var cmd tea.Cmd
@@ -263,7 +269,7 @@ func (v *BucketsView) View() string {
 
 	// Help text for actions
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
-	help := helpStyle.Render("\n  enter: browse • c: create • /: filter • r: refresh • esc: back")
+	help := helpStyle.Render("\n  enter: browse • c: create • S: sort • /: filter • r: refresh • esc: back")
 
 	return v.table.View() + help
 }
@@ -272,7 +278,7 @@ func (v *BucketsView) View() string {
 // Reads dimensions from the context for consistent sizing.
 func (v *BucketsView) SetContext(ctx *context.ProgramContext) {
 	v.ctx = ctx
-	v.table.SetSize(ctx.ContentWidth, ctx.ContentHeight-4)
+	v.table.SetSize(ctx.ContentWidth, ctx.ContentHeight-2)
 }
 
 // GetStorageClient returns the storage client for reuse in objects view
@@ -293,3 +299,4 @@ func (v *BucketsView) Close() error {
 func (v *BucketsView) HasTextInputFocused() bool {
 	return v.table.HasTextInputFocused()
 }
+
