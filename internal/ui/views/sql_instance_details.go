@@ -343,23 +343,7 @@ func (v *SQLInstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 			return func() tea.Msg { return focusMsg }
 		}
 
-		// Route keys based on currently focused region
-		switch v.focusMgr.ActiveType() {
-		case focus.RegionTabs:
-			if tabs.HandleKey(msg) {
-				return v.tabs.Update(msg)
-			}
-
-		case focus.RegionViewport:
-			activeIdx := v.tabs.ActiveIndex()
-			if activeIdx >= 0 && activeIdx < len(v.tabViewports) {
-				var cmd tea.Cmd
-				v.tabViewports[activeIdx], cmd = v.tabViewports[activeIdx].Update(msg)
-				return cmd
-			}
-		}
-
-		// View-specific action keys (work regardless of focus)
+		// Action keys checked first so they work regardless of focused region
 		switch {
 		case key.Matches(msg, v.keys.ActionMenu):
 			if v.details != nil {
@@ -389,6 +373,22 @@ func (v *SQLInstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 				return v.createBackup()
 			}
 			return nil
+		}
+
+		// Route remaining keys based on currently focused region
+		switch v.focusMgr.ActiveType() {
+		case focus.RegionTabs:
+			if tabs.HandleKey(msg) {
+				return v.tabs.Update(msg)
+			}
+
+		case focus.RegionViewport:
+			activeIdx := v.tabs.ActiveIndex()
+			if activeIdx >= 0 && activeIdx < len(v.tabViewports) {
+				var cmd tea.Cmd
+				v.tabViewports[activeIdx], cmd = v.tabViewports[activeIdx].Update(msg)
+				return cmd
+			}
 		}
 	}
 
