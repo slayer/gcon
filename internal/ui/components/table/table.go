@@ -146,9 +146,10 @@ type Model struct {
 	columnsComputed bool // True if ComputedWidth values are valid
 
 	// Loading and empty states
-	loading     bool
-	loadingText string
-	emptyText   string
+	loading      bool
+	loadingText  string
+	emptyText    string
+	statusSuffix string // Extra text appended to status bar (e.g. "all loaded")
 
 	// Sorting state
 	sortColumn    int  // Visible column index being sorted (-1 = no sort)
@@ -280,9 +281,20 @@ func (m *Model) SetLoading(loading bool, text string) {
 	}
 }
 
+// SetTitle updates the table title displayed above the header row.
+func (m *Model) SetTitle(title string) {
+	m.title = title
+}
+
 // SetEmptyText sets the text shown when there are no rows
 func (m *Model) SetEmptyText(text string) {
 	m.emptyText = text
+}
+
+// SetStatusSuffix sets extra text appended to the status bar (e.g. "(all loaded)").
+// Pass empty string to clear.
+func (m *Model) SetStatusSuffix(suffix string) {
+	m.statusSuffix = suffix
 }
 
 // IsLoading returns true if the table is in loading state
@@ -1152,24 +1164,34 @@ func (m Model) View() string {
 	statusStyle := lipgloss.NewStyle().Foreground(ColorMuted)
 
 	leftText := m.statusText()
+	if m.statusSuffix != "" {
+		leftText += " " + m.statusSuffix
+	}
 	if m.filter.Value() != "" {
 		leftText += " (filtered)"
 	}
 
 	b.WriteString("\n")
-	if m.IsScrollable() {
+	if m.IsScrollable() && tableView != "" {
 		scrollStyle := lipgloss.NewStyle().Foreground(ColorPrimary)
 		rightText := fmt.Sprintf("%.0f%%", m.ScrollPercent()*100)
 
-		// Use actual rendered table width so the status bar aligns with the table
-		lineWidth := lipgloss.Width(strings.SplitN(tableView, "\n", 2)[0])
-		gap := lineWidth - len(leftText) - len(rightText)
-		if gap < 1 {
-			gap = 1
+		// Measure from rendered table width so status bar aligns with table edge
+		firstLine := strings.SplitN(tableView, "\n", 2)[0]
+		lineWidth := lipgloss.Width(firstLine)
+		contentWidth := lipgloss.Width(leftText) + lipgloss.Width(rightText)
+
+		if lineWidth > contentWidth {
+			gap := lineWidth - contentWidth
+			b.WriteString(statusStyle.Render(leftText))
+			b.WriteString(strings.Repeat(" ", gap))
+			b.WriteString(scrollStyle.Render(rightText))
+		} else {
+			// Not enough room for right-alignment, show inline
+			b.WriteString(statusStyle.Render(leftText))
+			b.WriteString(" ")
+			b.WriteString(scrollStyle.Render(rightText))
 		}
-		b.WriteString(statusStyle.Render(leftText))
-		b.WriteString(strings.Repeat(" ", gap))
-		b.WriteString(scrollStyle.Render(rightText))
 	} else {
 		b.WriteString(statusStyle.Render(leftText))
 	}

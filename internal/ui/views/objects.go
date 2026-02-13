@@ -786,6 +786,24 @@ func (v *ObjectsView) resetScrollState() {
 	v.table.ResetNearBottom()
 }
 
+// scrollInfo returns the infinite scroll state suffix for the status bar.
+func (v *ObjectsView) scrollInfo() string {
+	switch {
+	case v.loadMoreErr != nil:
+		return "(load error, press r to retry)"
+	case v.loadingMore:
+		return "(loading more...)"
+	case len(v.objects) >= maxLoadedObjects && v.nextPageToken != "":
+		return fmt.Sprintf("(showing first %d, use filter to narrow)", maxLoadedObjects)
+	case v.allLoaded:
+		return "(all loaded)"
+	case v.nextPageToken != "":
+		return "(scroll for more)"
+	default:
+		return ""
+	}
+}
+
 // buildTitle builds the title showing current path
 func (v *ObjectsView) buildTitle() string {
 	title := fmt.Sprintf("Bucket: %s", v.bucketName)
@@ -826,34 +844,15 @@ func (v *ObjectsView) View() string {
 		return fmt.Sprintf("\n  %s\n  Press 'u' to upload files, 'esc' to go back.", msg)
 	}
 
-	// Status line with scroll state
-	scrollInfo := ""
-	switch {
-	case v.loadMoreErr != nil:
-		scrollInfo = " (load error, press r to retry)"
-	case v.loadingMore:
-		scrollInfo = " (loading more...)"
-	case len(v.objects) >= maxLoadedObjects && v.nextPageToken != "":
-		scrollInfo = fmt.Sprintf(" (showing first %d, use filter to narrow)", maxLoadedObjects)
-	case v.allLoaded:
-		scrollInfo = " (all loaded)"
-	case v.nextPageToken != "":
-		scrollInfo = " (scroll for more)"
-	}
-
-	statusStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
-	status := statusStyle.Render(fmt.Sprintf("  %d items%s", len(v.objects), scrollInfo))
+	// Keep table title and status in sync with current state
+	v.table.SetTitle(v.buildTitle())
+	v.table.SetStatusSuffix(v.scrollInfo())
 
 	// Help text for actions
-	help := statusStyle.Render("\n  enter: open • d: download • u: upload • D: delete • .: menu • /: filter • r: refresh • esc: back")
+	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
+	help := helpStyle.Render("\n  enter: open • d: download • u: upload • D: delete • .: menu • /: filter • r: refresh • esc: back")
 
-	// Build title with current path
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("#4285F4")).
-		MarginBottom(1)
-
-	content := titleStyle.Render(v.buildTitle()) + "\n" + v.table.View() + "\n" + status + help
+	content := v.table.View() + help
 
 	// Overlay action menu when shown
 	if v.menuOpen && v.actionMenu != nil {
@@ -894,7 +893,7 @@ func (v *ObjectsView) SetContext(ctx *context.ProgramContext) {
 	v.ctx = ctx
 	v.width = ctx.ContentWidth
 	v.height = ctx.ContentHeight
-	v.table.SetSize(ctx.ContentWidth, ctx.ContentHeight-5)
+	v.table.SetSize(ctx.ContentWidth, ctx.ContentHeight-2)
 }
 
 // GetCurrentPath returns the current folder path being browsed
