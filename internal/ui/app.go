@@ -107,8 +107,8 @@ type App struct {
 	selectedDisk     *gcp.Disk
 	selectedSnapshot *gcp.Snapshot
 	selectedImage    *gcp.Image
-	selectedBucket  *gcp.Bucket
-	selectedObject  *gcp.StorageObject
+	selectedBucket   *gcp.Bucket
+	selectedObject   *gcp.StorageObject
 	selectedNetwork  *gcp.Network
 	selectedFirewall *gcp.FirewallRule
 

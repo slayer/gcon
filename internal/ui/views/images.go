@@ -6,7 +6,6 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
-	btable "github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
@@ -81,21 +80,21 @@ func defaultImageKeyMap() imageKeyMap {
 }
 
 // Table column definitions
-func imageColumns() []btable.Column {
-	return []btable.Column{
-		{Title: "Name", Width: 28},
-		{Title: "Created By", Width: 20},
-		{Title: "Location", Width: 12},
-		{Title: "Disk Size", Width: 10},
-		{Title: "Archive Size", Width: 12},
-		{Title: "Family", Width: 18},
+func imageColumns() []table.Column {
+	return []table.Column{
+		{Title: "Name", Width: 28, Grow: true, Sortable: true},
+		{Title: "Created By", Width: 20, Sortable: true},
+		{Title: "Location", Width: 12, Sortable: true},
+		{Title: "Disk Size", Width: 10, Sortable: true},
+		{Title: "Archive Size", Width: 12, Sortable: true},
+		{Title: "Family", Width: 18, Sortable: true},
 	}
 }
 
 // NewImagesView creates a new images view with table display
 func NewImagesView(projectID string) *ImagesView {
 	title := fmt.Sprintf("Disk Images - %s", projectID)
-	t := table.New(imageColumns(), title)
+	t := table.NewWithColumns(imageColumns(), title)
 
 	s := components.NewGCPSpinner()
 
@@ -306,6 +305,13 @@ func (v *ImagesView) Update(msg tea.Msg) tea.Cmd {
 			return nil
 		}
 
+		// Delegate to table when sort menu is open
+		if v.table.IsSortMenuOpen() {
+			var cmd tea.Cmd
+			v.table, cmd = v.table.Update(msg)
+			return cmd
+		}
+
 		// Let table handle filtering mode
 		if v.table.IsFiltering() {
 			var cmd tea.Cmd
@@ -507,5 +513,6 @@ func (v *ImagesView) SetContext(ctx *context.ProgramContext) {
 	v.ctx = ctx
 	v.width = ctx.ContentWidth
 	v.height = ctx.ContentHeight
-	v.table.SetSize(ctx.ContentWidth, ctx.ContentHeight-6)
+	v.table.SetSize(ctx.ContentWidth, ctx.ContentHeight-2)
 }
+

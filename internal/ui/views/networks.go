@@ -6,7 +6,6 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
-	btable "github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
@@ -57,12 +56,12 @@ func defaultNetworkKeyMap() networkKeyMap {
 }
 
 // Table column definitions
-func networkColumns() []btable.Column {
-	return []btable.Column{
-		{Title: "Name", Width: 35},
-		{Title: "Subnet Mode", Width: 12},
+func networkColumns() []table.Column {
+	return []table.Column{
+		{Title: "Name", Width: 35, Grow: true, Sortable: true},
+		{Title: "Subnet Mode", Width: 12, Sortable: true},
 		{Title: "Routing", Width: 10},
-		{Title: "Subnets", Width: 8},
+		{Title: "Subnets", Width: 8, Sortable: true},
 		{Title: "Created", Width: 20},
 	}
 }
@@ -70,7 +69,7 @@ func networkColumns() []btable.Column {
 // NewNetworksView creates a new networks view with table display
 func NewNetworksView(projectID string) *NetworksView {
 	title := fmt.Sprintf("VPC Networks - %s", projectID)
-	t := table.New(networkColumns(), title)
+	t := table.NewWithColumns(networkColumns(), title)
 
 	s := components.NewGCPSpinner()
 
@@ -184,6 +183,13 @@ func (v *NetworksView) Update(msg tea.Msg) tea.Cmd {
 			return nil
 		}
 
+		// Delegate to table when sort menu is open
+		if v.table.IsSortMenuOpen() {
+			var cmd tea.Cmd
+			v.table, cmd = v.table.Update(msg)
+			return cmd
+		}
+
 		// Let table handle filtering mode
 		if v.table.IsFiltering() {
 			var cmd tea.Cmd
@@ -239,7 +245,7 @@ func (v *NetworksView) View() string {
 	}
 
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
-	help := helpStyle.Render("\n  enter: details • /: filter • r: refresh • esc: back")
+	help := helpStyle.Render("\n  enter: details • S: sort • /: filter • r: refresh • esc: back")
 
 	return v.table.View() + help
 }
@@ -264,5 +270,6 @@ func (v *NetworksView) SetContext(ctx *context.ProgramContext) {
 	v.ctx = ctx
 	v.width = ctx.ContentWidth
 	v.height = ctx.ContentHeight
-	v.table.SetSize(ctx.ContentWidth, ctx.ContentHeight-6)
+	v.table.SetSize(ctx.ContentWidth, ctx.ContentHeight-2)
 }
+

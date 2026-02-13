@@ -13,7 +13,8 @@ description: Keyboard shortcuts reference for all views
 | `Esc` | Go back |
 | `j/k` or `↓/↑` | Navigate list |
 | `r` | Refresh current view |
-| `/` | Search/Filter |
+| `/` | Search/Filter (supports `field:value` syntax) |
+| `S` | Open sort menu (list views) |
 | `Enter` | Select/Confirm |
 | `:` or `Ctrl+K` | Open command palette |
 | `[` | Focus sidebar (expands if auto-hidden) |
@@ -47,6 +48,7 @@ description: Keyboard shortcuts reference for all views
 |-----|--------|
 | `Enter` | View instance details |
 | `.` | Open action menu |
+| `S` | Open sort menu |
 | `s` | Start stopped instance |
 | `x` | Stop running instance |
 | `z` | Suspend running instance |
@@ -105,6 +107,7 @@ description: Keyboard shortcuts reference for all views
 |-----|--------|
 | `Enter` | View disk details |
 | `.` | Open action menu |
+| `S` | Open sort menu |
 | `s` | Create snapshot from disk |
 | `i` | Create image from disk |
 | `D` | Delete disk (if detached) |
@@ -130,6 +133,7 @@ description: Keyboard shortcuts reference for all views
 |-----|--------|
 | `Enter` | View snapshot details |
 | `.` | Open action menu |
+| `S` | Open sort menu |
 | `c` | Create disk from snapshot |
 | `i` | Create image from snapshot |
 | `D` | Delete snapshot (with confirmation) |
@@ -156,6 +160,7 @@ description: Keyboard shortcuts reference for all views
 | Key | Action |
 |-----|--------|
 | `Enter` | Browse bucket contents |
+| `S` | Open sort menu |
 | `c` | Create new bucket |
 | `/` | Filter buckets |
 | `r` | Refresh list |
@@ -167,6 +172,7 @@ description: Keyboard shortcuts reference for all views
 |-----|--------|
 | `Enter` | View image details |
 | `.` | Open action menu |
+| `S` | Open sort menu |
 | `c` | Create disk from image |
 | `D` | Delete image (with confirmation) |
 | `/` | Filter images |
@@ -193,14 +199,16 @@ description: Keyboard shortcuts reference for all views
 | `u` | Upload files |
 | `D` | Delete file/folder (with confirmation) |
 | `.` | Open action menu |
-| `n` | Next page |
-| `p` | Previous page |
+| `/` | Filter objects |
+| `r` | Refresh list |
+| `Esc` | Go back |
 
 ## Networks View
 
 | Key | Action |
 |-----|--------|
 | `Enter` | View network details |
+| `S` | Open sort menu |
 | `/` | Filter networks |
 | `r` | Refresh list |
 | `Esc` | Go back |
@@ -222,6 +230,7 @@ description: Keyboard shortcuts reference for all views
 |-----|--------|
 | `Enter` | View firewall rule details |
 | `.` | Open action menu |
+| `S` | Open sort menu |
 | `t` | Enable/disable firewall rule |
 | `D` | Delete firewall rule (with confirmation) |
 | `/` | Filter rules |

@@ -7,7 +7,6 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
-	btable "github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
@@ -58,7 +57,6 @@ type instanceKeyMap struct {
 	Suspend    key.Binding
 	Resume     key.Binding
 	Delete     key.Binding
-	SSH        key.Binding
 	Refresh    key.Binding
 	ActionMenu key.Binding
 }
@@ -93,10 +91,6 @@ func defaultInstanceKeyMap() instanceKeyMap {
 			key.WithKeys("D"),
 			key.WithHelp("D", "delete"),
 		),
-		SSH: key.NewBinding(
-			key.WithKeys("S"),
-			key.WithHelp("S", "SSH"),
-		),
 		Refresh: key.NewBinding(
 			key.WithKeys("r"),
 			key.WithHelp("r", "refresh"),
@@ -109,20 +103,20 @@ func defaultInstanceKeyMap() instanceKeyMap {
 }
 
 // Table column definitions
-func instanceColumns() []btable.Column {
-	return []btable.Column{
-		{Title: "Name", Width: 30},
-		{Title: "Zone", Width: 20},
+func instanceColumns() []table.Column {
+	return []table.Column{
+		{Title: "Name", Width: 30, Grow: true, Sortable: true},
+		{Title: "Zone", Width: 20, Sortable: true},
 		{Title: "Internal IP", Width: 15},
 		{Title: "External IP", Width: 15},
-		{Title: "Machine Type", Width: 15},
+		{Title: "Machine Type", Width: 15, Sortable: true},
 	}
 }
 
 // NewInstancesView creates a new instances view with table display
 func NewInstancesView(projectID string) *InstancesView {
 	title := fmt.Sprintf("Compute Engine Instances - %s", projectID)
-	t := table.New(instanceColumns(), title)
+	t := table.NewWithColumns(instanceColumns(), title)
 
 	s := components.NewGCPSpinner()
 
@@ -346,6 +340,13 @@ func (v *InstancesView) Update(msg tea.Msg) tea.Cmd {
 			return v.actionMenu.Update(msg)
 		}
 
+		// Delegate to table when sort menu is open
+		if v.table.IsSortMenuOpen() {
+			var cmd tea.Cmd
+			v.table, cmd = v.table.Update(msg)
+			return cmd
+		}
+
 		// Let table handle filtering mode
 		if v.table.IsFiltering() {
 			var cmd tea.Cmd
@@ -474,7 +475,6 @@ func (v *InstancesView) buildActions(inst gcp.Instance) []actionmenu.Action { //
 		{Key: 'Z', Label: "Resume", Enabled: isSuspended},
 		{Key: 'R', Label: "Reset", Enabled: isRunning, Dangerous: true},
 		{Key: 'D', Label: "Delete", Enabled: true, Dangerous: true},
-		{Key: 'S', Label: "SSH", Enabled: isRunning},
 		{Key: 'r', Label: "Refresh", Enabled: true},
 	}
 }
@@ -529,11 +529,6 @@ func (v *InstancesView) executeAction(actionKey rune) tea.Cmd {
 		v.actionMsg = fmt.Sprintf("Checking %s...", inst.Name)
 		v.registerTask("fetch-delete-details", "Checking deletion protection...")
 		return tea.Batch(v.spinner.Tick, v.fetchDeleteDetails(inst))
-	case 'S':
-		if inst.IsRunning() {
-			// SSH to instance is a planned feature
-			v.err = fmt.Errorf("%w for instance %s", uierrors.ErrSSHNotImplemented, inst.Name)
-		}
 	case 'r':
 		v.loading = true
 		v.err = nil
@@ -669,7 +664,7 @@ func (v *InstancesView) View() string {
 
 	// Help text for actions - include '.' for action menu
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
-	help := helpStyle.Render("\n  enter: details • .: actions • s: start • x: stop • z: suspend • Z: resume • /: filter • r: refresh")
+	help := helpStyle.Render("\n  enter: details • .: actions • s: start • x: stop • z: suspend • Z: resume • S: sort • /: filter • r: refresh")
 
 	mainContent := header + v.table.View() + help
 
@@ -698,7 +693,7 @@ func (v *InstancesView) SetContext(ctx *context.ProgramContext) {
 	v.ctx = ctx
 	v.width = ctx.ContentWidth
 	v.height = ctx.ContentHeight
-	v.table.SetSize(ctx.ContentWidth, ctx.ContentHeight-6)
+	v.table.SetSize(ctx.ContentWidth, ctx.ContentHeight-2)
 }
 
 // SelectedInstance returns the currently selected instance
@@ -776,3 +771,4 @@ func (v *InstancesView) failTask(id string, err error) tea.Cmd {
 		return context.TaskClearMsg{TaskID: id}
 	})
 }
+
