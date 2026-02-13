@@ -25,6 +25,7 @@ const (
 	ViewBuckets
 	ViewNetworks
 	ViewFirewall
+	ViewSQLInstances
 )
 
 // Icons for commands
@@ -35,8 +36,9 @@ const (
 	IconMetadata = "◐"
 	IconBucket   = "▪"
 	IconVPC      = "◆"
-	IconFirewall = "▲"
-	IconRefresh  = "↻"
+	IconFirewall    = "▲"
+	IconSQLInstance = "⬢"
+	IconRefresh     = "↻"
 	IconSidebar  = "☰"
 	IconHelp     = "?"
 	IconRecent   = "⏱"
@@ -113,6 +115,14 @@ func NavigationCommands() []Command {
 			Icon:     IconBucket,
 			Type:     CommandTypeNavigation,
 			ViewType: ViewBuckets,
+			Enabled:  true,
+		},
+		{
+			ID:       "nav:sql-instances",
+			Label:    "Databases: SQL instances",
+			Icon:     IconSQLInstance,
+			Type:     CommandTypeNavigation,
+			ViewType: ViewSQLInstances,
 			Enabled:  true,
 		},
 		{
