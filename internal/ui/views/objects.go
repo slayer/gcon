@@ -894,7 +894,7 @@ func (v *ObjectsView) SetContext(ctx *context.ProgramContext) {
 	v.ctx = ctx
 	v.width = ctx.ContentWidth
 	v.height = ctx.ContentHeight
-	v.table.SetSize(ctx.ContentWidth, ctx.ContentHeight-8)
+	v.table.SetSize(ctx.ContentWidth, ctx.ContentHeight-5)
 }
 
 // GetCurrentPath returns the current folder path being browsed

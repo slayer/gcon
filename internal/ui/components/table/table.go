@@ -690,8 +690,8 @@ func (m *Model) SetSize(width, height int) {
 	m.width = width
 	m.height = height
 
-	// Reserve space for title, filter, and help
-	tableHeight := height - 4
+	// Reserve space for title (2 lines with margin) and status bar (1 line)
+	tableHeight := height - 3
 	if m.filtering {
 		tableHeight -= 2
 	}

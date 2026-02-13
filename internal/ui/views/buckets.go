@@ -278,7 +278,7 @@ func (v *BucketsView) View() string {
 // Reads dimensions from the context for consistent sizing.
 func (v *BucketsView) SetContext(ctx *context.ProgramContext) {
 	v.ctx = ctx
-	v.table.SetSize(ctx.ContentWidth, ctx.ContentHeight-4)
+	v.table.SetSize(ctx.ContentWidth, ctx.ContentHeight-2)
 }
 
 // GetStorageClient returns the storage client for reuse in objects view

@@ -249,7 +249,7 @@ func (v *ProjectsView) View() string {
 func (v *ProjectsView) SetContext(ctx *context.ProgramContext) {
 	v.ctx = ctx
 	// Projects view uses full screen width (no sidebar)
-	v.table.SetSize(ctx.ScreenWidth, ctx.ContentHeight-4)
+	v.table.SetSize(ctx.ScreenWidth, ctx.ContentHeight-2)
 }
 
 // SelectedProject returns the currently selected project
