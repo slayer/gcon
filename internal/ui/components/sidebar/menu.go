@@ -92,7 +92,7 @@ func DefaultMenu() []MenuItem {
 			Hotkey: 'D',
 			Type:   MenuItemCategory,
 			Children: []MenuItem{
-				{ID: "sql-instances", Label: "SQL instances", Icon: IconSQLInstance, Hotkey: 'q', Type: MenuItemLeaf, ViewType: ViewSQLInstances},
+				{ID: "sql-instances", Label: "SQL instances", Icon: IconSQLInstance, Hotkey: 'i', Type: MenuItemLeaf, ViewType: ViewSQLInstances},
 			},
 		},
 		{

@@ -408,7 +408,9 @@ func (v *SQLInstanceDetailsView) buildActions() []actionmenu.Action {
 			actions = append(actions, actionmenu.Action{Key: 'x', Label: "Stop", Enabled: true})
 			actions = append(actions, actionmenu.Action{Key: 'R', Label: "Restart", Enabled: true})
 		}
-		actions = append(actions, actionmenu.Action{Key: 'b', Label: "Create Backup", Enabled: true})
+		if v.tabs.ActiveTab().ID == sqlTabIDBackups {
+			actions = append(actions, actionmenu.Action{Key: 'b', Label: "Create Backup", Enabled: true})
+		}
 		actions = append(actions, actionmenu.Action{Key: 'D', Label: "Delete", Enabled: true, Dangerous: true})
 	}
 
@@ -426,7 +428,10 @@ func (v *SQLInstanceDetailsView) executeAction(actionKey rune) tea.Cmd {
 	case 'R':
 		return v.restartInstance()
 	case 'b':
-		return v.createBackup()
+		if v.tabs.ActiveTab().ID == sqlTabIDBackups {
+			return v.createBackup()
+		}
+		return nil
 	case 'D':
 		return v.initiateDelete()
 	}
@@ -860,7 +865,14 @@ func (v *SQLInstanceDetailsView) renderBackupsTab() string {
 	header := fmt.Sprintf("  %-10s  %-12s  %-12s  %-20s  %s", "ID", "Status", "Type", "Start Time", "End Time")
 	b.WriteString(header)
 	b.WriteString("\n")
-	b.WriteString("  " + strings.Repeat("─", 80))
+	// Size separator to match header width, capped by available width
+	sepWidth := lipgloss.Width(header) - 2 // subtract leading spaces
+	if v.width > 0 {
+		if maxWidth := v.width - 4; maxWidth > 0 && maxWidth < sepWidth {
+			sepWidth = maxWidth
+		}
+	}
+	b.WriteString("  " + strings.Repeat("─", sepWidth))
 	b.WriteString("\n")
 
 	// Rows with colored status
@@ -881,7 +893,13 @@ func (v *SQLInstanceDetailsView) renderBackupsTab() string {
 		// Use ID as string for display
 		idStr := strconv.FormatInt(backup.ID, 10)
 
-		b.WriteString(fmt.Sprintf("  %-10s  %-12s  %-12s  %-20s  %s\n",
+		// Pad status manually — fmt's %-12s counts ANSI bytes, not visual width
+		statusPad := 12 - lipgloss.Width(statusStr)
+		if statusPad > 0 {
+			statusStr += strings.Repeat(" ", statusPad)
+		}
+
+		b.WriteString(fmt.Sprintf("  %-10s  %s  %-12s  %-20s  %s\n",
 			idStr,
 			statusStr,
 			backup.Type,

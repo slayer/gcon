@@ -148,7 +148,7 @@ func TestSQLInstanceDetailsFromAPI(t *testing.T) {
 	assert.True(t, details.BinaryLogEnabled)
 	assert.True(t, details.PITREnabled)
 
-	// Maintenance window: Day=0 (Sunday), Hour=4
+	// Maintenance window: Sunday 04:00
 	assert.Equal(t, "Sunday 04:00", details.MaintenanceWindow)
 
 	// Database flags
