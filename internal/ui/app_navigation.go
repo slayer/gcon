@@ -1833,7 +1833,9 @@ func (a *App) handleSQLInstanceActionResult(msg views.SQLInstanceActionResultMsg
 
 	if msg.Error != nil {
 		a.err = msg.Error
-		return nil
+		// Refresh views to sync with actual GCP state (e.g. instance may have
+		// been stopped by a previous call and our cached state is stale)
+		return a.refreshSQLViews()
 	}
 
 	// On successful delete, navigate back to SQL instances list and refresh
@@ -1861,22 +1863,29 @@ func (a *App) handleSQLInstanceActionResult(msg views.SQLInstanceActionResultMsg
 
 	// On successful start/stop/restart, refresh both views
 	if msg.Action == "start" || msg.Action == "stop" || msg.Action == "restart" {
-		var cmds []tea.Cmd
-		if a.currentView == ViewSQLInstanceDetails && a.sqlInstanceDetailsView != nil {
-			if cmd := a.sqlInstanceDetailsView.Init(); cmd != nil {
-				cmds = append(cmds, cmd)
-			}
-		}
-		if a.sqlInstancesView != nil {
-			if cmd := a.sqlInstancesView.Init(); cmd != nil {
-				cmds = append(cmds, cmd)
-			}
-		}
-		if len(cmds) > 0 {
-			return tea.Batch(cmds...)
-		}
+		return a.refreshSQLViews()
 	}
 
+	return nil
+}
+
+// refreshSQLViews reloads data in both the SQL instances list and details views.
+// Used after actions and on errors to keep UI in sync with actual GCP state.
+func (a *App) refreshSQLViews() tea.Cmd {
+	var cmds []tea.Cmd
+	if a.currentView == ViewSQLInstanceDetails && a.sqlInstanceDetailsView != nil {
+		if cmd := a.sqlInstanceDetailsView.Init(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
+	if a.sqlInstancesView != nil {
+		if cmd := a.sqlInstancesView.Init(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
+	if len(cmds) > 0 {
+		return tea.Batch(cmds...)
+	}
 	return nil
 }
 

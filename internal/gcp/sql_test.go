@@ -234,6 +234,89 @@ func TestSQLBackupRunFromAPI(t *testing.T) {
 	assert.Equal(t, "Daily automated backup", result.Description)
 }
 
+func TestEffectiveState(t *testing.T) {
+	tests := []struct {
+		name     string
+		inst     *sqladmin.DatabaseInstance
+		expected string
+	}{
+		{
+			name: "RUNNABLE with ALWAYS stays RUNNABLE",
+			inst: &sqladmin.DatabaseInstance{
+				State:    "RUNNABLE",
+				Settings: &sqladmin.Settings{ActivationPolicy: "ALWAYS"},
+			},
+			expected: "RUNNABLE",
+		},
+		{
+			name: "RUNNABLE with NEVER becomes STOPPED",
+			inst: &sqladmin.DatabaseInstance{
+				State:    "RUNNABLE",
+				Settings: &sqladmin.Settings{ActivationPolicy: "NEVER"},
+			},
+			expected: "STOPPED",
+		},
+		{
+			name: "STOPPED with NEVER stays STOPPED",
+			inst: &sqladmin.DatabaseInstance{
+				State:    "STOPPED",
+				Settings: &sqladmin.Settings{ActivationPolicy: "NEVER"},
+			},
+			expected: "STOPPED",
+		},
+		{
+			name: "STOPPED with ALWAYS stays STOPPED",
+			inst: &sqladmin.DatabaseInstance{
+				State:    "STOPPED",
+				Settings: &sqladmin.Settings{ActivationPolicy: "ALWAYS"},
+			},
+			expected: "STOPPED",
+		},
+		{
+			name: "nil settings preserves raw state",
+			inst: &sqladmin.DatabaseInstance{
+				State:    "RUNNABLE",
+				Settings: nil,
+			},
+			expected: "RUNNABLE",
+		},
+		{
+			name: "PENDING_CREATE passes through",
+			inst: &sqladmin.DatabaseInstance{
+				State:    "PENDING_CREATE",
+				Settings: &sqladmin.Settings{ActivationPolicy: "ALWAYS"},
+			},
+			expected: "PENDING_CREATE",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, effectiveState(tt.inst))
+		})
+	}
+}
+
+func TestSQLInstanceFromAPI_EffectiveState(t *testing.T) {
+	// Verifies that instances with activationPolicy=NEVER show as STOPPED
+	inst := &sqladmin.DatabaseInstance{
+		Name:            "stopped-instance",
+		DatabaseVersion: "POSTGRES_15",
+		State:           "RUNNABLE",
+		Region:          "us-central1",
+		Settings: &sqladmin.Settings{
+			Tier:             "db-f1-micro",
+			ActivationPolicy: "NEVER",
+		},
+		CreateTime: "2024-06-15T10:30:00.000Z",
+	}
+
+	result := sqlInstanceFromAPI(inst)
+	assert.Equal(t, "STOPPED", result.State)
+	assert.True(t, result.IsStopped())
+	assert.False(t, result.IsRunnable())
+}
+
 func TestIsRunnable(t *testing.T) {
 	tests := []struct {
 		name     string

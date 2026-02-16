@@ -242,7 +242,7 @@ func sqlInstanceFromAPI(inst *sqladmin.DatabaseInstance) SQLInstance {
 	return SQLInstance{
 		Name:            inst.Name,
 		DatabaseVersion: inst.DatabaseVersion,
-		State:           inst.State,
+		State:           effectiveState(inst),
 		Region:          inst.Region,
 		Tier:            tier,
 		PrimaryIP:       primaryIP,
@@ -255,7 +255,7 @@ func sqlInstanceDetailsFromAPI(inst *sqladmin.DatabaseInstance) *SQLInstanceDeta
 	details := &SQLInstanceDetails{
 		Name:            inst.Name,
 		DatabaseVersion: inst.DatabaseVersion,
-		State:           inst.State,
+		State:           effectiveState(inst),
 		Region:          inst.Region,
 		ConnectionName:  inst.ConnectionName,
 		ReplicaNames:    inst.ReplicaNames,
@@ -372,6 +372,18 @@ func (i *SQLInstance) IsRunnable() bool {
 // IsStopped returns true if the Cloud SQL instance state is STOPPED or SUSPENDED
 func (i *SQLInstance) IsStopped() bool {
 	return i.State == "STOPPED" || i.State == "SUSPENDED"
+}
+
+// effectiveState derives the display state from the API response.
+// GCP's "state" field means "operational capability" not "running status":
+// RUNNABLE = "running, or has been stopped by owner" per the docs.
+// The actual running vs stopped distinction comes from activationPolicy
+// (ALWAYS=running, NEVER=stopped). We reconcile these to match the console.
+func effectiveState(inst *sqladmin.DatabaseInstance) string {
+	if inst.Settings != nil && inst.State == "RUNNABLE" && inst.Settings.ActivationPolicy == "NEVER" {
+		return "STOPPED"
+	}
+	return inst.State
 }
 
 // maintenanceDayName converts GCP maintenance window day number to name.
