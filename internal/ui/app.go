@@ -50,6 +50,8 @@ const (
 	ViewNetworkDetails
 	ViewFirewall
 	ViewFirewallDetails
+	ViewSQLInstances
+	ViewSQLInstanceDetails
 	ViewLogs
 	ViewFormDemo // Demo view for testing form components
 )
@@ -97,9 +99,11 @@ type App struct {
 	diskCreateView      *views.DiskCreateView
 	networksView        *views.NetworksView
 	networkDetailsView  *views.NetworkDetailsView
-	firewallsView       *views.FirewallsView
-	firewallDetailsView *views.FirewallDetailsView
-	formDemoView        *views.FormDemoView
+	firewallsView          *views.FirewallsView
+	firewallDetailsView    *views.FirewallDetailsView
+	sqlInstancesView       *views.SQLInstancesView
+	sqlInstanceDetailsView *views.SQLInstanceDetailsView
+	formDemoView           *views.FormDemoView
 
 	// Selected context
 	selectedProject  *gcp.Project
@@ -109,8 +113,9 @@ type App struct {
 	selectedImage    *gcp.Image
 	selectedBucket   *gcp.Bucket
 	selectedObject   *gcp.StorageObject
-	selectedNetwork  *gcp.Network
-	selectedFirewall *gcp.FirewallRule
+	selectedNetwork     *gcp.Network
+	selectedFirewall    *gcp.FirewallRule
+	selectedSQLInstance *gcp.SQLInstance
 
 	// UI state
 	showHelp              bool
@@ -341,6 +346,10 @@ func (a *App) getCurrentViewModel() views.View {
 		return a.firewallsView
 	case ViewFirewallDetails:
 		return a.firewallDetailsView
+	case ViewSQLInstances:
+		return a.sqlInstancesView
+	case ViewSQLInstanceDetails:
+		return a.sqlInstanceDetailsView
 	case ViewFormDemo:
 		return a.formDemoView
 	}
@@ -460,6 +469,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case ViewFirewallDetails:
 					a.firewallDetailsView = nil
 					a.selectedFirewall = nil
+				case ViewSQLInstanceDetails:
+					a.sqlInstanceDetailsView = nil
+					a.selectedSQLInstance = nil
 				}
 
 				a.updateSidebarActiveView()
@@ -480,7 +492,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// If not handled, fall through to quit
 				fallthrough
 
-			case ViewInstances, ViewDisks, ViewSnapshots, ViewImages, ViewBuckets, ViewNetworks, ViewFirewall, ViewProjects:
+			case ViewInstances, ViewDisks, ViewSnapshots, ViewImages, ViewBuckets, ViewNetworks, ViewFirewall, ViewSQLInstances, ViewProjects:
 				// Quit from top-level views or if stack is empty
 				a.cleanup()
 				return a, tea.Quit
@@ -769,6 +781,30 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
 		return a, a.handleFirewallActionResult(msg)
 
+	case views.SQLInstanceSelectedMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleSQLInstanceSelected(msg)
+
+	case views.SQLInstanceActionMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleSQLInstanceAction(msg)
+
+	case views.DeleteSQLInstanceConfirmedMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleDeleteSQLInstanceConfirmed(msg)
+
+	case views.SQLInstanceActionResultMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleSQLInstanceActionResult(msg)
+
+	case views.CreateSQLBackupMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleCreateSQLBackup(msg)
+
+	case views.SQLBackupActionResultMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleSQLBackupActionResult(msg)
+
 	case views.DeleteInstanceConfirmedMsg:
 		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
 		return a, a.handleDeleteInstanceConfirmed(msg)
@@ -967,6 +1003,12 @@ func (a *App) updateViewSizes() {
 	}
 	if a.firewallDetailsView != nil {
 		a.firewallDetailsView.SetContext(a.ctx)
+	}
+	if a.sqlInstancesView != nil {
+		a.sqlInstancesView.SetContext(a.ctx)
+	}
+	if a.sqlInstanceDetailsView != nil {
+		a.sqlInstanceDetailsView.SetContext(a.ctx)
 	}
 }
 

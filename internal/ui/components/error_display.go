@@ -45,6 +45,15 @@ func RenderError(err error) string {
 	result += errorTitleStyle.Render(fmt.Sprintf("  %s %s", icon, gcpErr.Message))
 	result += "\n"
 
+	// Show underlying error details when available and different from message
+	if gcpErr.Underlying != nil {
+		detail := gcpErr.Underlying.Error()
+		if detail != gcpErr.Message {
+			result += errorContextStyle.Render("  " + detail)
+			result += "\n"
+		}
+	}
+
 	// Show operation context if available
 	if gcpErr.Operation != "" {
 		ctx := fmt.Sprintf("  Operation: %s", gcpErr.Operation)
@@ -72,6 +81,17 @@ func RenderInlineError(err error) string {
 		return ""
 	}
 	errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#EA4335"))
+
+	// For GCP errors, show the underlying details instead of just the title
+	var gcpErr *gcp.GCPError
+	if errors.As(err, &gcpErr) && gcpErr.Underlying != nil {
+		detail := gcpErr.Underlying.Error()
+		if detail != gcpErr.Message {
+			return "\n\n" + errorStyle.Render("Error: "+gcpErr.Message) +
+				"\n" + errorContextStyle.Render("  "+detail)
+		}
+	}
+
 	return "\n\n" + errorStyle.Render("Error: "+err.Error())
 }
 

@@ -2,6 +2,7 @@ package gcp
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 
 	"google.golang.org/api/googleapi"
@@ -128,8 +129,9 @@ func classifyAPIError(apiErr *googleapi.Error) (code ErrorCode, title, suggestio
 			"GCP service is experiencing issues. Try again later"
 
 	default:
+		// Include HTTP code and actual message so details aren't lost
 		return ErrorUnknown,
-			"API error",
+			fmt.Sprintf("API error (HTTP %d): %s", apiErr.Code, apiErr.Message),
 			"Press 'r' to retry"
 	}
 }

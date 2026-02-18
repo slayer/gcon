@@ -25,16 +25,18 @@ func TestRenderError_NonGCPError(t *testing.T) {
 
 func TestRenderError_GCPErrorAllFields(t *testing.T) {
 	gcpErr := &gcp.GCPError{
-		Code:      gcp.ErrorPermissionDenied,
-		Message:   "Permission denied",
-		Hint:      "Check IAM permissions",
-		Operation: "list instances",
-		Resource:  "my-project",
+		Code:       gcp.ErrorPermissionDenied,
+		Message:    "Permission denied",
+		Hint:       "Check IAM permissions",
+		Operation:  "list instances",
+		Resource:   "my-project",
+		Underlying: errors.New("googleapi: Error 403: Caller does not have permission"), //nolint:err113 // Test error
 	}
 
 	result := RenderError(gcpErr)
 
 	assert.Contains(t, result, "Permission denied")
+	assert.Contains(t, result, "Caller does not have permission")
 	assert.Contains(t, result, "Check IAM permissions")
 	assert.Contains(t, result, "Operation: list instances")
 	assert.Contains(t, result, "(my-project)")
@@ -146,6 +148,20 @@ func TestRenderInlineError(t *testing.T) {
 			assert.NotContains(t, result, "Press 'r' to retry")
 		})
 	}
+}
+
+func TestRenderInlineError_GCPError(t *testing.T) {
+	gcpErr := &gcp.GCPError{
+		Code:       gcp.ErrorPermissionDenied,
+		Message:    "Permission denied",
+		Underlying: errors.New("googleapi: Error 403: Caller does not have permission"), //nolint:err113 // Test error
+	}
+
+	result := RenderInlineError(gcpErr)
+
+	assert.Contains(t, result, "Permission denied")
+	assert.Contains(t, result, "Caller does not have permission")
+	assert.NotContains(t, result, "Press 'r' to retry")
 }
 
 func TestErrorIcon(t *testing.T) {

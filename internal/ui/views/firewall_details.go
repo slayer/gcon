@@ -271,7 +271,28 @@ func (v *FirewallDetailsView) Update(msg tea.Msg) tea.Cmd {
 			return func() tea.Msg { return focusMsg }
 		}
 
-		// Route keys based on currently focused region
+		// Action keys checked first so they work regardless of focused region
+		switch {
+		case key.Matches(msg, v.keys.ActionMenu):
+			if v.details != nil {
+				v.actionMenu = actionmenu.New("Firewall Actions", v.buildActions())
+				v.menuOpen = true
+			}
+			return nil
+
+		case key.Matches(msg, v.keys.Refresh):
+			v.loading = true
+			v.err = nil
+			return tea.Batch(v.spinner.Tick, v.loadDetails())
+
+		case key.Matches(msg, v.keys.Toggle):
+			return v.toggleFirewall()
+
+		case key.Matches(msg, v.keys.Delete):
+			return v.initiateDelete()
+		}
+
+		// Route remaining keys based on currently focused region
 		switch v.focusMgr.ActiveType() {
 		case focus.RegionTabs:
 			if tabs.HandleKey(msg) {
@@ -295,27 +316,6 @@ func (v *FirewallDetailsView) Update(msg tea.Msg) tea.Cmd {
 				v.tabViewports[activeIdx], cmd = v.tabViewports[activeIdx].Update(msg)
 				return cmd
 			}
-		}
-
-		// View-specific action keys (work regardless of focus)
-		switch {
-		case key.Matches(msg, v.keys.ActionMenu):
-			if v.details != nil {
-				v.actionMenu = actionmenu.New("Firewall Actions", v.buildActions())
-				v.menuOpen = true
-			}
-			return nil
-
-		case key.Matches(msg, v.keys.Refresh):
-			v.loading = true
-			v.err = nil
-			return tea.Batch(v.spinner.Tick, v.loadDetails())
-
-		case key.Matches(msg, v.keys.Toggle):
-			return v.toggleFirewall()
-
-		case key.Matches(msg, v.keys.Delete):
-			return v.initiateDelete()
 		}
 	}
 

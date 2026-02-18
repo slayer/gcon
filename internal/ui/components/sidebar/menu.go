@@ -21,6 +21,7 @@ const (
 	ViewBuckets
 	ViewNetworks
 	ViewFirewall
+	ViewSQLInstances
 )
 
 // Icons for menu items - using simple Unicode box/geometric symbols
@@ -39,6 +40,10 @@ const (
 	IconBucket   = "▪" // Buckets
 	IconVPC      = "◆" // VPC networks
 	IconFirewall = "▲" // Firewall
+
+	// Databases category
+	IconDatabase    = "⬡" // Databases category (hollow hexagon)
+	IconSQLInstance = "⬢" // SQL instances leaf (filled hexagon)
 )
 
 // MenuItem represents a single menu entry
@@ -78,6 +83,16 @@ func DefaultMenu() []MenuItem {
 			Type:   MenuItemCategory,
 			Children: []MenuItem{
 				{ID: "buckets", Label: "Buckets", Icon: IconBucket, Hotkey: 'b', Type: MenuItemLeaf, ViewType: ViewBuckets},
+			},
+		},
+		{
+			ID:     "databases",
+			Label:  "Databases",
+			Icon:   IconDatabase,
+			Hotkey: 'D',
+			Type:   MenuItemCategory,
+			Children: []MenuItem{
+				{ID: "sql-instances", Label: "SQL instances", Icon: IconSQLInstance, Hotkey: 'i', Type: MenuItemLeaf, ViewType: ViewSQLInstances},
 			},
 		},
 		{

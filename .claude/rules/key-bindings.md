@@ -250,6 +250,37 @@ description: Keyboard shortcuts reference for all views
 | `Enter` | Navigate to VPC network (when link focused) |
 | `Esc` | Go back |
 
+## SQL Instances View
+
+| Key | Action |
+|-----|--------|
+| `Enter` | View instance details |
+| `.` | Open action menu |
+| `S` | Open sort menu |
+| `s` | Start stopped instance |
+| `x` | Stop running instance |
+| `R` | Restart instance |
+| `D` | Delete instance (with type-to-confirm) |
+| `/` | Filter instances |
+| `r` | Refresh list |
+| `Esc` | Go back |
+
+## SQL Instance Details View
+
+| Key | Action |
+|-----|--------|
+| `.` | Open action menu |
+| `s` | Start instance (if stopped) |
+| `x` | Stop instance (if running) |
+| `R` | Restart instance |
+| `D` | Delete instance (with type-to-confirm) |
+| `b` | Create on-demand backup (Backups tab) |
+| `r` | Refresh all tabs |
+| `Tab` | Switch focus (tabs/content) |
+| `h/l` or `1/2/3` | Switch tabs (Details/Databases/Backups) |
+| `j/k` or `↓/↑` | Scroll content |
+| `Esc` | Go back |
+
 ## Object Details View
 
 | Key | Action |

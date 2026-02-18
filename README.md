@@ -98,6 +98,15 @@
   - View object details and metadata
   - Pagination for large buckets
 
+#### Cloud SQL
+- 🗄️ **SQL Instance Management**
+  - List all Cloud SQL instances with version, state, region, tier, and IP
+  - View instance details with 3 tabs (Details/Databases/Backups)
+  - Lifecycle actions: start, stop, restart, delete (with type-to-confirm)
+  - State display reconciling activationPolicy with instance state
+  - List databases per instance
+  - List backup runs and create on-demand backups
+
 #### VPC Networking
 - 🌐 **VPC Network Management**
   - List all VPC networks with subnet counts and routing mode
@@ -143,7 +152,6 @@ The following features are planned for future releases:
   - View IAM policies
   - Manage service accounts
   - Role assignments
-- [ ] **Cloud SQL** - Database instance management
 - [ ] **Cloud Functions** - Function deployment and monitoring
 - [ ] **Subnets** - Standalone subnet list and management
 - [ ] **Load Balancers** - Load balancer configuration and health
@@ -365,6 +373,37 @@ Once launched, gcon presents an intuitive interface with:
 | `Enter` | Navigate | Navigate to associated VPC network |
 | `Esc` | Go Back | Return to firewall rules list |
 
+#### Cloud SQL - Instances
+
+| Key | Action | Description |
+|-----|--------|-------------|
+| `Enter` | View Details | Show instance details with tabs |
+| `.` | Action Menu | Open context-sensitive action menu |
+| `S` | Sort Menu | Open column sort menu |
+| `s` | Start | Start a stopped instance |
+| `x` | Stop | Stop a running instance |
+| `R` | Restart | Restart an instance |
+| `D` | Delete | Delete instance (with type-to-confirm) |
+| `/` | Filter | Filter instances |
+| `r` | Refresh | Reload instance list |
+| `Esc` | Go Back | Return to previous view |
+
+#### Cloud SQL - Instance Details
+
+| Key | Action | Description |
+|-----|--------|-------------|
+| `.` | Action Menu | Open context-sensitive action menu |
+| `s` | Start | Start instance (if stopped) |
+| `x` | Stop | Stop instance (if running) |
+| `R` | Restart | Restart instance |
+| `D` | Delete | Delete instance (with type-to-confirm) |
+| `b` | Create Backup | Create on-demand backup (Backups tab) |
+| `r` | Refresh | Refresh all tabs |
+| `Tab` | Switch Focus | Switch focus between tabs and content |
+| `h`/`l` or `1`/`2`/`3` | Switch Tabs | Switch between Details, Databases, and Backups tabs |
+| `j`/`k` or `↓`/`↑` | Scroll | Scroll content |
+| `Esc` | Go Back | Return to instances list |
+
 #### Label & Metadata Editors
 
 | Key | Action | Description |
@@ -450,7 +489,8 @@ gcon/
 │   │   ├── logging.go     # Cloud Logging
 │   │   ├── metadata.go    # Metadata and labels
 │   │   ├── networks.go    # VPC Networks and subnets
-│   │   └── firewalls.go   # Firewall rules
+│   │   ├── firewalls.go   # Firewall rules
+│   │   └── sql.go         # Cloud SQL instances
 │   └── ui/
 │       ├── app.go         # Main application controller
 │       ├── keys.go        # Global key bindings
@@ -471,7 +511,9 @@ gcon/
 │           ├── networks.go
 │           ├── network_details.go
 │           ├── firewalls.go
-│           └── firewall_details.go
+│           ├── firewall_details.go
+│           ├── sql_instances.go
+│           └── sql_instance_details.go
 ├── doc/                   # Feature documentation
 ├── Makefile
 └── README.md

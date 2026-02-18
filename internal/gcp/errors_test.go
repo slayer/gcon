@@ -97,7 +97,7 @@ func TestParseError_APIErrors(t *testing.T) {
 			operation:        "stop instance",
 			resource:         "my-vm",
 			expectedCode:     ErrorUnknown,
-			expectedMsg:      "API error",
+			expectedMsg:      "API error (HTTP 500): Internal server error",
 			wantHintContains: "retry",
 		},
 	}
