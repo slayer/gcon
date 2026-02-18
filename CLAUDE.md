@@ -30,7 +30,8 @@ A terminal-based user interface for managing Google Cloud Platform resources, bu
 │   ├── gcp/                 # GCP API clients & abstractions
 │   │   ├── client.go        # Base client with auth (Cloud Resource Manager)
 │   │   ├── projects.go      # Project listing
-│   │   └── compute.go       # Compute Engine (instances start/stop/reset)
+│   │   ├── compute.go       # Compute Engine (instances start/stop/reset)
+│   │   └── sql.go           # Cloud SQL (instances, databases, backups)
 │   ├── ui/
 │   │   ├── app.go           # Main application model & view routing
 │   │   ├── keys.go          # Global key bindings
@@ -133,6 +134,7 @@ Required scopes:
 - `cloudresourcemanager.readonly` - List projects
 - `compute` - Manage Compute Engine instances
 - `devstorage.full_control` - Manage Cloud Storage buckets and objects
+- `sqladmin` - Manage Cloud SQL instances
 
 ## Code Style Guidelines
 
@@ -229,6 +231,12 @@ On developing or updating a new feature keep in mind the following guidelines:
   - Enable/disable firewall rules
   - Delete firewall rules with confirmation
   - Navigate to associated VPC network
+- [x] Cloud SQL instance management
+  - List SQL instances with version, state, region, tier, IP
+  - Instance details view with 3 tabs (Details/Databases/Backups)
+  - Lifecycle actions (start/stop/restart/delete with confirmation)
+  - List databases per instance
+  - List backup runs and create on-demand backups
 - [x] Table enhancements
   - Column sorting via popup sort menu (`S` key) with numeric-aware comparison
   - Field-based filtering (`field:value` syntax, e.g. `status:running zone:us`)

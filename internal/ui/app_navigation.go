@@ -8,6 +8,7 @@ import (
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/sidebar"
+	"github.com/slayer/gcon/internal/ui/context"
 	"github.com/slayer/gcon/internal/ui/views"
 )
 
@@ -244,6 +245,17 @@ func (a *App) handleSidebarNavigation(msg sidebar.NavigateMsg) tea.Cmd {
 				cmd = a.firewallsView.Init()
 			}
 		}
+	case sidebar.ViewSQLInstances:
+		if a.currentView != ViewSQLInstances && a.currentView != ViewSQLInstanceDetails {
+			a.currentView = ViewSQLInstances
+			a.sqlInstanceDetailsView = nil
+			a.selectedSQLInstance = nil
+			if a.sqlInstancesView == nil {
+				a.sqlInstancesView = views.NewSQLInstancesView(a.selectedProject.ID)
+				a.updateViewSizes()
+				cmd = a.sqlInstancesView.Init()
+			}
+		}
 	}
 
 	a.updateSidebarActiveView()
@@ -277,6 +289,8 @@ func (a *App) updateSidebarActiveView() {
 		a.sidebar.SetActiveView(sidebar.ViewNetworks)
 	case ViewFirewall, ViewFirewallDetails:
 		a.sidebar.SetActiveView(sidebar.ViewFirewall)
+	case ViewSQLInstances, ViewSQLInstanceDetails:
+		a.sidebar.SetActiveView(sidebar.ViewSQLInstances)
 	}
 }
 
@@ -565,6 +579,8 @@ func (a *App) clearAllViews() {
 	a.networkDetailsView = nil
 	a.firewallsView = nil
 	a.firewallDetailsView = nil
+	a.sqlInstancesView = nil
+	a.sqlInstanceDetailsView = nil
 	a.formDemoView = nil
 
 	// Clear view stack
@@ -579,6 +595,7 @@ func (a *App) clearAllViews() {
 	a.selectedObject = nil
 	a.selectedNetwork = nil
 	a.selectedFirewall = nil
+	a.selectedSQLInstance = nil
 }
 
 // reloadCurrentView recreates or switches views for the new project ID.
@@ -640,6 +657,14 @@ func (a *App) reloadCurrentView(projectID string) tea.Cmd {
 		a.updateSidebarActiveView()
 		a.updateViewSizes()
 		return a.firewallsView.Init()
+
+	case ViewSQLInstances, ViewSQLInstanceDetails:
+		// Return to SQL instances list on project switch
+		a.currentView = ViewSQLInstances
+		a.sqlInstancesView = views.NewSQLInstancesView(projectID)
+		a.updateSidebarActiveView()
+		a.updateViewSizes()
+		return a.sqlInstancesView.Init()
 
 	case ViewProjectMetadata:
 		// Reload metadata view
@@ -1694,6 +1719,214 @@ func (a *App) handleInstanceActionResult(msg views.InstanceActionResultMsg) tea.
 		if a.instancesView != nil {
 			return a.instancesView.Init()
 		}
+	}
+
+	return nil
+}
+
+// handleSQLInstanceSelected processes SQL instance selection and navigates to details view
+//
+//nolint:gocritic // hugeParam: message struct passed by value
+func (a *App) handleSQLInstanceSelected(msg views.SQLInstanceSelectedMsg) tea.Cmd {
+	inst := msg.Instance
+	a.selectedSQLInstance = &inst
+	// Push current view onto stack for back navigation
+	a.viewStack = append(a.viewStack, a.currentView)
+	a.currentView = ViewSQLInstanceDetails
+
+	// Pass SQL client from list view to avoid re-initialization
+	var sqlClient *gcp.SQLClient
+	if a.sqlInstancesView != nil {
+		sqlClient = a.sqlInstancesView.GetSQLClient()
+	}
+
+	a.sqlInstanceDetailsView = views.NewSQLInstanceDetailsView(
+		a.selectedProject.ID,
+		inst.Name,
+		sqlClient,
+	)
+	a.updateSidebarActiveView()
+	a.updateViewSizes()
+	return a.sqlInstanceDetailsView.Init()
+}
+
+// handleSQLInstanceAction processes SQL instance lifecycle actions (start/stop/restart)
+func (a *App) handleSQLInstanceAction(msg views.SQLInstanceActionMsg) tea.Cmd {
+	// Get SQL client from the appropriate view
+	var sqlClient *gcp.SQLClient
+	if a.sqlInstancesView != nil {
+		sqlClient = a.sqlInstancesView.GetSQLClient()
+	} else if a.sqlInstanceDetailsView != nil {
+		sqlClient = a.sqlInstanceDetailsView.GetSQLClient()
+	}
+
+	if sqlClient == nil || a.selectedProject == nil {
+		return nil
+	}
+
+	projectID := a.selectedProject.ID
+	instanceName := msg.InstanceName
+	action := msg.Action
+
+	// Show progress in footer status bar
+	taskID := "sql-" + action + "-" + instanceName
+	actionLabels := map[string]string{"start": "Starting", "stop": "Stopping", "restart": "Restarting"}
+	taskCmd := a.startTask(context.Task{
+		ID:          taskID,
+		Description: actionLabels[action] + " " + instanceName + "...",
+	})
+
+	apiCmd := func() tea.Msg {
+		var err error
+		switch action {
+		case "start":
+			err = sqlClient.StartInstance(gocontext.Background(), projectID, instanceName)
+		case "stop":
+			err = sqlClient.StopInstance(gocontext.Background(), projectID, instanceName)
+		case "restart":
+			err = sqlClient.RestartInstance(gocontext.Background(), projectID, instanceName)
+		}
+		return views.SQLInstanceActionResultMsg{
+			InstanceName: instanceName,
+			Action:       action,
+			Success:      err == nil,
+			Error:        err,
+		}
+	}
+
+	return tea.Batch(taskCmd, apiCmd)
+}
+
+// handleDeleteSQLInstanceConfirmed processes confirmed SQL instance deletion
+func (a *App) handleDeleteSQLInstanceConfirmed(msg views.DeleteSQLInstanceConfirmedMsg) tea.Cmd {
+	// Get SQL client from the appropriate view
+	var sqlClient *gcp.SQLClient
+	if a.sqlInstancesView != nil {
+		sqlClient = a.sqlInstancesView.GetSQLClient()
+	} else if a.sqlInstanceDetailsView != nil {
+		sqlClient = a.sqlInstanceDetailsView.GetSQLClient()
+	}
+
+	if sqlClient == nil || a.selectedProject == nil {
+		return nil
+	}
+
+	projectID := a.selectedProject.ID
+	instanceName := msg.InstanceName
+
+	return func() tea.Msg {
+		err := sqlClient.DeleteInstance(gocontext.Background(), projectID, instanceName)
+		return views.SQLInstanceActionResultMsg{
+			InstanceName: instanceName,
+			Action:       "delete",
+			Success:      err == nil,
+			Error:        err,
+		}
+	}
+}
+
+// handleSQLInstanceActionResult processes the result of a SQL instance action
+func (a *App) handleSQLInstanceActionResult(msg views.SQLInstanceActionResultMsg) tea.Cmd {
+	// Clear the progress task from status bar
+	taskID := "sql-" + msg.Action + "-" + msg.InstanceName
+	delete(a.ctx.Tasks, taskID)
+
+	if msg.Error != nil {
+		a.err = msg.Error
+		// Refresh views to sync with actual GCP state (e.g. instance may have
+		// been stopped by a previous call and our cached state is stale)
+		return a.refreshSQLViews()
+	}
+
+	// On successful delete, navigate back to SQL instances list and refresh
+	if msg.Action == "delete" {
+		if a.currentView == ViewSQLInstanceDetails {
+			// Pop back to SQL instances view
+			if len(a.viewStack) > 0 {
+				lastViewIndex := len(a.viewStack) - 1
+				a.currentView = a.viewStack[lastViewIndex]
+				a.viewStack = a.viewStack[:lastViewIndex]
+			}
+
+			// Clean up SQL instance details view
+			a.sqlInstanceDetailsView = nil
+			a.selectedSQLInstance = nil
+
+			a.updateSidebarActiveView()
+		}
+
+		// Refresh SQL instances list
+		if a.sqlInstancesView != nil {
+			return a.sqlInstancesView.Init()
+		}
+	}
+
+	// On successful start/stop/restart, refresh both views
+	if msg.Action == "start" || msg.Action == "stop" || msg.Action == "restart" {
+		return a.refreshSQLViews()
+	}
+
+	return nil
+}
+
+// refreshSQLViews reloads data in both the SQL instances list and details views.
+// Used after actions and on errors to keep UI in sync with actual GCP state.
+func (a *App) refreshSQLViews() tea.Cmd {
+	var cmds []tea.Cmd
+	if a.currentView == ViewSQLInstanceDetails && a.sqlInstanceDetailsView != nil {
+		if cmd := a.sqlInstanceDetailsView.Init(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
+	if a.sqlInstancesView != nil {
+		if cmd := a.sqlInstancesView.Init(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
+	if len(cmds) > 0 {
+		return tea.Batch(cmds...)
+	}
+	return nil
+}
+
+// handleCreateSQLBackup processes on-demand backup creation
+func (a *App) handleCreateSQLBackup(msg views.CreateSQLBackupMsg) tea.Cmd {
+	// Get SQL client from the appropriate view
+	var sqlClient *gcp.SQLClient
+	if a.sqlInstanceDetailsView != nil {
+		sqlClient = a.sqlInstanceDetailsView.GetSQLClient()
+	} else if a.sqlInstancesView != nil {
+		sqlClient = a.sqlInstancesView.GetSQLClient()
+	}
+
+	if sqlClient == nil || a.selectedProject == nil {
+		return nil
+	}
+
+	projectID := a.selectedProject.ID
+	instanceName := msg.InstanceName
+	description := msg.Description
+
+	return func() tea.Msg {
+		err := sqlClient.CreateBackupRun(gocontext.Background(), projectID, instanceName, description)
+		return views.SQLBackupActionResultMsg{
+			Action:  "create_backup",
+			Success: err == nil,
+			Error:   err,
+		}
+	}
+}
+
+// handleSQLBackupActionResult processes the result of a backup action
+func (a *App) handleSQLBackupActionResult(msg views.SQLBackupActionResultMsg) tea.Cmd {
+	if msg.Error != nil {
+		a.err = msg.Error
+		return nil
+	}
+
+	// On successful backup creation, refresh the details view to show new backup
+	if msg.Action == "create_backup" && a.sqlInstanceDetailsView != nil {
+		return a.sqlInstanceDetailsView.Init()
 	}
 
 	return nil
