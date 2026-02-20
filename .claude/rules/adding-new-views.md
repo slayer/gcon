@@ -199,7 +199,68 @@ See: `snapshot_create.go`, `disk_create.go`, `image_create.go`
 - **Full errors**: Use `components.RenderError(v.err)` for non-form views (includes retry hint)
 - **Form sizing**: Use `formWidthPadding` and `formHeightPadding` constants from `helpers.go`
 
+### 10. Command Palette - Navigation Commands
+
+**Often forgotten!** Add the new view to the command palette so users can navigate via `:` or `Ctrl+K`:
+
+In `internal/ui/components/commandpalette/commands.go`:
+1. Add `ViewType` constant to the iota (must match sidebar ordering)
+2. Add icon constant
+3. Add navigation command entry in `NavigationCommands()`
+
+```go
+// ViewType constant
+const (
+    // ...existing views...
+    ViewXxx
+)
+
+// Icon
+const (
+    // ...existing icons...
+    IconXxx = "■"
+)
+
+// Navigation command in NavigationCommands()
+{
+    ID:       "nav:xxx",
+    Label:    "Category: Xxx",
+    Icon:     IconXxx,
+    Type:     CommandTypeNavigation,
+    ViewType: ViewXxx,
+    Enabled:  true,
+},
+```
+
+### 11. Init() Must Be Idempotent
+
+Views may have `Init()` called multiple times (e.g., after refresh, returning from a child view). Always reset loading/error state:
+
+```go
+func (v *XxxView) Init() tea.Cmd {
+    // Reset state — don't assume Init() is only called once
+    v.loading = true
+    v.err = nil
+    return tea.Batch(v.spinner.Tick, v.loadData())
+}
+```
+
+**Symptom:** After deleting a resource and returning to the list, the view shows stale data without a loading spinner because `Init()` didn't reset `loading = true`.
+
+### 12. Verify Message Producers and Consumers
+
+Every message type must have both a **producer** (view that emits it) and a **consumer** (app handler that processes it). Dead messages cause silent failures:
+
+- After defining a message type in `iam_messages.go` (or similar), verify there's a view that actually emits it
+- After adding an app handler `case views.XxxMsg:`, verify a view calls `func() tea.Msg { return views.XxxMsg{} }`
+- Search for the message type name — it should appear in at least 2 places (definition + usage)
+
+**Symptom:** A "delete key" handler exists in `app_navigation.go` but no view ever emits `DeleteServiceAccountKeyMsg` — the handler is dead code.
+
 ## Common Symptoms
 
 - **"View not implemented"** when navigating → forgot `renderCurrentView()` in `app_render.go`
 - **App quits when typing 'q'** in text field → forgot `HasTextInputFocused()` implementation
+- **View not in command palette** → forgot step 10 (command palette navigation commands)
+- **Stale data after refresh** → `Init()` not idempotent (step 11)
+- **Dead handler code** → message has no producer (step 12)

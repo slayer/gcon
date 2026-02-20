@@ -33,6 +33,8 @@ func (a *App) renderHeader() string {
 			category = "VPC Network"
 		case ViewSQLInstances, ViewSQLInstanceDetails:
 			category = "Databases"
+		case ViewServiceAccounts, ViewServiceAccountDetails, ViewServiceAccountCreate, ViewIAMPolicy, ViewCustomRoles, ViewCustomRoleDetails:
+			category = "IAM & Admin"
 		}
 	}
 	a.header.SetCategory(category)
@@ -103,6 +105,16 @@ func (a *App) renderHeader() string {
 	case ViewSQLInstanceDetails:
 		if a.selectedSQLInstance != nil {
 			resources = append(resources, a.selectedSQLInstance.Name)
+		}
+	case ViewServiceAccountDetails:
+		if a.serviceAccountDetailsView != nil {
+			resources = append(resources, a.serviceAccountDetailsView.GetEmail())
+		}
+	case ViewServiceAccountCreate:
+		resources = append(resources, "Create")
+	case ViewCustomRoleDetails:
+		if a.customRoleDetailsView != nil {
+			resources = append(resources, a.customRoleDetailsView.GetRoleID())
 		}
 	}
 	a.header.SetResources(resources)
@@ -219,6 +231,30 @@ func (a *App) renderCurrentView() string {
 	case ViewSQLInstanceDetails:
 		if a.sqlInstanceDetailsView != nil {
 			return a.sqlInstanceDetailsView.View()
+		}
+	case ViewServiceAccounts:
+		if a.serviceAccountsView != nil {
+			return a.serviceAccountsView.View()
+		}
+	case ViewServiceAccountDetails:
+		if a.serviceAccountDetailsView != nil {
+			return a.serviceAccountDetailsView.View()
+		}
+	case ViewServiceAccountCreate:
+		if a.serviceAccountCreateView != nil {
+			return a.serviceAccountCreateView.View()
+		}
+	case ViewIAMPolicy:
+		if a.iamPolicyView != nil {
+			return a.iamPolicyView.View()
+		}
+	case ViewCustomRoles:
+		if a.customRolesView != nil {
+			return a.customRolesView.View()
+		}
+	case ViewCustomRoleDetails:
+		if a.customRoleDetailsView != nil {
+			return a.customRoleDetailsView.View()
 		}
 	case ViewFormDemo:
 		if a.formDemoView != nil {

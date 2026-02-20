@@ -2,6 +2,8 @@ package ui
 
 import (
 	gocontext "context"
+	"fmt"
+	"os"
 	"path/filepath"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -9,6 +11,7 @@ import (
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/sidebar"
 	"github.com/slayer/gcon/internal/ui/context"
+	uierrors "github.com/slayer/gcon/internal/ui/errors"
 	"github.com/slayer/gcon/internal/ui/views"
 )
 
@@ -256,6 +259,38 @@ func (a *App) handleSidebarNavigation(msg sidebar.NavigateMsg) tea.Cmd {
 				cmd = a.sqlInstancesView.Init()
 			}
 		}
+	case sidebar.ViewServiceAccounts:
+		if a.currentView != ViewServiceAccounts && a.currentView != ViewServiceAccountDetails && a.currentView != ViewServiceAccountCreate {
+			a.currentView = ViewServiceAccounts
+			a.serviceAccountDetailsView = nil
+			a.serviceAccountCreateView = nil
+			a.selectedServiceAccount = nil
+			if a.serviceAccountsView == nil {
+				a.serviceAccountsView = views.NewServiceAccountsView(a.selectedProject.ID)
+				a.updateViewSizes()
+				cmd = a.serviceAccountsView.Init()
+			}
+		}
+	case sidebar.ViewIAMPolicy:
+		if a.currentView != ViewIAMPolicy {
+			a.currentView = ViewIAMPolicy
+			if a.iamPolicyView == nil {
+				a.iamPolicyView = views.NewIAMPolicyView(a.selectedProject.ID)
+				a.updateViewSizes()
+				cmd = a.iamPolicyView.Init()
+			}
+		}
+	case sidebar.ViewCustomRoles:
+		if a.currentView != ViewCustomRoles && a.currentView != ViewCustomRoleDetails {
+			a.currentView = ViewCustomRoles
+			a.customRoleDetailsView = nil
+			a.selectedCustomRole = nil
+			if a.customRolesView == nil {
+				a.customRolesView = views.NewCustomRolesView(a.selectedProject.ID)
+				a.updateViewSizes()
+				cmd = a.customRolesView.Init()
+			}
+		}
 	}
 
 	a.updateSidebarActiveView()
@@ -291,6 +326,12 @@ func (a *App) updateSidebarActiveView() {
 		a.sidebar.SetActiveView(sidebar.ViewFirewall)
 	case ViewSQLInstances, ViewSQLInstanceDetails:
 		a.sidebar.SetActiveView(sidebar.ViewSQLInstances)
+	case ViewServiceAccounts, ViewServiceAccountDetails, ViewServiceAccountCreate:
+		a.sidebar.SetActiveView(sidebar.ViewServiceAccounts)
+	case ViewIAMPolicy:
+		a.sidebar.SetActiveView(sidebar.ViewIAMPolicy)
+	case ViewCustomRoles, ViewCustomRoleDetails:
+		a.sidebar.SetActiveView(sidebar.ViewCustomRoles)
 	}
 }
 
@@ -581,6 +622,12 @@ func (a *App) clearAllViews() {
 	a.firewallDetailsView = nil
 	a.sqlInstancesView = nil
 	a.sqlInstanceDetailsView = nil
+	a.serviceAccountsView = nil
+	a.serviceAccountDetailsView = nil
+	a.serviceAccountCreateView = nil
+	a.iamPolicyView = nil
+	a.customRolesView = nil
+	a.customRoleDetailsView = nil
 	a.formDemoView = nil
 
 	// Clear view stack
@@ -596,6 +643,8 @@ func (a *App) clearAllViews() {
 	a.selectedNetwork = nil
 	a.selectedFirewall = nil
 	a.selectedSQLInstance = nil
+	a.selectedServiceAccount = nil
+	a.selectedCustomRole = nil
 }
 
 // reloadCurrentView recreates or switches views for the new project ID.
@@ -665,6 +714,28 @@ func (a *App) reloadCurrentView(projectID string) tea.Cmd {
 		a.updateSidebarActiveView()
 		a.updateViewSizes()
 		return a.sqlInstancesView.Init()
+
+	case ViewServiceAccounts, ViewServiceAccountDetails, ViewServiceAccountCreate:
+		// Return to service accounts list on project switch
+		a.currentView = ViewServiceAccounts
+		a.serviceAccountsView = views.NewServiceAccountsView(projectID)
+		a.updateSidebarActiveView()
+		a.updateViewSizes()
+		return a.serviceAccountsView.Init()
+
+	case ViewIAMPolicy:
+		a.currentView = ViewIAMPolicy
+		a.iamPolicyView = views.NewIAMPolicyView(projectID)
+		a.updateSidebarActiveView()
+		a.updateViewSizes()
+		return a.iamPolicyView.Init()
+
+	case ViewCustomRoles, ViewCustomRoleDetails:
+		a.currentView = ViewCustomRoles
+		a.customRolesView = views.NewCustomRolesView(projectID)
+		a.updateSidebarActiveView()
+		a.updateViewSizes()
+		return a.customRolesView.Init()
 
 	case ViewProjectMetadata:
 		// Reload metadata view
@@ -1930,4 +2001,417 @@ func (a *App) handleSQLBackupActionResult(msg views.SQLBackupActionResultMsg) te
 	}
 
 	return nil
+}
+
+// --- IAM: Service Accounts ---
+
+// handleServiceAccountSelected navigates to service account details view
+//
+//nolint:gocritic // hugeParam: message struct passed by value
+func (a *App) handleServiceAccountSelected(msg views.ServiceAccountSelectedMsg) tea.Cmd {
+	sa := msg.ServiceAccount
+	a.selectedServiceAccount = &sa
+
+	a.viewStack = append(a.viewStack, a.currentView)
+	a.currentView = ViewServiceAccountDetails
+
+	// Reuse IAM client from list view
+	var iamClient *gcp.IAMClient
+	if a.serviceAccountsView != nil {
+		iamClient = a.serviceAccountsView.GetIAMClient()
+	}
+
+	a.serviceAccountDetailsView = views.NewServiceAccountDetailsView(
+		a.selectedProject.ID,
+		sa.Email,
+		iamClient,
+	)
+	a.updateSidebarActiveView()
+	a.updateViewSizes()
+	return a.serviceAccountDetailsView.Init()
+}
+
+// handleServiceAccountCreateRequest opens the service account creation form
+func (a *App) handleServiceAccountCreateRequest(_ views.ServiceAccountCreateRequestMsg) tea.Cmd {
+	a.viewStack = append(a.viewStack, a.currentView)
+	a.currentView = ViewServiceAccountCreate
+
+	// Reuse IAM client from list or details view
+	var iamClient *gcp.IAMClient
+	if a.serviceAccountsView != nil {
+		iamClient = a.serviceAccountsView.GetIAMClient()
+	} else if a.serviceAccountDetailsView != nil {
+		iamClient = a.serviceAccountDetailsView.GetIAMClient()
+	}
+
+	a.serviceAccountCreateView = views.NewServiceAccountCreateView(
+		a.selectedProject.ID,
+		iamClient,
+	)
+	a.updateViewSizes()
+	return a.serviceAccountCreateView.Init()
+}
+
+// handleServiceAccountCreateCanceled navigates back from create form
+func (a *App) handleServiceAccountCreateCanceled() {
+	if len(a.viewStack) > 0 {
+		lastViewIndex := len(a.viewStack) - 1
+		a.currentView = a.viewStack[lastViewIndex]
+		a.viewStack = a.viewStack[:lastViewIndex]
+	}
+	a.serviceAccountCreateView = nil
+	a.updateSidebarActiveView()
+}
+
+// handleCreateServiceAccount performs the actual API call to create a service account
+func (a *App) handleCreateServiceAccount(msg views.CreateServiceAccountMsg) tea.Cmd {
+	// Get IAM client from the create view or list view
+	var iamClient *gcp.IAMClient
+	switch {
+	case a.serviceAccountCreateView != nil:
+		iamClient = a.serviceAccountCreateView.GetIAMClient()
+	case a.serviceAccountsView != nil:
+		iamClient = a.serviceAccountsView.GetIAMClient()
+	}
+
+	if iamClient == nil || a.selectedProject == nil {
+		// Return error so create view exits saving state
+		return func() tea.Msg {
+			return views.ServiceAccountActionResultMsg{
+				Action:  "create",
+				Success: false,
+				Error:   uierrors.ErrIAMClientNotInitialized,
+			}
+		}
+	}
+
+	return func() tea.Msg {
+		_, err := iamClient.CreateServiceAccount(
+			gocontext.Background(),
+			msg.ProjectID,
+			msg.AccountID,
+			msg.DisplayName,
+			msg.Description,
+		)
+		return views.ServiceAccountActionResultMsg{
+			Action:  "create",
+			Success: err == nil,
+			Error:   err,
+		}
+	}
+}
+
+// handleDeleteServiceAccountConfirmed performs the delete API call
+func (a *App) handleDeleteServiceAccountConfirmed(msg views.DeleteServiceAccountConfirmedMsg) tea.Cmd {
+	var iamClient *gcp.IAMClient
+	if a.serviceAccountsView != nil {
+		iamClient = a.serviceAccountsView.GetIAMClient()
+	} else if a.serviceAccountDetailsView != nil {
+		iamClient = a.serviceAccountDetailsView.GetIAMClient()
+	}
+
+	if iamClient == nil {
+		return nil
+	}
+
+	a.registerRunningTask("sa-delete", "Deleting service account...")
+	email := msg.Email
+	return func() tea.Msg {
+		err := iamClient.DeleteServiceAccount(gocontext.Background(), email)
+		return views.ServiceAccountActionResultMsg{
+			Action:  "delete",
+			Success: err == nil,
+			Error:   err,
+		}
+	}
+}
+
+// handleToggleServiceAccount enables or disables a service account
+func (a *App) handleToggleServiceAccount(msg views.ToggleServiceAccountMsg) tea.Cmd {
+	var iamClient *gcp.IAMClient
+	if a.serviceAccountsView != nil {
+		iamClient = a.serviceAccountsView.GetIAMClient()
+	} else if a.serviceAccountDetailsView != nil {
+		iamClient = a.serviceAccountDetailsView.GetIAMClient()
+	}
+
+	if iamClient == nil {
+		return nil
+	}
+
+	email := msg.Email
+	disable := msg.Disable
+	action := "enable"
+	taskDesc := "Enabling service account..."
+	if disable {
+		action = "disable"
+		taskDesc = "Disabling service account..."
+	}
+
+	a.registerRunningTask("sa-toggle", taskDesc)
+	return func() tea.Msg {
+		var err error
+		if disable {
+			err = iamClient.DisableServiceAccount(gocontext.Background(), email)
+		} else {
+			err = iamClient.EnableServiceAccount(gocontext.Background(), email)
+		}
+		return views.ServiceAccountActionResultMsg{
+			Action:  action,
+			Success: err == nil,
+			Error:   err,
+		}
+	}
+}
+
+// handleServiceAccountActionResult processes the result of a service account action
+//
+//nolint:cyclop // branches for each action type
+func (a *App) handleServiceAccountActionResult(msg views.ServiceAccountActionResultMsg) tea.Cmd {
+	// Clear in-progress task for the completed operation
+	var taskID string
+	switch msg.Action {
+	case "create":
+		taskID = "sa-create"
+	case "delete":
+		taskID = "sa-delete"
+	case "enable", "disable":
+		taskID = "sa-toggle"
+	}
+
+	var cmds []tea.Cmd
+	if taskID != "" {
+		if cmd := a.finishTask(taskID, msg.Error); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
+
+	if msg.Error != nil {
+		a.err = msg.Error
+		// Propagate error to create view if active
+		if msg.Action == "create" && a.currentView == ViewServiceAccountCreate && a.serviceAccountCreateView != nil {
+			a.serviceAccountCreateView.SetError(msg.Error)
+		}
+		return tea.Batch(cmds...)
+	}
+
+	// On successful create, navigate back and refresh list
+	if msg.Action == "create" {
+		if a.currentView == ViewServiceAccountCreate {
+			if len(a.viewStack) > 0 {
+				lastViewIndex := len(a.viewStack) - 1
+				a.currentView = a.viewStack[lastViewIndex]
+				a.viewStack = a.viewStack[:lastViewIndex]
+			}
+			a.serviceAccountCreateView = nil
+			a.updateSidebarActiveView()
+		}
+		if a.serviceAccountsView != nil {
+			cmds = append(cmds, a.serviceAccountsView.Init())
+		}
+		return tea.Batch(cmds...)
+	}
+
+	// On successful delete, navigate back to list and refresh
+	if msg.Action == "delete" {
+		if a.currentView == ViewServiceAccountDetails {
+			if len(a.viewStack) > 0 {
+				lastViewIndex := len(a.viewStack) - 1
+				a.currentView = a.viewStack[lastViewIndex]
+				a.viewStack = a.viewStack[:lastViewIndex]
+			}
+			a.serviceAccountDetailsView = nil
+			a.selectedServiceAccount = nil
+			a.updateSidebarActiveView()
+		}
+		if a.serviceAccountsView != nil {
+			cmds = append(cmds, a.serviceAccountsView.Init())
+		}
+		return tea.Batch(cmds...)
+	}
+
+	// On successful enable/disable, refresh both views to stay in sync
+	if msg.Action == "enable" || msg.Action == "disable" {
+		if a.currentView == ViewServiceAccountDetails && a.serviceAccountDetailsView != nil {
+			cmds = append(cmds, a.serviceAccountDetailsView.Init())
+		}
+		if a.serviceAccountsView != nil {
+			cmds = append(cmds, a.serviceAccountsView.Init())
+		}
+	}
+
+	return tea.Batch(cmds...)
+}
+
+// handleCreateServiceAccountKey creates a new key for a service account
+func (a *App) handleCreateServiceAccountKey(msg views.CreateServiceAccountKeyMsg) tea.Cmd {
+	var iamClient *gcp.IAMClient
+	if a.serviceAccountDetailsView != nil {
+		iamClient = a.serviceAccountDetailsView.GetIAMClient()
+	} else if a.serviceAccountsView != nil {
+		iamClient = a.serviceAccountsView.GetIAMClient()
+	}
+
+	if iamClient == nil {
+		return nil
+	}
+
+	a.registerRunningTask("sa-key-create", "Creating service account key...")
+	email := msg.Email
+	return func() tea.Msg {
+		keyJSON, keyMeta, err := iamClient.CreateServiceAccountKey(gocontext.Background(), email)
+		result := views.ServiceAccountKeyActionResultMsg{
+			Action:  "create_key",
+			Success: err == nil,
+			Error:   err,
+			KeyJSON: keyJSON,
+		}
+		if keyMeta != nil {
+			result.KeyID = keyMeta.KeyID
+		}
+		return result
+	}
+}
+
+// handleDeleteServiceAccountKey deletes a service account key
+func (a *App) handleDeleteServiceAccountKey(msg views.DeleteServiceAccountKeyMsg) tea.Cmd {
+	var iamClient *gcp.IAMClient
+	if a.serviceAccountDetailsView != nil {
+		iamClient = a.serviceAccountDetailsView.GetIAMClient()
+	} else if a.serviceAccountsView != nil {
+		iamClient = a.serviceAccountsView.GetIAMClient()
+	}
+
+	if iamClient == nil {
+		return nil
+	}
+
+	a.registerRunningTask("sa-key-delete", "Deleting service account key...")
+	keyName := msg.KeyName
+	return func() tea.Msg {
+		err := iamClient.DeleteServiceAccountKey(gocontext.Background(), keyName)
+		return views.ServiceAccountKeyActionResultMsg{
+			Action:  "delete_key",
+			Success: err == nil,
+			Error:   err,
+		}
+	}
+}
+
+// handleServiceAccountKeyActionResult processes the result of a key action
+func (a *App) handleServiceAccountKeyActionResult(msg views.ServiceAccountKeyActionResultMsg) tea.Cmd {
+	// Clear in-progress task
+	var taskID string
+	switch msg.Action {
+	case "create_key":
+		taskID = "sa-key-create"
+	case "delete_key":
+		taskID = "sa-key-delete"
+	}
+
+	var cmds []tea.Cmd
+	if taskID != "" {
+		if cmd := a.finishTask(taskID, msg.Error); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
+
+	if msg.Error != nil {
+		a.err = msg.Error
+		return tea.Batch(cmds...)
+	}
+
+	// On successful key create, pass key data to view for explicit download
+	if msg.Action == "create_key" && msg.KeyJSON != nil {
+		if a.serviceAccountDetailsView != nil {
+			a.serviceAccountDetailsView.SetPendingKey(msg.KeyJSON, msg.KeyID)
+		}
+	}
+
+	// Refresh details view to show updated key list
+	if a.serviceAccountDetailsView != nil {
+		cmds = append(cmds, a.serviceAccountDetailsView.Init())
+	}
+	return tea.Batch(cmds...)
+}
+
+// handleDownloadServiceAccountKey saves a pending key to disk on user request
+func (a *App) handleDownloadServiceAccountKey(msg views.DownloadServiceAccountKeyMsg) tea.Cmd {
+	keyID := msg.KeyID
+	if keyID == "" {
+		keyID = "new-key"
+	}
+
+	savedPath, err := writeKeyFile(keyID, msg.KeyJSON)
+
+	var cmds []tea.Cmd
+	if err != nil {
+		a.err = err
+	} else {
+		// Show saved path in footer — register as already-finished task
+		a.registerRunningTask("key-saved", "Key saved to "+savedPath)
+		if cmd := a.finishTask("key-saved", nil); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+		// Clear pending key from view
+		if a.serviceAccountDetailsView != nil {
+			a.serviceAccountDetailsView.ClearPendingKey()
+		}
+	}
+	return tea.Batch(cmds...)
+}
+
+// writeKeyFile saves key JSON bytes to CWD with conflict avoidance.
+// Returns the full path of the saved file.
+func writeKeyFile(keyID string, data []byte) (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("get working directory: %w", err)
+	}
+
+	filename := filepath.Join(cwd, keyID+".json")
+
+	// Avoid overwriting existing files
+	if _, err := os.Stat(filename); err == nil {
+		for i := 1; i < 1000; i++ {
+			candidate := filepath.Join(cwd, fmt.Sprintf("%s (%d).json", keyID, i))
+			if _, err := os.Stat(candidate); os.IsNotExist(err) {
+				filename = candidate
+				break
+			}
+		}
+	}
+
+	if err := os.WriteFile(filename, data, 0600); err != nil {
+		return "", err
+	}
+	return filename, nil
+}
+
+// --- IAM: Custom Roles ---
+
+// handleCustomRoleSelected navigates to custom role details view
+//
+//nolint:gocritic // hugeParam: message struct passed by value
+func (a *App) handleCustomRoleSelected(msg views.CustomRoleSelectedMsg) tea.Cmd {
+	role := msg.Role
+	a.selectedCustomRole = &role
+
+	a.viewStack = append(a.viewStack, a.currentView)
+	a.currentView = ViewCustomRoleDetails
+
+	// Reuse IAM client from list view
+	var iamClient *gcp.IAMClient
+	if a.customRolesView != nil {
+		iamClient = a.customRolesView.GetIAMClient()
+	}
+
+	a.customRoleDetailsView = views.NewCustomRoleDetailsView(
+		a.selectedProject.ID,
+		role.RoleID,
+		iamClient,
+	)
+	a.updateSidebarActiveView()
+	a.updateViewSizes()
+	return a.customRoleDetailsView.Init()
 }

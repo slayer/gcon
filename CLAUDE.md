@@ -135,6 +135,7 @@ Required scopes:
 - `compute` - Manage Compute Engine instances
 - `devstorage.full_control` - Manage Cloud Storage buckets and objects
 - `sqladmin` - Manage Cloud SQL instances
+- `cloud-platform` - IAM service accounts, keys, policies, and custom roles
 
 ## Code Style Guidelines
 
@@ -241,6 +242,17 @@ On developing or updating a new feature keep in mind the following guidelines:
   - Column sorting via popup sort menu (`S` key) with numeric-aware comparison
   - Field-based filtering (`field:value` syntax, e.g. `status:running zone:us`)
   - Infinite scroll for Objects view (replaces page navigation)
+- [x] IAM & Admin management
+  - Service Accounts list with status indicators (active/disabled)
+  - Service Account details with 2 tabs (Details/Keys)
+  - Create service accounts with form validation
+  - Delete service accounts with type-to-confirm
+  - Enable/disable service accounts
+  - Service account key management (create/delete)
+  - Key JSON download on creation (saved to current directory)
+  - IAM Policy bindings view with 2 tabs (By Role/By Member)
+  - Custom Roles list and details view (read-only)
+  - Custom Role details with 2 tabs (Details/Permissions)
 
 ## Planned Features
 - [ ] Subnets list and management
@@ -251,4 +263,3 @@ On developing or updating a new feature keep in mind the following guidelines:
 - [ ] Resource caching
 - [ ] GKE cluster management
 - [ ] Cloud Run services
-- [ ] IAM management

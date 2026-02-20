@@ -294,3 +294,64 @@ description: Keyboard shortcuts reference for all views
 | `Tab` | Switch between tabs and content |
 | `h/l` or `1-2` | Switch tabs (Details/Preview) |
 | `Esc` | Back to objects list |
+
+## Service Accounts View
+
+| Key | Action |
+|-----|--------|
+| `Enter` | View service account details |
+| `.` | Open action menu |
+| `S` | Open sort menu |
+| `c` | Create service account |
+| `t` | Enable/disable toggle |
+| `D` | Delete service account (type-to-confirm on email) |
+| `/` | Filter service accounts |
+| `r` | Refresh list |
+| `Esc` | Go back |
+
+## Service Account Details View
+
+| Key | Action |
+|-----|--------|
+| `.` | Open action menu |
+| `t` | Enable/disable service account |
+| `D` | Delete service account (type-to-confirm) |
+| `c` | Create key (Keys tab) |
+| `w` | Download pending key JSON (Keys tab, after create) |
+| `d` | Delete selected key (Keys tab, user-managed only) |
+| `r` | Refresh details and keys |
+| `Tab` | Switch focus (tabs/content) |
+| `h/l` or `1/2` | Switch tabs (Details/Keys) |
+| `j/k` or `↓/↑` | Scroll content |
+| `Esc` | Go back |
+
+## IAM Policy View
+
+| Key | Action |
+|-----|--------|
+| `/` | Filter (by role or member) |
+| `Tab` | Switch focus (tabs/content) |
+| `h/l` or `1/2` | Switch tabs (By Role/By Member) |
+| `r` | Refresh policy |
+| `j/k` or `↓/↑` | Scroll content |
+| `Esc` | Go back |
+
+## Custom Roles View
+
+| Key | Action |
+|-----|--------|
+| `Enter` | View custom role details |
+| `S` | Open sort menu |
+| `/` | Filter roles |
+| `r` | Refresh list |
+| `Esc` | Go back |
+
+## Custom Role Details View
+
+| Key | Action |
+|-----|--------|
+| `r` | Refresh details |
+| `Tab` | Switch focus (tabs/content) |
+| `h/l` or `1/2` | Switch tabs (Details/Permissions) |
+| `j/k` or `↓/↑` | Scroll content |
+| `Esc` | Go back |
