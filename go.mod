@@ -13,7 +13,7 @@ require (
 	github.com/mattn/go-runewidth v0.0.16
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/term v0.39.0
-	google.golang.org/api v0.266.0
+	google.golang.org/api v0.267.0
 	google.golang.org/protobuf v1.36.11
 )
 

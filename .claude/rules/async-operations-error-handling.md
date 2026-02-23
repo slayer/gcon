@@ -283,6 +283,8 @@ case tea.KeyMsg:
 - [ ] Define result message type (e.g., `XxxActionResultMsg`)
 - [ ] Create app handler for result messages
 - [ ] **Call `SetError()` in app handler when operation fails**
+- [ ] Register footer task with `registerRunningTask()` before starting async operation
+- [ ] Clear footer task with `finishTask()` in result handler (both success and error)
 
 ### If implementing manually:
 
@@ -298,6 +300,8 @@ case tea.KeyMsg:
 - [ ] **Call `SetError()` in app handler when operation fails**
 - [ ] Allow cancel during `stateSaving`
 - [ ] Clear error when retrying or navigating away
+- [ ] Register footer task with `registerRunningTask()` before starting async operation
+- [ ] Clear footer task with `finishTask()` in result handler (both success and error)
 
 ## Examples
 

@@ -40,3 +40,21 @@ Settings: &sqladmin.Settings{
 ```
 
 This applies to any GCP API Patch operation, not just Cloud SQL.
+
+## IAM: `PrivateKeyData` is base64-encoded
+
+When creating a service account key via `projects.serviceAccounts.keys.create`, the response's `PrivateKeyData` field contains the JSON key file **base64-encoded**, not raw JSON. You must decode it before writing to disk.
+
+```go
+// Wrong — writes base64 gibberish to the key file
+os.WriteFile("key.json", []byte(key.PrivateKeyData), 0600)
+
+// Correct — decode first, then write valid JSON
+keyJSON, err := base64.StdEncoding.DecodeString(key.PrivateKeyData)
+if err != nil {
+    return fmt.Errorf("decode private key data: %w", err)
+}
+os.WriteFile("key.json", keyJSON, 0600)
+```
+
+The resulting JSON file should contain `type`, `project_id`, `private_key_id`, `private_key`, etc. If you see a base64 string instead, you forgot to decode.

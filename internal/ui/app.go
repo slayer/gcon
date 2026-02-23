@@ -52,6 +52,12 @@ const (
 	ViewFirewallDetails
 	ViewSQLInstances
 	ViewSQLInstanceDetails
+	ViewServiceAccounts
+	ViewServiceAccountDetails
+	ViewServiceAccountCreate
+	ViewIAMPolicy
+	ViewCustomRoles
+	ViewCustomRoleDetails
 	ViewLogs
 	ViewFormDemo // Demo view for testing form components
 )
@@ -101,9 +107,15 @@ type App struct {
 	networkDetailsView  *views.NetworkDetailsView
 	firewallsView          *views.FirewallsView
 	firewallDetailsView    *views.FirewallDetailsView
-	sqlInstancesView       *views.SQLInstancesView
-	sqlInstanceDetailsView *views.SQLInstanceDetailsView
-	formDemoView           *views.FormDemoView
+	sqlInstancesView          *views.SQLInstancesView
+	sqlInstanceDetailsView    *views.SQLInstanceDetailsView
+	serviceAccountsView       *views.ServiceAccountsView
+	serviceAccountDetailsView *views.ServiceAccountDetailsView
+	serviceAccountCreateView  *views.ServiceAccountCreateView
+	iamPolicyView             *views.IAMPolicyView
+	customRolesView           *views.CustomRolesView
+	customRoleDetailsView     *views.CustomRoleDetailsView
+	formDemoView              *views.FormDemoView
 
 	// Selected context
 	selectedProject  *gcp.Project
@@ -115,7 +127,9 @@ type App struct {
 	selectedObject   *gcp.StorageObject
 	selectedNetwork     *gcp.Network
 	selectedFirewall    *gcp.FirewallRule
-	selectedSQLInstance *gcp.SQLInstance
+	selectedSQLInstance    *gcp.SQLInstance
+	selectedServiceAccount *gcp.ServiceAccount
+	selectedCustomRole     *gcp.CustomRole
 
 	// UI state
 	showHelp              bool
@@ -350,6 +364,18 @@ func (a *App) getCurrentViewModel() views.View {
 		return a.sqlInstancesView
 	case ViewSQLInstanceDetails:
 		return a.sqlInstanceDetailsView
+	case ViewServiceAccounts:
+		return a.serviceAccountsView
+	case ViewServiceAccountDetails:
+		return a.serviceAccountDetailsView
+	case ViewServiceAccountCreate:
+		return a.serviceAccountCreateView
+	case ViewIAMPolicy:
+		return a.iamPolicyView
+	case ViewCustomRoles:
+		return a.customRolesView
+	case ViewCustomRoleDetails:
+		return a.customRoleDetailsView
 	case ViewFormDemo:
 		return a.formDemoView
 	}
@@ -472,9 +498,20 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case ViewSQLInstanceDetails:
 					a.sqlInstanceDetailsView = nil
 					a.selectedSQLInstance = nil
+				case ViewServiceAccountDetails:
+					a.serviceAccountDetailsView = nil
+					a.selectedServiceAccount = nil
+				case ViewServiceAccountCreate:
+					a.serviceAccountCreateView = nil
+				case ViewCustomRoleDetails:
+					a.customRoleDetailsView = nil
+					a.selectedCustomRole = nil
 				}
 
 				a.updateSidebarActiveView()
+				// Clean up any orphaned running tasks from the view we just left,
+				// since in-flight async results will be silently dropped
+				a.clearRunningTasks()
 				return a, nil
 			}
 
@@ -492,7 +529,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// If not handled, fall through to quit
 				fallthrough
 
-			case ViewInstances, ViewDisks, ViewSnapshots, ViewImages, ViewBuckets, ViewNetworks, ViewFirewall, ViewSQLInstances, ViewProjects:
+			case ViewInstances, ViewDisks, ViewSnapshots, ViewImages, ViewBuckets, ViewNetworks, ViewFirewall, ViewSQLInstances, ViewServiceAccounts, ViewIAMPolicy, ViewCustomRoles, ViewProjects:
 				// Quit from top-level views or if stack is empty
 				a.cleanup()
 				return a, tea.Quit
@@ -813,6 +850,57 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
 		return a, a.handleInstanceActionResult(msg)
 
+	// IAM: Service Accounts
+	case views.ServiceAccountSelectedMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleServiceAccountSelected(msg)
+
+	case views.ServiceAccountCreateRequestMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleServiceAccountCreateRequest(msg)
+
+	case views.ServiceAccountCreateCanceledMsg:
+		a.handleServiceAccountCreateCanceled()
+		return a, nil
+
+	case views.CreateServiceAccountMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleCreateServiceAccount(msg)
+
+	case views.DeleteServiceAccountConfirmedMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleDeleteServiceAccountConfirmed(msg)
+
+	case views.ToggleServiceAccountMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleToggleServiceAccount(msg)
+
+	case views.ServiceAccountActionResultMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleServiceAccountActionResult(msg)
+
+	// IAM: Service Account Keys
+	case views.CreateServiceAccountKeyMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleCreateServiceAccountKey(msg)
+
+	case views.DeleteServiceAccountKeyMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleDeleteServiceAccountKey(msg)
+
+	case views.ServiceAccountKeyActionResultMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleServiceAccountKeyActionResult(msg)
+
+	case views.DownloadServiceAccountKeyMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleDownloadServiceAccountKey(msg)
+
+	// IAM: Custom Roles
+	case views.CustomRoleSelectedMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleCustomRoleSelected(msg)
+
 	case components.FooterProjectClickedMsg:
 		// Project section in footer was clicked, show project selector
 		currentProjectID := ""
@@ -859,11 +947,27 @@ func (a *App) GetContext() *context.ProgramContext {
 	return a.ctx
 }
 
-// finishTask marks a task as complete and schedules its removal.
-// Called when an async operation completes. Currently unused but will be
-// integrated when views adopt the task system.
-//
-//nolint:unused
+// registerRunningTask adds a task to the footer with a spinner.
+func (a *App) registerRunningTask(id, description string) {
+	a.ctx.Tasks[id] = context.Task{
+		ID:          id,
+		Description: description,
+		State:       context.TaskRunning,
+		StartTime:   time.Now(),
+	}
+}
+
+// clearRunningTasks removes all tasks still in TaskRunning state.
+// Called when navigating back — in-flight async results will be dropped.
+func (a *App) clearRunningTasks() {
+	for id, task := range a.ctx.Tasks {
+		if task.State == context.TaskRunning {
+			delete(a.ctx.Tasks, id)
+		}
+	}
+}
+
+// finishTask marks a task as complete and schedules its removal after 2 seconds.
 func (a *App) finishTask(taskID string, err error) tea.Cmd {
 	if task, ok := a.ctx.Tasks[taskID]; ok {
 		now := time.Now()
@@ -1009,6 +1113,24 @@ func (a *App) updateViewSizes() {
 	}
 	if a.sqlInstanceDetailsView != nil {
 		a.sqlInstanceDetailsView.SetContext(a.ctx)
+	}
+	if a.serviceAccountsView != nil {
+		a.serviceAccountsView.SetContext(a.ctx)
+	}
+	if a.serviceAccountDetailsView != nil {
+		a.serviceAccountDetailsView.SetContext(a.ctx)
+	}
+	if a.serviceAccountCreateView != nil {
+		a.serviceAccountCreateView.SetContext(a.ctx)
+	}
+	if a.iamPolicyView != nil {
+		a.iamPolicyView.SetContext(a.ctx)
+	}
+	if a.customRolesView != nil {
+		a.customRolesView.SetContext(a.ctx)
+	}
+	if a.customRoleDetailsView != nil {
+		a.customRoleDetailsView.SetContext(a.ctx)
 	}
 }
 

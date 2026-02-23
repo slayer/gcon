@@ -22,6 +22,9 @@ const (
 	ViewNetworks
 	ViewFirewall
 	ViewSQLInstances
+	ViewServiceAccounts
+	ViewIAMPolicy
+	ViewCustomRoles
 )
 
 // Icons for menu items - using simple Unicode box/geometric symbols
@@ -44,6 +47,12 @@ const (
 	// Databases category
 	IconDatabase    = "⬡" // Databases category (hollow hexagon)
 	IconSQLInstance = "⬢" // SQL instances leaf (filled hexagon)
+
+	// IAM & Admin category
+	IconIAM            = "△" // IAM category (hollow triangle)
+	IconServiceAccount = "▲" // Service accounts leaf (filled triangle)
+	IconPolicy         = "▽" // IAM policy (inverted hollow triangle)
+	IconCustomRole     = "▼" // Custom roles (inverted filled triangle)
 )
 
 // MenuItem represents a single menu entry
@@ -104,6 +113,18 @@ func DefaultMenu() []MenuItem {
 			Children: []MenuItem{
 				{ID: "networks", Label: "VPC networks", Icon: IconVPC, Hotkey: 'n', Type: MenuItemLeaf, ViewType: ViewNetworks},
 				{ID: "firewall", Label: "Firewall", Icon: IconFirewall, Hotkey: 'f', Type: MenuItemLeaf, ViewType: ViewFirewall},
+			},
+		},
+		{
+			ID:     "iam",
+			Label:  "IAM & Admin",
+			Icon:   IconIAM,
+			Hotkey: 'A',
+			Type:   MenuItemCategory,
+			Children: []MenuItem{
+				{ID: "service-accounts", Label: "Service accounts", Icon: IconServiceAccount, Hotkey: 'a', Type: MenuItemLeaf, ViewType: ViewServiceAccounts},
+				{ID: "iam-policy", Label: "IAM policy", Icon: IconPolicy, Hotkey: 'p', Type: MenuItemLeaf, ViewType: ViewIAMPolicy},
+				{ID: "custom-roles", Label: "Custom roles", Icon: IconCustomRole, Hotkey: 'o', Type: MenuItemLeaf, ViewType: ViewCustomRoles},
 			},
 		},
 	}
