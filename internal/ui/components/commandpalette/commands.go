@@ -26,6 +26,9 @@ const (
 	ViewNetworks
 	ViewFirewall
 	ViewSQLInstances
+	ViewServiceAccounts
+	ViewIAMPolicy
+	ViewCustomRoles
 )
 
 // Icons for commands
@@ -37,8 +40,11 @@ const (
 	IconBucket   = "▪"
 	IconVPC      = "◆"
 	IconFirewall    = "▲"
-	IconSQLInstance = "⬢"
-	IconRefresh     = "↻"
+	IconSQLInstance    = "⬢"
+	IconServiceAccount = "▲"
+	IconIAMPolicy      = "▽"
+	IconCustomRole     = "▼"
+	IconRefresh        = "↻"
 	IconSidebar  = "☰"
 	IconHelp     = "?"
 	IconRecent   = "⏱"
@@ -139,6 +145,30 @@ func NavigationCommands() []Command {
 			Icon:     IconFirewall,
 			Type:     CommandTypeNavigation,
 			ViewType: ViewFirewall,
+			Enabled:  true,
+		},
+		{
+			ID:       "nav:service-accounts",
+			Label:    "IAM & Admin: Service accounts",
+			Icon:     IconServiceAccount,
+			Type:     CommandTypeNavigation,
+			ViewType: ViewServiceAccounts,
+			Enabled:  true,
+		},
+		{
+			ID:       "nav:iam-policy",
+			Label:    "IAM & Admin: IAM policy",
+			Icon:     IconIAMPolicy,
+			Type:     CommandTypeNavigation,
+			ViewType: ViewIAMPolicy,
+			Enabled:  true,
+		},
+		{
+			ID:       "nav:custom-roles",
+			Label:    "IAM & Admin: Custom roles",
+			Icon:     IconCustomRole,
+			Type:     CommandTypeNavigation,
+			ViewType: ViewCustomRoles,
 			Enabled:  true,
 		},
 	}
