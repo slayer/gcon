@@ -85,8 +85,8 @@ func TestIAMPolicyView_FormatRolesColumn(t *testing.T) {
 		expected string
 	}{
 		{[]string{"roles/viewer"}, "viewer"},
-		{[]string{"roles/viewer", "roles/editor"}, "2 roles"},
-		{[]string{"roles/a", "roles/b", "roles/c"}, "3 roles"},
+		{[]string{"roles/viewer", "roles/editor"}, "viewer, editor"},
+		{[]string{"roles/a", "roles/b", "roles/c"}, "a, b, c"},
 		{[]string{"projects/p/roles/custom"}, "projects/p/roles/custom"},
 	}
 

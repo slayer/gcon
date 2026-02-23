@@ -143,8 +143,8 @@ func defaultIAMPolicyKeyMap() iamPolicyKeyMap {
 func memberColumns() []table.Column {
 	return []table.Column{
 		{Title: "Type", Width: 12, Sortable: true},
-		{Title: "Member", Width: 40, Grow: true, Sortable: true},
-		{Title: "Roles", Width: 30, Sortable: true},
+		{Title: "Member", Width: 30, Sortable: true},
+		{Title: "Roles", Width: 40, Grow: true, Sortable: true},
 	}
 }
 
@@ -873,10 +873,11 @@ func (v *IAMPolicyView) findBinding(role string) *gcp.IAMBinding {
 // --- Display helpers ---
 
 func formatRolesColumn(roles []string) string {
-	if len(roles) == 1 {
-		return shortRoleName(roles[0])
+	short := make([]string, len(roles))
+	for i, r := range roles {
+		short[i] = shortRoleName(r)
 	}
-	return fmt.Sprintf("%d roles", len(roles))
+	return strings.Join(short, ", ")
 }
 
 // shortRoleName strips the "roles/" prefix for brevity
