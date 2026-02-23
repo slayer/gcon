@@ -9,10 +9,6 @@ import (
 	"github.com/slayer/gcon/internal/ui/components/forms"
 )
 
-// Internal message types
-type saCreateSuccessMsg struct{}
-type saCreateErrorMsg struct{ err error }
-
 // ServiceAccountCreateView allows creating new service accounts
 type ServiceAccountCreateView struct {
 	CreateViewBase
@@ -69,19 +65,7 @@ func (v *ServiceAccountCreateView) Update(msg tea.Msg) tea.Cmd {
 		return cmd
 	}
 
-	switch msg := msg.(type) {
-	case saCreateSuccessMsg:
-		return func() tea.Msg {
-			return ServiceAccountActionResultMsg{
-				Action:  "create",
-				Success: true,
-			}
-		}
-
-	case saCreateErrorMsg:
-		v.SetError(msg.err)
-		return nil
-
+	switch msg.(type) {
 	case forms.FormSubmitMsg:
 		return v.handleSubmit()
 

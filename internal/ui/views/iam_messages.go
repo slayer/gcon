@@ -67,16 +67,6 @@ type ServiceAccountKeyActionResultMsg struct {
 	KeyID   string
 }
 
-// ViewIAMPolicyRequestMsg is sent when user navigates to IAM policy view
-type ViewIAMPolicyRequestMsg struct {
-	ProjectID string
-}
-
-// ViewCustomRolesRequestMsg is sent when user navigates to custom roles view
-type ViewCustomRolesRequestMsg struct {
-	ProjectID string
-}
-
 // CustomRoleSelectedMsg is sent when a custom role is selected from the list
 type CustomRoleSelectedMsg struct {
 	Role gcp.CustomRole

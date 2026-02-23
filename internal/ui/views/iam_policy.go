@@ -9,6 +9,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -65,7 +66,9 @@ type IAMPolicyView struct {
 	regionMgr    *mouse.RegionManager
 
 	// Filter
-	filterText string
+	filterInput  textinput.Model
+	filterActive bool
+	filterText   string
 
 	width  int
 	height int
@@ -117,15 +120,20 @@ func NewIAMPolicyView(projectID string) *IAMPolicyView {
 		focus.NewRegion(iamPolicyRegionViewport, focus.RegionViewport, "Content"),
 	})
 
+	fi := textinput.New()
+	fi.Placeholder = "Filter roles or members..."
+	fi.CharLimit = 128
+
 	return &IAMPolicyView{
-		projectID: projectID,
-		spinner:   s,
-		loading:   true,
-		tabs:      tabsComponent,
+		projectID:    projectID,
+		spinner:      s,
+		loading:      true,
+		tabs:         tabsComponent,
 		tabViewports: make([]viewport.Model, 2),
-		focusMgr:  fm,
-		regionMgr: mouse.NewRegionManager(),
-		keys:      defaultIAMPolicyKeyMap(),
+		focusMgr:     fm,
+		regionMgr:    mouse.NewRegionManager(),
+		filterInput:  fi,
+		keys:         defaultIAMPolicyKeyMap(),
 	}
 }
 
@@ -200,10 +208,54 @@ func (v *IAMPolicyView) Update(msg tea.Msg) tea.Cmd {
 		return nil
 
 	case tea.KeyMsg:
+		// When filter is active, route keys to the text input
+		if v.filterActive {
+			switch msg.Type {
+			case tea.KeyEscape:
+				v.filterActive = false
+				v.filterInput.Blur()
+				// Clear filter on Esc if empty, otherwise just deactivate
+				if v.filterInput.Value() == "" {
+					v.filterText = ""
+				}
+				v.updateViewportContent()
+				return nil
+			case tea.KeyEnter:
+				// Apply filter and deactivate input
+				v.filterText = v.filterInput.Value()
+				v.filterActive = false
+				v.filterInput.Blur()
+				v.updateViewportContent()
+				return nil
+			default:
+				var cmd tea.Cmd
+				v.filterInput, cmd = v.filterInput.Update(msg)
+				// Live-filter as user types
+				v.filterText = v.filterInput.Value()
+				v.updateViewportContent()
+				return cmd
+			}
+		}
+
+		// Clear filter on Esc before navigating back
+		if msg.Type == tea.KeyEscape && v.filterText != "" {
+			v.filterText = ""
+			v.filterInput.SetValue("")
+			v.updateViewportContent()
+			return nil
+		}
+
 		// Handle Tab/Shift+Tab for cycling between focus regions
 		if focusMsg := v.focusMgr.HandleKey(msg); focusMsg != nil {
 			v.updateViewportContent()
 			return func() tea.Msg { return focusMsg }
+		}
+
+		// Activate filter
+		if key.Matches(msg, v.keys.Filter) && !v.loading {
+			v.filterActive = true
+			v.filterInput.Focus()
+			return nil
 		}
 
 		if key.Matches(msg, v.keys.Refresh) {
@@ -261,6 +313,16 @@ func (v *IAMPolicyView) View() string {
 	// Render tab bar with focus accent
 	tabBar := focus.RenderAccent("  "+v.tabs.View(), v.focusMgr.IsActive(iamPolicyRegionTabs))
 
+	// Show filter bar when active or when filter text is set
+	var filterBar string
+	if v.filterActive {
+		filterStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#4285F4"))
+		filterBar = "\n  " + filterStyle.Render("/") + " " + v.filterInput.View()
+	} else if v.filterText != "" {
+		filterStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
+		filterBar = "\n  " + filterStyle.Render(fmt.Sprintf("Filter: %s (/ to edit, Esc to clear)", v.filterText))
+	}
+
 	// Get active tab viewport with focus accent
 	activeIdx := v.tabs.ActiveIndex()
 	var viewportContent string
@@ -273,9 +335,9 @@ func (v *IAMPolicyView) View() string {
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
 	scrollStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#4285F4"))
 	scrollInfo := scrollStyle.Render(fmt.Sprintf("%.0f%%", scrollPercent*100))
-	help := helpStyle.Render("\n  r: refresh • Tab: focus • h/l: switch tabs • esc: back") + " " + scrollInfo
+	help := helpStyle.Render("\n  /: filter • r: refresh • Tab: focus • h/l: switch tabs • esc: back") + " " + scrollInfo
 
-	return tabBar + "\n" + viewportContent + help
+	return tabBar + filterBar + "\n" + viewportContent + help
 }
 
 // SetContext updates the view with shared program context
@@ -333,13 +395,21 @@ func (v *IAMPolicyView) renderByRoleTab() string {
 		return ""
 	}
 
+	filter := strings.ToLower(v.filterText)
+
 	var b strings.Builder
 	roleStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#4285F4")).Bold(true)
 	memberStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#E8EAED"))
 	countStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
 
-	for i, binding := range v.policy.Bindings {
-		if i > 0 {
+	rendered := 0
+	for _, binding := range v.policy.Bindings {
+		// Filter: match role name or any member
+		if filter != "" && !v.bindingMatchesFilter(binding, filter) {
+			continue
+		}
+
+		if rendered > 0 {
 			b.WriteString("\n")
 		}
 		b.WriteString("\n")
@@ -351,6 +421,14 @@ func (v *IAMPolicyView) renderByRoleTab() string {
 			b.WriteString(memberStyle.Render("    " + member))
 			b.WriteString("\n")
 		}
+		rendered++
+	}
+
+	if rendered == 0 && filter != "" {
+		noMatchStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
+		b.WriteString("\n")
+		b.WriteString(noMatchStyle.Render("  No bindings match the filter."))
+		b.WriteString("\n")
 	}
 
 	return b.String()
@@ -360,6 +438,8 @@ func (v *IAMPolicyView) renderByMemberTab() string {
 	if v.policy == nil {
 		return ""
 	}
+
+	filter := strings.ToLower(v.filterText)
 
 	// Invert: member → []role
 	memberRoles := make(map[string][]string)
@@ -381,12 +461,19 @@ func (v *IAMPolicyView) renderByMemberTab() string {
 	roleStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#E8EAED"))
 	countStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
 
-	for i, member := range members {
-		if i > 0 {
-			b.WriteString("\n")
-		}
+	rendered := 0
+	for _, member := range members {
 		roles := memberRoles[member]
 		sort.Strings(roles)
+
+		// Filter: match member name or any of their roles
+		if filter != "" && !v.memberMatchesFilter(member, roles, filter) {
+			continue
+		}
+
+		if rendered > 0 {
+			b.WriteString("\n")
+		}
 
 		b.WriteString("\n")
 		b.WriteString(memberStyle.Render("  " + member))
@@ -397,9 +484,48 @@ func (v *IAMPolicyView) renderByMemberTab() string {
 			b.WriteString(roleStyle.Render("    " + role))
 			b.WriteString("\n")
 		}
+		rendered++
+	}
+
+	if rendered == 0 && filter != "" {
+		noMatchStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
+		b.WriteString("\n")
+		b.WriteString(noMatchStyle.Render("  No members match the filter."))
+		b.WriteString("\n")
 	}
 
 	return b.String()
+}
+
+// HasTextInputFocused returns true when the filter input is active
+func (v *IAMPolicyView) HasTextInputFocused() bool {
+	return v.filterActive
+}
+
+// Filter matching helpers
+
+func (v *IAMPolicyView) bindingMatchesFilter(binding gcp.IAMBinding, filter string) bool {
+	if strings.Contains(strings.ToLower(binding.Role), filter) {
+		return true
+	}
+	for _, member := range binding.Members {
+		if strings.Contains(strings.ToLower(member), filter) {
+			return true
+		}
+	}
+	return false
+}
+
+func (v *IAMPolicyView) memberMatchesFilter(member string, roles []string, filter string) bool {
+	if strings.Contains(strings.ToLower(member), filter) {
+		return true
+	}
+	for _, role := range roles {
+		if strings.Contains(strings.ToLower(role), filter) {
+			return true
+		}
+	}
+	return false
 }
 
 // Task registration helpers

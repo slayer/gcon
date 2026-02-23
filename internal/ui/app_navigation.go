@@ -2,6 +2,7 @@ package ui
 
 import (
 	gocontext "context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,6 +15,8 @@ import (
 	uierrors "github.com/slayer/gcon/internal/ui/errors"
 	"github.com/slayer/gcon/internal/ui/views"
 )
+
+var errKeyFilenameExhausted = errors.New("could not find available filename for key file (tried 999 suffixes)")
 
 // handleMouseEvent processes mouse events and routes them to appropriate components.
 // Uses region-based click handling for better maintainability and correctness.
@@ -2085,6 +2088,7 @@ func (a *App) handleCreateServiceAccount(msg views.CreateServiceAccountMsg) tea.
 		}
 	}
 
+	a.registerRunningTask("sa-create", "Creating service account...")
 	return func() tea.Msg {
 		_, err := iamClient.CreateServiceAccount(
 			gocontext.Background(),
@@ -2111,7 +2115,11 @@ func (a *App) handleDeleteServiceAccountConfirmed(msg views.DeleteServiceAccount
 	}
 
 	if iamClient == nil {
-		return nil
+		return func() tea.Msg {
+			return views.ServiceAccountActionResultMsg{
+				Action: "delete", Success: false, Error: uierrors.ErrIAMClientNotInitialized,
+			}
+		}
 	}
 
 	a.registerRunningTask("sa-delete", "Deleting service account...")
@@ -2136,7 +2144,15 @@ func (a *App) handleToggleServiceAccount(msg views.ToggleServiceAccountMsg) tea.
 	}
 
 	if iamClient == nil {
-		return nil
+		action := "enable"
+		if msg.Disable {
+			action = "disable"
+		}
+		return func() tea.Msg {
+			return views.ServiceAccountActionResultMsg{
+				Action: action, Success: false, Error: uierrors.ErrIAMClientNotInitialized,
+			}
+		}
 	}
 
 	email := msg.Email
@@ -2373,12 +2389,17 @@ func writeKeyFile(keyID string, data []byte) (string, error) {
 
 	// Avoid overwriting existing files
 	if _, err := os.Stat(filename); err == nil {
+		found := false
 		for i := 1; i < 1000; i++ {
 			candidate := filepath.Join(cwd, fmt.Sprintf("%s (%d).json", keyID, i))
 			if _, err := os.Stat(candidate); os.IsNotExist(err) {
 				filename = candidate
+				found = true
 				break
 			}
+		}
+		if !found {
+			return "", errKeyFilenameExhausted
 		}
 	}
 

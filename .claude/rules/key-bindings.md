@@ -322,19 +322,19 @@ description: Keyboard shortcuts reference for all views
 | `r` | Refresh details and keys |
 | `Tab` | Switch focus (tabs/content) |
 | `h/l` or `1/2` | Switch tabs (Details/Keys) |
-| `j/k` or `↓/↑` | Scroll content |
+| `j/k` or `↓/↑` | Scroll content (Details tab) / Move key selection (Keys tab) |
 | `Esc` | Go back |
 
 ## IAM Policy View
 
 | Key | Action |
 |-----|--------|
-| `/` | Filter (by role or member) |
+| `/` | Filter roles and members |
 | `Tab` | Switch focus (tabs/content) |
 | `h/l` or `1/2` | Switch tabs (By Role/By Member) |
 | `r` | Refresh policy |
 | `j/k` or `↓/↑` | Scroll content |
-| `Esc` | Go back |
+| `Esc` | Clear filter / Go back |
 
 ## Custom Roles View
 

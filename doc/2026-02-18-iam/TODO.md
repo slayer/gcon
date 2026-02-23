@@ -18,11 +18,9 @@
 
 ## Phase 4: Service Account Details
 - [x] Create `internal/ui/views/service_account_details.go` (tabbed: Details/Keys)
-- [x] Create `internal/ui/views/service_account_details_test.go`
 
 ## Phase 5: Service Account Create
 - [x] Create `internal/ui/views/service_account_create.go` (CreateViewBase)
-- [x] Create `internal/ui/views/service_account_create_test.go`
 
 ## Phase 6: App Handlers (IAM actions)
 - [x] Add handlers for delete, enable/disable, key create/delete
@@ -30,7 +28,7 @@
 
 ## Phase 7: IAM Policy View
 - [x] Create `internal/ui/views/iam_policy.go` (tabbed: By Role / By Member)
-- [x] Create `internal/ui/views/iam_policy_test.go`
+- [x] Add filter (`/`) for roles and members with live search
 
 ## Phase 8: Custom Roles
 - [x] Create `internal/ui/views/custom_roles.go` (list)
