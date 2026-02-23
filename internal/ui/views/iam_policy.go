@@ -188,8 +188,7 @@ func (v *IAMPolicyView) Update(msg tea.Msg) tea.Cmd {
 	case iamPolicyErrorMsg:
 		v.loading = false
 		v.err = msg.err
-		v.failTask("load-iam-policy", msg.err)
-		return nil
+		return v.failTask("load-iam-policy", msg.err)
 
 	case spinner.TickMsg:
 		if v.loading {
@@ -546,7 +545,7 @@ func (v *IAMPolicyView) clearTask(id string) {
 	}
 }
 
-func (v *IAMPolicyView) failTask(id string, err error) {
+func (v *IAMPolicyView) failTask(id string, err error) tea.Cmd {
 	if v.ctx != nil {
 		v.ctx.Tasks[id] = context.Task{
 			ID:          id,
@@ -555,4 +554,7 @@ func (v *IAMPolicyView) failTask(id string, err error) {
 			Error:       err,
 		}
 	}
+	return tea.Tick(5*time.Second, func(time.Time) tea.Msg {
+		return context.TaskClearMsg{TaskID: id}
+	})
 }
