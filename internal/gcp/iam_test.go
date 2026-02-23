@@ -621,6 +621,164 @@ func TestIAMPolicyFromAPI_MembersSortedPerBinding(t *testing.T) {
 	assert.Equal(t, expected, result.Bindings[0].Members)
 }
 
+func TestParseMemberType(t *testing.T) {
+	tests := []struct {
+		member       string
+		wantType     string
+		wantIdentity string
+	}{
+		{"user:alice@example.com", "user", "alice@example.com"},
+		{"serviceAccount:sa@proj.iam.gserviceaccount.com", "sa", "sa@proj.iam.gserviceaccount.com"},
+		{"group:admins@example.com", "group", "admins@example.com"},
+		{"domain:example.com", "domain", "example.com"},
+		{"deleted:user:old@example.com?uid=123", "deleted:user", "old@example.com?uid=123"},
+		{"deleted:serviceAccount:sa@proj.iam.gserviceaccount.com?uid=456", "deleted:sa", "sa@proj.iam.gserviceaccount.com?uid=456"},
+		{"nocolon", "", "nocolon"},
+		{"", "", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.member, func(t *testing.T) {
+			typeName, identity := ParseMemberType(tt.member)
+			assert.Equal(t, tt.wantType, typeName)
+			assert.Equal(t, tt.wantIdentity, identity)
+		})
+	}
+}
+
+func TestIAMPolicy_AddMember(t *testing.T) {
+	t.Run("add to existing role", func(t *testing.T) {
+		p := &IAMPolicy{
+			Bindings: []IAMBinding{
+				{Role: "roles/viewer", Members: []string{"user:a@x.com"}},
+			},
+		}
+		p.addMember("roles/viewer", "user:b@x.com")
+		assert.Len(t, p.Bindings, 1)
+		assert.Equal(t, []string{"user:a@x.com", "user:b@x.com"}, p.Bindings[0].Members)
+	})
+
+	t.Run("add creates new binding for new role", func(t *testing.T) {
+		p := &IAMPolicy{
+			Bindings: []IAMBinding{
+				{Role: "roles/viewer", Members: []string{"user:a@x.com"}},
+			},
+		}
+		p.addMember("roles/editor", "user:b@x.com")
+		assert.Len(t, p.Bindings, 2)
+		// Bindings sorted by role
+		assert.Equal(t, "roles/editor", p.Bindings[0].Role)
+		assert.Equal(t, []string{"user:b@x.com"}, p.Bindings[0].Members)
+	})
+
+	t.Run("add duplicate member is no-op", func(t *testing.T) {
+		p := &IAMPolicy{
+			Bindings: []IAMBinding{
+				{Role: "roles/viewer", Members: []string{"user:a@x.com"}},
+			},
+		}
+		p.addMember("roles/viewer", "user:a@x.com")
+		assert.Len(t, p.Bindings[0].Members, 1)
+	})
+
+	t.Run("add to empty policy", func(t *testing.T) {
+		p := &IAMPolicy{}
+		p.addMember("roles/owner", "user:admin@x.com")
+		assert.Len(t, p.Bindings, 1)
+		assert.Equal(t, "roles/owner", p.Bindings[0].Role)
+		assert.Equal(t, []string{"user:admin@x.com"}, p.Bindings[0].Members)
+	})
+}
+
+func TestIAMPolicy_RemoveMember(t *testing.T) {
+	t.Run("remove member from role with multiple members", func(t *testing.T) {
+		p := &IAMPolicy{
+			Bindings: []IAMBinding{
+				{Role: "roles/viewer", Members: []string{"user:a@x.com", "user:b@x.com"}},
+			},
+		}
+		p.removeMember("roles/viewer", "user:a@x.com")
+		assert.Len(t, p.Bindings, 1)
+		assert.Equal(t, []string{"user:b@x.com"}, p.Bindings[0].Members)
+	})
+
+	t.Run("remove last member removes entire binding", func(t *testing.T) {
+		p := &IAMPolicy{
+			Bindings: []IAMBinding{
+				{Role: "roles/viewer", Members: []string{"user:a@x.com"}},
+				{Role: "roles/editor", Members: []string{"user:b@x.com"}},
+			},
+		}
+		p.removeMember("roles/viewer", "user:a@x.com")
+		assert.Len(t, p.Bindings, 1)
+		assert.Equal(t, "roles/editor", p.Bindings[0].Role)
+	})
+
+	t.Run("remove non-existent member is no-op", func(t *testing.T) {
+		p := &IAMPolicy{
+			Bindings: []IAMBinding{
+				{Role: "roles/viewer", Members: []string{"user:a@x.com"}},
+			},
+		}
+		p.removeMember("roles/viewer", "user:nonexistent@x.com")
+		assert.Len(t, p.Bindings[0].Members, 1)
+	})
+
+	t.Run("remove from non-existent role is no-op", func(t *testing.T) {
+		p := &IAMPolicy{
+			Bindings: []IAMBinding{
+				{Role: "roles/viewer", Members: []string{"user:a@x.com"}},
+			},
+		}
+		p.removeMember("roles/editor", "user:a@x.com")
+		assert.Len(t, p.Bindings, 1)
+	})
+}
+
+func TestIAMPolicy_ToCRMPolicy(t *testing.T) {
+	t.Run("round-trips basic bindings", func(t *testing.T) {
+		p := &IAMPolicy{
+			Bindings: []IAMBinding{
+				{Role: "roles/viewer", Members: []string{"user:a@x.com", "user:b@x.com"}},
+			},
+			Version: 3,
+			Etag:    "etag1",
+		}
+		crm := p.toCRMPolicy()
+		assert.Equal(t, int64(3), crm.Version)
+		assert.Equal(t, "etag1", crm.Etag)
+		assert.Len(t, crm.Bindings, 1)
+		assert.Equal(t, "roles/viewer", crm.Bindings[0].Role)
+		assert.Equal(t, []string{"user:a@x.com", "user:b@x.com"}, crm.Bindings[0].Members)
+	})
+
+	t.Run("preserves audit configs from raw policy", func(t *testing.T) {
+		raw := &cloudresourcemanager.Policy{
+			AuditConfigs: []*cloudresourcemanager.AuditConfig{
+				{Service: "allServices"},
+			},
+		}
+		p := &IAMPolicy{
+			Bindings:  []IAMBinding{{Role: "roles/viewer", Members: []string{"user:a@x.com"}}},
+			rawPolicy: raw,
+		}
+		crm := p.toCRMPolicy()
+		assert.Len(t, crm.AuditConfigs, 1)
+		assert.Equal(t, "allServices", crm.AuditConfigs[0].Service)
+	})
+
+	t.Run("members are copied not shared", func(t *testing.T) {
+		p := &IAMPolicy{
+			Bindings: []IAMBinding{
+				{Role: "roles/viewer", Members: []string{"user:a@x.com"}},
+			},
+		}
+		crm := p.toCRMPolicy()
+		crm.Bindings[0].Members[0] = "MODIFIED"
+		assert.Equal(t, "user:a@x.com", p.Bindings[0].Members[0])
+	})
+}
+
 func TestCustomRoleFromAPI_PermissionsSorted(t *testing.T) {
 	input := &iam.Role{
 		Name: "projects/p/roles/r",

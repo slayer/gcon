@@ -2409,6 +2409,74 @@ func writeKeyFile(keyID string, data []byte) (string, error) {
 	return filename, nil
 }
 
+// --- IAM: Policy editing ---
+
+// handleAddIAMBinding adds a member to a role binding via async GCP call
+func (a *App) handleAddIAMBinding(msg views.AddIAMBindingMsg) tea.Cmd {
+	iamClient := a.getIAMClient()
+	if iamClient == nil {
+		return nil
+	}
+
+	a.registerRunningTask("iam-policy-update", "Adding IAM binding...")
+	return func() tea.Msg {
+		policy, err := iamClient.AddMemberToRole(gocontext.Background(), msg.ProjectID, msg.Role, msg.Member)
+		return views.IAMPolicyUpdateResultMsg{
+			Action: "add_binding",
+			Error:  err,
+			Policy: policy,
+		}
+	}
+}
+
+// handleRemoveIAMBinding removes a member from a role binding via async GCP call
+func (a *App) handleRemoveIAMBinding(msg views.RemoveIAMBindingMsg) tea.Cmd {
+	iamClient := a.getIAMClient()
+	if iamClient == nil {
+		return nil
+	}
+
+	a.registerRunningTask("iam-policy-update", "Removing IAM binding...")
+	return func() tea.Msg {
+		policy, err := iamClient.RemoveMemberFromRole(gocontext.Background(), msg.ProjectID, msg.Role, msg.Member)
+		return views.IAMPolicyUpdateResultMsg{
+			Action: "remove_binding",
+			Error:  err,
+			Policy: policy,
+		}
+	}
+}
+
+// handleIAMPolicyUpdateResult processes the result of an IAM policy update
+func (a *App) handleIAMPolicyUpdateResult(msg views.IAMPolicyUpdateResultMsg) tea.Cmd {
+	cmd := a.finishTask("iam-policy-update", msg.Error)
+
+	if msg.Error != nil {
+		a.err = msg.Error
+		if a.currentView == ViewIAMPolicy && a.iamPolicyView != nil {
+			a.iamPolicyView.SetError(msg.Error)
+		}
+		return cmd
+	}
+
+	// Update the view with the new policy
+	if a.currentView == ViewIAMPolicy && a.iamPolicyView != nil && msg.Policy != nil {
+		a.iamPolicyView.UpdatePolicy(msg.Policy)
+	}
+	return cmd
+}
+
+// getIAMClient returns an IAM client from existing views, or nil
+func (a *App) getIAMClient() *gcp.IAMClient {
+	if a.iamPolicyView != nil {
+		return a.iamPolicyView.GetIAMClient()
+	}
+	if a.serviceAccountsView != nil {
+		return a.serviceAccountsView.GetIAMClient()
+	}
+	return nil
+}
+
 // --- IAM: Custom Roles ---
 
 // handleCustomRoleSelected navigates to custom role details view

@@ -329,12 +329,24 @@ description: Keyboard shortcuts reference for all views
 
 | Key | Action |
 |-----|--------|
-| `/` | Filter roles and members |
-| `Tab` | Switch focus (tabs/content) |
-| `h/l` or `1/2` | Switch tabs (By Role/By Member) |
+| `Enter` | Open member/role detail overlay |
+| `a` | Add member/role (context-dependent) |
+| `.` | Open action menu |
+| `S` | Open sort menu |
+| `/` | Filter |
 | `r` | Refresh policy |
-| `j/k` or `↓/↑` | Scroll content |
-| `Esc` | Clear filter / Go back |
+| `Tab` | Switch focus (tabs/table) |
+| `h/l` or `1/2` | Switch tabs (By Member/By Role) |
+| `Esc` | Close overlay / Clear filter / Go back |
+
+### IAM Policy Overlay (detail view)
+
+| Key | Action |
+|-----|--------|
+| `j/k` or `↓/↑` | Navigate items |
+| `a` | Add member/role |
+| `d` | Remove selected item (with confirmation) |
+| `Esc` | Close overlay |
 
 ## Custom Roles View
 

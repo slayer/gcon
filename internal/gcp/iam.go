@@ -3,14 +3,19 @@ package gcp
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
 
 	"google.golang.org/api/cloudresourcemanager/v1"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iam/v1"
 	"google.golang.org/api/option"
 )
+
+// ErrEtagConflict is returned when an IAM policy update fails due to etag mismatch after retries.
+var ErrEtagConflict = errors.New("IAM policy etag conflict after retry")
 
 // ServiceAccount is the list-view summary
 type ServiceAccount struct {
@@ -55,11 +60,15 @@ type IAMPolicy struct {
 	Bindings []IAMBinding
 	Version  int64
 	Etag     string
+
+	// rawPolicy preserves the original CRM Policy for round-tripping
+	// (conditions, audit configs, etc. that we don't model)
+	rawPolicy *cloudresourcemanager.Policy
 }
 
 // CustomRole represents a project-level custom IAM role
 type CustomRole struct {
-	Name        string   // Full resource name
+	Name        string // Full resource name
 	Title       string
 	Description string
 	Stage       string // GA, BETA, ALPHA, DISABLED, EAP
@@ -238,6 +247,181 @@ func (c *IAMClient) GetProjectIAMPolicy(ctx context.Context, projectID string) (
 	return iamPolicyFromAPI(resp), nil
 }
 
+// SetProjectIAMPolicy sets the IAM policy for a project.
+// Uses the stored raw policy to preserve conditions and audit configs.
+func (c *IAMClient) SetProjectIAMPolicy(ctx context.Context, projectID string, policy *IAMPolicy) (*IAMPolicy, error) {
+	crmPolicy := policy.toCRMPolicy()
+	resp, err := c.crmService.Projects.SetIamPolicy(projectID, &cloudresourcemanager.SetIamPolicyRequest{
+		Policy: crmPolicy,
+	}).Context(ctx).Do()
+	if err != nil {
+		return nil, WrapActionError(err, "set IAM policy", projectID)
+	}
+	return iamPolicyFromAPI(resp), nil
+}
+
+// AddMemberToRole adds a member to a role binding, with a single retry on etag conflict.
+func (c *IAMClient) AddMemberToRole(ctx context.Context, projectID, role, member string) (*IAMPolicy, error) {
+	for attempt := range 2 {
+		policy, err := c.GetProjectIAMPolicy(ctx, projectID)
+		if err != nil {
+			return nil, err
+		}
+
+		policy.addMember(role, member)
+
+		result, err := c.SetProjectIAMPolicy(ctx, projectID, policy)
+		if err != nil {
+			// Retry once on etag conflict (409)
+			if attempt == 0 && isConflictError(err) {
+				continue
+			}
+			return nil, err
+		}
+		return result, nil
+	}
+	return nil, fmt.Errorf("add member to role: %w", ErrEtagConflict)
+}
+
+// RemoveMemberFromRole removes a member from a role binding, with a single retry on etag conflict.
+func (c *IAMClient) RemoveMemberFromRole(ctx context.Context, projectID, role, member string) (*IAMPolicy, error) {
+	for attempt := range 2 {
+		policy, err := c.GetProjectIAMPolicy(ctx, projectID)
+		if err != nil {
+			return nil, err
+		}
+
+		policy.removeMember(role, member)
+
+		result, err := c.SetProjectIAMPolicy(ctx, projectID, policy)
+		if err != nil {
+			if attempt == 0 && isConflictError(err) {
+				continue
+			}
+			return nil, err
+		}
+		return result, nil
+	}
+	return nil, fmt.Errorf("remove member from role: %w", ErrEtagConflict)
+}
+
+// ParseMemberType splits an IAM member string into type label and identity.
+// Example: "user:alice@example.com" → ("user", "alice@example.com")
+func ParseMemberType(member string) (typeName, identity string) {
+	// Handle "deleted:" prefix — e.g. "deleted:user:alice@example.com?uid=123"
+	isDeleted := strings.HasPrefix(member, "deleted:")
+	rest := strings.TrimPrefix(member, "deleted:")
+
+	var found bool
+	typeName, identity, found = strings.Cut(rest, ":")
+	if !found {
+		return "", member
+	}
+
+	// Shorten "serviceAccount" → "sa" for display
+	if typeName == "serviceAccount" {
+		typeName = "sa"
+	}
+
+	if isDeleted {
+		typeName = "deleted:" + typeName
+	}
+
+	return typeName, identity
+}
+
+// addMember adds a member to the specified role binding, creating the binding if needed.
+func (p *IAMPolicy) addMember(role, member string) {
+	for i, b := range p.Bindings {
+		if b.Role == role {
+			// Check if member already exists
+			for _, m := range b.Members {
+				if m == member {
+					return
+				}
+			}
+			p.Bindings[i].Members = append(p.Bindings[i].Members, member)
+			sort.Strings(p.Bindings[i].Members)
+			return
+		}
+	}
+	// Role doesn't exist yet — create new binding
+	p.Bindings = append(p.Bindings, IAMBinding{
+		Role:    role,
+		Members: []string{member},
+	})
+	sort.Slice(p.Bindings, func(i, j int) bool {
+		return p.Bindings[i].Role < p.Bindings[j].Role
+	})
+}
+
+// removeMember removes a member from the specified role binding.
+// Removes the entire binding if no members remain.
+func (p *IAMPolicy) removeMember(role, member string) {
+	for i, b := range p.Bindings {
+		if b.Role == role {
+			filtered := make([]string, 0, len(b.Members))
+			for _, m := range b.Members {
+				if m != member {
+					filtered = append(filtered, m)
+				}
+			}
+			if len(filtered) == 0 {
+				p.Bindings = append(p.Bindings[:i], p.Bindings[i+1:]...)
+			} else {
+				p.Bindings[i].Members = filtered
+			}
+			return
+		}
+	}
+}
+
+// toCRMPolicy converts back to a CRM Policy, reusing the stored raw policy
+// to preserve conditions and audit configs.
+func (p *IAMPolicy) toCRMPolicy() *cloudresourcemanager.Policy {
+	bindings := make([]*cloudresourcemanager.Binding, 0, len(p.Bindings))
+	for _, b := range p.Bindings {
+		members := make([]string, len(b.Members))
+		copy(members, b.Members)
+		binding := &cloudresourcemanager.Binding{
+			Role:    b.Role,
+			Members: members,
+		}
+		// Preserve conditions from the raw policy if available
+		if p.rawPolicy != nil {
+			for _, raw := range p.rawPolicy.Bindings {
+				if raw.Role == b.Role && raw.Condition != nil {
+					binding.Condition = raw.Condition
+					break
+				}
+			}
+		}
+		bindings = append(bindings, binding)
+	}
+
+	policy := &cloudresourcemanager.Policy{
+		Bindings: bindings,
+		Version:  p.Version,
+		Etag:     p.Etag,
+	}
+
+	// Preserve audit configs from original
+	if p.rawPolicy != nil {
+		policy.AuditConfigs = p.rawPolicy.AuditConfigs
+	}
+
+	return policy
+}
+
+// isConflictError checks if an error is an HTTP 409 conflict (etag mismatch).
+func isConflictError(err error) bool {
+	var apiErr *googleapi.Error
+	if errors.As(err, &apiErr) {
+		return apiErr.Code == 409
+	}
+	return false
+}
+
 // ListCustomRoles returns all custom roles in a project
 func (c *IAMClient) ListCustomRoles(ctx context.Context, projectID string) ([]CustomRole, error) {
 	var roles []CustomRole
@@ -340,9 +524,10 @@ func iamPolicyFromAPI(p *cloudresourcemanager.Policy) *IAMPolicy {
 	})
 
 	return &IAMPolicy{
-		Bindings: bindings,
-		Version:  p.Version,
-		Etag:     p.Etag,
+		Bindings:  bindings,
+		Version:   p.Version,
+		Etag:      p.Etag,
+		rawPolicy: p,
 	}
 }
 

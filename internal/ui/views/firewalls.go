@@ -496,4 +496,3 @@ func (v *FirewallsView) failTask(id string, err error) tea.Cmd {
 		return context.TaskClearMsg{TaskID: id}
 	})
 }
-

@@ -299,4 +299,3 @@ func (v *BucketsView) Close() error {
 func (v *BucketsView) HasTextInputFocused() bool {
 	return v.table.HasTextInputFocused()
 }
-
