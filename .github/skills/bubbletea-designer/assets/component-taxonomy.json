@@ -1,0 +1,98 @@
+{
+  "categories": {
+    "input": {
+      "description": "User input components",
+      "components": ["textinput", "textarea", "filepicker"]
+    },
+    "display": {
+      "description": "Content display components",
+      "components": ["viewport", "table", "list", "paginator"]
+    },
+    "feedback": {
+      "description": "Status and progress indicators",
+      "components": ["spinner", "progress"]
+    },
+    "navigation": {
+      "description": "View and navigation management",
+      "components": ["tabs", "help", "sidebar", "commandpalette"]
+    },
+    "layout": {
+      "description": "Layout and styling",
+      "components": ["lipgloss"]
+    },
+    "gcon_custom": {
+      "description": "gcon project-specific components (internal/ui/components/)",
+      "components": [
+        "actionmenu",
+        "commandpalette",
+        "confirm",
+        "diff",
+        "filepicker",
+        "footer",
+        "forms",
+        "header",
+        "inputdialog",
+        "labeledit",
+        "links",
+        "metric_bar",
+        "progress",
+        "projectselector",
+        "sidebar",
+        "sortmenu",
+        "sparkline",
+        "statusbar",
+        "table",
+        "tabs",
+        "textarea",
+        "time_range_selector",
+        "timer",
+        "viewport"
+      ]
+    }
+  },
+  "relationships": {
+    "common_pairs": [
+      ["table", "actionmenu"],
+      ["table", "sortmenu"],
+      ["table", "confirm"],
+      ["forms", "CreateViewBase"],
+      ["tabs", "viewport"],
+      ["tabs", "links"],
+      ["sidebar", "commandpalette"],
+      ["spinner", "table"],
+      ["viewport", "textinput"]
+    ],
+    "archetypes": {
+      "resource-list": {
+        "description": "GCP resource list view (instances, disks, buckets, etc.)",
+        "base_type": "TableClickDelegate",
+        "components": ["table", "spinner", "actionmenu", "sortmenu", "confirm"],
+        "example_views": ["instances.go", "disks.go", "buckets.go", "sql_instances.go"]
+      },
+      "resource-details": {
+        "description": "GCP resource detail view with tabs",
+        "base_type": null,
+        "components": ["tabs", "viewport", "links", "spinner", "actionmenu"],
+        "example_views": ["instance_details.go", "network_details.go", "sql_instance_details.go"]
+      },
+      "resource-create": {
+        "description": "GCP resource creation form",
+        "base_type": "CreateViewBase",
+        "components": ["forms", "spinner"],
+        "example_views": ["snapshot_create.go", "disk_create.go", "image_create.go"]
+      },
+      "resource-editor": {
+        "description": "GCP resource editor (more complex than creation)",
+        "base_type": null,
+        "components": ["forms", "diff", "spinner"],
+        "example_views": ["bucket_create.go", "instance_editor.go"]
+      },
+      "policy-viewer": {
+        "description": "IAM policy or read-only tabbed data",
+        "base_type": null,
+        "components": ["tabs", "viewport"],
+        "example_views": ["iam_policy.go", "custom_role_details.go"]
+      }
+    }
+  }
+}

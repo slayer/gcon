@@ -1,0 +1,51 @@
+{
+  "templates": {
+    "resource-list": {
+      "name": "GCP Resource List View",
+      "complexity": "medium",
+      "base_type": "TableClickDelegate",
+      "components": ["table", "spinner", "actionmenu", "confirm"],
+      "files_to_create": ["views/xxx.go", "views/xxx_messages.go"],
+      "files_to_update": ["app.go", "app_render.go", "app_navigation.go", "sidebar/menu.go", "commandpalette/commands.go"],
+      "use_cases": ["Any GCP resource list"],
+      "checklist": "See .claude/rules/adding-new-views.md"
+    },
+    "resource-details": {
+      "name": "GCP Resource Details View",
+      "complexity": "medium-high",
+      "base_type": null,
+      "components": ["tabs", "viewport", "links", "spinner", "actionmenu"],
+      "files_to_create": ["views/xxx_details.go"],
+      "files_to_update": ["app.go", "app_render.go", "app_navigation.go"],
+      "use_cases": ["Resource detail view with tabs"]
+    },
+    "resource-create": {
+      "name": "GCP Resource Creation Form",
+      "complexity": "medium",
+      "base_type": "CreateViewBase",
+      "components": ["forms", "spinner"],
+      "files_to_create": ["views/xxx_create.go"],
+      "files_to_update": ["app.go", "app_render.go", "app_navigation.go"],
+      "use_cases": ["Any resource creation via form"],
+      "checklist": "See .claude/rules/async-operations-error-handling.md"
+    },
+    "resource-editor": {
+      "name": "GCP Resource Editor (Complex)",
+      "complexity": "high",
+      "base_type": null,
+      "components": ["forms", "diff", "spinner", "confirm"],
+      "files_to_create": ["views/xxx_editor.go"],
+      "files_to_update": ["app.go", "app_render.go", "app_navigation.go"],
+      "use_cases": ["Complex editing with preview/diff"]
+    },
+    "gcp-client": {
+      "name": "GCP API Client Module",
+      "complexity": "low-medium",
+      "base_type": null,
+      "components": [],
+      "files_to_create": ["gcp/xxx.go", "gcp/xxx_test.go"],
+      "files_to_update": ["gcp/client.go"],
+      "use_cases": ["New GCP service integration"]
+    }
+  }
+}
