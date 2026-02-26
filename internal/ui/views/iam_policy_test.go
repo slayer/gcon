@@ -3,8 +3,11 @@ package views
 import (
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/slayer/gcon/internal/gcp"
+	"github.com/slayer/gcon/internal/ui/components/inputdialog"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestIAMPolicyView_RebuildTables(t *testing.T) {
@@ -224,6 +227,116 @@ func TestIAMPolicyView_FindBinding(t *testing.T) {
 		cond := v.findBinding("roles/viewer|Expires 2026")
 		assert.NotNil(t, cond)
 		assert.Equal(t, "Expires 2026", cond.ConditionTitle)
+	})
+}
+
+func TestIAMPolicyView_AddMemberFlow(t *testing.T) {
+	v := NewIAMPolicyView("test-project")
+	v.loading = false
+	v.policy = &gcp.IAMPolicy{
+		Bindings: []gcp.IAMBinding{
+			{Role: "roles/viewer", Members: []string{"user:alice@example.com"}},
+			{Role: "roles/editor", Members: []string{"user:bob@example.com"}},
+		},
+	}
+	v.rebuildTables()
+
+	// Switch to "By Role" tab
+	v.tabsComp.SetActiveByID(iamPolicyTabByRole)
+	v.Table = v.activeTable()
+
+	// Set focus to table (RegionViewport)
+	v.focusMgr.SetActive(iamPolicyRegionTable)
+
+	t.Run("pressing 'a' opens input dialog", func(t *testing.T) {
+		// Press 'a' — should open input dialog to add member to selected role
+		cmd := v.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+
+		assert.True(t, v.showInput, "showInput should be true")
+		assert.NotNil(t, v.inputDialog, "inputDialog should be created")
+		assert.Equal(t, "roles/viewer", v.pendingRole)
+		assert.Equal(t, "", v.pendingMember)
+
+		// The cmd should be textinput.Blink for cursor animation
+		assert.NotNil(t, cmd, "cmd from handleAdd should not be nil")
+	})
+
+	t.Run("confirming input emits AddIAMBindingMsg", func(t *testing.T) {
+		// Simulate InputConfirmMsg as if user typed and pressed Enter
+		cmd := v.Update(inputdialog.InputConfirmMsg{Value: "user:newuser@example.com"})
+
+		assert.False(t, v.showInput, "showInput should be false after confirm")
+
+		// The cmd should produce AddIAMBindingMsg
+		require.NotNil(t, cmd, "cmd from handleInputConfirm must not be nil")
+
+		// Execute the cmd to get the message
+		msg := cmd()
+		addMsg, ok := msg.(AddIAMBindingMsg)
+		require.True(t, ok, "cmd should produce AddIAMBindingMsg, got %T", msg)
+
+		assert.Equal(t, "test-project", addMsg.ProjectID)
+		assert.Equal(t, "roles/viewer", addMsg.Role)
+		assert.Equal(t, "", addMsg.ConditionTitle)
+		assert.Equal(t, "user:newuser@example.com", addMsg.Member)
+	})
+}
+
+func TestIAMPolicyView_RemoveMemberFlow(t *testing.T) {
+	v := NewIAMPolicyView("test-project")
+	v.loading = false
+	v.policy = &gcp.IAMPolicy{
+		Bindings: []gcp.IAMBinding{
+			{Role: "roles/viewer", Members: []string{"user:alice@example.com", "user:bob@example.com"}},
+		},
+	}
+	v.rebuildTables()
+
+	// Switch to "By Role" tab
+	v.tabsComp.SetActiveByID(iamPolicyTabByRole)
+	v.Table = v.activeTable()
+
+	// Set focus to table
+	v.focusMgr.SetActive(iamPolicyRegionTable)
+
+	t.Run("opening overlay then pressing 'd' shows confirm dialog", func(t *testing.T) {
+		// Press Enter to open overlay showing role's members
+		v.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		assert.True(t, v.showOverlay, "overlay should be open")
+		assert.Equal(t, "roles/viewer", v.overlayCtx.role)
+		assert.Len(t, v.overlayItems, 2)
+
+		// Press 'd' in overlay to remove selected member
+		v.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+		assert.True(t, v.showConfirm, "confirm dialog should be shown")
+		assert.NotNil(t, v.confirmDialog)
+		// First member is at cursor 0
+		assert.Equal(t, v.overlayItems[0], v.pendingMember)
+	})
+
+	t.Run("confirming removal emits RemoveIAMBindingMsg", func(t *testing.T) {
+		// Simulate pressing 'y' in confirm dialog
+		cmd := v.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+
+		// The confirm dialog should produce ConfirmMsg
+		// which the view catches and returns RemoveIAMBindingMsg cmd
+		// But wait — the 'y' key goes to the confirm dialog, which returns a cmd producing ConfirmMsg
+		// So we need to execute that cmd first
+		if cmd != nil {
+			msg := cmd()
+			// This should be confirm.ConfirmMsg
+			cmd = v.Update(msg)
+		}
+
+		require.NotNil(t, cmd, "cmd from handleConfirm must not be nil")
+		msg := cmd()
+		removeMsg, ok := msg.(RemoveIAMBindingMsg)
+		require.True(t, ok, "cmd should produce RemoveIAMBindingMsg, got %T", msg)
+
+		assert.Equal(t, "test-project", removeMsg.ProjectID)
+		assert.Equal(t, "roles/viewer", removeMsg.Role)
+		assert.Equal(t, "", removeMsg.ConditionTitle)
+		assert.NotEmpty(t, removeMsg.Member)
 	})
 }
 

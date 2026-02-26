@@ -710,13 +710,8 @@ func (v *IAMPolicyView) View() string {
 
 	mainContent := tabBar + "\n" + tableView + help
 
-	// Overlay dialogs on top
-	if v.showOverlay {
-		overlayContent := v.renderOverlay()
-		contentHeight := lipgloss.Height(mainContent)
-		return overlay.Center(mainContent, overlayContent, v.width, contentHeight)
-	}
-
+	// Dialogs render on top — input/confirm take priority over the detail overlay
+	// because they're opened FROM the overlay (e.g. 'a' to add, 'd' to remove)
 	if v.showInput && v.inputDialog != nil {
 		contentHeight := lipgloss.Height(mainContent)
 		return overlay.Center(mainContent, v.inputDialog.View(), v.width, contentHeight)
@@ -725,6 +720,12 @@ func (v *IAMPolicyView) View() string {
 	if v.showConfirm && v.confirmDialog != nil {
 		contentHeight := lipgloss.Height(mainContent)
 		return overlay.Center(mainContent, v.confirmDialog.View(), v.width, contentHeight)
+	}
+
+	if v.showOverlay {
+		overlayContent := v.renderOverlay()
+		contentHeight := lipgloss.Height(mainContent)
+		return overlay.Center(mainContent, overlayContent, v.width, contentHeight)
 	}
 
 	if v.menuOpen && v.actionMenu != nil {
@@ -789,6 +790,38 @@ func (v *IAMPolicyView) SetContext(ctx *context.ProgramContext) {
 func (v *IAMPolicyView) GetIAMClient() *gcp.IAMClient {
 	return v.iamClient
 }
+
+// SetLoading sets the loading state (for testing)
+func (v *IAMPolicyView) SetLoading(loading bool) { v.loading = loading }
+
+// SetPolicy sets the policy and rebuilds tables (for testing)
+func (v *IAMPolicyView) SetPolicy(policy *gcp.IAMPolicy) {
+	v.policy = policy
+	v.rebuildTables()
+}
+
+// SwitchToRoleTab switches to the "By Role" tab (for testing)
+func (v *IAMPolicyView) SwitchToRoleTab() {
+	v.tabsComp.SetActiveByID(iamPolicyTabByRole)
+	v.Table = v.activeTable()
+	v.focusMgr.SetActive(iamPolicyRegionTable)
+}
+
+// SwitchToMemberTab switches to the "By Member" tab (for testing)
+func (v *IAMPolicyView) SwitchToMemberTab() {
+	v.tabsComp.SetActiveByID(iamPolicyTabByMember)
+	v.Table = v.activeTable()
+	v.focusMgr.SetActive(iamPolicyRegionTable)
+}
+
+// IsOverlayShown returns whether the overlay is visible (for testing)
+func (v *IAMPolicyView) IsOverlayShown() bool { return v.showOverlay }
+
+// IsConfirmShown returns whether the confirm dialog is visible (for testing)
+func (v *IAMPolicyView) IsConfirmShown() bool { return v.showConfirm }
+
+// IsInputShown returns whether the input dialog is visible (for testing)
+func (v *IAMPolicyView) IsInputShown() bool { return v.showInput }
 
 // HasTextInputFocused returns true when any text input is active
 func (v *IAMPolicyView) HasTextInputFocused() bool {
