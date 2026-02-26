@@ -49,12 +49,18 @@ type iamPolicyClientReadyMsg struct {
 	client *gcp.IAMClient
 }
 
+// memberRole pairs a role with its optional condition title for display in the "By Member" overlay
+type memberRole struct {
+	role           string
+	conditionTitle string
+}
+
 // memberEntry holds a member's roles for the "By Member" table
 type memberEntry struct {
-	fullMember string   // e.g. "user:alice@example.com"
-	typeName   string   // e.g. "user", "sa", "group"
-	identity   string   // e.g. "alice@example.com"
-	roles      []string // sorted role names
+	fullMember string       // e.g. "user:alice@example.com"
+	typeName   string       // e.g. "user", "sa", "group"
+	identity   string       // e.g. "alice@example.com"
+	roles      []memberRole // sorted by (role, conditionTitle)
 }
 
 // IAMPolicyView displays project IAM bindings as tables with editing
@@ -79,13 +85,15 @@ type IAMPolicyView struct {
 	focusMgr    *focus.Manager
 
 	// Overlay state — shows member's roles or role's members
-	showOverlay   bool
-	overlayTitle  string
-	overlayItems  []string
-	overlayCursor int
-	overlayCtx    struct {
-		role   string // set when showing role's members (By Role tab)
-		member string // set when showing member's roles (By Member tab)
+	showOverlay     bool
+	overlayTitle    string
+	overlayItems    []string // display strings for the overlay list
+	overlayBindKeys []string // parallel to overlayItems — BindingKey for each role entry (By Member overlay)
+	overlayCursor   int
+	overlayCtx      struct {
+		role           string // set when showing role's members (By Role tab)
+		conditionTitle string // condition title for the role being shown (By Role tab)
+		member         string // set when showing member's roles (By Member tab)
 	}
 
 	// Dialogs
@@ -93,9 +101,10 @@ type IAMPolicyView struct {
 	showInput     bool
 	confirmDialog *confirm.ConfirmDialog
 	showConfirm   bool
-	pendingAction string // tracks what the confirm dialog is for
-	pendingRole   string
-	pendingMember string
+
+	pendingRole           string
+	pendingMember         string
+	pendingConditionTitle string
 
 	// Action menu
 	actionMenu *actionmenu.ActionMenu
@@ -398,7 +407,7 @@ func (v *IAMPolicyView) handleSelect() tea.Cmd {
 	}
 
 	if v.tabsComp.ActiveTab().ID == iamPolicyTabByMember {
-		// Show member's roles
+		// Show member's roles — each overlay item is a role with optional condition suffix
 		entry := v.findMemberEntry(row.ID)
 		if entry == nil {
 			return nil
@@ -406,22 +415,30 @@ func (v *IAMPolicyView) handleSelect() tea.Cmd {
 		v.showOverlay = true
 		v.overlayTitle = entry.fullMember
 		v.overlayItems = make([]string, len(entry.roles))
-		copy(v.overlayItems, entry.roles)
+		v.overlayBindKeys = make([]string, len(entry.roles))
+		for i, mr := range entry.roles {
+			v.overlayItems[i] = formatRoleWithCondition(mr.role, mr.conditionTitle)
+			b := gcp.IAMBinding{Role: mr.role, ConditionTitle: mr.conditionTitle}
+			v.overlayBindKeys[i] = b.BindingKey()
+		}
 		v.overlayCursor = 0
 		v.overlayCtx.member = entry.fullMember
 		v.overlayCtx.role = ""
+		v.overlayCtx.conditionTitle = ""
 	} else {
-		// Show role's members
+		// Show role's members — row.ID is now BindingKey
 		binding := v.findBinding(row.ID)
 		if binding == nil {
 			return nil
 		}
 		v.showOverlay = true
-		v.overlayTitle = binding.Role
+		v.overlayTitle = formatRoleWithCondition(binding.Role, binding.ConditionTitle)
 		v.overlayItems = make([]string, len(binding.Members))
+		v.overlayBindKeys = nil
 		copy(v.overlayItems, binding.Members)
 		v.overlayCursor = 0
 		v.overlayCtx.role = binding.Role
+		v.overlayCtx.conditionTitle = binding.ConditionTitle
 		v.overlayCtx.member = ""
 	}
 	return nil
@@ -440,21 +457,24 @@ func (v *IAMPolicyView) handleAdd() tea.Cmd {
 	}
 
 	if v.tabsComp.ActiveTab().ID == iamPolicyTabByRole {
-		// Add member to selected role
-		v.pendingRole = row.ID
+		// Add member to selected role — row.ID is BindingKey
+		role, condTitle := gcp.ParseBindingKey(row.ID)
+		v.pendingRole = role
+		v.pendingConditionTitle = condTitle
 		v.pendingMember = ""
 		v.inputDialog = inputdialog.New(
 			"Add Member",
-			fmt.Sprintf("Add member to %s", shortRoleName(row.ID)),
+			fmt.Sprintf("Add member to %s", shortRoleName(role)),
 			"user:email@example.com",
 		).SetValidator(validateIAMMember)
 		v.showInput = true
 		return v.inputDialog.Init()
 	}
 
-	// By Member tab: add role to selected member
+	// By Member tab: add role to selected member — new bindings are always unconditioned
 	v.pendingMember = row.ID
 	v.pendingRole = ""
+	v.pendingConditionTitle = ""
 	v.inputDialog = inputdialog.New(
 		"Add Role",
 		fmt.Sprintf("Add role to %s", row.ID),
@@ -467,8 +487,9 @@ func (v *IAMPolicyView) handleAdd() tea.Cmd {
 // handleOverlayAdd adds from within the overlay context
 func (v *IAMPolicyView) handleOverlayAdd() tea.Cmd {
 	if v.overlayCtx.role != "" {
-		// Viewing role's members → add another member
+		// Viewing role's members → add another member to same binding
 		v.pendingRole = v.overlayCtx.role
+		v.pendingConditionTitle = v.overlayCtx.conditionTitle
 		v.pendingMember = ""
 		v.inputDialog = inputdialog.New(
 			"Add Member",
@@ -479,9 +500,10 @@ func (v *IAMPolicyView) handleOverlayAdd() tea.Cmd {
 		return v.inputDialog.Init()
 	}
 
-	// Viewing member's roles → add another role
+	// Viewing member's roles → add another role (new bindings are unconditioned)
 	v.pendingMember = v.overlayCtx.member
 	v.pendingRole = ""
+	v.pendingConditionTitle = ""
 	v.inputDialog = inputdialog.New(
 		"Add Role",
 		fmt.Sprintf("Add role to %s", v.overlayCtx.member),
@@ -527,10 +549,11 @@ func (v *IAMPolicyView) handleOverlayRemove() tea.Cmd {
 	selected := v.overlayItems[v.overlayCursor]
 
 	if v.overlayCtx.role != "" {
-		// Removing member from role
+		// Removing member from role — condition comes from overlay context
 		v.pendingRole = v.overlayCtx.role
+		v.pendingConditionTitle = v.overlayCtx.conditionTitle
 		v.pendingMember = selected
-		v.pendingAction = "remove_member"
+
 		v.confirmDialog = confirm.New(
 			"Remove Member",
 			fmt.Sprintf("Remove %s from %s?", selected, shortRoleName(v.overlayCtx.role)),
@@ -540,13 +563,18 @@ func (v *IAMPolicyView) handleOverlayRemove() tea.Cmd {
 		return nil
 	}
 
-	// Removing role from member
-	v.pendingRole = selected
+	// Removing role from member — look up condition from the parallel binding keys
+	if v.overlayCursor >= len(v.overlayBindKeys) {
+		return nil // defensive: overlayBindKeys should always be populated in parallel
+	}
+	role, condTitle := gcp.ParseBindingKey(v.overlayBindKeys[v.overlayCursor])
+	v.pendingRole = role
+	v.pendingConditionTitle = condTitle
 	v.pendingMember = v.overlayCtx.member
-	v.pendingAction = "remove_role"
+
 	v.confirmDialog = confirm.New(
 		"Remove Role",
-		fmt.Sprintf("Remove %s from %s?", shortRoleName(selected), v.overlayCtx.member),
+		fmt.Sprintf("Remove %s from %s?", shortRoleName(role), v.overlayCtx.member),
 		nil,
 	)
 	v.showConfirm = true
@@ -557,10 +585,12 @@ func (v *IAMPolicyView) handleOverlayRemove() tea.Cmd {
 func (v *IAMPolicyView) handleInputConfirm(value string) tea.Cmd {
 	role := v.pendingRole
 	member := v.pendingMember
+	condTitle := v.pendingConditionTitle
 
 	if role == "" {
-		// Adding a role to a member
+		// Adding a role to a member — new binding is unconditioned
 		role = value
+		condTitle = ""
 	} else {
 		// Adding a member to a role
 		member = value
@@ -569,9 +599,10 @@ func (v *IAMPolicyView) handleInputConfirm(value string) tea.Cmd {
 	v.showOverlay = false
 	return func() tea.Msg {
 		return AddIAMBindingMsg{
-			ProjectID: v.projectID,
-			Role:      role,
-			Member:    member,
+			ProjectID:      v.projectID,
+			Role:           role,
+			ConditionTitle: condTitle,
+			Member:         member,
 		}
 	}
 }
@@ -580,13 +611,15 @@ func (v *IAMPolicyView) handleInputConfirm(value string) tea.Cmd {
 func (v *IAMPolicyView) handleConfirm() tea.Cmd {
 	role := v.pendingRole
 	member := v.pendingMember
+	condTitle := v.pendingConditionTitle
 	v.showOverlay = false
 
 	return func() tea.Msg {
 		return RemoveIAMBindingMsg{
-			ProjectID: v.projectID,
-			Role:      role,
-			Member:    member,
+			ProjectID:      v.projectID,
+			Role:           role,
+			ConditionTitle: condTitle,
+			Member:         member,
 		}
 	}
 }
@@ -781,25 +814,33 @@ func (v *IAMPolicyView) rebuildTables() {
 	v.buildRoleTable()
 }
 
-// buildMemberEntries inverts the policy bindings to member→roles
+// buildMemberEntries inverts the policy bindings to member→roles (with condition info)
 func (v *IAMPolicyView) buildMemberEntries() {
-	memberRoles := make(map[string][]string)
+	memberRolesMap := make(map[string][]memberRole)
 	for _, b := range v.policy.Bindings {
 		for _, m := range b.Members {
-			memberRoles[m] = append(memberRoles[m], b.Role)
+			memberRolesMap[m] = append(memberRolesMap[m], memberRole{
+				role:           b.Role,
+				conditionTitle: b.ConditionTitle,
+			})
 		}
 	}
 
-	members := make([]string, 0, len(memberRoles))
-	for m := range memberRoles {
+	members := make([]string, 0, len(memberRolesMap))
+	for m := range memberRolesMap {
 		members = append(members, m)
 	}
 	sort.Strings(members)
 
 	v.memberEntries = make([]memberEntry, 0, len(members))
 	for _, m := range members {
-		roles := memberRoles[m]
-		sort.Strings(roles)
+		roles := memberRolesMap[m]
+		sort.Slice(roles, func(i, j int) bool {
+			if roles[i].role != roles[j].role {
+				return roles[i].role < roles[j].role
+			}
+			return roles[i].conditionTitle < roles[j].conditionTitle
+		})
 		typeName, identity := gcp.ParseMemberType(m)
 		v.memberEntries = append(v.memberEntries, memberEntry{
 			fullMember: m,
@@ -816,7 +857,9 @@ func (v *IAMPolicyView) buildMemberTable() {
 		rolesDisplay := formatRolesColumn(e.roles)
 		// FilterValue includes type, identity, and all role names for matching
 		filterParts := []string{e.typeName, e.identity}
-		filterParts = append(filterParts, e.roles...)
+		for _, mr := range e.roles {
+			filterParts = append(filterParts, mr.role)
+		}
 		rows = append(rows, table.Row{
 			Data:        []string{e.typeName, e.identity, rolesDisplay},
 			FilterValue: strings.Join(filterParts, " "),
@@ -834,14 +877,18 @@ func (v *IAMPolicyView) buildRoleTable() {
 			membersCount = "1 member"
 		}
 		preview := truncatePreview(b.Members, 40)
+		roleDisplay := formatRoleWithCondition(b.Role, b.ConditionTitle)
 
-		// FilterValue includes role and all member names
+		// FilterValue includes role, condition title, and all member names
 		filterParts := []string{b.Role}
+		if b.ConditionTitle != "" {
+			filterParts = append(filterParts, b.ConditionTitle)
+		}
 		filterParts = append(filterParts, b.Members...)
 		rows = append(rows, table.Row{
-			Data:        []string{b.Role, membersCount, preview},
+			Data:        []string{roleDisplay, membersCount, preview},
 			FilterValue: strings.Join(filterParts, " "),
-			ID:          b.Role,
+			ID:          b.BindingKey(),
 		})
 	}
 	v.roleTable.SetRows(rows)
@@ -858,12 +905,12 @@ func (v *IAMPolicyView) findMemberEntry(fullMember string) *memberEntry {
 	return nil
 }
 
-func (v *IAMPolicyView) findBinding(role string) *gcp.IAMBinding {
+func (v *IAMPolicyView) findBinding(bindingKey string) *gcp.IAMBinding {
 	if v.policy == nil {
 		return nil
 	}
 	for i := range v.policy.Bindings {
-		if v.policy.Bindings[i].Role == role {
+		if v.policy.Bindings[i].BindingKey() == bindingKey {
 			return &v.policy.Bindings[i]
 		}
 	}
@@ -872,12 +919,20 @@ func (v *IAMPolicyView) findBinding(role string) *gcp.IAMBinding {
 
 // --- Display helpers ---
 
-func formatRolesColumn(roles []string) string {
+func formatRolesColumn(roles []memberRole) string {
 	short := make([]string, len(roles))
-	for i, r := range roles {
-		short[i] = shortRoleName(r)
+	for i, mr := range roles {
+		short[i] = formatRoleWithCondition(shortRoleName(mr.role), mr.conditionTitle)
 	}
 	return strings.Join(short, ", ")
+}
+
+// formatRoleWithCondition appends a parenthesized condition title when present
+func formatRoleWithCondition(role, conditionTitle string) string {
+	if conditionTitle == "" {
+		return role
+	}
+	return role + " (" + conditionTitle + ")"
 }
 
 // shortRoleName strips the "roles/" prefix for brevity
@@ -902,7 +957,7 @@ func truncatePreview(members []string, maxLen int) string {
 var (
 	errExpectedString    = errors.New("expected string")
 	errMemberIdentEmpty  = errors.New("member identity cannot be empty")
-	errInvalidMemberType = errors.New("must start with user:, serviceAccount:, group:, or domain: prefix")
+	errInvalidMemberType = errors.New("must start with user:, serviceAccount:, group:, domain:, or deleted: prefix")
 	errInvalidRolePrefix = errors.New("must start with roles/, projects/, or organizations/")
 )
 
@@ -925,15 +980,23 @@ func validateIAMMember(value any) error {
 	return errInvalidMemberType
 }
 
+var errRoleIDEmpty = errors.New("role ID cannot be empty (e.g. use roles/viewer)")
+
 func validateIAMRole(value any) error {
 	s, ok := value.(string)
 	if !ok {
 		return errExpectedString
 	}
-	if !strings.HasPrefix(s, "roles/") && !strings.HasPrefix(s, "projects/") && !strings.HasPrefix(s, "organizations/") {
-		return errInvalidRolePrefix
+	// Must have a valid prefix with a non-empty ID segment after it
+	for _, prefix := range []string{"roles/", "projects/", "organizations/"} {
+		if strings.HasPrefix(s, prefix) {
+			if len(s) <= len(prefix) {
+				return errRoleIDEmpty
+			}
+			return nil
+		}
 	}
-	return nil
+	return errInvalidRolePrefix
 }
 
 // --- Task registration helpers ---

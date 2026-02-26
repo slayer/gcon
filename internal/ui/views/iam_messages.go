@@ -72,18 +72,22 @@ type CustomRoleSelectedMsg struct {
 	Role gcp.CustomRole
 }
 
-// AddIAMBindingMsg requests adding a member to a role binding
+// AddIAMBindingMsg requests adding a member to a role binding.
+// ConditionTitle targets the specific binding when duplicate roles exist with different conditions.
 type AddIAMBindingMsg struct {
-	ProjectID string
-	Role      string
-	Member    string
+	ProjectID      string
+	Role           string
+	ConditionTitle string
+	Member         string
 }
 
-// RemoveIAMBindingMsg requests removing a member from a role binding
+// RemoveIAMBindingMsg requests removing a member from a role binding.
+// ConditionTitle targets the specific binding when duplicate roles exist with different conditions.
 type RemoveIAMBindingMsg struct {
-	ProjectID string
-	Role      string
-	Member    string
+	ProjectID      string
+	Role           string
+	ConditionTitle string
+	Member         string
 }
 
 // IAMPolicyUpdateResultMsg reports the result of an IAM policy update

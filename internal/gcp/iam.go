@@ -49,10 +49,30 @@ type ServiceAccountKey struct {
 	Disabled        bool
 }
 
-// IAMBinding represents a single role→members binding in an IAM policy
+// IAMBinding represents a single role→members binding in an IAM policy.
+// ConditionTitle is non-empty when the binding has an IAM condition attached.
+// GCP requires unique condition titles per role, so (Role, ConditionTitle)
+// forms a stable composite key for identifying bindings.
 type IAMBinding struct {
-	Role    string
-	Members []string
+	Role           string
+	Members        []string
+	ConditionTitle string
+}
+
+// BindingKey returns a composite key that uniquely identifies this binding.
+// Unconditioned bindings use just the role; conditioned ones use "role|title".
+// The "|" separator is safe because GCP role names only use "/" as separators.
+func (b *IAMBinding) BindingKey() string {
+	if b.ConditionTitle == "" {
+		return b.Role
+	}
+	return b.Role + "|" + b.ConditionTitle
+}
+
+// ParseBindingKey splits a composite binding key back into role and conditionTitle.
+func ParseBindingKey(key string) (role, conditionTitle string) {
+	role, conditionTitle, _ = strings.Cut(key, "|")
+	return role, conditionTitle
 }
 
 // IAMPolicy represents the full IAM policy for a project
@@ -261,14 +281,15 @@ func (c *IAMClient) SetProjectIAMPolicy(ctx context.Context, projectID string, p
 }
 
 // AddMemberToRole adds a member to a role binding, with a single retry on etag conflict.
-func (c *IAMClient) AddMemberToRole(ctx context.Context, projectID, role, member string) (*IAMPolicy, error) {
+// conditionTitle targets the specific binding when multiple bindings share the same role.
+func (c *IAMClient) AddMemberToRole(ctx context.Context, projectID, role, conditionTitle, member string) (*IAMPolicy, error) {
 	for attempt := range 2 {
 		policy, err := c.GetProjectIAMPolicy(ctx, projectID)
 		if err != nil {
 			return nil, err
 		}
 
-		policy.addMember(role, member)
+		policy.addMember(role, conditionTitle, member)
 
 		result, err := c.SetProjectIAMPolicy(ctx, projectID, policy)
 		if err != nil {
@@ -284,14 +305,15 @@ func (c *IAMClient) AddMemberToRole(ctx context.Context, projectID, role, member
 }
 
 // RemoveMemberFromRole removes a member from a role binding, with a single retry on etag conflict.
-func (c *IAMClient) RemoveMemberFromRole(ctx context.Context, projectID, role, member string) (*IAMPolicy, error) {
+// conditionTitle targets the specific binding when multiple bindings share the same role.
+func (c *IAMClient) RemoveMemberFromRole(ctx context.Context, projectID, role, conditionTitle, member string) (*IAMPolicy, error) {
 	for attempt := range 2 {
 		policy, err := c.GetProjectIAMPolicy(ctx, projectID)
 		if err != nil {
 			return nil, err
 		}
 
-		policy.removeMember(role, member)
+		policy.removeMember(role, conditionTitle, member)
 
 		result, err := c.SetProjectIAMPolicy(ctx, projectID, policy)
 		if err != nil {
@@ -331,9 +353,10 @@ func ParseMemberType(member string) (typeName, identity string) {
 }
 
 // addMember adds a member to the specified role binding, creating the binding if needed.
-func (p *IAMPolicy) addMember(role, member string) {
+// Matches on (role, conditionTitle) to handle duplicate-role bindings with different conditions.
+func (p *IAMPolicy) addMember(role, conditionTitle, member string) {
 	for i, b := range p.Bindings {
-		if b.Role == role {
+		if b.Role == role && b.ConditionTitle == conditionTitle {
 			// Check if member already exists
 			for _, m := range b.Members {
 				if m == member {
@@ -345,21 +368,29 @@ func (p *IAMPolicy) addMember(role, member string) {
 			return
 		}
 	}
-	// Role doesn't exist yet — create new binding
+	// Only create new unconditioned bindings — conditioned bindings must already exist
+	// because their condition expression lives in rawPolicy and can't be reconstructed.
+	if conditionTitle != "" {
+		return
+	}
 	p.Bindings = append(p.Bindings, IAMBinding{
 		Role:    role,
 		Members: []string{member},
 	})
 	sort.Slice(p.Bindings, func(i, j int) bool {
-		return p.Bindings[i].Role < p.Bindings[j].Role
+		if p.Bindings[i].Role != p.Bindings[j].Role {
+			return p.Bindings[i].Role < p.Bindings[j].Role
+		}
+		return p.Bindings[i].ConditionTitle < p.Bindings[j].ConditionTitle
 	})
 }
 
 // removeMember removes a member from the specified role binding.
+// Matches on (role, conditionTitle) to target the correct binding.
 // Removes the entire binding if no members remain.
-func (p *IAMPolicy) removeMember(role, member string) {
+func (p *IAMPolicy) removeMember(role, conditionTitle, member string) {
 	for i, b := range p.Bindings {
-		if b.Role == role {
+		if b.Role == role && b.ConditionTitle == conditionTitle {
 			filtered := make([]string, 0, len(b.Members))
 			for _, m := range b.Members {
 				if m != member {
@@ -387,11 +418,19 @@ func (p *IAMPolicy) toCRMPolicy() *cloudresourcemanager.Policy {
 			Role:    b.Role,
 			Members: members,
 		}
-		// Preserve conditions from the raw policy if available
+		// Restore condition from the raw policy by matching (role, conditionTitle).
+		// Shallow-copy the Expr to avoid sharing pointers with the cached rawPolicy.
 		if p.rawPolicy != nil {
 			for _, raw := range p.rawPolicy.Bindings {
-				if raw.Role == b.Role && raw.Condition != nil {
-					binding.Condition = raw.Condition
+				rawTitle := ""
+				if raw.Condition != nil {
+					rawTitle = raw.Condition.Title
+				}
+				if raw.Role == b.Role && rawTitle == b.ConditionTitle {
+					if raw.Condition != nil {
+						cond := *raw.Condition
+						binding.Condition = &cond
+					}
 					break
 				}
 			}
@@ -512,15 +551,25 @@ func iamPolicyFromAPI(p *cloudresourcemanager.Policy) *IAMPolicy {
 		members := make([]string, len(b.Members))
 		copy(members, b.Members)
 		sort.Strings(members)
+
+		condTitle := ""
+		if b.Condition != nil {
+			condTitle = b.Condition.Title
+		}
+
 		bindings = append(bindings, IAMBinding{
-			Role:    b.Role,
-			Members: members,
+			Role:           b.Role,
+			Members:        members,
+			ConditionTitle: condTitle,
 		})
 	}
 
-	// Sort bindings by role for consistent display
+	// Sort by (role, conditionTitle) for deterministic display
 	sort.Slice(bindings, func(i, j int) bool {
-		return bindings[i].Role < bindings[j].Role
+		if bindings[i].Role != bindings[j].Role {
+			return bindings[i].Role < bindings[j].Role
+		}
+		return bindings[i].ConditionTitle < bindings[j].ConditionTitle
 	})
 
 	return &IAMPolicy{

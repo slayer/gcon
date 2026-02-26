@@ -31,7 +31,7 @@ func TestIAMPolicyView_RebuildTables(t *testing.T) {
 		assert.Equal(t, "group:admins@example.com", v.memberEntries[0].fullMember)
 		assert.Equal(t, "group", v.memberEntries[0].typeName)
 		assert.Equal(t, "admins@example.com", v.memberEntries[0].identity)
-		assert.Equal(t, []string{"roles/viewer"}, v.memberEntries[0].roles)
+		assert.Equal(t, []memberRole{{role: "roles/viewer"}}, v.memberEntries[0].roles)
 
 		// serviceAccount → "sa" short type
 		assert.Equal(t, "serviceAccount:sa@proj.iam.gserviceaccount.com", v.memberEntries[1].fullMember)
@@ -42,8 +42,8 @@ func TestIAMPolicyView_RebuildTables(t *testing.T) {
 		assert.Equal(t, "user", v.memberEntries[2].typeName)
 		assert.Len(t, v.memberEntries[2].roles, 2)
 		// Roles sorted
-		assert.Equal(t, "roles/owner", v.memberEntries[2].roles[0])
-		assert.Equal(t, "roles/viewer", v.memberEntries[2].roles[1])
+		assert.Equal(t, "roles/owner", v.memberEntries[2].roles[0].role)
+		assert.Equal(t, "roles/viewer", v.memberEntries[2].roles[1].role)
 	})
 }
 
@@ -81,13 +81,16 @@ func TestIAMPolicyView_SetError(t *testing.T) {
 
 func TestIAMPolicyView_FormatRolesColumn(t *testing.T) {
 	tests := []struct {
-		roles    []string
+		roles    []memberRole
 		expected string
 	}{
-		{[]string{"roles/viewer"}, "viewer"},
-		{[]string{"roles/viewer", "roles/editor"}, "viewer, editor"},
-		{[]string{"roles/a", "roles/b", "roles/c"}, "a, b, c"},
-		{[]string{"projects/p/roles/custom"}, "projects/p/roles/custom"},
+		{[]memberRole{{role: "roles/viewer"}}, "viewer"},
+		{[]memberRole{{role: "roles/viewer"}, {role: "roles/editor"}}, "viewer, editor"},
+		{[]memberRole{{role: "roles/a"}, {role: "roles/b"}, {role: "roles/c"}}, "a, b, c"},
+		{[]memberRole{{role: "projects/p/roles/custom"}}, "projects/p/roles/custom"},
+		// With condition titles
+		{[]memberRole{{role: "roles/viewer", conditionTitle: "Expires 2026"}}, "viewer (Expires 2026)"},
+		{[]memberRole{{role: "roles/viewer"}, {role: "roles/viewer", conditionTitle: "Temp"}}, "viewer, viewer (Temp)"},
 	}
 
 	for _, tt := range tests {
@@ -151,6 +154,9 @@ func TestIAMPolicyView_ValidateIAMRole(t *testing.T) {
 		{"organizations/123/roles/orgRole", false},
 		{"invalid-role", true},
 		{"", true},
+		{"roles/", true},         // empty ID segment after prefix
+		{"projects/", true},      // empty ID segment after prefix
+		{"organizations/", true}, // empty ID segment after prefix
 	}
 
 	for _, tt := range tests {
@@ -168,8 +174,8 @@ func TestIAMPolicyView_ValidateIAMRole(t *testing.T) {
 func TestIAMPolicyView_FindMemberEntry(t *testing.T) {
 	v := NewIAMPolicyView("test-project")
 	v.memberEntries = []memberEntry{
-		{fullMember: "user:alice@example.com", typeName: "user", identity: "alice@example.com", roles: []string{"roles/viewer"}},
-		{fullMember: "user:bob@example.com", typeName: "user", identity: "bob@example.com", roles: []string{"roles/editor"}},
+		{fullMember: "user:alice@example.com", typeName: "user", identity: "alice@example.com", roles: []memberRole{{role: "roles/viewer"}}},
+		{fullMember: "user:bob@example.com", typeName: "user", identity: "bob@example.com", roles: []memberRole{{role: "roles/editor"}}},
 	}
 
 	t.Run("finds existing member", func(t *testing.T) {
@@ -202,6 +208,22 @@ func TestIAMPolicyView_FindBinding(t *testing.T) {
 	t.Run("returns nil for non-existent role", func(t *testing.T) {
 		binding := v.findBinding("roles/owner")
 		assert.Nil(t, binding)
+	})
+
+	t.Run("finds conditioned binding by composite key", func(t *testing.T) {
+		v.policy = &gcp.IAMPolicy{
+			Bindings: []gcp.IAMBinding{
+				{Role: "roles/viewer", Members: []string{"user:a@x.com"}},
+				{Role: "roles/viewer", ConditionTitle: "Expires 2026", Members: []string{"user:b@x.com"}},
+			},
+		}
+		uncond := v.findBinding("roles/viewer")
+		assert.NotNil(t, uncond)
+		assert.Equal(t, "", uncond.ConditionTitle)
+
+		cond := v.findBinding("roles/viewer|Expires 2026")
+		assert.NotNil(t, cond)
+		assert.Equal(t, "Expires 2026", cond.ConditionTitle)
 	})
 }
 

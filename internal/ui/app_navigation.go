@@ -2420,7 +2420,7 @@ func (a *App) handleAddIAMBinding(msg views.AddIAMBindingMsg) tea.Cmd {
 
 	a.registerRunningTask("iam-policy-update", "Adding IAM binding...")
 	return func() tea.Msg {
-		policy, err := iamClient.AddMemberToRole(gocontext.Background(), msg.ProjectID, msg.Role, msg.Member)
+		policy, err := iamClient.AddMemberToRole(gocontext.Background(), msg.ProjectID, msg.Role, msg.ConditionTitle, msg.Member)
 		return views.IAMPolicyUpdateResultMsg{
 			Action: "add_binding",
 			Error:  err,
@@ -2438,7 +2438,7 @@ func (a *App) handleRemoveIAMBinding(msg views.RemoveIAMBindingMsg) tea.Cmd {
 
 	a.registerRunningTask("iam-policy-update", "Removing IAM binding...")
 	return func() tea.Msg {
-		policy, err := iamClient.RemoveMemberFromRole(gocontext.Background(), msg.ProjectID, msg.Role, msg.Member)
+		policy, err := iamClient.RemoveMemberFromRole(gocontext.Background(), msg.ProjectID, msg.Role, msg.ConditionTitle, msg.Member)
 		return views.IAMPolicyUpdateResultMsg{
 			Action: "remove_binding",
 			Error:  err,
