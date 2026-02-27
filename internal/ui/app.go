@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/config"
+
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/commandpalette"
@@ -82,31 +83,31 @@ type App struct {
 	layout    *layout.Layout // Tile-based layout manager
 
 	// Current view state
-	currentView         ViewType
-	viewStack           []ViewType // For back navigation
-	projectView         *views.ProjectsView
-	instancesView       *views.InstancesView
-	instanceDetailsView *views.InstanceDetailsView
-	metadataView        *views.InstanceMetadataView
-	projectMetadataView *views.ProjectMetadataView
-	disksView           *views.DisksView
-	diskDetailsView     *views.DiskDetailsView
-	snapshotsView       *views.SnapshotsView
-	snapshotDetailsView *views.SnapshotDetailsView
-	imagesView          *views.ImagesView
-	imageDetailsView    *views.ImageDetailsView
-	bucketsView         *views.BucketsView
-	objectsView         *views.ObjectsView
-	objectDetailsView   *views.ObjectDetailsView
-	instanceEditorView  *views.InstanceEditorView
-	bucketCreateView    *views.BucketCreateView
-	snapshotCreateView  *views.SnapshotCreateView
-	imageCreateView     *views.ImageCreateView
-	diskCreateView      *views.DiskCreateView
-	networksView        *views.NetworksView
-	networkDetailsView  *views.NetworkDetailsView
-	firewallsView          *views.FirewallsView
-	firewallDetailsView    *views.FirewallDetailsView
+	currentView               ViewType
+	viewStack                 []ViewType // For back navigation
+	projectView               *views.ProjectsView
+	instancesView             *views.InstancesView
+	instanceDetailsView       *views.InstanceDetailsView
+	metadataView              *views.InstanceMetadataView
+	projectMetadataView       *views.ProjectMetadataView
+	disksView                 *views.DisksView
+	diskDetailsView           *views.DiskDetailsView
+	snapshotsView             *views.SnapshotsView
+	snapshotDetailsView       *views.SnapshotDetailsView
+	imagesView                *views.ImagesView
+	imageDetailsView          *views.ImageDetailsView
+	bucketsView               *views.BucketsView
+	objectsView               *views.ObjectsView
+	objectDetailsView         *views.ObjectDetailsView
+	instanceEditorView        *views.InstanceEditorView
+	bucketCreateView          *views.BucketCreateView
+	snapshotCreateView        *views.SnapshotCreateView
+	imageCreateView           *views.ImageCreateView
+	diskCreateView            *views.DiskCreateView
+	networksView              *views.NetworksView
+	networkDetailsView        *views.NetworkDetailsView
+	firewallsView             *views.FirewallsView
+	firewallDetailsView       *views.FirewallDetailsView
 	sqlInstancesView          *views.SQLInstancesView
 	sqlInstanceDetailsView    *views.SQLInstanceDetailsView
 	serviceAccountsView       *views.ServiceAccountsView
@@ -118,15 +119,15 @@ type App struct {
 	formDemoView              *views.FormDemoView
 
 	// Selected context
-	selectedProject  *gcp.Project
-	selectedInstance *gcp.Instance
-	selectedDisk     *gcp.Disk
-	selectedSnapshot *gcp.Snapshot
-	selectedImage    *gcp.Image
-	selectedBucket   *gcp.Bucket
-	selectedObject   *gcp.StorageObject
-	selectedNetwork     *gcp.Network
-	selectedFirewall    *gcp.FirewallRule
+	selectedProject        *gcp.Project
+	selectedInstance       *gcp.Instance
+	selectedDisk           *gcp.Disk
+	selectedSnapshot       *gcp.Snapshot
+	selectedImage          *gcp.Image
+	selectedBucket         *gcp.Bucket
+	selectedObject         *gcp.StorageObject
+	selectedNetwork        *gcp.Network
+	selectedFirewall       *gcp.FirewallRule
 	selectedSQLInstance    *gcp.SQLInstance
 	selectedServiceAccount *gcp.ServiceAccount
 	selectedCustomRole     *gcp.CustomRole
@@ -895,6 +896,19 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case views.DownloadServiceAccountKeyMsg:
 		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
 		return a, a.handleDownloadServiceAccountKey(msg)
+
+	// IAM: Policy editing
+	case views.AddIAMBindingMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleAddIAMBinding(msg)
+
+	case views.RemoveIAMBindingMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleRemoveIAMBinding(msg)
+
+	case views.IAMPolicyUpdateResultMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleIAMPolicyUpdateResult(msg)
 
 	// IAM: Custom Roles
 	case views.CustomRoleSelectedMsg:

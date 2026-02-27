@@ -33,24 +33,24 @@ const (
 
 // Icons for commands
 const (
-	IconVM       = "■"
-	IconDisk     = "●"
-	IconImage    = "◉"
-	IconMetadata = "◐"
-	IconBucket   = "▪"
-	IconVPC      = "◆"
-	IconFirewall    = "▲"
+	IconVM             = "■"
+	IconDisk           = "●"
+	IconImage          = "◉"
+	IconMetadata       = "◐"
+	IconBucket         = "▪"
+	IconVPC            = "◆"
+	IconFirewall       = "▲"
 	IconSQLInstance    = "⬢"
 	IconServiceAccount = "▲"
 	IconIAMPolicy      = "▽"
 	IconCustomRole     = "▼"
 	IconRefresh        = "↻"
-	IconSidebar  = "☰"
-	IconHelp     = "?"
-	IconRecent   = "⏱"
-	IconProject  = "◎"
-	IconQuit     = "✕"
-	IconDemo     = "▦"
+	IconSidebar        = "☰"
+	IconHelp           = "?"
+	IconRecent         = "⏱"
+	IconProject        = "◎"
+	IconQuit           = "✕"
+	IconDemo           = "▦"
 )
 
 // Command represents an executable palette item

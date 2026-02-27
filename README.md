@@ -404,6 +404,29 @@ Once launched, gcon presents an intuitive interface with:
 | `j`/`k` or `↓`/`↑` | Scroll | Scroll content |
 | `Esc` | Go Back | Return to instances list |
 
+#### IAM Policy
+
+| Key | Action | Description |
+|-----|--------|-------------|
+| `Enter` | Details | Open member/role detail overlay |
+| `a` | Add | Add member to role or role to member |
+| `.` | Action Menu | Open context-sensitive action menu |
+| `S` | Sort Menu | Open column sort menu |
+| `/` | Filter | Filter by role, member, or condition |
+| `r` | Refresh | Reload IAM policy |
+| `Tab` | Switch Focus | Switch focus between tabs and table |
+| `h`/`l` or `1`/`2` | Switch Tabs | Switch between By Member and By Role tabs |
+| `Esc` | Close/Back | Close overlay, clear filter, or go back |
+
+##### IAM Policy Overlay
+
+| Key | Action | Description |
+|-----|--------|-------------|
+| `j`/`k` or `↓`/`↑` | Navigate | Navigate items in the overlay |
+| `a` | Add | Add member or role |
+| `d` | Remove | Remove selected item (with confirmation) |
+| `Esc` | Close | Close overlay |
+
 #### Label & Metadata Editors
 
 | Key | Action | Description |

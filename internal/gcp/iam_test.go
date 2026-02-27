@@ -621,6 +621,164 @@ func TestIAMPolicyFromAPI_MembersSortedPerBinding(t *testing.T) {
 	assert.Equal(t, expected, result.Bindings[0].Members)
 }
 
+func TestParseMemberType(t *testing.T) {
+	tests := []struct {
+		member       string
+		wantType     string
+		wantIdentity string
+	}{
+		{"user:alice@example.com", "user", "alice@example.com"},
+		{"serviceAccount:sa@proj.iam.gserviceaccount.com", "sa", "sa@proj.iam.gserviceaccount.com"},
+		{"group:admins@example.com", "group", "admins@example.com"},
+		{"domain:example.com", "domain", "example.com"},
+		{"deleted:user:old@example.com?uid=123", "deleted:user", "old@example.com?uid=123"},
+		{"deleted:serviceAccount:sa@proj.iam.gserviceaccount.com?uid=456", "deleted:sa", "sa@proj.iam.gserviceaccount.com?uid=456"},
+		{"nocolon", "", "nocolon"},
+		{"", "", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.member, func(t *testing.T) {
+			typeName, identity := ParseMemberType(tt.member)
+			assert.Equal(t, tt.wantType, typeName)
+			assert.Equal(t, tt.wantIdentity, identity)
+		})
+	}
+}
+
+func TestIAMPolicy_AddMember(t *testing.T) {
+	t.Run("add to existing role", func(t *testing.T) {
+		p := &IAMPolicy{
+			Bindings: []IAMBinding{
+				{Role: "roles/viewer", Members: []string{"user:a@x.com"}},
+			},
+		}
+		p.addMember("roles/viewer", "", "user:b@x.com")
+		assert.Len(t, p.Bindings, 1)
+		assert.Equal(t, []string{"user:a@x.com", "user:b@x.com"}, p.Bindings[0].Members)
+	})
+
+	t.Run("add creates new binding for new role", func(t *testing.T) {
+		p := &IAMPolicy{
+			Bindings: []IAMBinding{
+				{Role: "roles/viewer", Members: []string{"user:a@x.com"}},
+			},
+		}
+		p.addMember("roles/editor", "", "user:b@x.com")
+		assert.Len(t, p.Bindings, 2)
+		// Bindings sorted by role
+		assert.Equal(t, "roles/editor", p.Bindings[0].Role)
+		assert.Equal(t, []string{"user:b@x.com"}, p.Bindings[0].Members)
+	})
+
+	t.Run("add duplicate member is no-op", func(t *testing.T) {
+		p := &IAMPolicy{
+			Bindings: []IAMBinding{
+				{Role: "roles/viewer", Members: []string{"user:a@x.com"}},
+			},
+		}
+		p.addMember("roles/viewer", "", "user:a@x.com")
+		assert.Len(t, p.Bindings[0].Members, 1)
+	})
+
+	t.Run("add to empty policy", func(t *testing.T) {
+		p := &IAMPolicy{}
+		p.addMember("roles/owner", "", "user:admin@x.com")
+		assert.Len(t, p.Bindings, 1)
+		assert.Equal(t, "roles/owner", p.Bindings[0].Role)
+		assert.Equal(t, []string{"user:admin@x.com"}, p.Bindings[0].Members)
+	})
+}
+
+func TestIAMPolicy_RemoveMember(t *testing.T) {
+	t.Run("remove member from role with multiple members", func(t *testing.T) {
+		p := &IAMPolicy{
+			Bindings: []IAMBinding{
+				{Role: "roles/viewer", Members: []string{"user:a@x.com", "user:b@x.com"}},
+			},
+		}
+		p.removeMember("roles/viewer", "", "user:a@x.com")
+		assert.Len(t, p.Bindings, 1)
+		assert.Equal(t, []string{"user:b@x.com"}, p.Bindings[0].Members)
+	})
+
+	t.Run("remove last member removes entire binding", func(t *testing.T) {
+		p := &IAMPolicy{
+			Bindings: []IAMBinding{
+				{Role: "roles/viewer", Members: []string{"user:a@x.com"}},
+				{Role: "roles/editor", Members: []string{"user:b@x.com"}},
+			},
+		}
+		p.removeMember("roles/viewer", "", "user:a@x.com")
+		assert.Len(t, p.Bindings, 1)
+		assert.Equal(t, "roles/editor", p.Bindings[0].Role)
+	})
+
+	t.Run("remove non-existent member is no-op", func(t *testing.T) {
+		p := &IAMPolicy{
+			Bindings: []IAMBinding{
+				{Role: "roles/viewer", Members: []string{"user:a@x.com"}},
+			},
+		}
+		p.removeMember("roles/viewer", "", "user:nonexistent@x.com")
+		assert.Len(t, p.Bindings[0].Members, 1)
+	})
+
+	t.Run("remove from non-existent role is no-op", func(t *testing.T) {
+		p := &IAMPolicy{
+			Bindings: []IAMBinding{
+				{Role: "roles/viewer", Members: []string{"user:a@x.com"}},
+			},
+		}
+		p.removeMember("roles/editor", "", "user:a@x.com")
+		assert.Len(t, p.Bindings, 1)
+	})
+}
+
+func TestIAMPolicy_ToCRMPolicy(t *testing.T) {
+	t.Run("round-trips basic bindings", func(t *testing.T) {
+		p := &IAMPolicy{
+			Bindings: []IAMBinding{
+				{Role: "roles/viewer", Members: []string{"user:a@x.com", "user:b@x.com"}},
+			},
+			Version: 3,
+			Etag:    "etag1",
+		}
+		crm := p.toCRMPolicy()
+		assert.Equal(t, int64(3), crm.Version)
+		assert.Equal(t, "etag1", crm.Etag)
+		assert.Len(t, crm.Bindings, 1)
+		assert.Equal(t, "roles/viewer", crm.Bindings[0].Role)
+		assert.Equal(t, []string{"user:a@x.com", "user:b@x.com"}, crm.Bindings[0].Members)
+	})
+
+	t.Run("preserves audit configs from raw policy", func(t *testing.T) {
+		raw := &cloudresourcemanager.Policy{
+			AuditConfigs: []*cloudresourcemanager.AuditConfig{
+				{Service: "allServices"},
+			},
+		}
+		p := &IAMPolicy{
+			Bindings:  []IAMBinding{{Role: "roles/viewer", Members: []string{"user:a@x.com"}}},
+			rawPolicy: raw,
+		}
+		crm := p.toCRMPolicy()
+		assert.Len(t, crm.AuditConfigs, 1)
+		assert.Equal(t, "allServices", crm.AuditConfigs[0].Service)
+	})
+
+	t.Run("members are copied not shared", func(t *testing.T) {
+		p := &IAMPolicy{
+			Bindings: []IAMBinding{
+				{Role: "roles/viewer", Members: []string{"user:a@x.com"}},
+			},
+		}
+		crm := p.toCRMPolicy()
+		crm.Bindings[0].Members[0] = "MODIFIED"
+		assert.Equal(t, "user:a@x.com", p.Bindings[0].Members[0])
+	})
+}
+
 func TestCustomRoleFromAPI_PermissionsSorted(t *testing.T) {
 	input := &iam.Role{
 		Name: "projects/p/roles/r",
@@ -717,4 +875,264 @@ func TestCustomRoleFromAPI_RoleIDExtraction(t *testing.T) {
 			assert.Equal(t, tt.expectedRoleID, role.RoleID)
 		})
 	}
+}
+
+// --- IAM Conditions / duplicate-role binding tests ---
+
+func TestIAMBinding_BindingKey(t *testing.T) {
+	tests := []struct {
+		name           string
+		role           string
+		conditionTitle string
+		expectedKey    string
+	}{
+		{
+			name:        "unconditioned binding uses role only",
+			role:        "roles/viewer",
+			expectedKey: "roles/viewer",
+		},
+		{
+			name:           "conditioned binding uses role|title",
+			role:           "roles/viewer",
+			conditionTitle: "Expires 2026",
+			expectedKey:    "roles/viewer|Expires 2026",
+		},
+		{
+			name:           "empty condition title same as unconditioned",
+			role:           "roles/editor",
+			conditionTitle: "",
+			expectedKey:    "roles/editor",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := IAMBinding{Role: tt.role, ConditionTitle: tt.conditionTitle}
+			assert.Equal(t, tt.expectedKey, b.BindingKey())
+		})
+	}
+}
+
+func TestParseBindingKey(t *testing.T) {
+	tests := []struct {
+		key      string
+		wantRole string
+		wantCond string
+	}{
+		{"roles/viewer", "roles/viewer", ""},
+		{"roles/viewer|Expires 2026", "roles/viewer", "Expires 2026"},
+		{"roles/editor|", "roles/editor", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.key, func(t *testing.T) {
+			role, cond := ParseBindingKey(tt.key)
+			assert.Equal(t, tt.wantRole, role)
+			assert.Equal(t, tt.wantCond, cond)
+		})
+	}
+}
+
+func TestIAMPolicyFromAPI_DuplicateRolesWithConditions(t *testing.T) {
+	// Two bindings with the same role but different conditions should both be preserved
+	input := &cloudresourcemanager.Policy{
+		Version: 3,
+		Etag:    "etag1",
+		Bindings: []*cloudresourcemanager.Binding{
+			{
+				Role:    "roles/viewer",
+				Members: []string{"user:alice@x.com"},
+			},
+			{
+				Role:    "roles/viewer",
+				Members: []string{"user:bob@x.com"},
+				Condition: &cloudresourcemanager.Expr{
+					Title:      "Expires 2026",
+					Expression: "request.time < timestamp('2026-12-31T00:00:00Z')",
+				},
+			},
+		},
+	}
+
+	result := iamPolicyFromAPI(input)
+
+	assert.Len(t, result.Bindings, 2)
+
+	// Sorted: unconditioned first (empty conditionTitle < "Expires 2026")
+	assert.Equal(t, "roles/viewer", result.Bindings[0].Role)
+	assert.Equal(t, "", result.Bindings[0].ConditionTitle)
+	assert.Equal(t, []string{"user:alice@x.com"}, result.Bindings[0].Members)
+
+	assert.Equal(t, "roles/viewer", result.Bindings[1].Role)
+	assert.Equal(t, "Expires 2026", result.Bindings[1].ConditionTitle)
+	assert.Equal(t, []string{"user:bob@x.com"}, result.Bindings[1].Members)
+}
+
+func TestIAMPolicy_AddMember_DuplicateRoles(t *testing.T) {
+	// Adding a member should target the correct binding by (role, conditionTitle)
+	p := &IAMPolicy{
+		Bindings: []IAMBinding{
+			{Role: "roles/viewer", Members: []string{"user:alice@x.com"}},
+			{Role: "roles/viewer", ConditionTitle: "Temp Access", Members: []string{"user:bob@x.com"}},
+		},
+	}
+
+	// Add to the conditioned binding
+	p.addMember("roles/viewer", "Temp Access", "user:charlie@x.com")
+	assert.Len(t, p.Bindings, 2)
+	assert.Equal(t, []string{"user:alice@x.com"}, p.Bindings[0].Members)
+	assert.Equal(t, []string{"user:bob@x.com", "user:charlie@x.com"}, p.Bindings[1].Members)
+
+	// Add to the unconditioned binding
+	p.addMember("roles/viewer", "", "user:dave@x.com")
+	assert.Equal(t, []string{"user:alice@x.com", "user:dave@x.com"}, p.Bindings[0].Members)
+	assert.Equal(t, []string{"user:bob@x.com", "user:charlie@x.com"}, p.Bindings[1].Members)
+}
+
+func TestIAMPolicy_RemoveMember_DuplicateRoles(t *testing.T) {
+	p := &IAMPolicy{
+		Bindings: []IAMBinding{
+			{Role: "roles/viewer", Members: []string{"user:alice@x.com", "user:bob@x.com"}},
+			{Role: "roles/viewer", ConditionTitle: "Temp", Members: []string{"user:alice@x.com"}},
+		},
+	}
+
+	// Remove alice from the conditioned binding only — she should remain in unconditioned
+	p.removeMember("roles/viewer", "Temp", "user:alice@x.com")
+	assert.Len(t, p.Bindings, 1, "empty binding should be removed")
+	assert.Equal(t, "", p.Bindings[0].ConditionTitle)
+	assert.Equal(t, []string{"user:alice@x.com", "user:bob@x.com"}, p.Bindings[0].Members)
+}
+
+func TestIAMPolicy_ToCRMPolicy_PreservesConditions(t *testing.T) {
+	// Round-trip: each binding should get its original condition back
+	rawPolicy := &cloudresourcemanager.Policy{
+		Version: 3,
+		Etag:    "etag1",
+		Bindings: []*cloudresourcemanager.Binding{
+			{
+				Role:    "roles/viewer",
+				Members: []string{"user:alice@x.com"},
+			},
+			{
+				Role:    "roles/viewer",
+				Members: []string{"user:bob@x.com"},
+				Condition: &cloudresourcemanager.Expr{
+					Title:       "Expires 2026",
+					Description: "Temporary access",
+					Expression:  "request.time < timestamp('2026-12-31T00:00:00Z')",
+				},
+			},
+		},
+	}
+
+	parsed := iamPolicyFromAPI(rawPolicy)
+
+	// Add a member to the conditioned binding
+	parsed.addMember("roles/viewer", "Expires 2026", "user:charlie@x.com")
+
+	crm := parsed.toCRMPolicy()
+
+	assert.Len(t, crm.Bindings, 2)
+
+	// Find each binding and verify condition restoration
+	var unconditioned, conditioned *cloudresourcemanager.Binding
+	for _, b := range crm.Bindings {
+		if b.Condition == nil {
+			unconditioned = b
+		} else {
+			conditioned = b
+		}
+	}
+
+	assert.NotNil(t, unconditioned, "unconditioned binding should exist")
+	assert.Nil(t, unconditioned.Condition)
+	assert.Equal(t, []string{"user:alice@x.com"}, unconditioned.Members)
+
+	assert.NotNil(t, conditioned, "conditioned binding should exist")
+	assert.Equal(t, "Expires 2026", conditioned.Condition.Title)
+	assert.Equal(t, "request.time < timestamp('2026-12-31T00:00:00Z')", conditioned.Condition.Expression)
+	assert.Contains(t, conditioned.Members, "user:bob@x.com")
+	assert.Contains(t, conditioned.Members, "user:charlie@x.com")
+}
+
+func TestIAMPolicy_ToCRMPolicy_MixedConditioned(t *testing.T) {
+	// One conditioned + one unconditioned binding for the same role
+	rawPolicy := &cloudresourcemanager.Policy{
+		Version: 3,
+		Bindings: []*cloudresourcemanager.Binding{
+			{
+				Role:    "roles/editor",
+				Members: []string{"user:perm@x.com"},
+			},
+			{
+				Role:    "roles/editor",
+				Members: []string{"user:temp@x.com"},
+				Condition: &cloudresourcemanager.Expr{
+					Title:      "CI Only",
+					Expression: "resource.name.startsWith('projects/myproj/ci')",
+				},
+			},
+			{
+				Role:    "roles/viewer",
+				Members: []string{"user:viewer@x.com"},
+			},
+		},
+	}
+
+	parsed := iamPolicyFromAPI(rawPolicy)
+	assert.Len(t, parsed.Bindings, 3)
+
+	crm := parsed.toCRMPolicy()
+	assert.Len(t, crm.Bindings, 3)
+
+	// Verify that conditions are correctly mapped to the right bindings
+	for _, b := range crm.Bindings {
+		switch {
+		case b.Role == "roles/editor" && b.Condition != nil:
+			assert.Equal(t, "CI Only", b.Condition.Title)
+			assert.Equal(t, []string{"user:temp@x.com"}, b.Members)
+		case b.Role == "roles/editor" && b.Condition == nil:
+			assert.Equal(t, []string{"user:perm@x.com"}, b.Members)
+		case b.Role == "roles/viewer":
+			assert.Nil(t, b.Condition)
+			assert.Equal(t, []string{"user:viewer@x.com"}, b.Members)
+		}
+	}
+}
+
+func TestIAMPolicy_ToCRMPolicy_NewBindingNoRawMatch(t *testing.T) {
+	// A newly created binding (not in rawPolicy) should get Condition=nil
+	rawPolicy := &cloudresourcemanager.Policy{
+		Version: 3,
+		Bindings: []*cloudresourcemanager.Binding{
+			{Role: "roles/viewer", Members: []string{"user:a@x.com"}},
+		},
+	}
+
+	parsed := iamPolicyFromAPI(rawPolicy)
+	parsed.addMember("roles/editor", "", "user:b@x.com")
+
+	crm := parsed.toCRMPolicy()
+	assert.Len(t, crm.Bindings, 2)
+
+	for _, b := range crm.Bindings {
+		if b.Role == "roles/editor" {
+			assert.Nil(t, b.Condition, "new binding should have no condition")
+			assert.Equal(t, []string{"user:b@x.com"}, b.Members)
+		}
+	}
+}
+
+func TestIAMPolicy_AddMember_RefusesNewConditionedBinding(t *testing.T) {
+	// addMember should not create a new conditioned binding from scratch
+	// because the condition expression can't be reconstructed from just a title
+	p := &IAMPolicy{
+		Bindings: []IAMBinding{
+			{Role: "roles/viewer", Members: []string{"user:a@x.com"}},
+		},
+	}
+	p.addMember("roles/viewer", "NonExistent Condition", "user:b@x.com")
+
+	// Should remain unchanged — no new binding created
+	assert.Len(t, p.Bindings, 1)
+	assert.Equal(t, []string{"user:a@x.com"}, p.Bindings[0].Members)
 }

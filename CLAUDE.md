@@ -250,7 +250,11 @@ On developing or updating a new feature keep in mind the following guidelines:
   - Enable/disable service accounts
   - Service account key management (create/delete)
   - Key JSON download on creation (saved to current directory)
-  - IAM Policy bindings view with 2 tabs (By Role/By Member)
+  - IAM Policy bindings view with 2 tabs (By Member/By Role)
+  - Table-based IAM policy view with sorting, filtering, row selection
+  - Add/remove members to/from role bindings (with input validation)
+  - Detail overlay for viewing member's roles or role's members
+  - Read-modify-write with etag conflict retry for safe policy updates
   - Custom Roles list and details view (read-only)
   - Custom Role details with 2 tabs (Details/Permissions)
 
