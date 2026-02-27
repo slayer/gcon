@@ -91,6 +91,8 @@ input.Focus()
 
 ## Component Initialization Pattern
 
+> **Note**: This section shows the standard Bubble Tea `tea.Model` pattern. gcon uses a custom `views.View` interface where `Update()` returns only `tea.Cmd` (not `(tea.Model, tea.Cmd)`). See `references/design-patterns.md` for gcon's view interface.
+
 ```go
 type model struct {
     component1 component1.Model

@@ -230,7 +230,7 @@ Each view gets its own file. Related messages in `xxx_messages.go`.
 gcon uses `internal/debug/` package for structured debug logging.
 
 ### Debug Mode
-Toggle debug view via key binding to inspect state.
+gcon does not provide an in-app debug/logs view. Use `internal/debug` logging and terminal output to inspect application state during development.
 
 ## Common Pitfalls
 
@@ -238,7 +238,7 @@ Toggle debug view via key binding to inspect state.
 2. **Not implementing `HasTextInputFocused()`** — typing 'q' in a text field quits the app
 3. **Not calling `SetError()` in app handler** — view stays stuck in saving state with spinner forever
 4. **Using `tea.ClearScreen`** — clears entire terminal including app chrome
-5. **Not handling `WindowSizeMsg` / `SetContext`** — fixed-size components don't resize
+5. **Incorrect or missing `SetContext()` sizing logic** — views and child components don't resize with the window
 6. **Blocking in `Update()`** — freezes UI; always use `tea.Cmd` for async
 7. **Non-idempotent `Init()`** — stale data after refresh; always reset `loading = true` and `err = nil`
 8. **Unicode width miscounting** — `lipgloss.Width()` miscounts some symbols; use `SafeWidth()` helper
