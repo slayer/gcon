@@ -518,4 +518,3 @@ func (v *DisksView) SetContext(ctx *context.ProgramContext) {
 	v.height = ctx.ContentHeight
 	v.table.SetSize(ctx.ContentWidth, ctx.ContentHeight-2)
 }
-

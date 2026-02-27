@@ -177,3 +177,34 @@ return f.textInput.View()
 ```
 
 Update these styles in `Focus()` and `Blur()` methods to change appearance based on focus state.
+
+## Overlay Z-Order: Dialogs Must Render Above Parent Overlays
+
+**Critical**: When a view has nested overlays (e.g., a detail overlay that spawns input/confirm dialogs via 'a'/'d' keys), the `View()` method must check higher-priority dialogs **before** the parent overlay. Otherwise the parent overlay renders first and returns early, hiding the dialog underneath.
+
+The `Update()` key routing order (input → confirm → overlay) is typically correct, but `View()` rendering order must match:
+
+```go
+// Wrong — overlay hides dialogs spawned from within it
+if v.showOverlay {
+    return overlay.Center(main, v.renderOverlay(), w, h)  // returns here!
+}
+if v.showConfirm && v.confirmDialog != nil {
+    return overlay.Center(main, v.confirmDialog.View(), w, h)  // never reached
+}
+
+// Correct — higher-priority dialogs render on top
+if v.showInput && v.inputDialog != nil {
+    return overlay.Center(main, v.inputDialog.View(), w, h)
+}
+if v.showConfirm && v.confirmDialog != nil {
+    return overlay.Center(main, v.confirmDialog.View(), w, h)
+}
+if v.showOverlay {
+    return overlay.Center(main, v.renderOverlay(), w, h)
+}
+```
+
+**Symptom**: Keys work (state changes correctly, tests pass) but nothing visible happens on screen. If tests pass but runtime appears broken, check the `View()` rendering order.
+
+**Debugging tip**: When state-level tests all pass but the UI doesn't respond, the bug is likely in `View()` (rendering), not `Update()` (state). Add a rendering test that checks `View()` output contains expected dialog content.

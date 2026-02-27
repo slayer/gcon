@@ -23,28 +23,28 @@ type SQLInstance struct {
 
 // SQLInstanceDetails is the full detail for the details view
 type SQLInstanceDetails struct {
-	Name              string
-	DatabaseVersion   string
-	State             string
-	Region            string
-	Tier              string
-	PrimaryIP         string
-	PrivateIP         string
-	ConnectionName    string
-	DiskSizeGB        int64
-	DiskType          string
-	AvailabilityType  string // REGIONAL, ZONAL
-	StorageAutoResize bool
-	BackupEnabled     bool
-	BinaryLogEnabled  bool
-	PITREnabled       bool
-	MaintenanceWindow string // e.g. "Sunday 04:00"
-	DatabaseFlags     map[string]string
-	ReplicaNames      []string
+	Name               string
+	DatabaseVersion    string
+	State              string
+	Region             string
+	Tier               string
+	PrimaryIP          string
+	PrivateIP          string
+	ConnectionName     string
+	DiskSizeGB         int64
+	DiskType           string
+	AvailabilityType   string // REGIONAL, ZONAL
+	StorageAutoResize  bool
+	BackupEnabled      bool
+	BinaryLogEnabled   bool
+	PITREnabled        bool
+	MaintenanceWindow  string // e.g. "Sunday 04:00"
+	DatabaseFlags      map[string]string
+	ReplicaNames       []string
 	MasterInstanceName string
-	IPs               []SQLIPAddress
-	CreatedAt         string
-	SelfLink          string
+	IPs                []SQLIPAddress
+	CreatedAt          string
+	SelfLink           string
 }
 
 // SQLIPAddress represents an IP address on a SQL instance
@@ -253,15 +253,15 @@ func sqlInstanceFromAPI(inst *sqladmin.DatabaseInstance) SQLInstance {
 // sqlInstanceDetailsFromAPI converts an API DatabaseInstance to full details
 func sqlInstanceDetailsFromAPI(inst *sqladmin.DatabaseInstance) *SQLInstanceDetails {
 	details := &SQLInstanceDetails{
-		Name:            inst.Name,
-		DatabaseVersion: inst.DatabaseVersion,
-		State:           effectiveState(inst),
-		Region:          inst.Region,
-		ConnectionName:  inst.ConnectionName,
-		ReplicaNames:    inst.ReplicaNames,
+		Name:               inst.Name,
+		DatabaseVersion:    inst.DatabaseVersion,
+		State:              effectiveState(inst),
+		Region:             inst.Region,
+		ConnectionName:     inst.ConnectionName,
+		ReplicaNames:       inst.ReplicaNames,
 		MasterInstanceName: inst.MasterInstanceName,
-		CreatedAt:       inst.CreateTime,
-		SelfLink:        inst.SelfLink,
+		CreatedAt:          inst.CreateTime,
+		SelfLink:           inst.SelfLink,
 	}
 
 	// Extract IP addresses

@@ -102,10 +102,10 @@ func TestSQLInstanceDetailsFromAPI(t *testing.T) {
 			{IpAddress: "10.0.0.5", Type: "PRIVATE"},
 		},
 		Settings: &sqladmin.Settings{
-			Tier:             "db-custom-4-16384",
-			DataDiskSizeGb:   100,
-			DataDiskType:     "PD_SSD",
-			AvailabilityType: "REGIONAL",
+			Tier:              "db-custom-4-16384",
+			DataDiskSizeGb:    100,
+			DataDiskType:      "PD_SSD",
+			AvailabilityType:  "REGIONAL",
 			StorageAutoResize: boolPtr(true),
 			BackupConfiguration: &sqladmin.BackupConfiguration{
 				Enabled:                    true,

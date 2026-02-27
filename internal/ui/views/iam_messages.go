@@ -71,3 +71,28 @@ type ServiceAccountKeyActionResultMsg struct {
 type CustomRoleSelectedMsg struct {
 	Role gcp.CustomRole
 }
+
+// AddIAMBindingMsg requests adding a member to a role binding.
+// ConditionTitle targets the specific binding when duplicate roles exist with different conditions.
+type AddIAMBindingMsg struct {
+	ProjectID      string
+	Role           string
+	ConditionTitle string
+	Member         string
+}
+
+// RemoveIAMBindingMsg requests removing a member from a role binding.
+// ConditionTitle targets the specific binding when duplicate roles exist with different conditions.
+type RemoveIAMBindingMsg struct {
+	ProjectID      string
+	Role           string
+	ConditionTitle string
+	Member         string
+}
+
+// IAMPolicyUpdateResultMsg reports the result of an IAM policy update
+type IAMPolicyUpdateResultMsg struct {
+	Action string // "add_binding" or "remove_binding"
+	Error  error
+	Policy *gcp.IAMPolicy // Updated policy on success
+}
