@@ -1,0 +1,51 @@
+{
+  "templates": {
+    "resource-list": {
+      "name": "GCP Resource List View",
+      "complexity": "medium",
+      "base_type": "TableClickDelegate",
+      "components": ["table", "spinner", "actionmenu", "confirm"],
+      "files_to_create": ["internal/ui/views/xxx.go", "internal/ui/views/xxx_messages.go"],
+      "files_to_update": ["internal/ui/app.go", "internal/ui/app_render.go", "internal/ui/app_navigation.go", "internal/ui/components/sidebar/menu.go", "internal/ui/components/commandpalette/commands.go"],
+      "use_cases": ["Any GCP resource list"],
+      "checklist": "See .claude/rules/adding-new-views.md"
+    },
+    "resource-details": {
+      "name": "GCP Resource Details View",
+      "complexity": "medium-high",
+      "base_type": null,
+      "components": ["tabs", "viewport", "links", "spinner", "actionmenu"],
+      "files_to_create": ["internal/ui/views/xxx_details.go"],
+      "files_to_update": ["internal/ui/app.go", "internal/ui/app_render.go", "internal/ui/app_navigation.go"],
+      "use_cases": ["Resource detail view with tabs"]
+    },
+    "resource-create": {
+      "name": "GCP Resource Creation Form",
+      "complexity": "medium",
+      "base_type": "CreateViewBase",
+      "components": ["forms", "spinner"],
+      "files_to_create": ["internal/ui/views/xxx_create.go"],
+      "files_to_update": ["internal/ui/app.go", "internal/ui/app_render.go", "internal/ui/app_navigation.go"],
+      "use_cases": ["Any resource creation via form"],
+      "checklist": "See .claude/rules/async-operations-error-handling.md"
+    },
+    "resource-editor": {
+      "name": "GCP Resource Editor (Complex)",
+      "complexity": "high",
+      "base_type": null,
+      "components": ["forms", "diff", "spinner", "confirm"],
+      "files_to_create": ["internal/ui/views/xxx_editor.go"],
+      "files_to_update": ["internal/ui/app.go", "internal/ui/app_render.go", "internal/ui/app_navigation.go"],
+      "use_cases": ["Complex editing with preview/diff"]
+    },
+    "gcp-client": {
+      "name": "GCP API Client Module",
+      "complexity": "low-medium",
+      "base_type": null,
+      "components": [],
+      "files_to_create": ["internal/gcp/xxx.go", "internal/gcp/xxx_test.go"],
+      "files_to_update": ["internal/gcp/client.go"],
+      "use_cases": ["New GCP service integration"]
+    }
+  }
+}
