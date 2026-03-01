@@ -25,6 +25,7 @@ const (
 	ViewServiceAccounts
 	ViewIAMPolicy
 	ViewCustomRoles
+	ViewCloudRunServices
 )
 
 // Icons for menu items - using simple Unicode box/geometric symbols
@@ -53,6 +54,10 @@ const (
 	IconServiceAccount = "▲" // Service accounts leaf (filled triangle)
 	IconPolicy         = "▽" // IAM policy (inverted hollow triangle)
 	IconCustomRole     = "▼" // Custom roles (inverted filled triangle)
+
+	// Cloud Run category
+	IconCloudRun        = "▷" // Cloud Run category (hollow right triangle)
+	IconCloudRunService = "▶" // Cloud Run services leaf (filled right triangle)
 )
 
 // MenuItem represents a single menu entry
@@ -125,6 +130,16 @@ func DefaultMenu() []MenuItem {
 				{ID: "service-accounts", Label: "Service accounts", Icon: IconServiceAccount, Hotkey: 'a', Type: MenuItemLeaf, ViewType: ViewServiceAccounts},
 				{ID: "iam-policy", Label: "IAM policy", Icon: IconPolicy, Hotkey: 'p', Type: MenuItemLeaf, ViewType: ViewIAMPolicy},
 				{ID: "custom-roles", Label: "Custom roles", Icon: IconCustomRole, Hotkey: 'o', Type: MenuItemLeaf, ViewType: ViewCustomRoles},
+			},
+		},
+		{
+			ID:     "cloudrun",
+			Label:  "Cloud Run",
+			Icon:   IconCloudRun,
+			Hotkey: 'R',
+			Type:   MenuItemCategory,
+			Children: []MenuItem{
+				{ID: "cloudrun-services", Label: "Services", Icon: IconCloudRunService, Hotkey: 'r', Type: MenuItemLeaf, ViewType: ViewCloudRunServices},
 			},
 		},
 	}
