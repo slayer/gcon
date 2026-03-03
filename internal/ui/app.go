@@ -59,6 +59,8 @@ const (
 	ViewIAMPolicy
 	ViewCustomRoles
 	ViewCustomRoleDetails
+	ViewCloudRunServices
+	ViewCloudRunServiceDetails
 	ViewLogs
 	ViewFormDemo // Demo view for testing form components
 )
@@ -114,8 +116,10 @@ type App struct {
 	serviceAccountDetailsView *views.ServiceAccountDetailsView
 	serviceAccountCreateView  *views.ServiceAccountCreateView
 	iamPolicyView             *views.IAMPolicyView
-	customRolesView           *views.CustomRolesView
+	customRolesView            *views.CustomRolesView
 	customRoleDetailsView     *views.CustomRoleDetailsView
+	cloudRunServicesView      *views.CloudRunServicesView
+	cloudRunServiceDetailsView *views.CloudRunServiceDetailsView
 	formDemoView              *views.FormDemoView
 
 	// Selected context
@@ -131,6 +135,7 @@ type App struct {
 	selectedSQLInstance    *gcp.SQLInstance
 	selectedServiceAccount *gcp.ServiceAccount
 	selectedCustomRole     *gcp.CustomRole
+	selectedCloudRunService *gcp.CloudRunService
 
 	// UI state
 	showHelp              bool
@@ -377,6 +382,10 @@ func (a *App) getCurrentViewModel() views.View {
 		return a.customRolesView
 	case ViewCustomRoleDetails:
 		return a.customRoleDetailsView
+	case ViewCloudRunServices:
+		return a.cloudRunServicesView
+	case ViewCloudRunServiceDetails:
+		return a.cloudRunServiceDetailsView
 	case ViewFormDemo:
 		return a.formDemoView
 	}
@@ -507,6 +516,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case ViewCustomRoleDetails:
 					a.customRoleDetailsView = nil
 					a.selectedCustomRole = nil
+				case ViewCloudRunServiceDetails:
+					a.cloudRunServiceDetailsView = nil
+					a.selectedCloudRunService = nil
 				}
 
 				a.updateSidebarActiveView()
@@ -530,7 +542,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// If not handled, fall through to quit
 				fallthrough
 
-			case ViewInstances, ViewDisks, ViewSnapshots, ViewImages, ViewBuckets, ViewNetworks, ViewFirewall, ViewSQLInstances, ViewServiceAccounts, ViewIAMPolicy, ViewCustomRoles, ViewProjects:
+			case ViewInstances, ViewDisks, ViewSnapshots, ViewImages, ViewBuckets, ViewNetworks, ViewFirewall, ViewSQLInstances, ViewServiceAccounts, ViewIAMPolicy, ViewCustomRoles, ViewCloudRunServices, ViewProjects:
 				// Quit from top-level views or if stack is empty
 				a.cleanup()
 				return a, tea.Quit
@@ -915,6 +927,23 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
 		return a, a.handleCustomRoleSelected(msg)
 
+	// Cloud Run
+	case views.CloudRunServiceSelectedMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleCloudRunServiceSelected(msg)
+
+	case views.DeleteCloudRunServiceConfirmedMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleDeleteCloudRunServiceConfirmed(msg)
+
+	case views.CloudRunServiceActionResultMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleCloudRunServiceActionResult(msg)
+
+	case views.CloudRunTrafficUpdateMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleCloudRunTrafficUpdate(msg)
+
 	case components.FooterProjectClickedMsg:
 		// Project section in footer was clicked, show project selector
 		currentProjectID := ""
@@ -1145,6 +1174,12 @@ func (a *App) updateViewSizes() {
 	}
 	if a.customRoleDetailsView != nil {
 		a.customRoleDetailsView.SetContext(a.ctx)
+	}
+	if a.cloudRunServicesView != nil {
+		a.cloudRunServicesView.SetContext(a.ctx)
+	}
+	if a.cloudRunServiceDetailsView != nil {
+		a.cloudRunServiceDetailsView.SetContext(a.ctx)
 	}
 }
 
