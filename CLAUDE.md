@@ -259,7 +259,7 @@ On developing or updating a new feature keep in mind the following guidelines:
   - Custom Role details with 2 tabs (Details/Permissions)
 - [x] Cloud Run services
   - List services across all regions with status, URL, latest revision
-  - Service details view with 3 tabs (Details/Revisions/JSON)
+  - Service details view with 3 tabs (Details/Revisions/YAML)
   - Traffic split editing dialog (validates percentages sum to 100)
   - Delete service with type-to-confirm
   - Container config, scaling, environment variables, labels display
