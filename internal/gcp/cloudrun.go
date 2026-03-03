@@ -165,7 +165,7 @@ func (c *CloudRunClient) ListRevisions(ctx context.Context, serviceFullName stri
 }
 
 // ApplyTrafficToRevisions enriches revisions with traffic percentages from the service details.
-// TrafficStatuses uses full revision names, so we match against CloudRunRevision.Name.
+// Both the traffic map keys (CloudRunTrafficTarget.RevisionName) and the lookup here use short revision names.
 func ApplyTrafficToRevisions(revisions []CloudRunRevision, traffic []CloudRunTrafficTarget) {
 	trafficMap := make(map[string]int64, len(traffic))
 	for _, t := range traffic {

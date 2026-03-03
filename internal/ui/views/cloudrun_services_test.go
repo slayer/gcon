@@ -57,8 +57,8 @@ func TestCloudRunServicesView_InitIdempotent(t *testing.T) {
 		{Name: "svc-1", FullName: "projects/p/locations/us/services/svc-1"},
 	}
 
-	// Second init should reset loading
-	view.loading = true
+	// Second init should reset loading back to true
+	assert.False(t, view.loading)
 	cmd := view.Init()
 	assert.True(t, view.loading)
 	assert.NotNil(t, cmd)

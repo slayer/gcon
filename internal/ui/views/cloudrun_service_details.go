@@ -31,7 +31,7 @@ import (
 const (
 	runTabIDDetails   = "details"
 	runTabIDRevisions = "revisions"
-	runTabIDYAML      = "yaml"
+	runTabIDJSON      = "json"
 )
 
 // Focus region IDs
@@ -73,7 +73,7 @@ type CloudRunServiceDetailsView struct {
 	height  int
 	ready   bool
 
-	// Tab navigation (Details / Revisions / YAML)
+	// Tab navigation (Details / Revisions / JSON)
 	tabs         *tabs.Tabs
 	tabViewports []viewport.Model
 
@@ -141,7 +141,7 @@ func NewCloudRunServiceDetailsView(projectID, serviceName, fullName string, runC
 	tabsComponent := tabs.New([]tabs.Tab{
 		{ID: runTabIDDetails, Label: "Details"},
 		{ID: runTabIDRevisions, Label: "Revisions"},
-		{ID: runTabIDYAML, Label: "JSON"},
+		{ID: runTabIDJSON, Label: "JSON"},
 	})
 
 	fm := focus.NewManager()
@@ -566,8 +566,8 @@ func (v *CloudRunServiceDetailsView) updateViewportContent() {
 		content = v.renderDetailsTab()
 	case runTabIDRevisions:
 		content = v.renderRevisionsTab()
-	case runTabIDYAML:
-		content = v.renderYAMLTab()
+	case runTabIDJSON:
+		content = v.renderJSONTab()
 	default:
 		content = v.renderDetailsTab()
 	}
@@ -745,7 +745,7 @@ func (v *CloudRunServiceDetailsView) renderRevisionsTab() string {
 	return b.String()
 }
 
-func (v *CloudRunServiceDetailsView) renderYAMLTab() string {
+func (v *CloudRunServiceDetailsView) renderJSONTab() string {
 	if v.details == nil || v.details.RawJSON == "" {
 		return "\n  No JSON data available.\n"
 	}
