@@ -294,6 +294,18 @@ func (a *App) handleSidebarNavigation(msg sidebar.NavigateMsg) tea.Cmd {
 				cmd = a.customRolesView.Init()
 			}
 		}
+
+	case sidebar.ViewCloudRunServices:
+		if a.currentView != ViewCloudRunServices && a.currentView != ViewCloudRunServiceDetails {
+			a.currentView = ViewCloudRunServices
+			a.cloudRunServiceDetailsView = nil
+			a.selectedCloudRunService = nil
+			if a.cloudRunServicesView == nil {
+				a.cloudRunServicesView = views.NewCloudRunServicesView(a.selectedProject.ID)
+				a.updateViewSizes()
+				cmd = a.cloudRunServicesView.Init()
+			}
+		}
 	}
 
 	a.updateSidebarActiveView()
@@ -335,6 +347,8 @@ func (a *App) updateSidebarActiveView() {
 		a.sidebar.SetActiveView(sidebar.ViewIAMPolicy)
 	case ViewCustomRoles, ViewCustomRoleDetails:
 		a.sidebar.SetActiveView(sidebar.ViewCustomRoles)
+	case ViewCloudRunServices, ViewCloudRunServiceDetails:
+		a.sidebar.SetActiveView(sidebar.ViewCloudRunServices)
 	}
 }
 
@@ -631,6 +645,8 @@ func (a *App) clearAllViews() {
 	a.iamPolicyView = nil
 	a.customRolesView = nil
 	a.customRoleDetailsView = nil
+	a.cloudRunServicesView = nil
+	a.cloudRunServiceDetailsView = nil
 	a.formDemoView = nil
 
 	// Clear view stack
@@ -648,6 +664,7 @@ func (a *App) clearAllViews() {
 	a.selectedSQLInstance = nil
 	a.selectedServiceAccount = nil
 	a.selectedCustomRole = nil
+	a.selectedCloudRunService = nil
 }
 
 // reloadCurrentView recreates or switches views for the new project ID.
@@ -739,6 +756,13 @@ func (a *App) reloadCurrentView(projectID string) tea.Cmd {
 		a.updateSidebarActiveView()
 		a.updateViewSizes()
 		return a.customRolesView.Init()
+
+	case ViewCloudRunServices, ViewCloudRunServiceDetails:
+		a.currentView = ViewCloudRunServices
+		a.cloudRunServicesView = views.NewCloudRunServicesView(projectID)
+		a.updateSidebarActiveView()
+		a.updateViewSizes()
+		return a.cloudRunServicesView.Init()
 
 	case ViewProjectMetadata:
 		// Reload metadata view
@@ -2503,4 +2527,151 @@ func (a *App) handleCustomRoleSelected(msg views.CustomRoleSelectedMsg) tea.Cmd 
 	a.updateSidebarActiveView()
 	a.updateViewSizes()
 	return a.customRoleDetailsView.Init()
+}
+
+// handleCloudRunServiceSelected navigates to Cloud Run service details
+//
+//nolint:gocritic // hugeParam: message struct passed by value
+func (a *App) handleCloudRunServiceSelected(msg views.CloudRunServiceSelectedMsg) tea.Cmd {
+	svc := msg.Service
+	a.selectedCloudRunService = &svc
+	a.viewStack = append(a.viewStack, a.currentView)
+	a.currentView = ViewCloudRunServiceDetails
+
+	// Share Cloud Run client from list view
+	var runClient *gcp.CloudRunClient
+	if a.cloudRunServicesView != nil {
+		runClient = a.cloudRunServicesView.GetCloudRunClient()
+	}
+
+	a.cloudRunServiceDetailsView = views.NewCloudRunServiceDetailsView(
+		a.selectedProject.ID,
+		svc.Name,
+		svc.FullName,
+		runClient,
+	)
+	a.updateSidebarActiveView()
+	a.updateViewSizes()
+	return a.cloudRunServiceDetailsView.Init()
+}
+
+// handleDeleteCloudRunServiceConfirmed processes confirmed Cloud Run service deletion
+func (a *App) handleDeleteCloudRunServiceConfirmed(msg views.DeleteCloudRunServiceConfirmedMsg) tea.Cmd {
+	var runClient *gcp.CloudRunClient
+	if a.cloudRunServicesView != nil {
+		runClient = a.cloudRunServicesView.GetCloudRunClient()
+	} else if a.cloudRunServiceDetailsView != nil {
+		runClient = a.cloudRunServiceDetailsView.GetCloudRunClient()
+	}
+
+	if runClient == nil {
+		return nil
+	}
+
+	fullName := msg.FullName
+	name := msg.Name
+
+	taskID := "cloudrun-delete-" + name
+	taskCmd := a.startTask(context.Task{
+		ID:          taskID,
+		Description: "Deleting " + name + "...",
+	})
+
+	apiCmd := func() tea.Msg {
+		err := runClient.DeleteService(gocontext.Background(), fullName)
+		return views.CloudRunServiceActionResultMsg{
+			Name:    name,
+			Action:  "delete",
+			Success: err == nil,
+			Error:   err,
+		}
+	}
+
+	return tea.Batch(taskCmd, apiCmd)
+}
+
+// handleCloudRunServiceActionResult processes the result of a Cloud Run service action
+func (a *App) handleCloudRunServiceActionResult(msg views.CloudRunServiceActionResultMsg) tea.Cmd {
+	// Clear the progress task
+	taskID := "cloudrun-" + msg.Action + "-" + msg.Name
+	delete(a.ctx.Tasks, taskID)
+
+	if msg.Error != nil {
+		a.err = msg.Error
+		// Propagate error to detail view if active
+		if a.currentView == ViewCloudRunServiceDetails && a.cloudRunServiceDetailsView != nil {
+			a.cloudRunServiceDetailsView.SetError(msg.Error)
+		}
+		return nil
+	}
+
+	// On successful delete, navigate back to list and refresh
+	if msg.Action == "delete" {
+		if a.currentView == ViewCloudRunServiceDetails {
+			if len(a.viewStack) > 0 {
+				lastViewIndex := len(a.viewStack) - 1
+				a.currentView = a.viewStack[lastViewIndex]
+				a.viewStack = a.viewStack[:lastViewIndex]
+			}
+
+			a.cloudRunServiceDetailsView = nil
+			a.selectedCloudRunService = nil
+			a.updateSidebarActiveView()
+		}
+
+		// Refresh Cloud Run services list
+		if a.cloudRunServicesView != nil {
+			return a.cloudRunServicesView.Init()
+		}
+	}
+
+	// On successful traffic update, refresh details view
+	if msg.Action == "update_traffic" {
+		if a.cloudRunServiceDetailsView != nil {
+			return a.cloudRunServiceDetailsView.Init()
+		}
+	}
+
+	return nil
+}
+
+// handleCloudRunTrafficUpdate processes a Cloud Run traffic split update
+func (a *App) handleCloudRunTrafficUpdate(msg views.CloudRunTrafficUpdateMsg) tea.Cmd {
+	var runClient *gcp.CloudRunClient
+	if a.cloudRunServicesView != nil {
+		runClient = a.cloudRunServicesView.GetCloudRunClient()
+	} else if a.cloudRunServiceDetailsView != nil {
+		runClient = a.cloudRunServiceDetailsView.GetCloudRunClient()
+	}
+
+	if runClient == nil {
+		return nil
+	}
+
+	fullName := msg.FullName
+	targets := msg.Targets
+
+	// Extract short name for task display
+	name := fullName
+	if a.cloudRunServiceDetailsView != nil {
+		name = a.cloudRunServiceDetailsView.GetServiceName()
+	}
+
+	taskID := "cloudrun-update_traffic-" + name
+	taskCmd := a.startTask(context.Task{
+		ID:          taskID,
+		Description: "Updating traffic for " + name + "...",
+	})
+
+	apiCmd := func() tea.Msg {
+		err := runClient.UpdateTraffic(gocontext.Background(), fullName, targets)
+		return views.CloudRunServiceActionResultMsg{
+			Name:    name,
+			Action:  "update_traffic",
+			Success: err == nil,
+			Error:   err,
+		}
+	}
+
+	return tea.Batch(taskCmd, apiCmd)
 }

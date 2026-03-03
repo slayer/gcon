@@ -367,3 +367,28 @@ description: Keyboard shortcuts reference for all views
 | `h/l` or `1/2` | Switch tabs (Details/Permissions) |
 | `j/k` or `↓/↑` | Scroll content |
 | `Esc` | Go back |
+
+## Cloud Run Services View
+
+| Key | Action |
+|-----|--------|
+| `Enter` | View service details |
+| `.` | Open action menu |
+| `S` | Open sort menu |
+| `D` | Delete service (with type-to-confirm) |
+| `/` | Filter services |
+| `r` | Refresh list |
+| `Esc` | Go back |
+
+## Cloud Run Service Details View
+
+| Key | Action |
+|-----|--------|
+| `.` | Open action menu |
+| `D` | Delete service (with type-to-confirm) |
+| `t` | Edit traffic split (Revisions tab) |
+| `r` | Refresh details and revisions |
+| `Tab` | Switch focus (tabs/content) |
+| `h/l` or `1/2/3` | Switch tabs (Details/Revisions/JSON) |
+| `j/k` or `↓/↑` | Scroll content |
+| `Esc` | Go back |

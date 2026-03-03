@@ -29,6 +29,7 @@ const (
 	ViewServiceAccounts
 	ViewIAMPolicy
 	ViewCustomRoles
+	ViewCloudRunServices
 )
 
 // Icons for commands
@@ -44,6 +45,7 @@ const (
 	IconServiceAccount = "▲"
 	IconIAMPolicy      = "▽"
 	IconCustomRole     = "▼"
+	IconCloudRun       = "▶"
 	IconRefresh        = "↻"
 	IconSidebar        = "☰"
 	IconHelp           = "?"
@@ -169,6 +171,14 @@ func NavigationCommands() []Command {
 			Icon:     IconCustomRole,
 			Type:     CommandTypeNavigation,
 			ViewType: ViewCustomRoles,
+			Enabled:  true,
+		},
+		{
+			ID:       "nav:cloudrun-services",
+			Label:    "Cloud Run: Services",
+			Icon:     IconCloudRun,
+			Type:     CommandTypeNavigation,
+			ViewType: ViewCloudRunServices,
 			Enabled:  true,
 		},
 	}

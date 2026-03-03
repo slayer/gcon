@@ -13,8 +13,8 @@ func TestNew(t *testing.T) {
 	s := New()
 
 	assert.NotNil(t, s)
-	assert.Len(t, s.menu, 5, "should have 5 top-level categories")
-	assert.Len(t, s.currentItems, 5, "currentItems should start with root menu")
+	assert.Len(t, s.menu, 6, "should have 6 top-level categories")
+	assert.Len(t, s.currentItems, 6, "currentItems should start with root menu")
 	assert.Empty(t, s.path, "path should be empty initially")
 	assert.Equal(t, 0, s.cursor, "cursor should start at 0")
 	assert.True(t, s.collapsed, "should start collapsed in auto-hide mode")
@@ -42,11 +42,17 @@ func TestMoveUpDown(t *testing.T) {
 	s.Update(tea.KeyMsg{Type: tea.KeyDown})
 	assert.Equal(t, 4, s.cursor)
 
+	s.Update(tea.KeyMsg{Type: tea.KeyDown})
+	assert.Equal(t, 5, s.cursor)
+
 	// Can't go past last item
 	s.Update(tea.KeyMsg{Type: tea.KeyDown})
-	assert.Equal(t, 4, s.cursor)
+	assert.Equal(t, 5, s.cursor)
 
 	// Move up
+	s.Update(tea.KeyMsg{Type: tea.KeyUp})
+	assert.Equal(t, 4, s.cursor)
+
 	s.Update(tea.KeyMsg{Type: tea.KeyUp})
 	assert.Equal(t, 3, s.cursor)
 
@@ -90,7 +96,7 @@ func TestGoBack(t *testing.T) {
 	// Go back
 	s.Update(tea.KeyMsg{Type: tea.KeyLeft})
 	assert.Empty(t, s.path)
-	assert.Len(t, s.currentItems, 5, "should be back at root menu")
+	assert.Len(t, s.currentItems, 6, "should be back at root menu")
 }
 
 func TestBackItemSelectableByArrows(t *testing.T) {
@@ -207,7 +213,7 @@ func TestViewRendersWithoutPanic(t *testing.T) {
 func TestDefaultMenu(t *testing.T) {
 	menu := DefaultMenu()
 
-	assert.Len(t, menu, 5)
+	assert.Len(t, menu, 6)
 
 	// Check Compute Engine
 	compute := menu[0]
