@@ -1497,38 +1497,6 @@ func (v *InstanceDetailsView) analyzeMetrics() []Recommendation {
 // Shared helpers (renderRow, defaultIfEmpty, min) are now in helpers.go
 
 // calculateStats calculates average, peak value and peak time from data points
-func calculateStats(data []gcp.DataPoint) (avg, peak float64, peakTime time.Time) {
-	if len(data) == 0 {
-		return 0, 0, time.Time{}
-	}
-
-	sum := 0.0
-	peak = data[0].Value
-	peakTime = data[0].Timestamp
-
-	for _, dp := range data {
-		sum += dp.Value
-		if dp.Value > peak {
-			peak = dp.Value
-			peakTime = dp.Timestamp
-		}
-	}
-
-	avg = sum / float64(len(data))
-	return avg, peak, peakTime
-}
-
-// formatDuration formats a time duration in human-readable form
-func formatDuration(d time.Duration) string {
-	if d < time.Hour {
-		return fmt.Sprintf("%dm", int(d.Minutes()))
-	}
-	if d < 24*time.Hour {
-		return fmt.Sprintf("%dh", int(d.Hours()))
-	}
-	days := int(d.Hours() / 24)
-	return fmt.Sprintf("%dd", days)
-}
 
 // formatUptime formats an uptime duration
 func formatUptime(d time.Duration) string {
@@ -1583,15 +1551,6 @@ func formatMaintenance(m string) string {
 	}
 }
 
-func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	if maxLen <= 3 {
-		return s[:maxLen]
-	}
-	return s[:maxLen-3] + "..."
-}
 
 var diskSourceRegex = regexp.MustCompile(`projects/[^/]+/zones/([^/]+)/disks/([^/]+)`)
 
