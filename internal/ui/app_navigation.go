@@ -296,9 +296,10 @@ func (a *App) handleSidebarNavigation(msg sidebar.NavigateMsg) tea.Cmd {
 		}
 
 	case sidebar.ViewCloudRunServices:
-		if a.currentView != ViewCloudRunServices && a.currentView != ViewCloudRunServiceDetails {
+		if a.currentView != ViewCloudRunServices && a.currentView != ViewCloudRunServiceDetails && a.currentView != ViewCloudRunServiceEdit {
 			a.currentView = ViewCloudRunServices
 			a.cloudRunServiceDetailsView = nil
+			a.cloudRunServiceEditView = nil
 			a.selectedCloudRunService = nil
 			if a.cloudRunServicesView == nil {
 				a.cloudRunServicesView = views.NewCloudRunServicesView(a.selectedProject.ID)
@@ -647,6 +648,7 @@ func (a *App) clearAllViews() {
 	a.customRoleDetailsView = nil
 	a.cloudRunServicesView = nil
 	a.cloudRunServiceDetailsView = nil
+	a.cloudRunServiceEditView = nil
 	a.formDemoView = nil
 
 	// Clear view stack
@@ -2674,4 +2676,73 @@ func (a *App) handleCloudRunTrafficUpdate(msg views.CloudRunTrafficUpdateMsg) te
 	}
 
 	return tea.Batch(taskCmd, apiCmd)
+}
+
+func (a *App) handleCloudRunEditRequest(msg views.CloudRunEditRequestMsg) tea.Cmd {
+	a.viewStack = append(a.viewStack, a.currentView)
+	a.currentView = ViewCloudRunServiceEdit
+
+	var runClient *gcp.CloudRunClient
+	if a.cloudRunServiceDetailsView != nil {
+		runClient = a.cloudRunServiceDetailsView.GetCloudRunClient()
+	}
+
+	a.cloudRunServiceEditView = views.NewCloudRunEditView(
+		msg.ProjectID, msg.ServiceName, msg.FullName, runClient, false,
+	)
+	a.updateSidebarActiveView()
+	a.updateViewSizes()
+	return a.cloudRunServiceEditView.Init()
+}
+
+func (a *App) handleCloudRunCreateRequest(msg views.CloudRunCreateRequestMsg) tea.Cmd {
+	a.viewStack = append(a.viewStack, a.currentView)
+	a.currentView = ViewCloudRunServiceEdit
+
+	var runClient *gcp.CloudRunClient
+	if a.cloudRunServicesView != nil {
+		runClient = a.cloudRunServicesView.GetCloudRunClient()
+	}
+
+	a.cloudRunServiceEditView = views.NewCloudRunEditView(
+		msg.ProjectID, "", "", runClient, true,
+	)
+	a.updateSidebarActiveView()
+	a.updateViewSizes()
+	return a.cloudRunServiceEditView.Init()
+}
+
+func (a *App) handleCloudRunEditResult(msg views.CloudRunEditResultMsg) tea.Cmd {
+	if msg.Error != nil {
+		a.err = msg.Error
+		if a.cloudRunServiceEditView != nil {
+			a.cloudRunServiceEditView.SetError(msg.Error)
+		}
+		return nil
+	}
+
+	// Pop back to previous view and refresh
+	if len(a.viewStack) > 0 {
+		a.currentView = a.viewStack[len(a.viewStack)-1]
+		a.viewStack = a.viewStack[:len(a.viewStack)-1]
+	}
+	a.cloudRunServiceEditView = nil
+	a.updateSidebarActiveView()
+
+	if a.currentView == ViewCloudRunServiceDetails && a.cloudRunServiceDetailsView != nil {
+		return a.cloudRunServiceDetailsView.Init()
+	}
+	if a.currentView == ViewCloudRunServices && a.cloudRunServicesView != nil {
+		return a.cloudRunServicesView.Init()
+	}
+	return nil
+}
+
+func (a *App) handleCloudRunEditCanceled() {
+	if len(a.viewStack) > 0 {
+		a.currentView = a.viewStack[len(a.viewStack)-1]
+		a.viewStack = a.viewStack[:len(a.viewStack)-1]
+	}
+	a.cloudRunServiceEditView = nil
+	a.updateSidebarActiveView()
 }

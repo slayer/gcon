@@ -378,3 +378,42 @@ func (v *DiskCreateView) View() string {
     return content
 }
 ```
+
+### ❌ SetError Only Visible in Empty/Loading State
+
+When `SetError()` stores the error but `View()` only renders it when data is nil (e.g., loading failed), errors from async actions on already-loaded data (like traffic updates, deletes) become invisible:
+
+```go
+func (v *DetailsView) View() string {
+    if v.details == nil {
+        if v.err != nil {
+            return components.RenderError(v.err)  // Only shown when no data
+        }
+        return renderLoading(...)
+    }
+    return v.renderDetails()  // Error from traffic update never shown!
+}
+```
+
+### ✅ Correct — Always Render Errors Regardless of Data State
+
+```go
+func (v *DetailsView) View() string {
+    if v.details == nil {
+        if v.err != nil {
+            return components.RenderError(v.err)
+        }
+        return renderLoading(...)
+    }
+    content := v.renderDetails()
+
+    // Action errors (traffic update, delete) shown even when data is loaded
+    if v.actionErr != nil {
+        content += components.RenderInlineError(v.actionErr)
+    }
+
+    return content
+}
+```
+
+**Tip:** Use separate error fields (`detailsErr` for load failures, `actionErr` for action failures) to distinguish recoverable action errors from fatal load errors.

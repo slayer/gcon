@@ -35,7 +35,7 @@ func (a *App) renderHeader() string {
 			category = "Databases"
 		case ViewServiceAccounts, ViewServiceAccountDetails, ViewServiceAccountCreate, ViewIAMPolicy, ViewCustomRoles, ViewCustomRoleDetails:
 			category = "IAM & Admin"
-		case ViewCloudRunServices, ViewCloudRunServiceDetails:
+		case ViewCloudRunServices, ViewCloudRunServiceDetails, ViewCloudRunServiceEdit:
 			category = "Cloud Run"
 		}
 	}
@@ -121,6 +121,15 @@ func (a *App) renderHeader() string {
 	case ViewCloudRunServiceDetails:
 		if a.cloudRunServiceDetailsView != nil {
 			resources = append(resources, a.cloudRunServiceDetailsView.GetServiceName())
+		}
+	case ViewCloudRunServiceEdit:
+		if a.cloudRunServiceEditView != nil && a.cloudRunServiceEditView.IsCreate() {
+			resources = append(resources, "Create")
+		} else {
+			if a.cloudRunServiceDetailsView != nil {
+				resources = append(resources, a.cloudRunServiceDetailsView.GetServiceName())
+			}
+			resources = append(resources, "Edit")
 		}
 	}
 	a.header.SetResources(resources)
@@ -269,6 +278,10 @@ func (a *App) renderCurrentView() string {
 	case ViewCloudRunServiceDetails:
 		if a.cloudRunServiceDetailsView != nil {
 			return a.cloudRunServiceDetailsView.View()
+		}
+	case ViewCloudRunServiceEdit:
+		if a.cloudRunServiceEditView != nil {
+			return a.cloudRunServiceEditView.View()
 		}
 	case ViewFormDemo:
 		if a.formDemoView != nil {
