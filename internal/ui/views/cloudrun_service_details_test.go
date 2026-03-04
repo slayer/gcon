@@ -13,6 +13,7 @@ func TestCloudRunServiceDetailsView_Init(t *testing.T) {
 		"web-api",
 		"projects/test-project/locations/us-central1/services/web-api",
 		nil, // nil client is OK, Init creates commands that check for nil
+		nil, // gcpClient
 	)
 
 	assert.True(t, view.detailsLoading)
@@ -30,13 +31,14 @@ func TestCloudRunServiceDetailsView_TabSwitching(t *testing.T) {
 		"web-api",
 		"projects/test-project/locations/us-central1/services/web-api",
 		nil,
+		nil,
 	)
 
 	// Verify tabs are set up correctly
 	assert.Equal(t, runTabIDDetails, view.tabs.ActiveTab().ID)
 
-	// Tab IDs should correspond to expected values
-	assert.Equal(t, 3, len(view.tabViewports))
+	// Tab IDs should correspond to expected values (4 tabs: Details, Revisions, YAML, Observability)
+	assert.Equal(t, 4, len(view.tabViewports))
 }
 
 func TestCloudRunServiceDetailsView_HasTextInputFocused(t *testing.T) {
@@ -44,6 +46,7 @@ func TestCloudRunServiceDetailsView_HasTextInputFocused(t *testing.T) {
 		"test-project",
 		"web-api",
 		"projects/test-project/locations/us-central1/services/web-api",
+		nil,
 		nil,
 	)
 
@@ -74,6 +77,7 @@ func TestCloudRunServiceDetailsView_IsMenuOpen(t *testing.T) {
 		"web-api",
 		"projects/test-project/locations/us-central1/services/web-api",
 		nil,
+		nil,
 	)
 
 	assert.False(t, view.IsMenuOpen())
@@ -96,6 +100,7 @@ func TestCloudRunServiceDetailsView_GetServiceName(t *testing.T) {
 		"my-service",
 		"projects/test-project/locations/us-east1/services/my-service",
 		nil,
+		nil,
 	)
 
 	assert.Equal(t, "my-service", view.GetServiceName())
@@ -106,6 +111,7 @@ func TestCloudRunServiceDetailsView_SetError(t *testing.T) {
 		"test-project",
 		"web-api",
 		"projects/test-project/locations/us-central1/services/web-api",
+		nil,
 		nil,
 	)
 

@@ -2551,6 +2551,7 @@ func (a *App) handleCloudRunServiceSelected(msg views.CloudRunServiceSelectedMsg
 		svc.Name,
 		svc.FullName,
 		runClient,
+		a.gcpClient,
 	)
 	a.updateSidebarActiveView()
 	a.updateViewSizes()
