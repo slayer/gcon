@@ -1,0 +1,608 @@
+package views
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/charmbracelet/bubbles/spinner"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/slayer/gcon/internal/gcp"
+	"github.com/slayer/gcon/internal/ui/components"
+)
+
+// Internal messages for Cloud Run observability data loading.
+type crMetricsLoadedMsg struct{ metrics *gcp.CloudRunMetrics }
+type crMetricsErrorMsg struct{ err error }
+type crLogsLoadedMsg struct{ logs []gcp.LogEntry }
+type crLogsErrorMsg struct{ err error }
+type crRefreshTickMsg struct{}
+
+// cloudRunObservability manages observability state for the Cloud Run service
+// details view: metrics loading, log loading, severity filtering, time range
+// selection, and auto-refresh.
+type cloudRunObservability struct {
+	projectID   string
+	serviceName string
+	gcpClient   *gcp.Client
+	runClient   *gcp.CloudRunClient
+
+	// Metrics state
+	metrics        *gcp.CloudRunMetrics
+	metricsLoading bool
+	metricsError   error
+
+	// Logs state
+	logs        []gcp.LogEntry
+	logsLoading bool
+	logsError   error
+
+	// Severity filter: which severities to show in log output
+	severityEnabled map[string]bool
+
+	// Time range and refresh
+	timeRange        time.Duration
+	autoRefresh      bool
+	autoRefreshTimer *time.Ticker
+
+	spinner     spinner.Model
+	width       int
+	initialized bool
+}
+
+func newCloudRunObservability(projectID, serviceName string, gcpClient *gcp.Client, runClient *gcp.CloudRunClient) *cloudRunObservability {
+	return &cloudRunObservability{
+		projectID:   projectID,
+		serviceName: serviceName,
+		gcpClient:   gcpClient,
+		runClient:   runClient,
+		severityEnabled: map[string]bool{
+			"INFO":    true,
+			"WARNING": true,
+			"ERROR":   true,
+		},
+		timeRange:   time.Hour,
+		autoRefresh: true,
+		spinner:     components.NewGCPSpinner(),
+	}
+}
+
+// Init resets loading state and kicks off data fetching.
+func (o *cloudRunObservability) Init() tea.Cmd {
+	o.metricsLoading = true
+	o.metricsError = nil
+	o.logsLoading = true
+	o.logsError = nil
+	o.initialized = true
+	return tea.Batch(o.spinner.Tick, o.loadMetrics(), o.loadLogs())
+}
+
+// Update handles observability-specific messages and key events.
+// Returns (cmd, handled) — if handled is true, the caller should not process
+// the message further.
+func (o *cloudRunObservability) Update(msg tea.Msg) (tea.Cmd, bool) {
+	switch msg := msg.(type) {
+	case crMetricsLoadedMsg:
+		o.metricsLoading = false
+		o.metricsError = nil
+		o.metrics = msg.metrics
+		return nil, true
+
+	case crMetricsErrorMsg:
+		o.metricsLoading = false
+		o.metricsError = msg.err
+		return nil, true
+
+	case crLogsLoadedMsg:
+		o.logsLoading = false
+		o.logsError = nil
+		o.logs = msg.logs
+		return nil, true
+
+	case crLogsErrorMsg:
+		o.logsLoading = false
+		o.logsError = msg.err
+		return nil, true
+
+	case crRefreshTickMsg:
+		// Auto-refresh triggered; reload everything
+		o.metricsLoading = true
+		o.logsLoading = true
+		return tea.Batch(o.loadMetrics(), o.loadLogs(), o.tickAutoRefresh()), true
+
+	case spinner.TickMsg:
+		var cmd tea.Cmd
+		o.spinner, cmd = o.spinner.Update(msg)
+		return cmd, true
+
+	case tea.KeyMsg:
+		return o.handleKey(msg)
+	}
+
+	return nil, false
+}
+
+// handleKey processes keyboard shortcuts for the observability tab.
+func (o *cloudRunObservability) handleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
+	switch msg.String() {
+	// Time range selection (1-5)
+	case "1":
+		return o.setTimeRange(components.PredefinedTimeRanges[0].Duration), true
+	case "2":
+		return o.setTimeRange(components.PredefinedTimeRanges[1].Duration), true
+	case "3":
+		return o.setTimeRange(components.PredefinedTimeRanges[2].Duration), true
+	case "4":
+		return o.setTimeRange(components.PredefinedTimeRanges[3].Duration), true
+	case "5":
+		return o.setTimeRange(components.PredefinedTimeRanges[4].Duration), true
+
+	// Auto-refresh toggle
+	case "a":
+		o.autoRefresh = !o.autoRefresh
+		if o.autoRefresh {
+			return o.StartAutoRefresh(), true
+		}
+		o.StopAutoRefresh()
+		return nil, true
+
+	// Severity filter toggles
+	case "I":
+		o.toggleSeverity("INFO")
+		return nil, true
+	case "W":
+		o.toggleSeverity("WARNING")
+		return nil, true
+	case "E":
+		o.toggleSeverity("ERROR")
+		return nil, true
+	}
+
+	return nil, false
+}
+
+// setTimeRange updates the time range and reloads metrics+logs.
+func (o *cloudRunObservability) setTimeRange(d time.Duration) tea.Cmd {
+	if o.timeRange == d {
+		return nil
+	}
+	o.timeRange = d
+	o.metricsLoading = true
+	o.logsLoading = true
+	return tea.Batch(o.loadMetrics(), o.loadLogs())
+}
+
+// View renders the full observability tab content.
+//
+//nolint:gocognit // Observability rendering with multiple sections
+func (o *cloudRunObservability) View() string {
+	var b strings.Builder
+
+	// Styles matching the instance details observability tab
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#4285F4"))
+	sectionStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FFFFFF")).MarginTop(1)
+	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
+	errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#EA4335")).Bold(true)
+
+	// Title
+	b.WriteString(titleStyle.Render("Observability"))
+	b.WriteString("\n")
+	b.WriteString(strings.Repeat("─", min(o.width-4, 60)))
+	b.WriteString("\n\n")
+
+	// Time range selector
+	lastFetch := time.Time{}
+	if o.metrics != nil {
+		lastFetch = o.metrics.LastFetch
+	}
+	selector := components.RenderTimeRangeSelector(o.timeRange, o.autoRefresh, lastFetch)
+	b.WriteString(selector)
+	b.WriteString("\n\n")
+
+	// Loading state (first load, no cached data)
+	if o.metricsLoading && o.metrics == nil {
+		b.WriteString(fmt.Sprintf("  %s Loading metrics...\n\n", o.spinner.View()))
+		return b.String()
+	}
+
+	// Error state without cached metrics
+	if o.metricsError != nil && o.metrics == nil {
+		b.WriteString(errorStyle.Render(fmt.Sprintf("  ✗ Error loading metrics: %s", o.metricsError.Error())))
+		b.WriteString("\n\n")
+		b.WriteString(mutedStyle.Render("  Press 'r' to retry"))
+		b.WriteString("\n")
+		return b.String()
+	}
+
+	// Render metric sections (use cached metrics during background refresh)
+	if o.metrics != nil {
+		o.renderRequestMetrics(&b, sectionStyle, mutedStyle)
+		o.renderResourceMetrics(&b, sectionStyle, mutedStyle)
+	}
+
+	// Logs section
+	o.renderLogs(&b, sectionStyle, mutedStyle, errorStyle)
+
+	// Key hints
+	b.WriteString("\n")
+	b.WriteString(mutedStyle.Render("  1-5: time range  a: auto-refresh  I/W/E: toggle severity  r: refresh"))
+	b.WriteString("\n")
+
+	return b.String()
+}
+
+// renderRequestMetrics renders the request count, latency, and error rate sections.
+func (o *cloudRunObservability) renderRequestMetrics(b *strings.Builder, sectionStyle, mutedStyle lipgloss.Style) {
+	m := o.metrics
+	sparkWidth := min(o.width-12, 50)
+
+	// Request count
+	b.WriteString(sectionStyle.Render("Request Count"))
+	b.WriteString("\n")
+	b.WriteString(strings.Repeat("━", min(o.width-4, 60)))
+	b.WriteString("\n")
+	if len(m.RequestCount) > 0 {
+		values := extractValues(m.RequestCount)
+		sparkline := components.RenderSparkline(values, sparkWidth)
+		b.WriteString(fmt.Sprintf("  Trend (%s): %s\n", formatDuration(o.timeRange), sparkline))
+
+		avg, peak, peakTime := calculateStats(m.RequestCount)
+		current := values[len(values)-1]
+		b.WriteString(fmt.Sprintf("     Current: %.1f req/s  |  Avg: %.1f req/s  |  Peak: %.1f req/s", current, avg, peak))
+		if !peakTime.IsZero() {
+			b.WriteString(fmt.Sprintf(" (%s)", peakTime.Format("3:04 PM")))
+		}
+		b.WriteString("\n")
+	} else {
+		b.WriteString(mutedStyle.Render("  No request data available"))
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+
+	// Latency (p50/p95/p99)
+	b.WriteString(sectionStyle.Render("Request Latency"))
+	b.WriteString("\n")
+	b.WriteString(strings.Repeat("━", min(o.width-4, 60)))
+	b.WriteString("\n")
+	hasLatency := len(m.Latency50) > 0 || len(m.Latency95) > 0 || len(m.Latency99) > 0
+	if hasLatency {
+		for _, entry := range []struct {
+			label string
+			data  []gcp.DataPoint
+		}{
+			{"p50", m.Latency50},
+			{"p95", m.Latency95},
+			{"p99", m.Latency99},
+		} {
+			if len(entry.data) > 0 {
+				values := extractValues(entry.data)
+				sparkline := components.RenderSparkline(values, sparkWidth)
+				avg, peak, _ := calculateStats(entry.data)
+				current := values[len(values)-1]
+				b.WriteString(fmt.Sprintf("  %s: %s  (cur: %.0fms  avg: %.0fms  peak: %.0fms)\n",
+					entry.label, sparkline, current, avg, peak))
+			}
+		}
+	} else {
+		b.WriteString(mutedStyle.Render("  No latency data available"))
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+
+	// Error rates (4xx/5xx)
+	b.WriteString(sectionStyle.Render("Error Rate"))
+	b.WriteString("\n")
+	b.WriteString(strings.Repeat("━", min(o.width-4, 60)))
+	b.WriteString("\n")
+	hasErrors := len(m.ErrorCount4xx) > 0 || len(m.ErrorCount5xx) > 0
+	if hasErrors {
+		if len(m.ErrorCount4xx) > 0 {
+			values := extractValues(m.ErrorCount4xx)
+			sparkline := components.RenderSparkline(values, sparkWidth)
+			avg, _, _ := calculateStats(m.ErrorCount4xx)
+			b.WriteString(fmt.Sprintf("  4xx: %s  (avg: %.1f/s)\n", sparkline, avg))
+		}
+		if len(m.ErrorCount5xx) > 0 {
+			values := extractValues(m.ErrorCount5xx)
+			sparkline := components.RenderSparkline(values, sparkWidth)
+			avg, _, _ := calculateStats(m.ErrorCount5xx)
+			b.WriteString(fmt.Sprintf("  5xx: %s  (avg: %.1f/s)\n", sparkline, avg))
+		}
+	} else {
+		b.WriteString(mutedStyle.Render("  No error data available"))
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+}
+
+// renderResourceMetrics renders CPU, memory, and instance count sections.
+func (o *cloudRunObservability) renderResourceMetrics(b *strings.Builder, sectionStyle, mutedStyle lipgloss.Style) {
+	m := o.metrics
+	sparkWidth := min(o.width-12, 50)
+
+	// CPU utilization
+	b.WriteString(sectionStyle.Render("CPU Usage"))
+	b.WriteString("\n")
+	b.WriteString(strings.Repeat("━", min(o.width-4, 60)))
+	b.WriteString("\n")
+	if len(m.CPU) > 0 {
+		// CPU values are 0-1 fraction; convert to percentage for display
+		cpuValues := make([]float64, len(m.CPU))
+		for i, dp := range m.CPU {
+			cpuValues[i] = dp.Value * 100
+		}
+
+		sparkline := components.RenderSparkline(cpuValues, sparkWidth)
+		b.WriteString(fmt.Sprintf("  Trend (%s): %s\n", formatDuration(o.timeRange), sparkline))
+
+		current := cpuValues[len(cpuValues)-1]
+		avg, peak, peakTime := calculateStats(m.CPU)
+		avg *= 100
+		peak *= 100
+
+		bar := components.RenderMetricBar("", current, avg, peak, peakTime, o.width-4)
+		b.WriteString("  ")
+		b.WriteString(bar)
+		b.WriteString("\n")
+	} else {
+		b.WriteString(mutedStyle.Render("  No CPU data available"))
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+
+	// Memory utilization
+	b.WriteString(sectionStyle.Render("Memory Usage"))
+	b.WriteString("\n")
+	b.WriteString(strings.Repeat("━", min(o.width-4, 60)))
+	b.WriteString("\n")
+	if len(m.Memory) > 0 {
+		memValues := make([]float64, len(m.Memory))
+		for i, dp := range m.Memory {
+			memValues[i] = dp.Value * 100
+		}
+
+		sparkline := components.RenderSparkline(memValues, sparkWidth)
+		b.WriteString(fmt.Sprintf("  Trend (%s): %s\n", formatDuration(o.timeRange), sparkline))
+
+		current := memValues[len(memValues)-1]
+		avg, peak, peakTime := calculateStats(m.Memory)
+		avg *= 100
+		peak *= 100
+
+		bar := components.RenderMetricBar("", current, avg, peak, peakTime, o.width-4)
+		b.WriteString("  ")
+		b.WriteString(bar)
+		b.WriteString("\n")
+	} else {
+		b.WriteString(mutedStyle.Render("  No memory data available"))
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+
+	// Instance count
+	b.WriteString(sectionStyle.Render("Instance Count"))
+	b.WriteString("\n")
+	b.WriteString(strings.Repeat("━", min(o.width-4, 60)))
+	b.WriteString("\n")
+	if len(m.InstanceCount) > 0 {
+		values := extractValues(m.InstanceCount)
+		sparkline := components.RenderSparkline(values, sparkWidth)
+		b.WriteString(fmt.Sprintf("  Trend (%s): %s\n", formatDuration(o.timeRange), sparkline))
+
+		avg, peak, peakTime := calculateStats(m.InstanceCount)
+		current := values[len(values)-1]
+		b.WriteString(fmt.Sprintf("     Current: %.0f  |  Avg: %.1f  |  Peak: %.0f", current, avg, peak))
+		if !peakTime.IsZero() {
+			b.WriteString(fmt.Sprintf(" (%s)", peakTime.Format("3:04 PM")))
+		}
+		b.WriteString("\n")
+	} else {
+		b.WriteString(mutedStyle.Render("  No instance count data available"))
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+}
+
+// renderLogs renders the log section with severity filter pills and log entries.
+func (o *cloudRunObservability) renderLogs(b *strings.Builder, sectionStyle, mutedStyle, errorStyle lipgloss.Style) {
+	b.WriteString(sectionStyle.Render("Logs"))
+	b.WriteString("\n")
+	b.WriteString(strings.Repeat("━", min(o.width-4, 60)))
+	b.WriteString("\n")
+
+	// Severity filter pills
+	b.WriteString("  Filter: ")
+	for i, sev := range []struct {
+		key   string
+		label string
+		color string
+	}{
+		{"INFO", "INFO", "#9AA0A6"},
+		{"WARNING", "WARN", "#FBBC04"},
+		{"ERROR", "ERROR", "#EA4335"},
+	} {
+		if i > 0 {
+			b.WriteString(" ")
+		}
+		if o.severityEnabled[sev.key] {
+			// Active: bold + colored
+			style := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(sev.color))
+			b.WriteString(style.Render(fmt.Sprintf("[%s]", sev.label)))
+		} else {
+			// Inactive: faint gray
+			style := lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color("#5F6368"))
+			b.WriteString(style.Render(fmt.Sprintf("[%s]", sev.label)))
+		}
+	}
+	b.WriteString("\n\n")
+
+	// Log entries
+	switch {
+	case o.logsLoading && len(o.logs) == 0:
+		b.WriteString(fmt.Sprintf("  %s Loading logs...\n", o.spinner.View()))
+	case o.logsError != nil && len(o.logs) == 0:
+		b.WriteString(errorStyle.Render(fmt.Sprintf("  ✗ Error loading logs: %s", o.logsError.Error())))
+		b.WriteString("\n")
+	default:
+		filtered := o.filteredLogs()
+		if len(filtered) > 0 {
+			for _, log := range filtered {
+				var severityColor string
+				switch log.Severity {
+				case "ERROR", "CRITICAL":
+					severityColor = "#EA4335"
+				case "WARNING":
+					severityColor = "#FBBC04"
+				default:
+					severityColor = "#9AA0A6"
+				}
+				sevStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(severityColor)).Bold(true)
+				b.WriteString(fmt.Sprintf("  %s [%s] %s\n",
+					log.Timestamp.Format("15:04:05"),
+					sevStyle.Render(log.Severity),
+					truncate(log.Message, max(o.width-30, 20))))
+			}
+		} else {
+			b.WriteString(mutedStyle.Render("  No logs matching current filter"))
+			b.WriteString("\n")
+		}
+	}
+}
+
+// loadMetrics fetches all Cloud Run metrics asynchronously.
+// Individual metric failures are non-fatal: we collect what we can.
+func (o *cloudRunObservability) loadMetrics() tea.Cmd {
+	projectID := o.projectID
+	serviceName := o.serviceName
+	timeRange := o.timeRange
+	client := o.gcpClient
+
+	return func() tea.Msg {
+		if client == nil {
+			return crMetricsErrorMsg{err: fmt.Errorf("GCP client not initialized")}
+		}
+
+		monClient, err := client.GetMonitoringClient(projectID)
+		if err != nil {
+			return crMetricsErrorMsg{err: fmt.Errorf("monitoring client: %w", err)}
+		}
+
+		ctx := context.Background()
+		metrics := &gcp.CloudRunMetrics{LastFetch: time.Now()}
+
+		// Fetch each metric independently; failures for individual metrics are non-fatal
+		metrics.RequestCount, _ = monClient.GetCloudRunRequestCount(ctx, serviceName, timeRange)
+		metrics.Latency50, metrics.Latency95, metrics.Latency99, _ = monClient.GetCloudRunRequestLatencies(ctx, serviceName, timeRange)
+		metrics.ErrorCount4xx, _ = monClient.GetCloudRunRequestCountByCode(ctx, serviceName, "4xx", timeRange)
+		metrics.ErrorCount5xx, _ = monClient.GetCloudRunRequestCountByCode(ctx, serviceName, "5xx", timeRange)
+		metrics.CPU, _ = monClient.GetCloudRunCPUUtilization(ctx, serviceName, timeRange)
+		metrics.Memory, _ = monClient.GetCloudRunMemoryUtilization(ctx, serviceName, timeRange)
+		metrics.InstanceCount, _ = monClient.GetCloudRunInstanceCount(ctx, serviceName, timeRange)
+
+		return crMetricsLoadedMsg{metrics: metrics}
+	}
+}
+
+// loadLogs fetches Cloud Run logs asynchronously.
+func (o *cloudRunObservability) loadLogs() tea.Cmd {
+	projectID := o.projectID
+	serviceName := o.serviceName
+	client := o.gcpClient
+
+	return func() tea.Msg {
+		if client == nil {
+			return crLogsErrorMsg{err: fmt.Errorf("GCP client not initialized")}
+		}
+
+		logClient, err := client.GetLoggingClient(projectID)
+		if err != nil {
+			return crLogsErrorMsg{err: fmt.Errorf("logging client: %w", err)}
+		}
+
+		ctx := context.Background()
+		// Fetch recent logs (all severities); client-side filtering applies later
+		logs, err := logClient.GetCloudRunLogs(ctx, serviceName, nil, 50)
+		if err != nil {
+			return crLogsErrorMsg{err: err}
+		}
+		return crLogsLoadedMsg{logs: logs}
+	}
+}
+
+// tickAutoRefresh blocks on the ticker channel and returns a refresh tick.
+func (o *cloudRunObservability) tickAutoRefresh() tea.Cmd {
+	ticker := o.autoRefreshTimer
+	if ticker == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		<-ticker.C
+		return crRefreshTickMsg{}
+	}
+}
+
+// StartAutoRefresh creates and starts the auto-refresh ticker (30s interval).
+func (o *cloudRunObservability) StartAutoRefresh() tea.Cmd {
+	if !o.autoRefresh {
+		return nil
+	}
+	// Stop any existing ticker to avoid leaks
+	o.StopAutoRefresh()
+	o.autoRefreshTimer = time.NewTicker(30 * time.Second)
+	return o.tickAutoRefresh()
+}
+
+// StopAutoRefresh stops the auto-refresh ticker and cleans up.
+func (o *cloudRunObservability) StopAutoRefresh() {
+	if o.autoRefreshTimer != nil {
+		o.autoRefreshTimer.Stop()
+		o.autoRefreshTimer = nil
+	}
+}
+
+// toggleSeverity flips the enabled state for a severity level.
+func (o *cloudRunObservability) toggleSeverity(level string) {
+	o.severityEnabled[level] = !o.severityEnabled[level]
+}
+
+// activeSeverities returns the list of currently enabled severity levels.
+// When ERROR is enabled, CRITICAL is implicitly included.
+func (o *cloudRunObservability) activeSeverities() []string {
+	var result []string
+	for _, sev := range []string{"INFO", "WARNING", "ERROR"} {
+		if o.severityEnabled[sev] {
+			result = append(result, sev)
+			if sev == "ERROR" {
+				result = append(result, "CRITICAL")
+			}
+		}
+	}
+	return result
+}
+
+// filteredLogs returns logs matching the current severity filter.
+func (o *cloudRunObservability) filteredLogs() []gcp.LogEntry {
+	active := make(map[string]bool)
+	for _, sev := range o.activeSeverities() {
+		active[sev] = true
+	}
+
+	var result []gcp.LogEntry
+	for _, entry := range o.logs {
+		if active[entry.Severity] {
+			result = append(result, entry)
+		}
+	}
+	return result
+}
+
+// extractValues pulls float64 values from a slice of DataPoints.
+func extractValues(data []gcp.DataPoint) []float64 {
+	values := make([]float64, len(data))
+	for i, dp := range data {
+		values[i] = dp.Value
+	}
+	return values
+}
