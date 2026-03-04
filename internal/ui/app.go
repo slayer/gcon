@@ -61,6 +61,7 @@ const (
 	ViewCustomRoleDetails
 	ViewCloudRunServices
 	ViewCloudRunServiceDetails
+	ViewCloudRunServiceEdit
 	ViewLogs
 	ViewFormDemo // Demo view for testing form components
 )
@@ -118,9 +119,10 @@ type App struct {
 	iamPolicyView             *views.IAMPolicyView
 	customRolesView            *views.CustomRolesView
 	customRoleDetailsView     *views.CustomRoleDetailsView
-	cloudRunServicesView      *views.CloudRunServicesView
+	cloudRunServicesView       *views.CloudRunServicesView
 	cloudRunServiceDetailsView *views.CloudRunServiceDetailsView
-	formDemoView              *views.FormDemoView
+	cloudRunServiceEditView    *views.CloudRunEditView
+	formDemoView               *views.FormDemoView
 
 	// Selected context
 	selectedProject        *gcp.Project
@@ -386,6 +388,8 @@ func (a *App) getCurrentViewModel() views.View {
 		return a.cloudRunServicesView
 	case ViewCloudRunServiceDetails:
 		return a.cloudRunServiceDetailsView
+	case ViewCloudRunServiceEdit:
+		return a.cloudRunServiceEditView
 	case ViewFormDemo:
 		return a.formDemoView
 	}
@@ -944,6 +948,22 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
 		return a, a.handleCloudRunTrafficUpdate(msg)
 
+	case views.CloudRunEditRequestMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleCloudRunEditRequest(msg)
+
+	case views.CloudRunCreateRequestMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleCloudRunCreateRequest(msg)
+
+	case views.CloudRunEditResultMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleCloudRunEditResult(msg)
+
+	case views.CloudRunEditCanceledMsg:
+		a.handleCloudRunEditCanceled()
+		return a, nil
+
 	case components.FooterProjectClickedMsg:
 		// Project section in footer was clicked, show project selector
 		currentProjectID := ""
@@ -1180,6 +1200,9 @@ func (a *App) updateViewSizes() {
 	}
 	if a.cloudRunServiceDetailsView != nil {
 		a.cloudRunServiceDetailsView.SetContext(a.ctx)
+	}
+	if a.cloudRunServiceEditView != nil {
+		a.cloudRunServiceEditView.SetContext(a.ctx)
 	}
 }
 

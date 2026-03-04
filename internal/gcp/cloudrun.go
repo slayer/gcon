@@ -43,6 +43,15 @@ type CloudRunServiceDetails struct {
 	CPU            string
 	Memory         string
 	ContainerPort  int64
+	Command        []string // Container entrypoint override
+	Args           []string // Container args override
+
+	// Networking
+	VPCConnector string // Full VPC connector resource name
+	VPCEgress    string // Human-readable egress setting
+
+	// Raw API ingress value for round-tripping through edit forms
+	IngressRaw string
 
 	// Scaling
 	MinInstances   int64
@@ -63,6 +72,37 @@ type CloudRunServiceDetails struct {
 
 	// YAML representation for the YAML tab
 	RawYAML string
+}
+
+// CloudRunServiceUpdate contains the editable fields for a Cloud Run service.
+// Only non-nil/non-zero fields are included in the Patch request.
+type CloudRunServiceUpdate struct {
+	// Service-level
+	Description *string
+	Ingress     *string           // Raw API value: "INGRESS_TRAFFIC_ALL", etc.
+	Labels      map[string]string // nil = don't change
+
+	// Container config
+	Image   *string
+	Port    *int64
+	Command []string          // nil = don't change, empty slice = clear
+	Args    []string          // nil = don't change, empty slice = clear
+	EnvVars map[string]string // Plain-text env vars only; nil = don't change
+	CPU     *string
+	Memory  *string
+
+	// Scaling & performance
+	MinInstances *int64
+	MaxInstances *int64
+	Concurrency  *int64
+	Timeout      *int64 // Seconds, converted to duration string for API
+
+	// Security
+	ServiceAccount *string
+
+	// Networking
+	VPCConnector *string // Full connector path or empty to clear
+	VPCEgress    *string // "ALL_TRAFFIC" or "PRIVATE_RANGES_ONLY"
 }
 
 // CloudRunTrafficTarget represents a traffic split entry
@@ -224,6 +264,242 @@ func (c *CloudRunClient) UpdateTraffic(ctx context.Context, fullName string, tar
 	return nil
 }
 
+// UpdateService patches an existing Cloud Run service with the given changes.
+// Only fields set in the update struct are included in the Patch request via UpdateMask.
+func (c *CloudRunClient) UpdateService(ctx context.Context, fullName string, update *CloudRunServiceUpdate) error {
+	svc, maskPaths := buildServicePatch(update)
+
+	if len(maskPaths) == 0 {
+		return nil // Nothing to update
+	}
+
+	mask := strings.Join(maskPaths, ",")
+	_, err := c.service.Projects.Locations.Services.Patch(fullName, svc).
+		UpdateMask(mask).
+		Context(ctx).Do()
+	if err != nil {
+		return WrapActionError(err, "update cloud run service", extractShortName(fullName))
+	}
+	return nil
+}
+
+// CreateService creates a new Cloud Run service from the given configuration.
+func (c *CloudRunClient) CreateService(ctx context.Context, projectID, region, name string, config *CloudRunServiceUpdate) error {
+	parent := fmt.Sprintf("projects/%s/locations/%s", projectID, region)
+
+	svc := buildServiceFromConfig(config)
+
+	_, err := c.service.Projects.Locations.Services.Create(parent, svc).
+		ServiceId(name).
+		Context(ctx).Do()
+	if err != nil {
+		return WrapActionError(err, "create cloud run service", name)
+	}
+	return nil
+}
+
+// buildServicePatch constructs the API service struct and UpdateMask paths from an update.
+// Container fields (image, port, command, args, env, cpu, memory) share one mask entry
+// because the API replaces the entire containers array atomically.
+func buildServicePatch(update *CloudRunServiceUpdate) (svc *run.GoogleCloudRunV2Service, maskPaths []string) {
+	svc = &run.GoogleCloudRunV2Service{}
+	var forceSend []string
+
+	// Service-level fields
+	if update.Description != nil {
+		svc.Description = *update.Description
+		maskPaths = append(maskPaths, "description")
+		forceSend = append(forceSend, "Description")
+	}
+	if update.Ingress != nil {
+		svc.Ingress = *update.Ingress
+		maskPaths = append(maskPaths, "ingress")
+		forceSend = append(forceSend, "Ingress")
+	}
+	if update.Labels != nil {
+		svc.Labels = update.Labels
+		maskPaths = append(maskPaths, "labels")
+		forceSend = append(forceSend, "Labels")
+	}
+
+	// Template-level fields
+	template := &run.GoogleCloudRunV2RevisionTemplate{}
+	templateForce := []string{}
+	needTemplate := false
+
+	// Container fields — rebuild container if any container field changes
+	needContainer := update.Image != nil || update.Port != nil ||
+		update.Command != nil || update.Args != nil ||
+		update.EnvVars != nil || update.CPU != nil || update.Memory != nil
+
+	if needContainer {
+		container := buildContainerFromUpdate(update)
+		template.Containers = []*run.GoogleCloudRunV2Container{container}
+		maskPaths = append(maskPaths, "template.containers")
+		needTemplate = true
+	}
+
+	// Scaling
+	if update.MinInstances != nil || update.MaxInstances != nil {
+		scaling := &run.GoogleCloudRunV2RevisionScaling{}
+		scalingForce := []string{}
+		if update.MinInstances != nil {
+			scaling.MinInstanceCount = *update.MinInstances
+			scalingForce = append(scalingForce, "MinInstanceCount")
+			maskPaths = append(maskPaths, "template.scaling.minInstanceCount")
+		}
+		if update.MaxInstances != nil {
+			scaling.MaxInstanceCount = *update.MaxInstances
+			scalingForce = append(scalingForce, "MaxInstanceCount")
+			maskPaths = append(maskPaths, "template.scaling.maxInstanceCount")
+		}
+		scaling.ForceSendFields = scalingForce
+		template.Scaling = scaling
+		needTemplate = true
+	}
+
+	if update.Concurrency != nil {
+		template.MaxInstanceRequestConcurrency = *update.Concurrency
+		templateForce = append(templateForce, "MaxInstanceRequestConcurrency")
+		maskPaths = append(maskPaths, "template.maxInstanceRequestConcurrency")
+		needTemplate = true
+	}
+
+	if update.Timeout != nil {
+		template.Timeout = fmt.Sprintf("%ds", *update.Timeout)
+		templateForce = append(templateForce, "Timeout")
+		maskPaths = append(maskPaths, "template.timeout")
+		needTemplate = true
+	}
+
+	if update.ServiceAccount != nil {
+		template.ServiceAccount = *update.ServiceAccount
+		templateForce = append(templateForce, "ServiceAccount")
+		maskPaths = append(maskPaths, "template.serviceAccount")
+		needTemplate = true
+	}
+
+	// VPC access
+	if update.VPCConnector != nil || update.VPCEgress != nil {
+		vpcAccess := &run.GoogleCloudRunV2VpcAccess{}
+		vpcForce := []string{}
+		if update.VPCConnector != nil {
+			vpcAccess.Connector = *update.VPCConnector
+			vpcForce = append(vpcForce, "Connector")
+		}
+		if update.VPCEgress != nil {
+			vpcAccess.Egress = *update.VPCEgress
+			vpcForce = append(vpcForce, "Egress")
+		}
+		vpcAccess.ForceSendFields = vpcForce
+		template.VpcAccess = vpcAccess
+		maskPaths = append(maskPaths, "template.vpcAccess")
+		needTemplate = true
+	}
+
+	if needTemplate {
+		template.ForceSendFields = templateForce
+		svc.Template = template
+	}
+	svc.ForceSendFields = forceSend
+
+	return svc, maskPaths
+}
+
+// buildContainerFromUpdate assembles a container spec from update fields.
+func buildContainerFromUpdate(update *CloudRunServiceUpdate) *run.GoogleCloudRunV2Container {
+	container := &run.GoogleCloudRunV2Container{}
+	containerForce := []string{}
+
+	if update.Image != nil {
+		container.Image = *update.Image
+		containerForce = append(containerForce, "Image")
+	}
+	if update.Port != nil {
+		container.Ports = []*run.GoogleCloudRunV2ContainerPort{{ContainerPort: *update.Port}}
+	}
+	if update.Command != nil {
+		container.Command = update.Command
+		containerForce = append(containerForce, "Command")
+	}
+	if update.Args != nil {
+		container.Args = update.Args
+		containerForce = append(containerForce, "Args")
+	}
+	if update.EnvVars != nil {
+		envs := make([]*run.GoogleCloudRunV2EnvVar, 0, len(update.EnvVars))
+		for k, v := range update.EnvVars {
+			envs = append(envs, &run.GoogleCloudRunV2EnvVar{Name: k, Value: v})
+		}
+		container.Env = envs
+	}
+	if update.CPU != nil || update.Memory != nil {
+		limits := make(map[string]string)
+		if update.CPU != nil {
+			limits["cpu"] = *update.CPU
+		}
+		if update.Memory != nil {
+			limits["memory"] = *update.Memory
+		}
+		container.Resources = &run.GoogleCloudRunV2ResourceRequirements{Limits: limits}
+	}
+
+	container.ForceSendFields = containerForce
+	return container
+}
+
+// buildServiceFromConfig builds a full service spec for Create operations.
+func buildServiceFromConfig(config *CloudRunServiceUpdate) *run.GoogleCloudRunV2Service {
+	svc := &run.GoogleCloudRunV2Service{}
+
+	if config.Description != nil {
+		svc.Description = *config.Description
+	}
+	if config.Ingress != nil {
+		svc.Ingress = *config.Ingress
+	}
+	if config.Labels != nil {
+		svc.Labels = config.Labels
+	}
+
+	template := &run.GoogleCloudRunV2RevisionTemplate{}
+	container := buildContainerFromUpdate(config)
+	template.Containers = []*run.GoogleCloudRunV2Container{container}
+
+	if config.MinInstances != nil || config.MaxInstances != nil {
+		scaling := &run.GoogleCloudRunV2RevisionScaling{}
+		if config.MinInstances != nil {
+			scaling.MinInstanceCount = *config.MinInstances
+		}
+		if config.MaxInstances != nil {
+			scaling.MaxInstanceCount = *config.MaxInstances
+		}
+		template.Scaling = scaling
+	}
+	if config.Concurrency != nil {
+		template.MaxInstanceRequestConcurrency = *config.Concurrency
+	}
+	if config.Timeout != nil {
+		template.Timeout = fmt.Sprintf("%ds", *config.Timeout)
+	}
+	if config.ServiceAccount != nil {
+		template.ServiceAccount = *config.ServiceAccount
+	}
+	if config.VPCConnector != nil || config.VPCEgress != nil {
+		vpcAccess := &run.GoogleCloudRunV2VpcAccess{}
+		if config.VPCConnector != nil {
+			vpcAccess.Connector = *config.VPCConnector
+		}
+		if config.VPCEgress != nil {
+			vpcAccess.Egress = *config.VPCEgress
+		}
+		template.VpcAccess = vpcAccess
+	}
+
+	svc.Template = template
+	return svc
+}
+
 // cloudRunServiceFromAPI converts an API service to our list-view summary
 func cloudRunServiceFromAPI(svc *run.GoogleCloudRunV2Service) CloudRunService {
 	return CloudRunService{
@@ -248,6 +524,7 @@ func cloudRunServiceDetailsFromAPI(svc *run.GoogleCloudRunV2Service) *CloudRunSe
 		Status:         deriveStatus(svc),
 		Description:    svc.Description,
 		Ingress:        formatIngress(svc.Ingress),
+		IngressRaw:     svc.Ingress,
 		Labels:         svc.Labels,
 		CreatedAt:      svc.CreateTime,
 		UpdatedAt:      svc.UpdateTime,
@@ -267,6 +544,8 @@ func cloudRunServiceDetailsFromAPI(svc *run.GoogleCloudRunV2Service) *CloudRunSe
 		if len(svc.Template.Containers) > 0 {
 			container := svc.Template.Containers[0]
 			details.ContainerImage = container.Image
+			details.Command = container.Command
+			details.Args = container.Args
 
 			if len(container.Ports) > 0 {
 				details.ContainerPort = container.Ports[0].ContainerPort
@@ -303,6 +582,12 @@ func cloudRunServiceDetailsFromAPI(svc *run.GoogleCloudRunV2Service) *CloudRunSe
 		if svc.Template.Scaling != nil {
 			details.MinInstances = svc.Template.Scaling.MinInstanceCount
 			details.MaxInstances = svc.Template.Scaling.MaxInstanceCount
+		}
+
+		// VPC access configuration
+		if svc.Template.VpcAccess != nil {
+			details.VPCConnector = svc.Template.VpcAccess.Connector
+			details.VPCEgress = formatVPCEgress(svc.Template.VpcAccess.Egress)
 		}
 	}
 
@@ -433,6 +718,18 @@ func formatIngress(ingress string) string {
 		return "None"
 	default:
 		return ingress
+	}
+}
+
+// formatVPCEgress converts the API VPC egress value to a human-readable string
+func formatVPCEgress(egress string) string {
+	switch egress {
+	case "ALL_TRAFFIC":
+		return "All traffic"
+	case "PRIVATE_RANGES_ONLY":
+		return "Private ranges only"
+	default:
+		return egress
 	}
 }
 

@@ -101,6 +101,7 @@ type crServiceDetailsKeyMap struct {
 	Down         key.Binding
 	Refresh      key.Binding
 	Delete       key.Binding
+	Edit         key.Binding
 	TrafficSplit key.Binding
 	ActionMenu   key.Binding
 }
@@ -122,6 +123,10 @@ func defaultCRServiceDetailsKeyMap() crServiceDetailsKeyMap {
 		Delete: key.NewBinding(
 			key.WithKeys("D"),
 			key.WithHelp("D", "delete"),
+		),
+		Edit: key.NewBinding(
+			key.WithKeys("e"),
+			key.WithHelp("e", "edit service"),
 		),
 		TrafficSplit: key.NewBinding(
 			key.WithKeys("t"),
@@ -335,6 +340,18 @@ func (v *CloudRunServiceDetailsView) Update(msg tea.Msg) tea.Cmd {
 		case key.Matches(msg, v.keys.Delete):
 			return v.initiateDelete()
 
+		case key.Matches(msg, v.keys.Edit):
+			if v.details != nil {
+				return func() tea.Msg {
+					return CloudRunEditRequestMsg{
+						ProjectID:   v.projectID,
+						ServiceName: v.serviceName,
+						FullName:    v.fullName,
+					}
+				}
+			}
+			return nil
+
 		case key.Matches(msg, v.keys.TrafficSplit):
 			// Only allow traffic editing from the Revisions tab
 			if v.tabs.ActiveTab().ID == runTabIDRevisions && v.details != nil && len(v.revisions) > 0 {
@@ -366,6 +383,7 @@ func (v *CloudRunServiceDetailsView) Update(msg tea.Msg) tea.Cmd {
 func (v *CloudRunServiceDetailsView) buildActions() []actionmenu.Action {
 	actions := []actionmenu.Action{
 		{Key: 'r', Label: "Refresh", Enabled: true},
+		{Key: 'e', Label: "Edit Service", Enabled: true},
 	}
 
 	// Traffic editing is only available on the Revisions tab
@@ -384,6 +402,16 @@ func (v *CloudRunServiceDetailsView) executeAction(actionKey rune) tea.Cmd {
 	case 't':
 		if v.tabs.ActiveTab().ID == runTabIDRevisions && v.details != nil && len(v.revisions) > 0 {
 			return v.openTrafficDialog()
+		}
+	case 'e':
+		if v.details != nil {
+			return func() tea.Msg {
+				return CloudRunEditRequestMsg{
+					ProjectID:   v.projectID,
+					ServiceName: v.serviceName,
+					FullName:    v.fullName,
+				}
+			}
 		}
 	case 'D':
 		return v.initiateDelete()

@@ -264,6 +264,9 @@ On developing or updating a new feature keep in mind the following guidelines:
   - Delete service with type-to-confirm
   - Container config, scaling, environment variables, labels display
   - Revision list with traffic percentages and status indicators
+  - Edit existing service configuration with diff preview before deploy
+  - Create new services with full form (container, scaling, networking, security)
+  - Form-based editor with 7 sections and validation
 
 ## Planned Features
 - [ ] Subnets list and management
