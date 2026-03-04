@@ -49,6 +49,7 @@ type CloudRunServiceDetails struct {
 	// Networking
 	VPCConnector string // Full VPC connector resource name
 	VPCEgress    string // Human-readable egress setting
+	VPCEgressRaw string // Raw API value for round-tripping through edit forms
 
 	// Raw API ingress value for round-tripping through edit forms
 	IngressRaw string
@@ -624,6 +625,7 @@ func cloudRunServiceDetailsFromAPI(svc *run.GoogleCloudRunV2Service) *CloudRunSe
 		if svc.Template.VpcAccess != nil {
 			details.VPCConnector = svc.Template.VpcAccess.Connector
 			details.VPCEgress = formatVPCEgress(svc.Template.VpcAccess.Egress)
+			details.VPCEgressRaw = svc.Template.VpcAccess.Egress
 		}
 	}
 

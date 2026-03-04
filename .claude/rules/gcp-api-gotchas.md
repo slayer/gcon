@@ -58,3 +58,81 @@ os.WriteFile("key.json", keyJSON, 0600)
 ```
 
 The resulting JSON file should contain `type`, `project_id`, `private_key_id`, `private_key`, etc. If you see a base64 string instead, you forgot to decode.
+
+## Cloud Run: Container array replacement on Patch
+
+The Cloud Run v2 API replaces the entire `template.containers` array atomically when the update mask includes `template.containers`. Unlike field-level patching, this means **every field in the container must be populated** in the request — any omitted field resets to its zero value.
+
+This is especially dangerous for:
+- **Secret-ref environment variables**: If the edit form excludes secret refs (since users can't edit them), they get deleted on update
+- **Non-modeled fields**: `LivenessProbe`, `StartupProbe`, `VolumeMounts`, `WorkingDir` are wiped if not re-sent
+- **Ports, resources, command/args**: Omitting these clears them silently
+
+```go
+// Wrong — only sets image, all other container fields reset to zero
+container := &run.GoogleCloudRunV2Container{
+    Image: "gcr.io/project/image:v2",
+}
+template.Containers = []*run.GoogleCloudRunV2Container{container}
+
+// Correct — clone original, overlay only changed fields
+clone := *originalContainer  // shallow copy preserves probes, volumes, etc.
+container := &clone
+container.Image = "gcr.io/project/image:v2"
+template.Containers = []*run.GoogleCloudRunV2Container{container}
+```
+
+For env vars, secret-ref env vars (`ValueSource != nil`) must be merged back from the original:
+
+```go
+// Re-add secret refs from original alongside plain-text updates
+for _, origEnv := range originalContainer.Env {
+    if origEnv.ValueSource != nil {
+        envs = append(envs, origEnv)
+    }
+}
+```
+
+**Rule**: When updating containers, always start from the existing container spec and modify individual fields. Never build a container from scratch with only the changed fields.
+
+## Cloud Run: VPC Access mutual exclusivity (Connector vs NetworkInterfaces)
+
+The Cloud Run v2 API's `VpcAccess` struct has two mutually exclusive fields: `Connector` (Serverless VPC Access connector) and `NetworkInterfaces` (Direct VPC egress). The API enforces **exactly one** must be set — sending both (even if one is empty with `ForceSendFields`) causes HTTP 400.
+
+This is dangerous during edits because `template.vpcAccess` in the update mask replaces the entire VPC access block atomically (same pattern as containers). Sending a partial `VpcAccess` with only `Egress` wipes the original `NetworkInterfaces` or `Connector`.
+
+```go
+// Wrong — always sends VPC access, even if unchanged
+// On a service with Direct VPC egress (NetworkInterfaces), this sends
+// Connector="" which conflicts with the original NetworkInterfaces
+if vpc == "" {
+    update.VPCConnector = &empty  // triggers VpcAccess block in patch
+}
+
+// Correct — only include VPC fields when user actually changed them
+if vpc != origConnector {
+    update.VPCConnector = &vpc
+}
+if egress != origEgressRaw {
+    update.VPCEgress = &egress
+}
+```
+
+**Rule**: For sub-objects that the API replaces atomically (`vpcAccess`, `containers`), only include them in the update when values actually changed. Compare against the original to detect real changes.
+
+## ForceSendFields required for Create operations too
+
+`ForceSendFields` is needed not just for Patch but also for Create when intentionally setting zero values. Common case: `MinInstanceCount = 0` (scale-to-zero) is omitted from JSON because `int64(0)` is a zero value.
+
+```go
+// Wrong — MinInstanceCount=0 omitted, API may use a non-zero default
+scaling := &run.GoogleCloudRunV2RevisionScaling{
+    MinInstanceCount: 0,
+}
+
+// Correct — explicitly include zero value
+scaling := &run.GoogleCloudRunV2RevisionScaling{
+    MinInstanceCount: 0,
+    ForceSendFields:  []string{"MinInstanceCount"},
+}
+```

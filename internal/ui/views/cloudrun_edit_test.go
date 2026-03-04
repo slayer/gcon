@@ -156,8 +156,8 @@ func TestCloudRunEditView_BuildUpdateEmptyCommand(t *testing.T) {
 	assert.Empty(t, update.Args)
 	// Empty env_vars should produce empty map
 	assert.Empty(t, update.EnvVars)
-	// Empty vpc_connector should be set to empty string to clear
-	assert.Equal(t, "", *update.VPCConnector)
+	// Empty vpc_connector should be nil (no change) to avoid conflicting with NetworkInterfaces
+	assert.Nil(t, update.VPCConnector)
 }
 
 func TestCloudRunEditView_PopulateFormFromOriginal(t *testing.T) {
@@ -178,6 +178,7 @@ func TestCloudRunEditView_PopulateFormFromOriginal(t *testing.T) {
 		IngressRaw:     "INGRESS_TRAFFIC_ALL",
 		VPCConnector:   "projects/p/locations/r/connectors/c",
 		VPCEgress:      "All traffic",
+		VPCEgressRaw:   "ALL_TRAFFIC",
 		ServiceAccount: "sa@proj.iam.gserviceaccount.com",
 		EnvVars: map[string]string{
 			"PORT":    "8080",

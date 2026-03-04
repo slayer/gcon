@@ -255,6 +255,32 @@ See: `bucket_create.go`, `instance_editor.go`
 
 ## Anti-Patterns
 
+### Don't Reverse-Map Display Strings to API Values
+
+When populating a form from existing data for editing, never reverse-map human-readable display labels back to API enum values. Display strings are fragile — if they change, the reverse mapping silently fails.
+
+```go
+// WRONG - fragile reverse mapping from display strings
+switch details.VPCEgress {  // "All traffic" (human-readable)
+case "All traffic":
+    data["vpc_egress"] = "ALL_TRAFFIC"
+case "Private ranges only":
+    data["vpc_egress"] = "PRIVATE_RANGES_ONLY"
+default:
+    data["vpc_egress"] = ""  // Silent data loss if label changes
+}
+
+// CORRECT - store raw API values alongside display strings
+type ServiceDetails struct {
+    VPCEgress    string  // "All traffic" (for display)
+    VPCEgressRaw string  // "ALL_TRAFFIC" (for form round-tripping)
+}
+// Then use the raw value directly:
+data["vpc_egress"] = details.VPCEgressRaw
+```
+
+**Rule**: Details/model structs should carry raw API enum values (with `Raw` suffix) when those values need to survive a form edit round-trip.
+
 ### Don't Modify textInput Directly
 
 ```go

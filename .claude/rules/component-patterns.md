@@ -168,6 +168,33 @@ func (v *View) loadData() tea.Cmd {
 }
 ```
 
+## Dialog Update() Must Accept tea.Msg (Not Just tea.KeyMsg)
+
+Dialogs with text inputs (e.g., traffic split editor, inline editors) must accept `tea.Msg` in their `Update()` method, not just `tea.KeyMsg`. The `textinput.Model` component emits blink commands (`textinput.Blink`) that must be processed for the cursor to blink.
+
+```go
+// WRONG - cursor never blinks, textinput commands lost
+func (d *MyDialog) Update(msg tea.KeyMsg) (tea.Cmd, bool) {
+    // Only handles key events
+    d.input, _ = d.input.Update(msg)
+    return nil, false
+}
+
+// CORRECT - handles all message types including cursor blink
+func (d *MyDialog) Update(msg tea.Msg) (tea.Cmd, bool) {
+    switch msg := msg.(type) {
+    case tea.KeyMsg:
+        // Handle navigation, submit, cancel...
+    }
+    // Pass all messages to focused input for blink/cursor updates
+    var cmd tea.Cmd
+    d.input, cmd = d.input.Update(msg)
+    return cmd, false
+}
+```
+
+**Symptom**: Text input works (typing, cursor movement) but cursor doesn't blink. Functional but UX-inconsistent.
+
 ## Text Input Focus Handling (TextInputFocusable)
 
 **Critical**: Views that show dialogs or modals with text input MUST implement `HasTextInputFocused()`.

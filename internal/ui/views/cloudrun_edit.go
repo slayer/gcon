@@ -489,15 +489,8 @@ func (v *CloudRunEditView) populateFormFromOriginal() {
 		"service_account": d.ServiceAccount,
 	}
 
-	// VPC egress: map human-readable back to API value
-	switch d.VPCEgress {
-	case "All traffic":
-		data["vpc_egress"] = "ALL_TRAFFIC"
-	case "Private ranges only":
-		data["vpc_egress"] = "PRIVATE_RANGES_ONLY"
-	default:
-		data["vpc_egress"] = ""
-	}
+	// VPC egress: use raw API value directly (no reverse-mapping from display strings)
+	data["vpc_egress"] = d.VPCEgressRaw
 
 	// Format env vars as KEY=value text, noting secret refs
 	data["env_vars"] = formatEnvVarsForEdit(d.EnvVars)
@@ -744,17 +737,26 @@ func (v *CloudRunEditView) buildUpdate() *gcp.CloudRunServiceUpdate {
 	// Env vars: parse from KEY=value text, merging with preserved secret refs
 	update.EnvVars = v.buildEnvVars(data)
 
-	// VPC connector: only set if non-empty
-	if vpc, ok := data["vpc_connector"].(string); ok && vpc != "" {
-		update.VPCConnector = &vpc
-	} else {
-		empty := ""
-		update.VPCConnector = &empty
+	// VPC access: only include if user actually changed values.
+	// Sending VpcAccess without both connector/network_interfaces causes API errors
+	// on services using Direct VPC egress (NetworkInterfaces instead of Connector).
+	if vpc, ok := data["vpc_connector"].(string); ok {
+		origConnector := ""
+		if v.original != nil {
+			origConnector = v.original.VPCConnector
+		}
+		if vpc != origConnector {
+			update.VPCConnector = &vpc
+		}
 	}
-
-	// VPC egress: only set if connector is specified
-	if egress, ok := data["vpc_egress"].(string); ok && egress != "" {
-		update.VPCEgress = &egress
+	if egress, ok := data["vpc_egress"].(string); ok {
+		origEgress := ""
+		if v.original != nil {
+			origEgress = v.original.VPCEgressRaw
+		}
+		if egress != origEgress {
+			update.VPCEgress = &egress
+		}
 	}
 
 	// Pass original container for safe merging (preserves probes, volume mounts, secret env vars)
