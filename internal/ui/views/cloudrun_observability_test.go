@@ -155,7 +155,7 @@ func TestCloudRunObservability_RenderView_WithMetrics(t *testing.T) {
 
 	assert.Contains(t, view, "Request Count")
 	assert.Contains(t, view, "CPU Usage")
-	assert.Contains(t, view, "Memory Usage")
+	assert.Contains(t, view, "Billable Instance Time")
 	assert.Contains(t, view, "Instance Count")
 	assert.Contains(t, view, "Logs")
 }

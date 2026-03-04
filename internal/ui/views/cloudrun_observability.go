@@ -323,29 +323,22 @@ func (o *cloudRunObservability) renderResourceMetrics(b *strings.Builder, sectio
 	m := o.metrics
 	sparkWidth := min(o.width-12, 50)
 
-	// CPU utilization
+	// CPU usage — values are vCPU-seconds/second (1.0 = 1 full vCPU)
 	b.WriteString(sectionStyle.Render("CPU Usage"))
 	b.WriteString("\n")
 	b.WriteString(strings.Repeat("━", min(o.width-4, 60)))
 	b.WriteString("\n")
 	if len(m.CPU) > 0 {
-		// CPU values are 0-1 fraction; convert to percentage for display
-		cpuValues := make([]float64, len(m.CPU))
-		for i, dp := range m.CPU {
-			cpuValues[i] = dp.Value * 100
-		}
-
+		cpuValues := extractValues(m.CPU)
 		sparkline := components.RenderSparkline(cpuValues, sparkWidth)
 		fmt.Fprintf(b, "  Trend (%s): %s\n", formatDuration(o.timeRange), sparkline)
 
 		current := cpuValues[len(cpuValues)-1]
 		avg, peak, peakTime := calculateStats(m.CPU)
-		avg *= 100
-		peak *= 100
-
-		bar := components.RenderMetricBar("", current, avg, peak, peakTime, o.width-4)
-		b.WriteString("  ")
-		b.WriteString(bar)
+		fmt.Fprintf(b, "     Current: %.2f vCPU  |  Avg: %.2f vCPU  |  Peak: %.2f vCPU", current, avg, peak)
+		if !peakTime.IsZero() {
+			fmt.Fprintf(b, " (%s)", peakTime.Format("3:04 PM"))
+		}
 		b.WriteString("\n")
 	} else {
 		b.WriteString(mutedStyle.Render("  No CPU data available"))
@@ -353,31 +346,25 @@ func (o *cloudRunObservability) renderResourceMetrics(b *strings.Builder, sectio
 	}
 	b.WriteString("\n")
 
-	// Memory utilization
-	b.WriteString(sectionStyle.Render("Memory Usage"))
+	// Billable instance time — proxy for activity level (no direct memory utilization metric)
+	b.WriteString(sectionStyle.Render("Billable Instance Time"))
 	b.WriteString("\n")
 	b.WriteString(strings.Repeat("━", min(o.width-4, 60)))
 	b.WriteString("\n")
 	if len(m.Memory) > 0 {
-		memValues := make([]float64, len(m.Memory))
-		for i, dp := range m.Memory {
-			memValues[i] = dp.Value * 100
-		}
-
-		sparkline := components.RenderSparkline(memValues, sparkWidth)
+		values := extractValues(m.Memory)
+		sparkline := components.RenderSparkline(values, sparkWidth)
 		fmt.Fprintf(b, "  Trend (%s): %s\n", formatDuration(o.timeRange), sparkline)
 
-		current := memValues[len(memValues)-1]
+		current := values[len(values)-1]
 		avg, peak, peakTime := calculateStats(m.Memory)
-		avg *= 100
-		peak *= 100
-
-		bar := components.RenderMetricBar("", current, avg, peak, peakTime, o.width-4)
-		b.WriteString("  ")
-		b.WriteString(bar)
+		fmt.Fprintf(b, "     Current: %.2f  |  Avg: %.2f  |  Peak: %.2f", current, avg, peak)
+		if !peakTime.IsZero() {
+			fmt.Fprintf(b, " (%s)", peakTime.Format("3:04 PM"))
+		}
 		b.WriteString("\n")
 	} else {
-		b.WriteString(mutedStyle.Render("  No memory data available"))
+		b.WriteString(mutedStyle.Render("  No billable instance data available"))
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")

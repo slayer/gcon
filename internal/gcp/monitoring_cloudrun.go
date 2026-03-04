@@ -77,18 +77,21 @@ func (c *MonitoringClient) GetCloudRunRequestLatencies(ctx context.Context, serv
 	return p50, p95, p99, nil
 }
 
-// GetCloudRunCPUUtilization fetches container CPU utilization (0-1 range).
-// Uses REDUCE_MEAN to average across all revisions/instances.
+// GetCloudRunCPUUtilization fetches container CPU usage as vCPU-seconds/second.
+// Uses allocation_time (DELTA counter) with ALIGN_RATE to get instantaneous vCPU usage.
+// A value of 1.0 means 1 full vCPU is being used.
 func (c *MonitoringClient) GetCloudRunCPUUtilization(ctx context.Context, serviceName string, duration time.Duration) ([]DataPoint, error) {
-	filter := cloudRunFilter(serviceName, "run.googleapis.com/container/cpu/utilization")
-	return c.fetchCloudRunMetric(ctx, filter, duration, monitoringpb.Aggregation_ALIGN_MEAN, monitoringpb.Aggregation_REDUCE_MEAN)
+	filter := cloudRunFilter(serviceName, "run.googleapis.com/container/cpu/allocation_time")
+	return c.fetchCloudRunMetric(ctx, filter, duration, monitoringpb.Aggregation_ALIGN_RATE, monitoringpb.Aggregation_REDUCE_SUM)
 }
 
-// GetCloudRunMemoryUtilization fetches container memory utilization (0-1 range).
-// Uses REDUCE_MEAN to average across all revisions/instances.
+// GetCloudRunMemoryUtilization fetches container memory usage in bytes.
+// Uses billable_instance_time as a proxy — this metric exists when instances are active.
+// Note: Cloud Run doesn't expose a direct memory utilization percentage metric.
+// Returns empty data if no billable instance time exists (service idle).
 func (c *MonitoringClient) GetCloudRunMemoryUtilization(ctx context.Context, serviceName string, duration time.Duration) ([]DataPoint, error) {
-	filter := cloudRunFilter(serviceName, "run.googleapis.com/container/memory/utilization")
-	return c.fetchCloudRunMetric(ctx, filter, duration, monitoringpb.Aggregation_ALIGN_MEAN, monitoringpb.Aggregation_REDUCE_MEAN)
+	filter := cloudRunFilter(serviceName, "run.googleapis.com/container/billable_instance_time")
+	return c.fetchCloudRunMetric(ctx, filter, duration, monitoringpb.Aggregation_ALIGN_RATE, monitoringpb.Aggregation_REDUCE_SUM)
 }
 
 // GetCloudRunInstanceCount fetches active instance count over time.
