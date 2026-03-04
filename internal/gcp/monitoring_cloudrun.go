@@ -28,7 +28,7 @@ type CloudRunMetrics struct {
 
 // cloudRunFilter builds a filter scoped to a specific Cloud Run service.
 func cloudRunFilter(serviceName, metricType string) string {
-	return fmt.Sprintf(
+	return fmt.Sprintf( //nolint:gocritic // GCP filter syntax requires double quotes
 		`resource.type = "cloud_run_revision" AND resource.labels.service_name = "%s" AND metric.type = "%s"`,
 		serviceName, metricType,
 	)
@@ -42,7 +42,7 @@ func (c *MonitoringClient) GetCloudRunRequestCount(ctx context.Context, serviceN
 
 // GetCloudRunRequestCountByCode fetches request count filtered by response code class (e.g. "2xx", "4xx", "5xx").
 func (c *MonitoringClient) GetCloudRunRequestCountByCode(ctx context.Context, serviceName, codeClass string, duration time.Duration) ([]DataPoint, error) {
-	filter := fmt.Sprintf(
+	filter := fmt.Sprintf( //nolint:gocritic // GCP filter syntax requires double quotes
 		`resource.type = "cloud_run_revision" AND resource.labels.service_name = "%s" AND metric.type = "run.googleapis.com/request_count" AND metric.labels.response_code_class = "%s"`,
 		serviceName, codeClass,
 	)

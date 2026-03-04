@@ -104,7 +104,7 @@ func (c *LoggingClient) GetCloudRunLogs(
 	limit int,
 ) ([]LogEntry, error) {
 	// Filter by Cloud Run revision resource with the given service name
-	filter := fmt.Sprintf(`resource.type="cloud_run_revision" AND resource.labels.service_name="%s"`, serviceName)
+	filter := fmt.Sprintf(`resource.type="cloud_run_revision" AND resource.labels.service_name="%s"`, serviceName) //nolint:gocritic // GCP filter syntax requires double quotes
 
 	// Optionally restrict to specific severity levels
 	if len(severities) > 0 {
@@ -152,7 +152,7 @@ func (c *LoggingClient) GetCloudRunLogs(
 func severityORClauses(severities []string) []string {
 	clauses := make([]string, len(severities))
 	for i, s := range severities {
-		clauses[i] = fmt.Sprintf(`severity="%s"`, s)
+		clauses[i] = fmt.Sprintf(`severity="%s"`, s) //nolint:gocritic // GCP filter syntax requires double quotes
 	}
 	return clauses
 }

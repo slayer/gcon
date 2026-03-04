@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components"
+	uierrors "github.com/slayer/gcon/internal/ui/errors"
 )
 
 // Internal messages for Cloud Run observability data loading.
@@ -203,7 +204,7 @@ func (o *cloudRunObservability) View() string {
 
 	// Loading state (first load, no cached data)
 	if o.metricsLoading && o.metrics == nil {
-		b.WriteString(fmt.Sprintf("  %s Loading metrics...\n\n", o.spinner.View()))
+		fmt.Fprintf(&b, "  %s Loading metrics...\n\n", o.spinner.View())
 		return b.String()
 	}
 
@@ -246,13 +247,13 @@ func (o *cloudRunObservability) renderRequestMetrics(b *strings.Builder, section
 	if len(m.RequestCount) > 0 {
 		values := extractValues(m.RequestCount)
 		sparkline := components.RenderSparkline(values, sparkWidth)
-		b.WriteString(fmt.Sprintf("  Trend (%s): %s\n", formatDuration(o.timeRange), sparkline))
+		fmt.Fprintf(b, "  Trend (%s): %s\n", formatDuration(o.timeRange), sparkline)
 
 		avg, peak, peakTime := calculateStats(m.RequestCount)
 		current := values[len(values)-1]
-		b.WriteString(fmt.Sprintf("     Current: %.1f req/s  |  Avg: %.1f req/s  |  Peak: %.1f req/s", current, avg, peak))
+		fmt.Fprintf(b, "     Current: %.1f req/s  |  Avg: %.1f req/s  |  Peak: %.1f req/s", current, avg, peak)
 		if !peakTime.IsZero() {
-			b.WriteString(fmt.Sprintf(" (%s)", peakTime.Format("3:04 PM")))
+			fmt.Fprintf(b, " (%s)", peakTime.Format("3:04 PM"))
 		}
 		b.WriteString("\n")
 	} else {
@@ -281,8 +282,8 @@ func (o *cloudRunObservability) renderRequestMetrics(b *strings.Builder, section
 				sparkline := components.RenderSparkline(values, sparkWidth)
 				avg, peak, _ := calculateStats(entry.data)
 				current := values[len(values)-1]
-				b.WriteString(fmt.Sprintf("  %s: %s  (cur: %.0fms  avg: %.0fms  peak: %.0fms)\n",
-					entry.label, sparkline, current, avg, peak))
+				fmt.Fprintf(b, "  %s: %s  (cur: %.0fms  avg: %.0fms  peak: %.0fms)\n",
+					entry.label, sparkline, current, avg, peak)
 			}
 		}
 	} else {
@@ -302,13 +303,13 @@ func (o *cloudRunObservability) renderRequestMetrics(b *strings.Builder, section
 			values := extractValues(m.ErrorCount4xx)
 			sparkline := components.RenderSparkline(values, sparkWidth)
 			avg, _, _ := calculateStats(m.ErrorCount4xx)
-			b.WriteString(fmt.Sprintf("  4xx: %s  (avg: %.1f/s)\n", sparkline, avg))
+			fmt.Fprintf(b, "  4xx: %s  (avg: %.1f/s)\n", sparkline, avg)
 		}
 		if len(m.ErrorCount5xx) > 0 {
 			values := extractValues(m.ErrorCount5xx)
 			sparkline := components.RenderSparkline(values, sparkWidth)
 			avg, _, _ := calculateStats(m.ErrorCount5xx)
-			b.WriteString(fmt.Sprintf("  5xx: %s  (avg: %.1f/s)\n", sparkline, avg))
+			fmt.Fprintf(b, "  5xx: %s  (avg: %.1f/s)\n", sparkline, avg)
 		}
 	} else {
 		b.WriteString(mutedStyle.Render("  No error data available"))
@@ -335,7 +336,7 @@ func (o *cloudRunObservability) renderResourceMetrics(b *strings.Builder, sectio
 		}
 
 		sparkline := components.RenderSparkline(cpuValues, sparkWidth)
-		b.WriteString(fmt.Sprintf("  Trend (%s): %s\n", formatDuration(o.timeRange), sparkline))
+		fmt.Fprintf(b, "  Trend (%s): %s\n", formatDuration(o.timeRange), sparkline)
 
 		current := cpuValues[len(cpuValues)-1]
 		avg, peak, peakTime := calculateStats(m.CPU)
@@ -364,7 +365,7 @@ func (o *cloudRunObservability) renderResourceMetrics(b *strings.Builder, sectio
 		}
 
 		sparkline := components.RenderSparkline(memValues, sparkWidth)
-		b.WriteString(fmt.Sprintf("  Trend (%s): %s\n", formatDuration(o.timeRange), sparkline))
+		fmt.Fprintf(b, "  Trend (%s): %s\n", formatDuration(o.timeRange), sparkline)
 
 		current := memValues[len(memValues)-1]
 		avg, peak, peakTime := calculateStats(m.Memory)
@@ -389,13 +390,13 @@ func (o *cloudRunObservability) renderResourceMetrics(b *strings.Builder, sectio
 	if len(m.InstanceCount) > 0 {
 		values := extractValues(m.InstanceCount)
 		sparkline := components.RenderSparkline(values, sparkWidth)
-		b.WriteString(fmt.Sprintf("  Trend (%s): %s\n", formatDuration(o.timeRange), sparkline))
+		fmt.Fprintf(b, "  Trend (%s): %s\n", formatDuration(o.timeRange), sparkline)
 
 		avg, peak, peakTime := calculateStats(m.InstanceCount)
 		current := values[len(values)-1]
-		b.WriteString(fmt.Sprintf("     Current: %.0f  |  Avg: %.1f  |  Peak: %.0f", current, avg, peak))
+		fmt.Fprintf(b, "     Current: %.0f  |  Avg: %.1f  |  Peak: %.0f", current, avg, peak)
 		if !peakTime.IsZero() {
-			b.WriteString(fmt.Sprintf(" (%s)", peakTime.Format("3:04 PM")))
+			fmt.Fprintf(b, " (%s)", peakTime.Format("3:04 PM"))
 		}
 		b.WriteString("\n")
 	} else {
@@ -441,7 +442,7 @@ func (o *cloudRunObservability) renderLogs(b *strings.Builder, sectionStyle, mut
 	// Log entries
 	switch {
 	case o.logsLoading && len(o.logs) == 0:
-		b.WriteString(fmt.Sprintf("  %s Loading logs...\n", o.spinner.View()))
+		fmt.Fprintf(b, "  %s Loading logs...\n", o.spinner.View())
 	case o.logsError != nil && len(o.logs) == 0:
 		b.WriteString(errorStyle.Render(fmt.Sprintf("  ✗ Error loading logs: %s", o.logsError.Error())))
 		b.WriteString("\n")
@@ -459,10 +460,10 @@ func (o *cloudRunObservability) renderLogs(b *strings.Builder, sectionStyle, mut
 					severityColor = "#9AA0A6"
 				}
 				sevStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(severityColor)).Bold(true)
-				b.WriteString(fmt.Sprintf("  %s [%s] %s\n",
+				fmt.Fprintf(b, "  %s [%s] %s\n",
 					log.Timestamp.Format("15:04:05"),
 					sevStyle.Render(log.Severity),
-					truncate(log.Message, max(o.width-30, 20))))
+					truncate(log.Message, max(o.width-30, 20)))
 			}
 		} else {
 			b.WriteString(mutedStyle.Render("  No logs matching current filter"))
@@ -481,7 +482,7 @@ func (o *cloudRunObservability) loadMetrics() tea.Cmd {
 
 	return func() tea.Msg {
 		if client == nil {
-			return crMetricsErrorMsg{err: fmt.Errorf("GCP client not initialized")}
+			return crMetricsErrorMsg{err: uierrors.ErrGCPClientNotInitialized}
 		}
 
 		monClient, err := client.GetMonitoringClient(projectID)
@@ -493,13 +494,13 @@ func (o *cloudRunObservability) loadMetrics() tea.Cmd {
 		metrics := &gcp.CloudRunMetrics{LastFetch: time.Now()}
 
 		// Fetch each metric independently; failures for individual metrics are non-fatal
-		metrics.RequestCount, _ = monClient.GetCloudRunRequestCount(ctx, serviceName, timeRange)
-		metrics.Latency50, metrics.Latency95, metrics.Latency99, _ = monClient.GetCloudRunRequestLatencies(ctx, serviceName, timeRange)
-		metrics.ErrorCount4xx, _ = monClient.GetCloudRunRequestCountByCode(ctx, serviceName, "4xx", timeRange)
-		metrics.ErrorCount5xx, _ = monClient.GetCloudRunRequestCountByCode(ctx, serviceName, "5xx", timeRange)
-		metrics.CPU, _ = monClient.GetCloudRunCPUUtilization(ctx, serviceName, timeRange)
-		metrics.Memory, _ = monClient.GetCloudRunMemoryUtilization(ctx, serviceName, timeRange)
-		metrics.InstanceCount, _ = monClient.GetCloudRunInstanceCount(ctx, serviceName, timeRange)
+		metrics.RequestCount, _ = monClient.GetCloudRunRequestCount(ctx, serviceName, timeRange)                                       //nolint:errcheck // non-fatal: empty data shown if unavailable
+		metrics.Latency50, metrics.Latency95, metrics.Latency99, _ = monClient.GetCloudRunRequestLatencies(ctx, serviceName, timeRange) //nolint:errcheck // non-fatal: empty data shown if unavailable
+		metrics.ErrorCount4xx, _ = monClient.GetCloudRunRequestCountByCode(ctx, serviceName, "4xx", timeRange)                         //nolint:errcheck // non-fatal: empty data shown if unavailable
+		metrics.ErrorCount5xx, _ = monClient.GetCloudRunRequestCountByCode(ctx, serviceName, "5xx", timeRange)                         //nolint:errcheck // non-fatal: empty data shown if unavailable
+		metrics.CPU, _ = monClient.GetCloudRunCPUUtilization(ctx, serviceName, timeRange)                                              //nolint:errcheck // non-fatal: empty data shown if unavailable
+		metrics.Memory, _ = monClient.GetCloudRunMemoryUtilization(ctx, serviceName, timeRange)                                        //nolint:errcheck // non-fatal: empty data shown if unavailable
+		metrics.InstanceCount, _ = monClient.GetCloudRunInstanceCount(ctx, serviceName, timeRange)                                     //nolint:errcheck // non-fatal: empty data shown if unavailable
 
 		return crMetricsLoadedMsg{metrics: metrics}
 	}
@@ -513,7 +514,7 @@ func (o *cloudRunObservability) loadLogs() tea.Cmd {
 
 	return func() tea.Msg {
 		if client == nil {
-			return crLogsErrorMsg{err: fmt.Errorf("GCP client not initialized")}
+			return crLogsErrorMsg{err: uierrors.ErrGCPClientNotInitialized}
 		}
 
 		logClient, err := client.GetLoggingClient(projectID)
