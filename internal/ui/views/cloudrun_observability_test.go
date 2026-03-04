@@ -185,6 +185,25 @@ func TestCloudRunObservability_RenderView_Error(t *testing.T) {
 	assert.Contains(t, view, "retry")
 }
 
+func TestFormatLatency(t *testing.T) {
+	tests := []struct {
+		ms       float64
+		expected string
+	}{
+		{0.5, "0.50ms"},
+		{42, "42ms"},
+		{999, "999ms"},
+		{1500, "1.5s"},
+		{59999, "60.0s"},
+		{60000, "1m"},
+		{90000, "1m 30s"},
+		{372343, "6m 12s"},
+	}
+	for _, tt := range tests {
+		assert.Equal(t, tt.expected, formatLatency(tt.ms), "formatLatency(%f)", tt.ms)
+	}
+}
+
 func TestCloudRunObservability_AutoRefreshToggle(t *testing.T) {
 	obs := newCloudRunObservability("p", "s", nil, nil)
 

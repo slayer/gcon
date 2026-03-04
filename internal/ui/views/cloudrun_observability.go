@@ -282,8 +282,8 @@ func (o *cloudRunObservability) renderRequestMetrics(b *strings.Builder, section
 				sparkline := components.RenderSparkline(values, sparkWidth)
 				avg, peak, _ := calculateStats(entry.data)
 				current := values[len(values)-1]
-				fmt.Fprintf(b, "  %s: %s  (cur: %.0fms  avg: %.0fms  peak: %.0fms)\n",
-					entry.label, sparkline, current, avg, peak)
+				fmt.Fprintf(b, "  %s: %s  (cur: %s  avg: %s  peak: %s)\n",
+					entry.label, sparkline, formatLatency(current), formatLatency(avg), formatLatency(peak))
 			}
 		}
 	} else {
@@ -597,6 +597,25 @@ func (o *cloudRunObservability) filteredLogs() []gcp.LogEntry {
 		}
 	}
 	return result
+}
+
+// formatLatency formats milliseconds into human-readable form (e.g., "123ms", "1.5s", "2m 30s")
+func formatLatency(ms float64) string {
+	switch {
+	case ms < 1:
+		return fmt.Sprintf("%.2fms", ms)
+	case ms < 1000:
+		return fmt.Sprintf("%.0fms", ms)
+	case ms < 60000:
+		return fmt.Sprintf("%.1fs", ms/1000)
+	default:
+		mins := int(ms / 60000)
+		secs := int(ms/1000) % 60
+		if secs == 0 {
+			return fmt.Sprintf("%dm", mins)
+		}
+		return fmt.Sprintf("%dm %ds", mins, secs)
+	}
 }
 
 // extractValues pulls float64 values from a slice of DataPoints.
