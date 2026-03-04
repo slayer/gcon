@@ -222,9 +222,9 @@ func TestCloudRunEditView_HasTextInputFocused(t *testing.T) {
 	// Before form init, should return false
 	assert.False(t, v.HasTextInputFocused())
 
-	// After form is built (constructor does this for create mode), should return true
-	// because form's first field is focused
-	assert.True(t, v.form != nil)
+	// After initialization, the first text input should be focused
+	v.Init()
+	assert.True(t, v.HasTextInputFocused())
 }
 
 func TestCloudRunEditView_SetError(t *testing.T) {

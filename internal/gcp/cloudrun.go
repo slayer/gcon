@@ -80,7 +80,10 @@ type CloudRunServiceDetails struct {
 }
 
 // CloudRunServiceUpdate contains the editable fields for a Cloud Run service.
-// Only non-nil/non-zero fields are included in the Patch request.
+// Only fields that are set participate in the Patch request: pointer fields are
+// included when non-nil (even if they point to a zero value), and slices/maps
+// are included when non-nil (with empty slices/maps typically meaning "clear").
+// Nil fields are left unchanged.
 type CloudRunServiceUpdate struct {
 	// Service-level
 	Description *string
@@ -506,9 +509,11 @@ func buildServiceFromConfig(config *CloudRunServiceUpdate) *run.GoogleCloudRunV2
 		scaling := &run.GoogleCloudRunV2RevisionScaling{}
 		if config.MinInstances != nil {
 			scaling.MinInstanceCount = *config.MinInstances
+			scaling.ForceSendFields = append(scaling.ForceSendFields, "MinInstanceCount")
 		}
 		if config.MaxInstances != nil {
 			scaling.MaxInstanceCount = *config.MaxInstances
+			scaling.ForceSendFields = append(scaling.ForceSendFields, "MaxInstanceCount")
 		}
 		template.Scaling = scaling
 	}

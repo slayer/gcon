@@ -32,6 +32,7 @@ const (
 var (
 	errInvalidServiceName = errors.New("invalid service name type")
 	errInvalidRegion      = errors.New("invalid region type")
+	errNoChanges          = errors.New("no changes to deploy")
 )
 
 // Internal messages
@@ -536,7 +537,15 @@ func (v *CloudRunEditView) showDiffPreview() tea.Cmd {
 		title = "Create Cloud Run Service"
 	}
 
-	v.diffViewer = diff.New(title, fields)
+	viewer := diff.New(title, fields)
+
+	// Don't allow no-op deploys in edit mode
+	if !v.isCreate && !viewer.HasChanges() {
+		v.err = errNoChanges
+		return nil
+	}
+
+	v.diffViewer = viewer
 
 	// Warn about container changes triggering new revision (edit mode)
 	if !v.isCreate && v.hasContainerChanges(data) {
@@ -707,35 +716,65 @@ func (v *CloudRunEditView) buildUpdate() *gcp.CloudRunServiceUpdate {
 		return &n
 	}
 
+	// For edit mode, only include fields that actually changed to avoid
+	// unnecessary revision creation. Container fields share one UpdateMask
+	// entry, so any container change triggers a new revision.
+	setIfChanged := func(key string, origVal string) *string {
+		val := getString(key)
+		if v.original != nil && *val == origVal {
+			return nil
+		}
+		return val
+	}
+	setInt64IfChanged := func(key string, origVal int64) *int64 {
+		val := getInt64(key)
+		if v.original != nil && *val == origVal {
+			return nil
+		}
+		return val
+	}
+
 	update := &gcp.CloudRunServiceUpdate{
-		Description:    getString("description"),
-		Ingress:        getString("ingress"),
-		Image:          getString("image"),
-		Port:           getInt64("port"),
-		CPU:            getString("cpu"),
-		Memory:         getString("memory"),
-		MinInstances:   getInt64("min_instances"),
-		MaxInstances:   getInt64("max_instances"),
-		Concurrency:    getInt64("concurrency"),
-		Timeout:        getInt64("timeout"),
-		ServiceAccount: getString("service_account"),
+		Description:    setIfChanged("description", v.origStr(func(d *gcp.CloudRunServiceDetails) string { return d.Description })),
+		Ingress:        setIfChanged("ingress", v.origStr(func(d *gcp.CloudRunServiceDetails) string { return d.IngressRaw })),
+		Image:          setIfChanged("image", v.origStr(func(d *gcp.CloudRunServiceDetails) string { return d.ContainerImage })),
+		Port:           setInt64IfChanged("port", v.origInt64(func(d *gcp.CloudRunServiceDetails) int64 { return d.ContainerPort })),
+		CPU:            setIfChanged("cpu", v.origStr(func(d *gcp.CloudRunServiceDetails) string { return d.CPU })),
+		Memory:         setIfChanged("memory", v.origStr(func(d *gcp.CloudRunServiceDetails) string { return d.Memory })),
+		MinInstances:   setInt64IfChanged("min_instances", v.origInt64(func(d *gcp.CloudRunServiceDetails) int64 { return d.MinInstances })),
+		MaxInstances:   setInt64IfChanged("max_instances", v.origInt64(func(d *gcp.CloudRunServiceDetails) int64 { return d.MaxInstances })),
+		Concurrency:    setInt64IfChanged("concurrency", v.origInt64(func(d *gcp.CloudRunServiceDetails) int64 { return d.Concurrency })),
+		Timeout:        setInt64IfChanged("timeout", v.origInt64(func(d *gcp.CloudRunServiceDetails) int64 { return d.TimeoutSeconds })),
+		ServiceAccount: setIfChanged("service_account", v.origStr(func(d *gcp.CloudRunServiceDetails) string { return d.ServiceAccount })),
 	}
 
-	// Command: split on spaces, nil means "don't change" but we always set from form
-	if cmd := strings.TrimSpace(*getString("command")); cmd != "" {
-		update.Command = strings.Fields(cmd)
-	} else {
-		update.Command = []string{} // Clear entrypoint
+	// Command/Args: nil = don't change, empty slice = clear.
+	// Only include when actually changed from original.
+	cmdStr := strings.TrimSpace(*getString("command"))
+	origCmd := strings.Join(v.origSlice(func(d *gcp.CloudRunServiceDetails) []string { return d.Command }), " ")
+	if cmdStr != origCmd {
+		if cmdStr != "" {
+			update.Command = strings.Fields(cmdStr)
+		} else {
+			update.Command = []string{} // Clear entrypoint
+		}
 	}
 
-	if args := strings.TrimSpace(*getString("args")); args != "" {
-		update.Args = strings.Fields(args)
-	} else {
-		update.Args = []string{} // Clear args
+	argsStr := strings.TrimSpace(*getString("args"))
+	origArgs := strings.Join(v.origSlice(func(d *gcp.CloudRunServiceDetails) []string { return d.Args }), " ")
+	if argsStr != origArgs {
+		if argsStr != "" {
+			update.Args = strings.Fields(argsStr)
+		} else {
+			update.Args = []string{} // Clear args
+		}
 	}
 
-	// Env vars: parse from KEY=value text, merging with preserved secret refs
-	update.EnvVars = v.buildEnvVars(data)
+	// Env vars: only include if changed from original (excludes secret refs from comparison)
+	newEnvVars := v.buildEnvVars(data)
+	if v.original == nil || !v.envVarsUnchanged(newEnvVars) {
+		update.EnvVars = newEnvVars
+	}
 
 	// VPC access: only include if user actually changed values.
 	// Sending VpcAccess without both connector/network_interfaces causes API errors
@@ -791,11 +830,59 @@ func (v *CloudRunEditView) buildEnvVars(data map[string]any) map[string]string {
 		}
 	}
 
-	// Note: Secret refs are NOT included in the update.
-	// The API preserves secrets that aren't in the env list, so we don't need
-	// to re-send them. Plain-text env vars are fully replaced.
+	// Note: This returns only plain-text env vars. Secret-ref env vars are
+	// preserved separately by buildContainerFromUpdate(), which merges them
+	// from the original container when patching template.containers.
 
 	return envVars
+}
+
+// origStr returns a field from the original service details, or empty if no original.
+func (v *CloudRunEditView) origStr(fn func(*gcp.CloudRunServiceDetails) string) string {
+	if v.original != nil {
+		return fn(v.original)
+	}
+	return ""
+}
+
+// origInt64 returns a field from the original service details, or 0 if no original.
+func (v *CloudRunEditView) origInt64(fn func(*gcp.CloudRunServiceDetails) int64) int64 {
+	if v.original != nil {
+		return fn(v.original)
+	}
+	return 0
+}
+
+// origSlice returns a slice field from the original service details, or nil if no original.
+func (v *CloudRunEditView) origSlice(fn func(*gcp.CloudRunServiceDetails) []string) []string {
+	if v.original != nil {
+		return fn(v.original)
+	}
+	return nil
+}
+
+// envVarsUnchanged returns true if the plain-text env vars match the original.
+func (v *CloudRunEditView) envVarsUnchanged(newVars map[string]string) bool {
+	if v.original == nil {
+		return false
+	}
+	// Count original plain-text env vars (exclude secret refs)
+	origCount := 0
+	for _, val := range v.original.EnvVars {
+		if val != "(secret ref)" {
+			origCount++
+		}
+	}
+	if len(newVars) != origCount {
+		return false
+	}
+	for k, newVal := range newVars {
+		origVal, exists := v.original.EnvVars[k]
+		if !exists || origVal == "(secret ref)" || origVal != newVal {
+			return false
+		}
+	}
+	return true
 }
 
 // Task registration helpers
