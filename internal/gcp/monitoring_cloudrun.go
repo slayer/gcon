@@ -35,9 +35,10 @@ func cloudRunFilter(serviceName, metricType string) string {
 }
 
 // GetCloudRunRequestCount fetches total request count for a Cloud Run service.
+// Uses REDUCE_SUM to aggregate across all revisions/instances.
 func (c *MonitoringClient) GetCloudRunRequestCount(ctx context.Context, serviceName string, duration time.Duration) ([]DataPoint, error) {
 	filter := cloudRunFilter(serviceName, "run.googleapis.com/request_count")
-	return c.fetchMetricData(ctx, filter, duration)
+	return c.fetchCloudRunMetric(ctx, filter, duration, monitoringpb.Aggregation_ALIGN_RATE, monitoringpb.Aggregation_REDUCE_SUM)
 }
 
 // GetCloudRunRequestCountByCode fetches request count filtered by response code class (e.g. "2xx", "4xx", "5xx").
@@ -46,7 +47,7 @@ func (c *MonitoringClient) GetCloudRunRequestCountByCode(ctx context.Context, se
 		`resource.type = "cloud_run_revision" AND resource.labels.service_name = "%s" AND metric.type = "run.googleapis.com/request_count" AND metric.labels.response_code_class = "%s"`,
 		serviceName, codeClass,
 	)
-	return c.fetchMetricData(ctx, filter, duration)
+	return c.fetchCloudRunMetric(ctx, filter, duration, monitoringpb.Aggregation_ALIGN_RATE, monitoringpb.Aggregation_REDUCE_SUM)
 }
 
 // GetCloudRunRequestLatencies fetches p50, p95, and p99 request latencies in milliseconds.
@@ -77,26 +78,52 @@ func (c *MonitoringClient) GetCloudRunRequestLatencies(ctx context.Context, serv
 }
 
 // GetCloudRunCPUUtilization fetches container CPU utilization (0-1 range).
+// Uses REDUCE_MEAN to average across all revisions/instances.
 func (c *MonitoringClient) GetCloudRunCPUUtilization(ctx context.Context, serviceName string, duration time.Duration) ([]DataPoint, error) {
 	filter := cloudRunFilter(serviceName, "run.googleapis.com/container/cpu/utilization")
-	return c.fetchMetricData(ctx, filter, duration)
+	return c.fetchCloudRunMetric(ctx, filter, duration, monitoringpb.Aggregation_ALIGN_MEAN, monitoringpb.Aggregation_REDUCE_MEAN)
 }
 
 // GetCloudRunMemoryUtilization fetches container memory utilization (0-1 range).
+// Uses REDUCE_MEAN to average across all revisions/instances.
 func (c *MonitoringClient) GetCloudRunMemoryUtilization(ctx context.Context, serviceName string, duration time.Duration) ([]DataPoint, error) {
 	filter := cloudRunFilter(serviceName, "run.googleapis.com/container/memory/utilization")
-	return c.fetchMetricData(ctx, filter, duration)
+	return c.fetchCloudRunMetric(ctx, filter, duration, monitoringpb.Aggregation_ALIGN_MEAN, monitoringpb.Aggregation_REDUCE_MEAN)
 }
 
 // GetCloudRunInstanceCount fetches active instance count over time.
+// Uses REDUCE_SUM to total across all revisions.
 func (c *MonitoringClient) GetCloudRunInstanceCount(ctx context.Context, serviceName string, duration time.Duration) ([]DataPoint, error) {
 	filter := cloudRunFilter(serviceName, "run.googleapis.com/container/instance_count")
-	return c.fetchMetricData(ctx, filter, duration)
+	return c.fetchCloudRunMetric(ctx, filter, duration, monitoringpb.Aggregation_ALIGN_MEAN, monitoringpb.Aggregation_REDUCE_SUM)
 }
 
-// fetchPercentileData fetches time series using a percentile aligner.
-// Unlike fetchMetricData which uses ALIGN_MEAN, this uses the specified
-// percentile aligner (e.g. ALIGN_PERCENTILE_50) for distribution metrics.
+// fetchCloudRunMetric fetches a Cloud Run metric with cross-series reduction.
+// Cloud Run produces separate time series per revision/instance, so we need
+// CrossSeriesReducer to aggregate them into a single time series.
+func (c *MonitoringClient) fetchCloudRunMetric(ctx context.Context, filter string, duration time.Duration, aligner monitoringpb.Aggregation_Aligner, reducer monitoringpb.Aggregation_Reducer) ([]DataPoint, error) {
+	endTime := time.Now()
+	startTime := endTime.Add(-duration)
+
+	req := &monitoringpb.ListTimeSeriesRequest{
+		Name:   fmt.Sprintf("projects/%s", c.projectID),
+		Filter: filter,
+		Interval: &monitoringpb.TimeInterval{
+			StartTime: timestamppb.New(startTime),
+			EndTime:   timestamppb.New(endTime),
+		},
+		Aggregation: &monitoringpb.Aggregation{
+			AlignmentPeriod:    durationpb.New(60 * time.Second),
+			PerSeriesAligner:   aligner,
+			CrossSeriesReducer: reducer,
+		},
+	}
+
+	return c.collectDataPoints(ctx, req)
+}
+
+// fetchPercentileData fetches time series using a percentile aligner with
+// cross-series reduction. Used for distribution metrics like request latencies.
 func (c *MonitoringClient) fetchPercentileData(ctx context.Context, filter string, duration time.Duration, aligner monitoringpb.Aggregation_Aligner) ([]DataPoint, error) {
 	endTime := time.Now()
 	startTime := endTime.Add(-duration)
@@ -109,11 +136,17 @@ func (c *MonitoringClient) fetchPercentileData(ctx context.Context, filter strin
 			EndTime:   timestamppb.New(endTime),
 		},
 		Aggregation: &monitoringpb.Aggregation{
-			AlignmentPeriod:  durationpb.New(60 * time.Second),
-			PerSeriesAligner: aligner,
+			AlignmentPeriod:    durationpb.New(60 * time.Second),
+			PerSeriesAligner:   aligner,
+			CrossSeriesReducer: monitoringpb.Aggregation_REDUCE_MEAN,
 		},
 	}
 
+	return c.collectDataPoints(ctx, req)
+}
+
+// collectDataPoints iterates a ListTimeSeries response and extracts data points.
+func (c *MonitoringClient) collectDataPoints(ctx context.Context, req *monitoringpb.ListTimeSeriesRequest) ([]DataPoint, error) {
 	it := c.metricsClient.ListTimeSeries(ctx, req)
 	var dataPoints []DataPoint
 
