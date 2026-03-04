@@ -757,6 +757,11 @@ func (v *CloudRunEditView) buildUpdate() *gcp.CloudRunServiceUpdate {
 		update.VPCEgress = &egress
 	}
 
+	// Pass original container for safe merging (preserves probes, volume mounts, secret env vars)
+	if v.original != nil {
+		update.OriginalContainer = v.original.OriginalContainer
+	}
+
 	return update
 }
 

@@ -553,3 +553,97 @@ func TestFormatCloudRunTime(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildContainerFromUpdate_PreservesOriginal(t *testing.T) {
+	strPtr := func(s string) *string { return &s }
+
+	t.Run("preserves non-modeled fields from original", func(t *testing.T) {
+		original := &run.GoogleCloudRunV2Container{
+			Image: "old-image:v1",
+			LivenessProbe: &run.GoogleCloudRunV2Probe{
+				InitialDelaySeconds: 10,
+			},
+			StartupProbe: &run.GoogleCloudRunV2Probe{
+				InitialDelaySeconds: 5,
+			},
+			VolumeMounts: []*run.GoogleCloudRunV2VolumeMount{
+				{Name: "vol1", MountPath: "/data"},
+			},
+			WorkingDir: "/app",
+		}
+		update := &CloudRunServiceUpdate{
+			Image:             strPtr("new-image:v2"),
+			OriginalContainer: original,
+		}
+
+		container := buildContainerFromUpdate(update)
+
+		assert.Equal(t, "new-image:v2", container.Image)
+		assert.NotNil(t, container.LivenessProbe)
+		assert.Equal(t, int64(10), container.LivenessProbe.InitialDelaySeconds)
+		assert.NotNil(t, container.StartupProbe)
+		assert.Len(t, container.VolumeMounts, 1)
+		assert.Equal(t, "/app", container.WorkingDir)
+	})
+
+	t.Run("preserves secret ref env vars", func(t *testing.T) {
+		original := &run.GoogleCloudRunV2Container{
+			Image: "img:v1",
+			Env: []*run.GoogleCloudRunV2EnvVar{
+				{Name: "PORT", Value: "8080"},
+				{Name: "DB_PASS", ValueSource: &run.GoogleCloudRunV2EnvVarSource{}},
+				{Name: "API_KEY", ValueSource: &run.GoogleCloudRunV2EnvVarSource{}},
+			},
+		}
+		update := &CloudRunServiceUpdate{
+			Image:             strPtr("img:v2"),
+			EnvVars:           map[string]string{"PORT": "9090", "NEW_VAR": "val"},
+			OriginalContainer: original,
+		}
+
+		container := buildContainerFromUpdate(update)
+
+		// Should have 4 env vars: 2 plain + 2 secret refs
+		assert.Len(t, container.Env, 4)
+
+		envMap := make(map[string]*run.GoogleCloudRunV2EnvVar)
+		for _, env := range container.Env {
+			envMap[env.Name] = env
+		}
+		assert.Equal(t, "9090", envMap["PORT"].Value)
+		assert.Equal(t, "val", envMap["NEW_VAR"].Value)
+		assert.NotNil(t, envMap["DB_PASS"].ValueSource)
+		assert.NotNil(t, envMap["API_KEY"].ValueSource)
+	})
+
+	t.Run("no original container builds from scratch", func(t *testing.T) {
+		update := &CloudRunServiceUpdate{
+			Image:   strPtr("img:v1"),
+			EnvVars: map[string]string{"PORT": "8080"},
+		}
+
+		container := buildContainerFromUpdate(update)
+
+		assert.Equal(t, "img:v1", container.Image)
+		assert.Len(t, container.Env, 1)
+		assert.Nil(t, container.LivenessProbe)
+		assert.Nil(t, container.VolumeMounts)
+	})
+
+	t.Run("does not mutate original container", func(t *testing.T) {
+		original := &run.GoogleCloudRunV2Container{
+			Image:      "old:v1",
+			WorkingDir: "/app",
+		}
+		update := &CloudRunServiceUpdate{
+			Image:             strPtr("new:v2"),
+			OriginalContainer: original,
+		}
+
+		container := buildContainerFromUpdate(update)
+
+		assert.Equal(t, "new:v2", container.Image)
+		// Original should be unchanged
+		assert.Equal(t, "old:v1", original.Image)
+	})
+}

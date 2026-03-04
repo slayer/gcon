@@ -296,9 +296,10 @@ func (a *App) handleSidebarNavigation(msg sidebar.NavigateMsg) tea.Cmd {
 		}
 
 	case sidebar.ViewCloudRunServices:
-		if a.currentView != ViewCloudRunServices && a.currentView != ViewCloudRunServiceDetails {
+		if a.currentView != ViewCloudRunServices && a.currentView != ViewCloudRunServiceDetails && a.currentView != ViewCloudRunServiceEdit {
 			a.currentView = ViewCloudRunServices
 			a.cloudRunServiceDetailsView = nil
+			a.cloudRunServiceEditView = nil
 			a.selectedCloudRunService = nil
 			if a.cloudRunServicesView == nil {
 				a.cloudRunServicesView = views.NewCloudRunServicesView(a.selectedProject.ID)

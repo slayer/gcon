@@ -62,6 +62,10 @@ type CloudRunServiceDetails struct {
 	EnvVars map[string]string
 	Labels  map[string]string
 
+	// Original API container for safe round-tripping during edits.
+	// Preserves non-modeled fields like probes, volume mounts, etc.
+	OriginalContainer *run.GoogleCloudRunV2Container
+
 	// Traffic routing
 	Traffic []CloudRunTrafficTarget
 
@@ -103,6 +107,10 @@ type CloudRunServiceUpdate struct {
 	// Networking
 	VPCConnector *string // Full connector path or empty to clear
 	VPCEgress    *string // "ALL_TRAFFIC" or "PRIVATE_RANGES_ONLY"
+
+	// Original container from API for safe merging during edits.
+	// Non-modeled fields (probes, volume mounts, etc.) are preserved.
+	OriginalContainer *run.GoogleCloudRunV2Container
 }
 
 // CloudRunTrafficTarget represents a traffic split entry
@@ -407,8 +415,20 @@ func buildServicePatch(update *CloudRunServiceUpdate) (svc *run.GoogleCloudRunV2
 }
 
 // buildContainerFromUpdate assembles a container spec from update fields.
+// When OriginalContainer is set (edit mode), non-modeled fields like probes,
+// volume mounts, and secret-ref env vars are preserved from the original.
 func buildContainerFromUpdate(update *CloudRunServiceUpdate) *run.GoogleCloudRunV2Container {
-	container := &run.GoogleCloudRunV2Container{}
+	var container *run.GoogleCloudRunV2Container
+	if update.OriginalContainer != nil {
+		// Clone original to preserve non-modeled fields
+		clone := *update.OriginalContainer
+		container = &clone
+		// Clear ForceSendFields from original — we'll set our own
+		container.ForceSendFields = nil
+		container.NullFields = nil
+	} else {
+		container = &run.GoogleCloudRunV2Container{}
+	}
 	containerForce := []string{}
 
 	if update.Image != nil {
@@ -427,14 +447,29 @@ func buildContainerFromUpdate(update *CloudRunServiceUpdate) *run.GoogleCloudRun
 		containerForce = append(containerForce, "Args")
 	}
 	if update.EnvVars != nil {
+		// Merge plain-text env vars with secret-ref env vars from original
 		envs := make([]*run.GoogleCloudRunV2EnvVar, 0, len(update.EnvVars))
 		for k, v := range update.EnvVars {
 			envs = append(envs, &run.GoogleCloudRunV2EnvVar{Name: k, Value: v})
+		}
+		// Preserve secret-ref env vars from original container
+		if update.OriginalContainer != nil {
+			for _, origEnv := range update.OriginalContainer.Env {
+				if origEnv.ValueSource != nil {
+					envs = append(envs, origEnv)
+				}
+			}
 		}
 		container.Env = envs
 	}
 	if update.CPU != nil || update.Memory != nil {
 		limits := make(map[string]string)
+		// Start from original limits to preserve non-modeled resource fields
+		if container.Resources != nil {
+			for k, v := range container.Resources.Limits {
+				limits[k] = v
+			}
+		}
 		if update.CPU != nil {
 			limits["cpu"] = *update.CPU
 		}
@@ -543,6 +578,7 @@ func cloudRunServiceDetailsFromAPI(svc *run.GoogleCloudRunV2Service) *CloudRunSe
 
 		if len(svc.Template.Containers) > 0 {
 			container := svc.Template.Containers[0]
+			details.OriginalContainer = container
 			details.ContainerImage = container.Image
 			details.Command = container.Command
 			details.Args = container.Args
