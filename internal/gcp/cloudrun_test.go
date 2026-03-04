@@ -243,8 +243,8 @@ func TestCloudRunServiceDetailsFromAPI(t *testing.T) {
 	assert.Equal(t, "LATEST", details.Traffic[0].Type)
 	assert.Equal(t, int64(100), details.Traffic[0].Percent)
 
-	// RawJSON should be non-empty
-	assert.NotEmpty(t, details.RawJSON)
+	// RawYAML should be non-empty
+	assert.NotEmpty(t, details.RawYAML)
 }
 
 func TestDeriveRevisionStatus(t *testing.T) {
