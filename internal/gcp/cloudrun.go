@@ -10,6 +10,7 @@ import (
 
 	"google.golang.org/api/option"
 	run "google.golang.org/api/run/v2"
+	"gopkg.in/yaml.v3"
 )
 
 // CloudRunService is the list-view summary
@@ -60,8 +61,8 @@ type CloudRunServiceDetails struct {
 	Creator      string
 	LastModifier string
 
-	// Pretty-printed JSON for the JSON tab
-	RawJSON string
+	// YAML representation for the YAML tab
+	RawYAML string
 }
 
 // CloudRunTrafficTarget represents a traffic split entry
@@ -328,10 +329,15 @@ func cloudRunServiceDetailsFromAPI(svc *run.GoogleCloudRunV2Service) *CloudRunSe
 		details.Traffic = append(details.Traffic, target)
 	}
 
-	// Generate pretty-printed JSON for the YAML tab
-	rawJSON, err := json.MarshalIndent(svc, "", "  ")
+	// Convert via JSON to preserve json struct tags, then marshal to YAML
+	rawJSON, err := json.Marshal(svc)
 	if err == nil {
-		details.RawJSON = string(rawJSON)
+		var obj any
+		if json.Unmarshal(rawJSON, &obj) == nil {
+			if rawYAML, yErr := yaml.Marshal(obj); yErr == nil {
+				details.RawYAML = string(rawYAML)
+			}
+		}
 	}
 
 	return details

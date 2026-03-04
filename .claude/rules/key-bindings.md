@@ -389,6 +389,6 @@ description: Keyboard shortcuts reference for all views
 | `t` | Edit traffic split (Revisions tab) |
 | `r` | Refresh details and revisions |
 | `Tab` | Switch focus (tabs/content) |
-| `h/l` or `1/2/3` | Switch tabs (Details/Revisions/JSON) |
+| `h/l` or `1/2/3` | Switch tabs (Details/Revisions/YAML) |
 | `j/k` or `↓/↑` | Scroll content |
 | `Esc` | Go back |

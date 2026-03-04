@@ -31,7 +31,7 @@ import (
 const (
 	runTabIDDetails   = "details"
 	runTabIDRevisions = "revisions"
-	runTabIDJSON      = "json"
+	runTabIDYAML      = "yaml"
 )
 
 // Focus region IDs
@@ -73,7 +73,7 @@ type CloudRunServiceDetailsView struct {
 	height  int
 	ready   bool
 
-	// Tab navigation (Details / Revisions / JSON)
+	// Tab navigation (Details / Revisions / YAML)
 	tabs         *tabs.Tabs
 	tabViewports []viewport.Model
 
@@ -141,7 +141,7 @@ func NewCloudRunServiceDetailsView(projectID, serviceName, fullName string, runC
 	tabsComponent := tabs.New([]tabs.Tab{
 		{ID: runTabIDDetails, Label: "Details"},
 		{ID: runTabIDRevisions, Label: "Revisions"},
-		{ID: runTabIDJSON, Label: "JSON"},
+		{ID: runTabIDYAML, Label: "YAML"},
 	})
 
 	fm := focus.NewManager()
@@ -566,8 +566,8 @@ func (v *CloudRunServiceDetailsView) updateViewportContent() {
 		content = v.renderDetailsTab()
 	case runTabIDRevisions:
 		content = v.renderRevisionsTab()
-	case runTabIDJSON:
-		content = v.renderJSONTab()
+	case runTabIDYAML:
+		content = v.renderYAMLTab()
 	default:
 		content = v.renderDetailsTab()
 	}
@@ -745,13 +745,13 @@ func (v *CloudRunServiceDetailsView) renderRevisionsTab() string {
 	return b.String()
 }
 
-func (v *CloudRunServiceDetailsView) renderJSONTab() string {
-	if v.details == nil || v.details.RawJSON == "" {
-		return "\n  No JSON data available.\n"
+func (v *CloudRunServiceDetailsView) renderYAMLTab() string {
+	if v.details == nil || v.details.RawYAML == "" {
+		return "\n  No YAML data available.\n"
 	}
 
 	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
-	return mutedStyle.Render(v.details.RawJSON)
+	return mutedStyle.Render(v.details.RawYAML)
 }
 
 func (v *CloudRunServiceDetailsView) buildHelpText() string {
