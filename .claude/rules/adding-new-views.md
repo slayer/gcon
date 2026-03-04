@@ -257,9 +257,29 @@ Every message type must have both a **producer** (view that emits it) and a **co
 
 **Symptom:** A "delete key" handler exists in `app_navigation.go` but no view ever emits `DeleteServiceAccountKeyMsg` — the handler is dead code.
 
+### 13. Sidebar Guards Must Include All Views in Feature Hierarchy
+
+Sidebar navigation guards (in `app_navigation.go`) prevent redundant navigation when already on a feature's views. These guards must include **all** views in the hierarchy, including deeply nested ones like edit/create views.
+
+```go
+// Wrong — misses ViewCloudRunServiceEdit, allowing sidebar nav that
+// clears parent views while edit view remains in viewStack
+case sidebar.ViewCloudRunServices:
+    if a.currentView != ViewCloudRunServices && a.currentView != ViewCloudRunServiceDetails {
+
+// Correct — includes all views in the feature hierarchy
+case sidebar.ViewCloudRunServices:
+    if a.currentView != ViewCloudRunServices && a.currentView != ViewCloudRunServiceDetails && a.currentView != ViewCloudRunServiceEdit {
+```
+
+**Symptom**: Navigating via sidebar while on a nested view, then pressing Esc pops back to a nil parent view → "View not implemented" fallback.
+
+**Rule**: When adding a new child view (edit, create, details), always check all sidebar guard conditions for the parent feature and add the new view type.
+
 ## Common Symptoms
 
 - **"View not implemented"** when navigating → forgot `renderCurrentView()` in `app_render.go`
+- **"View not implemented"** after sidebar nav + Esc → sidebar guard missing nested view (step 13)
 - **App quits when typing 'q'** in text field → forgot `HasTextInputFocused()` implementation
 - **View not in command palette** → forgot step 10 (command palette navigation commands)
 - **Stale data after refresh** → `Init()` not idempotent (step 11)

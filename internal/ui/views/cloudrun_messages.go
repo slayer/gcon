@@ -26,3 +26,26 @@ type CloudRunTrafficUpdateMsg struct {
 	FullName string
 	Targets  []gcp.CloudRunTrafficTarget
 }
+
+// CloudRunEditRequestMsg requests opening the edit view for an existing service
+type CloudRunEditRequestMsg struct {
+	ProjectID   string
+	ServiceName string
+	FullName    string
+}
+
+// CloudRunCreateRequestMsg requests opening the create view for a new service
+type CloudRunCreateRequestMsg struct {
+	ProjectID string
+}
+
+// CloudRunEditResultMsg is the outcome of an edit/create operation
+type CloudRunEditResultMsg struct {
+	Name    string
+	Action  string // "edit" or "create"
+	Success bool
+	Error   error
+}
+
+// CloudRunEditCanceledMsg indicates user canceled editing/creating
+type CloudRunEditCanceledMsg struct{}

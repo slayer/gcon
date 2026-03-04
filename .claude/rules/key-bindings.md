@@ -375,6 +375,7 @@ description: Keyboard shortcuts reference for all views
 | `Enter` | View service details |
 | `.` | Open action menu |
 | `S` | Open sort menu |
+| `c` | Create new service |
 | `D` | Delete service (with type-to-confirm) |
 | `/` | Filter services |
 | `r` | Refresh list |
@@ -385,6 +386,7 @@ description: Keyboard shortcuts reference for all views
 | Key | Action |
 |-----|--------|
 | `.` | Open action menu |
+| `e` | Edit service configuration |
 | `D` | Delete service (with type-to-confirm) |
 | `t` | Edit traffic split (Revisions tab) |
 | `r` | Refresh details and revisions |
@@ -392,3 +394,13 @@ description: Keyboard shortcuts reference for all views
 | `h/l` or `1/2/3` | Switch tabs (Details/Revisions/YAML) |
 | `j/k` or `↓/↑` | Scroll content |
 | `Esc` | Go back |
+
+## Cloud Run Edit/Create View
+
+| Key | Action |
+|-----|--------|
+| `Ctrl+S` | Preview changes (show diff) |
+| `Enter` | Confirm deploy (from diff view) |
+| `Tab/↓` | Next field |
+| `Shift+Tab/↑` | Previous field |
+| `Esc` | Back (diff → form) / Cancel (form → back) |

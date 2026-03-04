@@ -49,6 +49,7 @@ type CloudRunServicesView struct {
 type cloudRunServicesKeyMap struct {
 	Select     key.Binding
 	Refresh    key.Binding
+	Create     key.Binding
 	Delete     key.Binding
 	ActionMenu key.Binding
 }
@@ -62,6 +63,10 @@ func defaultCloudRunServicesKeyMap() cloudRunServicesKeyMap {
 		Refresh: key.NewBinding(
 			key.WithKeys("r"),
 			key.WithHelp("r", "refresh"),
+		),
+		Create: key.NewBinding(
+			key.WithKeys("c"),
+			key.WithHelp("c", "create service"),
 		),
 		Delete: key.NewBinding(
 			key.WithKeys("D"),
@@ -292,6 +297,11 @@ func (v *CloudRunServicesView) Update(msg tea.Msg) tea.Cmd {
 			}
 			return tea.Batch(v.spinner.Tick, v.loadServices())
 
+		case key.Matches(msg, v.keys.Create):
+			return func() tea.Msg {
+				return CloudRunCreateRequestMsg{ProjectID: v.projectID}
+			}
+
 		case key.Matches(msg, v.keys.Delete):
 			return v.initiateDelete()
 		}
@@ -306,6 +316,7 @@ func (v *CloudRunServicesView) Update(msg tea.Msg) tea.Cmd {
 func (v *CloudRunServicesView) buildActions() []actionmenu.Action {
 	return []actionmenu.Action{
 		{Key: 'r', Label: "Refresh", Enabled: true},
+		{Key: 'c', Label: "Create Service", Enabled: true},
 		{Key: 'D', Label: "Delete", Enabled: true, Dangerous: true},
 	}
 }
@@ -320,6 +331,10 @@ func (v *CloudRunServicesView) executeAction(actionKey rune) tea.Cmd {
 			return tea.Batch(v.spinner.Tick, v.initRunClient())
 		}
 		return tea.Batch(v.spinner.Tick, v.loadServices())
+	case 'c':
+		return func() tea.Msg {
+			return CloudRunCreateRequestMsg{ProjectID: v.projectID}
+		}
 	case 'D':
 		return v.initiateDelete()
 	}
