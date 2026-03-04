@@ -77,7 +77,7 @@ func (c *LoggingClient) GetRecentLogs(
 
 		logEntry := LogEntry{
 			Timestamp: entry.Timestamp,
-			Severity:  entry.Severity.String(),
+			Severity:  normalizeSeverity(entry.Severity.String()),
 			Message:   fmt.Sprintf("%v", entry.Payload),
 		}
 
@@ -131,7 +131,7 @@ func (c *LoggingClient) GetCloudRunLogs(
 
 		logEntry := LogEntry{
 			Timestamp: entry.Timestamp,
-			Severity:  entry.Severity.String(),
+			Severity:  normalizeSeverity(entry.Severity.String()),
 			Message:   fmt.Sprintf("%v", entry.Payload),
 		}
 
@@ -146,6 +146,17 @@ func (c *LoggingClient) GetCloudRunLogs(
 	}
 
 	return entries, nil
+}
+
+// normalizeSeverity converts Go logging library severity strings ("Default", "Info", etc.)
+// to uppercase form ("INFO", "WARNING", etc.) matching GCP console conventions.
+// "Default" maps to "INFO" since it represents stdout/stderr without explicit severity.
+func normalizeSeverity(sev string) string {
+	upper := strings.ToUpper(sev)
+	if upper == "DEFAULT" {
+		return "INFO"
+	}
+	return upper
 }
 
 // severityORClauses builds severity="X" filter clauses for each provided severity level.

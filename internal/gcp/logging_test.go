@@ -25,3 +25,23 @@ func TestSeverityORClauses(t *testing.T) {
 		assert.Empty(t, clauses)
 	})
 }
+
+func TestNormalizeSeverity(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"Default", "INFO"},
+		{"Info", "INFO"},
+		{"Warning", "WARNING"},
+		{"Error", "ERROR"},
+		{"Critical", "CRITICAL"},
+		{"Debug", "DEBUG"},
+		{"Notice", "NOTICE"},
+		{"INFO", "INFO"},       // already uppercase
+		{"WARNING", "WARNING"}, // already uppercase
+	}
+	for _, tc := range tests {
+		assert.Equal(t, tc.expected, normalizeSeverity(tc.input), "normalizeSeverity(%q)", tc.input)
+	}
+}
