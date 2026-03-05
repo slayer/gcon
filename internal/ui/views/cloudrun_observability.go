@@ -15,7 +15,10 @@ import (
 )
 
 // Internal messages for Cloud Run observability data loading.
-type crMetricsLoadedMsg struct{ metrics *gcp.CloudRunMetrics }
+type crMetricsLoadedMsg struct {
+	metrics  *gcp.CloudRunMetrics
+	warnings []string // non-fatal per-metric errors
+}
 type crMetricsErrorMsg struct{ err error }
 type crLogsLoadedMsg struct{ logs []gcp.LogEntry }
 type crLogsErrorMsg struct{ err error }
@@ -28,12 +31,12 @@ type cloudRunObservability struct {
 	projectID   string
 	serviceName string
 	gcpClient   *gcp.Client
-	runClient   *gcp.CloudRunClient
 
 	// Metrics state
-	metrics        *gcp.CloudRunMetrics
-	metricsLoading bool
-	metricsError   error
+	metrics         *gcp.CloudRunMetrics
+	metricsLoading  bool
+	metricsError    error
+	metricsWarnings []string // non-fatal per-metric fetch errors
 
 	// Logs state
 	logs        []gcp.LogEntry
@@ -47,18 +50,17 @@ type cloudRunObservability struct {
 	timeRange        time.Duration
 	autoRefresh      bool
 	autoRefreshTimer *time.Ticker
+	autoRefreshDone  chan struct{} // closed to unblock tickAutoRefresh goroutine
 
-	spinner     spinner.Model
-	width       int
-	initialized bool
+	spinner spinner.Model
+	width   int
 }
 
-func newCloudRunObservability(projectID, serviceName string, gcpClient *gcp.Client, runClient *gcp.CloudRunClient) *cloudRunObservability {
+func newCloudRunObservability(projectID, serviceName string, gcpClient *gcp.Client) *cloudRunObservability {
 	return &cloudRunObservability{
 		projectID:   projectID,
 		serviceName: serviceName,
 		gcpClient:   gcpClient,
-		runClient:   runClient,
 		severityEnabled: map[string]bool{
 			"INFO":    true,
 			"WARNING": true,
@@ -76,7 +78,6 @@ func (o *cloudRunObservability) Init() tea.Cmd {
 	o.metricsError = nil
 	o.logsLoading = true
 	o.logsError = nil
-	o.initialized = true
 	return tea.Batch(o.spinner.Tick, o.loadMetrics(), o.loadLogs())
 }
 
@@ -89,6 +90,7 @@ func (o *cloudRunObservability) Update(msg tea.Msg) (tea.Cmd, bool) {
 		o.metricsLoading = false
 		o.metricsError = nil
 		o.metrics = msg.metrics
+		o.metricsWarnings = msg.warnings
 		return nil, true
 
 	case crMetricsErrorMsg:
@@ -223,6 +225,13 @@ func (o *cloudRunObservability) View() string {
 		o.renderResourceMetrics(&b, sectionStyle, mutedStyle)
 	}
 
+	// Show warnings for partially failed metric fetches
+	if len(o.metricsWarnings) > 0 {
+		warnStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FBBC04"))
+		b.WriteString(warnStyle.Render(fmt.Sprintf("  ⚠ Some metrics unavailable: %s", strings.Join(o.metricsWarnings, "; "))))
+		b.WriteString("\n\n")
+	}
+
 	// Logs section
 	o.renderLogs(&b, sectionStyle, mutedStyle, errorStyle)
 
@@ -351,13 +360,13 @@ func (o *cloudRunObservability) renderResourceMetrics(b *strings.Builder, sectio
 	b.WriteString("\n")
 	b.WriteString(strings.Repeat("━", min(o.width-4, 60)))
 	b.WriteString("\n")
-	if len(m.Memory) > 0 {
-		values := extractValues(m.Memory)
+	if len(m.BillableInstanceTime) > 0 {
+		values := extractValues(m.BillableInstanceTime)
 		sparkline := components.RenderSparkline(values, sparkWidth)
 		fmt.Fprintf(b, "  Trend (%s): %s\n", formatDuration(o.timeRange), sparkline)
 
 		current := values[len(values)-1]
-		avg, peak, peakTime := calculateStats(m.Memory)
+		avg, peak, peakTime := calculateStats(m.BillableInstanceTime)
 		fmt.Fprintf(b, "     Current: %.2f  |  Avg: %.2f  |  Peak: %.2f", current, avg, peak)
 		if !peakTime.IsZero() {
 			fmt.Fprintf(b, " (%s)", peakTime.Format("3:04 PM"))
@@ -479,17 +488,40 @@ func (o *cloudRunObservability) loadMetrics() tea.Cmd {
 
 		ctx := context.Background()
 		metrics := &gcp.CloudRunMetrics{LastFetch: time.Now()}
+		var warnings []string
 
-		// Fetch each metric independently; failures for individual metrics are non-fatal
-		metrics.RequestCount, _ = monClient.GetCloudRunRequestCount(ctx, serviceName, timeRange)                                       //nolint:errcheck // non-fatal: empty data shown if unavailable
-		metrics.Latency50, metrics.Latency95, metrics.Latency99, _ = monClient.GetCloudRunRequestLatencies(ctx, serviceName, timeRange) //nolint:errcheck // non-fatal: empty data shown if unavailable
-		metrics.ErrorCount4xx, _ = monClient.GetCloudRunRequestCountByCode(ctx, serviceName, "4xx", timeRange)                         //nolint:errcheck // non-fatal: empty data shown if unavailable
-		metrics.ErrorCount5xx, _ = monClient.GetCloudRunRequestCountByCode(ctx, serviceName, "5xx", timeRange)                         //nolint:errcheck // non-fatal: empty data shown if unavailable
-		metrics.CPU, _ = monClient.GetCloudRunCPUUtilization(ctx, serviceName, timeRange)                                              //nolint:errcheck // non-fatal: empty data shown if unavailable
-		metrics.Memory, _ = monClient.GetCloudRunMemoryUtilization(ctx, serviceName, timeRange)                                        //nolint:errcheck // non-fatal: empty data shown if unavailable
-		metrics.InstanceCount, _ = monClient.GetCloudRunInstanceCount(ctx, serviceName, timeRange)                                     //nolint:errcheck // non-fatal: empty data shown if unavailable
+		// Fetch each metric independently; failures are non-fatal but surfaced as warnings
+		var metricErr error
+		metrics.RequestCount, metricErr = monClient.GetCloudRunRequestCount(ctx, serviceName, timeRange)
+		if metricErr != nil {
+			warnings = append(warnings, fmt.Sprintf("request count: %v", metricErr))
+		}
+		metrics.Latency50, metrics.Latency95, metrics.Latency99, metricErr = monClient.GetCloudRunRequestLatencies(ctx, serviceName, timeRange)
+		if metricErr != nil {
+			warnings = append(warnings, fmt.Sprintf("latency: %v", metricErr))
+		}
+		metrics.ErrorCount4xx, metricErr = monClient.GetCloudRunRequestCountByCode(ctx, serviceName, "4xx", timeRange)
+		if metricErr != nil {
+			warnings = append(warnings, fmt.Sprintf("4xx errors: %v", metricErr))
+		}
+		metrics.ErrorCount5xx, metricErr = monClient.GetCloudRunRequestCountByCode(ctx, serviceName, "5xx", timeRange)
+		if metricErr != nil {
+			warnings = append(warnings, fmt.Sprintf("5xx errors: %v", metricErr))
+		}
+		metrics.CPU, metricErr = monClient.GetCloudRunCPUUtilization(ctx, serviceName, timeRange)
+		if metricErr != nil {
+			warnings = append(warnings, fmt.Sprintf("CPU: %v", metricErr))
+		}
+		metrics.BillableInstanceTime, metricErr = monClient.GetCloudRunBillableInstanceTime(ctx, serviceName, timeRange)
+		if metricErr != nil {
+			warnings = append(warnings, fmt.Sprintf("billable time: %v", metricErr))
+		}
+		metrics.InstanceCount, metricErr = monClient.GetCloudRunInstanceCount(ctx, serviceName, timeRange)
+		if metricErr != nil {
+			warnings = append(warnings, fmt.Sprintf("instance count: %v", metricErr))
+		}
 
-		return crMetricsLoadedMsg{metrics: metrics}
+		return crMetricsLoadedMsg{metrics: metrics, warnings: warnings}
 	}
 }
 
@@ -520,14 +552,21 @@ func (o *cloudRunObservability) loadLogs() tea.Cmd {
 }
 
 // tickAutoRefresh blocks on the ticker channel and returns a refresh tick.
+// Uses a done channel to unblock when auto-refresh is stopped (ticker.Stop
+// doesn't close the channel, so without this the goroutine would leak).
 func (o *cloudRunObservability) tickAutoRefresh() tea.Cmd {
 	ticker := o.autoRefreshTimer
-	if ticker == nil {
+	done := o.autoRefreshDone
+	if ticker == nil || done == nil {
 		return nil
 	}
 	return func() tea.Msg {
-		<-ticker.C
-		return crRefreshTickMsg{}
+		select {
+		case <-ticker.C:
+			return crRefreshTickMsg{}
+		case <-done:
+			return nil
+		}
 	}
 }
 
@@ -536,17 +575,22 @@ func (o *cloudRunObservability) StartAutoRefresh() tea.Cmd {
 	if !o.autoRefresh {
 		return nil
 	}
-	// Stop any existing ticker to avoid leaks
+	// Stop any existing ticker+goroutine to avoid leaks
 	o.StopAutoRefresh()
 	o.autoRefreshTimer = time.NewTicker(30 * time.Second)
+	o.autoRefreshDone = make(chan struct{})
 	return o.tickAutoRefresh()
 }
 
-// StopAutoRefresh stops the auto-refresh ticker and cleans up.
+// StopAutoRefresh stops the auto-refresh ticker and unblocks the waiting goroutine.
 func (o *cloudRunObservability) StopAutoRefresh() {
 	if o.autoRefreshTimer != nil {
 		o.autoRefreshTimer.Stop()
 		o.autoRefreshTimer = nil
+	}
+	if o.autoRefreshDone != nil {
+		close(o.autoRefreshDone)
+		o.autoRefreshDone = nil
 	}
 }
 

@@ -521,6 +521,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					a.customRoleDetailsView = nil
 					a.selectedCustomRole = nil
 				case ViewCloudRunServiceDetails:
+					if a.cloudRunServiceDetailsView != nil {
+						a.cloudRunServiceDetailsView.Close()
+					}
 					a.cloudRunServiceDetailsView = nil
 					a.selectedCloudRunService = nil
 				}

@@ -15,7 +15,7 @@ func TestCloudRunMetrics_ZeroValue(t *testing.T) {
 	assert.Empty(t, m.ErrorCount4xx)
 	assert.Empty(t, m.ErrorCount5xx)
 	assert.Empty(t, m.CPU)
-	assert.Empty(t, m.Memory)
+	assert.Empty(t, m.BillableInstanceTime)
 	assert.Empty(t, m.InstanceCount)
 	assert.True(t, m.LastFetch.IsZero())
 }

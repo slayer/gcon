@@ -178,6 +178,17 @@ func NewCloudRunServiceDetailsView(projectID, serviceName, fullName string, runC
 	}
 }
 
+// Close releases resources associated with the view.
+// Must be called before nil-ing the view to prevent goroutine/ticker leaks.
+func (v *CloudRunServiceDetailsView) Close() {
+	if v == nil {
+		return
+	}
+	if v.observability != nil {
+		v.observability.StopAutoRefresh()
+	}
+}
+
 // Init starts loading all datasets in parallel
 func (v *CloudRunServiceDetailsView) Init() tea.Cmd {
 	// Reset state — Init() may be called multiple times (e.g., after traffic update refreshes)
@@ -311,7 +322,7 @@ func (v *CloudRunServiceDetailsView) Update(msg tea.Msg) tea.Cmd {
 		// Lazy-load observability on first tab switch; manage auto-refresh lifecycle
 		if v.tabs.ActiveTab().ID == runTabIDObservability {
 			if v.observability == nil {
-				v.observability = newCloudRunObservability(v.projectID, v.serviceName, v.gcpClient, v.runClient)
+				v.observability = newCloudRunObservability(v.projectID, v.serviceName, v.gcpClient)
 				v.observability.width = v.width
 				return tea.Batch(v.observability.Init(), v.observability.StartAutoRefresh())
 			}

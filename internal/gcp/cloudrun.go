@@ -14,8 +14,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// ErrOperationFailed indicates a long-running operation completed with an error.
-var ErrOperationFailed = errors.New("operation failed")
+// errOperationFailed indicates a long-running operation completed with an error.
+var errOperationFailed = errors.New("operation failed")
 
 // CloudRunService is the list-view summary
 type CloudRunService struct {
@@ -343,7 +343,7 @@ func (c *CloudRunClient) waitForOperation(ctx context.Context, op *run.GoogleLon
 		}
 	}
 	if op.Error != nil {
-		return fmt.Errorf("%w: %s", ErrOperationFailed, op.Error.Message)
+		return fmt.Errorf("%w: %s", errOperationFailed, op.Error.Message)
 	}
 	return nil
 }
