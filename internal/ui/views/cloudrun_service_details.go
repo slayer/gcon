@@ -1071,8 +1071,8 @@ func (d *trafficSplitDialog) Result() []gcp.CloudRunTrafficTarget {
 		if parseErr != nil {
 			continue // validated before submit, skip on unexpected error
 		}
-		if pct == 0 {
-			continue // Skip zero-traffic entries
+		if pct == 0 && d.entries[i].Tag == "" {
+			continue // Skip untagged zero-traffic entries; tagged 0% routes provide a URL
 		}
 		targets = append(targets, gcp.CloudRunTrafficTarget{
 			RevisionName: d.entries[i].RevisionName,

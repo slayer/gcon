@@ -3,6 +3,7 @@ package gcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -12,6 +13,9 @@ import (
 	run "google.golang.org/api/run/v2"
 	"gopkg.in/yaml.v3"
 )
+
+// ErrOperationFailed indicates a long-running operation completed with an error.
+var ErrOperationFailed = errors.New("operation failed")
 
 // CloudRunService is the list-view summary
 type CloudRunService struct {
@@ -233,10 +237,13 @@ func ApplyTrafficToRevisions(revisions []CloudRunRevision, traffic []CloudRunTra
 	}
 }
 
-// DeleteService deletes a Cloud Run service
+// DeleteService deletes a Cloud Run service and waits for completion.
 func (c *CloudRunClient) DeleteService(ctx context.Context, fullName string) error {
-	_, err := c.service.Projects.Locations.Services.Delete(fullName).Context(ctx).Do()
+	op, err := c.service.Projects.Locations.Services.Delete(fullName).Context(ctx).Do()
 	if err != nil {
+		return WrapActionError(err, "delete cloud run service", extractShortName(fullName))
+	}
+	if err := c.waitForOperation(ctx, op); err != nil {
 		return WrapActionError(err, "delete cloud run service", extractShortName(fullName))
 	}
 	return nil
@@ -267,10 +274,13 @@ func (c *CloudRunClient) UpdateTraffic(ctx context.Context, fullName string, tar
 		ForceSendFields: []string{"Traffic"},
 	}
 
-	_, err := c.service.Projects.Locations.Services.Patch(fullName, patchSvc).
+	op, err := c.service.Projects.Locations.Services.Patch(fullName, patchSvc).
 		UpdateMask("traffic").
 		Context(ctx).Do()
 	if err != nil {
+		return WrapActionError(err, "update traffic", extractShortName(fullName))
+	}
+	if err := c.waitForOperation(ctx, op); err != nil {
 		return WrapActionError(err, "update traffic", extractShortName(fullName))
 	}
 	return nil
@@ -286,10 +296,13 @@ func (c *CloudRunClient) UpdateService(ctx context.Context, fullName string, upd
 	}
 
 	mask := strings.Join(maskPaths, ",")
-	_, err := c.service.Projects.Locations.Services.Patch(fullName, svc).
+	op, err := c.service.Projects.Locations.Services.Patch(fullName, svc).
 		UpdateMask(mask).
 		Context(ctx).Do()
 	if err != nil {
+		return WrapActionError(err, "update cloud run service", extractShortName(fullName))
+	}
+	if err := c.waitForOperation(ctx, op); err != nil {
 		return WrapActionError(err, "update cloud run service", extractShortName(fullName))
 	}
 	return nil
@@ -301,11 +314,36 @@ func (c *CloudRunClient) CreateService(ctx context.Context, projectID, region, n
 
 	svc := buildServiceFromConfig(config)
 
-	_, err := c.service.Projects.Locations.Services.Create(parent, svc).
+	op, err := c.service.Projects.Locations.Services.Create(parent, svc).
 		ServiceId(name).
 		Context(ctx).Do()
 	if err != nil {
 		return WrapActionError(err, "create cloud run service", name)
+	}
+	if err := c.waitForOperation(ctx, op); err != nil {
+		return WrapActionError(err, "create cloud run service", name)
+	}
+	return nil
+}
+
+// waitForOperation polls a long-running operation until it completes.
+// Uses the server-side Wait API which blocks until done or timeout, avoiding
+// client-side polling loops. Returns nil if op is nil or already done.
+func (c *CloudRunClient) waitForOperation(ctx context.Context, op *run.GoogleLongrunningOperation) error {
+	if op == nil {
+		return nil
+	}
+	for !op.Done {
+		var err error
+		op, err = c.service.Projects.Locations.Operations.Wait(op.Name,
+			&run.GoogleLongrunningWaitOperationRequest{Timeout: "30s"}).
+			Context(ctx).Do()
+		if err != nil {
+			return fmt.Errorf("waiting for operation: %w", err)
+		}
+	}
+	if op.Error != nil {
+		return fmt.Errorf("%w: %s", ErrOperationFailed, op.Error.Message)
 	}
 	return nil
 }

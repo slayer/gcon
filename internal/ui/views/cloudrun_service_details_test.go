@@ -242,6 +242,49 @@ func TestTrafficSplitDialog_PreservesTag(t *testing.T) {
 	assert.Equal(t, "REVISION", targets[0].Type)
 }
 
+func TestTrafficSplitDialog_PreservesTaggedZeroPercent(t *testing.T) {
+	revisions := []gcp.CloudRunRevision{
+		{ShortName: "rev-2"},
+		{ShortName: "rev-1"},
+	}
+	currentTraffic := []gcp.CloudRunTrafficTarget{
+		{RevisionName: "(latest)", Percent: 100, Type: "LATEST"},
+		{RevisionName: "rev-1", Percent: 0, Type: "REVISION", Tag: "canary"},
+	}
+
+	dialog := newTrafficSplitDialog(revisions, currentTraffic)
+	// Don't change anything, just submit as-is
+	dialog.submitted = true
+
+	targets := dialog.Result()
+
+	// Should have 2 entries: LATEST@100 and rev-1@0 with "canary" tag
+	assert.Len(t, targets, 2)
+	assert.Equal(t, "LATEST", targets[0].Type)
+	assert.Equal(t, int64(100), targets[0].Percent)
+
+	assert.Equal(t, "rev-1", targets[1].RevisionName)
+	assert.Equal(t, int64(0), targets[1].Percent)
+	assert.Equal(t, "canary", targets[1].Tag)
+}
+
+func TestTrafficSplitDialog_SkipsUntaggedZeroPercent(t *testing.T) {
+	revisions := []gcp.CloudRunRevision{
+		{ShortName: "rev-1"},
+		{ShortName: "rev-2"},
+	}
+
+	dialog := newTrafficSplitDialog(revisions, nil)
+	dialog.inputs[0].SetValue("100")
+	dialog.inputs[1].SetValue("0")
+	dialog.submitted = true
+
+	targets := dialog.Result()
+	// Untagged zero-percent should be skipped
+	assert.Len(t, targets, 1)
+	assert.Equal(t, "rev-1", targets[0].RevisionName)
+}
+
 func TestTrafficSplitDialog_ResultNilWhenCanceled(t *testing.T) {
 	revisions := []gcp.CloudRunRevision{
 		{ShortName: "rev-1"},
