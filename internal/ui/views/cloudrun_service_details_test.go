@@ -13,6 +13,7 @@ func TestCloudRunServiceDetailsView_Init(t *testing.T) {
 		"web-api",
 		"projects/test-project/locations/us-central1/services/web-api",
 		nil, // nil client is OK, Init creates commands that check for nil
+		nil, // gcpClient
 	)
 
 	assert.True(t, view.detailsLoading)
@@ -30,13 +31,14 @@ func TestCloudRunServiceDetailsView_TabSwitching(t *testing.T) {
 		"web-api",
 		"projects/test-project/locations/us-central1/services/web-api",
 		nil,
+		nil,
 	)
 
 	// Verify tabs are set up correctly
 	assert.Equal(t, runTabIDDetails, view.tabs.ActiveTab().ID)
 
-	// Tab IDs should correspond to expected values
-	assert.Equal(t, 3, len(view.tabViewports))
+	// Tab IDs should correspond to expected values (4 tabs: Details, Revisions, YAML, Observability)
+	assert.Equal(t, 4, len(view.tabViewports))
 }
 
 func TestCloudRunServiceDetailsView_HasTextInputFocused(t *testing.T) {
@@ -44,6 +46,7 @@ func TestCloudRunServiceDetailsView_HasTextInputFocused(t *testing.T) {
 		"test-project",
 		"web-api",
 		"projects/test-project/locations/us-central1/services/web-api",
+		nil,
 		nil,
 	)
 
@@ -74,6 +77,7 @@ func TestCloudRunServiceDetailsView_IsMenuOpen(t *testing.T) {
 		"web-api",
 		"projects/test-project/locations/us-central1/services/web-api",
 		nil,
+		nil,
 	)
 
 	assert.False(t, view.IsMenuOpen())
@@ -96,6 +100,7 @@ func TestCloudRunServiceDetailsView_GetServiceName(t *testing.T) {
 		"my-service",
 		"projects/test-project/locations/us-east1/services/my-service",
 		nil,
+		nil,
 	)
 
 	assert.Equal(t, "my-service", view.GetServiceName())
@@ -106,6 +111,7 @@ func TestCloudRunServiceDetailsView_SetError(t *testing.T) {
 		"test-project",
 		"web-api",
 		"projects/test-project/locations/us-central1/services/web-api",
+		nil,
 		nil,
 	)
 
@@ -234,6 +240,49 @@ func TestTrafficSplitDialog_PreservesTag(t *testing.T) {
 	assert.Len(t, targets, 1)
 	assert.Equal(t, "blue", targets[0].Tag)
 	assert.Equal(t, "REVISION", targets[0].Type)
+}
+
+func TestTrafficSplitDialog_PreservesTaggedZeroPercent(t *testing.T) {
+	revisions := []gcp.CloudRunRevision{
+		{ShortName: "rev-2"},
+		{ShortName: "rev-1"},
+	}
+	currentTraffic := []gcp.CloudRunTrafficTarget{
+		{RevisionName: "(latest)", Percent: 100, Type: "LATEST"},
+		{RevisionName: "rev-1", Percent: 0, Type: "REVISION", Tag: "canary"},
+	}
+
+	dialog := newTrafficSplitDialog(revisions, currentTraffic)
+	// Don't change anything, just submit as-is
+	dialog.submitted = true
+
+	targets := dialog.Result()
+
+	// Should have 2 entries: LATEST@100 and rev-1@0 with "canary" tag
+	assert.Len(t, targets, 2)
+	assert.Equal(t, "LATEST", targets[0].Type)
+	assert.Equal(t, int64(100), targets[0].Percent)
+
+	assert.Equal(t, "rev-1", targets[1].RevisionName)
+	assert.Equal(t, int64(0), targets[1].Percent)
+	assert.Equal(t, "canary", targets[1].Tag)
+}
+
+func TestTrafficSplitDialog_SkipsUntaggedZeroPercent(t *testing.T) {
+	revisions := []gcp.CloudRunRevision{
+		{ShortName: "rev-1"},
+		{ShortName: "rev-2"},
+	}
+
+	dialog := newTrafficSplitDialog(revisions, nil)
+	dialog.inputs[0].SetValue("100")
+	dialog.inputs[1].SetValue("0")
+	dialog.submitted = true
+
+	targets := dialog.Result()
+	// Untagged zero-percent should be skipped
+	assert.Len(t, targets, 1)
+	assert.Equal(t, "rev-1", targets[0].RevisionName)
 }
 
 func TestTrafficSplitDialog_ResultNilWhenCanceled(t *testing.T) {

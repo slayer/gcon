@@ -139,6 +139,7 @@ type InstanceDetailsView struct {
 	timeRange         time.Duration
 	autoRefresh       bool
 	autoRefreshTicker *time.Ticker
+	autoRefreshDone   chan struct{} // closed to unblock tickAutoRefresh goroutine
 	gcpClient         *gcp.Client
 	// Delete confirmation state
 	deleteConfirm     *confirm.TypeConfirmDialog
@@ -258,6 +259,10 @@ func (v *InstanceDetailsView) Close() {
 	if v.autoRefreshTicker != nil {
 		v.autoRefreshTicker.Stop()
 		v.autoRefreshTicker = nil
+	}
+	if v.autoRefreshDone != nil {
+		close(v.autoRefreshDone)
+		v.autoRefreshDone = nil
 	}
 }
 
@@ -382,6 +387,7 @@ func (v *InstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 			if v.autoRefresh {
 				if v.autoRefreshTicker == nil {
 					v.autoRefreshTicker = time.NewTicker(30 * time.Second)
+					v.autoRefreshDone = make(chan struct{})
 				}
 				cmds = append(cmds, v.tickAutoRefresh())
 			}
@@ -390,10 +396,14 @@ func (v *InstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 			}
 			return nil
 		}
-		// When leaving the observability tab, stop any running auto-refresh ticker
+		// When leaving the observability tab, stop ticker and unblock goroutine
 		if v.autoRefreshTicker != nil {
 			v.autoRefreshTicker.Stop()
 			v.autoRefreshTicker = nil
+		}
+		if v.autoRefreshDone != nil {
+			close(v.autoRefreshDone)
+			v.autoRefreshDone = nil
 		}
 		return nil
 
@@ -508,14 +518,19 @@ func (v *InstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 			case "a":
 				v.autoRefresh = !v.autoRefresh
 				if v.autoRefresh {
-					// Start auto-refresh ticker
+					// Start auto-refresh ticker with done channel for clean shutdown
 					v.autoRefreshTicker = time.NewTicker(30 * time.Second)
+					v.autoRefreshDone = make(chan struct{})
 					return v.tickAutoRefresh()
-				} else if v.autoRefreshTicker != nil {
-					// Stop auto-refresh ticker. We intentionally do not set
-					// v.autoRefreshTicker to nil here to avoid a race with the
-					// tickAutoRefresh goroutine that may still read from it.
+				}
+				// Stop ticker and unblock the waiting goroutine via done channel
+				if v.autoRefreshTicker != nil {
 					v.autoRefreshTicker.Stop()
+					v.autoRefreshTicker = nil
+				}
+				if v.autoRefreshDone != nil {
+					close(v.autoRefreshDone)
+					v.autoRefreshDone = nil
 				}
 				v.updateViewportContent()
 				return nil
@@ -846,24 +861,22 @@ func (v *InstanceDetailsView) loadLogs() tea.Cmd {
 	}
 }
 
-// tickAutoRefresh creates a command for auto-refresh ticker
+// tickAutoRefresh creates a command that blocks until the next tick or shutdown.
+// Uses a done channel to unblock when auto-refresh is stopped (ticker.Stop
+// doesn't close the channel, so without this the goroutine would leak).
 func (v *InstanceDetailsView) tickAutoRefresh() tea.Cmd {
+	ticker := v.autoRefreshTicker
+	done := v.autoRefreshDone
+	if ticker == nil || done == nil {
+		return nil
+	}
 	return func() tea.Msg {
-		// If auto-refresh is disabled or the ticker is not available, do nothing.
-		if v.autoRefreshTicker == nil || !v.autoRefresh {
+		select {
+		case <-ticker.C:
+			return refreshTickMsg{}
+		case <-done:
 			return nil
 		}
-
-		// Block until the next tick. If the ticker has been stopped, this command
-		// should not be scheduled again when auto-refresh is turned off.
-		<-v.autoRefreshTicker.C
-
-		// Auto-refresh may have been turned off while waiting; in that case,
-		// do not emit a refresh tick message.
-		if !v.autoRefresh {
-			return nil
-		}
-		return refreshTickMsg{}
 	}
 }
 
@@ -1497,38 +1510,6 @@ func (v *InstanceDetailsView) analyzeMetrics() []Recommendation {
 // Shared helpers (renderRow, defaultIfEmpty, min) are now in helpers.go
 
 // calculateStats calculates average, peak value and peak time from data points
-func calculateStats(data []gcp.DataPoint) (avg, peak float64, peakTime time.Time) {
-	if len(data) == 0 {
-		return 0, 0, time.Time{}
-	}
-
-	sum := 0.0
-	peak = data[0].Value
-	peakTime = data[0].Timestamp
-
-	for _, dp := range data {
-		sum += dp.Value
-		if dp.Value > peak {
-			peak = dp.Value
-			peakTime = dp.Timestamp
-		}
-	}
-
-	avg = sum / float64(len(data))
-	return avg, peak, peakTime
-}
-
-// formatDuration formats a time duration in human-readable form
-func formatDuration(d time.Duration) string {
-	if d < time.Hour {
-		return fmt.Sprintf("%dm", int(d.Minutes()))
-	}
-	if d < 24*time.Hour {
-		return fmt.Sprintf("%dh", int(d.Hours()))
-	}
-	days := int(d.Hours() / 24)
-	return fmt.Sprintf("%dd", days)
-}
 
 // formatUptime formats an uptime duration
 func formatUptime(d time.Duration) string {
@@ -1583,15 +1564,6 @@ func formatMaintenance(m string) string {
 	}
 }
 
-func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	if maxLen <= 3 {
-		return s[:maxLen]
-	}
-	return s[:maxLen-3] + "..."
-}
 
 var diskSourceRegex = regexp.MustCompile(`projects/[^/]+/zones/([^/]+)/disks/([^/]+)`)
 

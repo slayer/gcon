@@ -1,5 +1,19 @@
 # GCP API Gotchas
 
+## Cloud Monitoring: Data points returned newest-first
+
+`ListTimeSeries` returns points in **descending** timestamp order (newest first). UI code that treats `values[len-1]` as "current" will be inverted — sparklines render backwards and stats show the oldest value as current.
+
+Always sort ascending by timestamp before returning from metric-fetching functions:
+
+```go
+sort.Slice(dataPoints, func(i, j int) bool {
+    return dataPoints[i].Timestamp.Before(dataPoints[j].Timestamp)
+})
+```
+
+This applies to both `fetchMetricData` (Compute Engine) and `fetchCloudRunMetric` / `fetchPercentileData` (Cloud Run). The sort should happen at the data layer, not in UI consumers.
+
 ## Cloud SQL: `state` field means capability, not running status
 
 GCP's `state` field on `DatabaseInstance` represents operational capability, not whether the instance is currently running. Per the docs: `RUNNABLE` = "running, **or has been stopped by owner**".
