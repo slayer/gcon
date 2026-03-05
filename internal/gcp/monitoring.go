@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	monitoring "cloud.google.com/go/monitoring/apiv3/v2"
@@ -289,6 +290,11 @@ func (c *MonitoringClient) fetchMetricData(ctx context.Context, filter string, d
 			})
 		}
 	}
+
+	// API returns newest-first; sort ascending so values[len-1] is most recent
+	sort.Slice(dataPoints, func(i, j int) bool {
+		return dataPoints[i].Timestamp.Before(dataPoints[j].Timestamp)
+	})
 
 	return dataPoints, nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"cloud.google.com/go/monitoring/apiv3/v2/monitoringpb"
@@ -21,7 +22,7 @@ type CloudRunMetrics struct {
 	ErrorCount4xx []DataPoint // 4xx error count over time
 	ErrorCount5xx []DataPoint // 5xx error count over time
 	CPU           []DataPoint // CPU utilization (0-1)
-	Memory        []DataPoint // Memory utilization (0-1)
+	BillableInstanceTime []DataPoint // billable instance time (seconds/second)
 	InstanceCount []DataPoint // Active instance count
 	LastFetch     time.Time
 }
@@ -85,11 +86,10 @@ func (c *MonitoringClient) GetCloudRunCPUUtilization(ctx context.Context, servic
 	return c.fetchCloudRunMetric(ctx, filter, duration, monitoringpb.Aggregation_ALIGN_RATE, monitoringpb.Aggregation_REDUCE_SUM)
 }
 
-// GetCloudRunMemoryUtilization fetches container memory usage in bytes.
-// Uses billable_instance_time as a proxy — this metric exists when instances are active.
-// Note: Cloud Run doesn't expose a direct memory utilization percentage metric.
+// GetCloudRunBillableInstanceTime fetches billable instance time as seconds/second.
+// Indicates how much instance time is being billed — proxy for overall activity level.
 // Returns empty data if no billable instance time exists (service idle).
-func (c *MonitoringClient) GetCloudRunMemoryUtilization(ctx context.Context, serviceName string, duration time.Duration) ([]DataPoint, error) {
+func (c *MonitoringClient) GetCloudRunBillableInstanceTime(ctx context.Context, serviceName string, duration time.Duration) ([]DataPoint, error) {
 	filter := cloudRunFilter(serviceName, "run.googleapis.com/container/billable_instance_time")
 	return c.fetchCloudRunMetric(ctx, filter, duration, monitoringpb.Aggregation_ALIGN_RATE, monitoringpb.Aggregation_REDUCE_SUM)
 }
@@ -122,7 +122,15 @@ func (c *MonitoringClient) fetchCloudRunMetric(ctx context.Context, filter strin
 		},
 	}
 
-	return c.collectDataPoints(ctx, req)
+	points, err := c.collectDataPoints(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	// API returns newest-first; sort ascending so values[len-1] is most recent
+	sort.Slice(points, func(i, j int) bool {
+		return points[i].Timestamp.Before(points[j].Timestamp)
+	})
+	return points, nil
 }
 
 // fetchPercentileData fetches time series using a percentile aligner with
@@ -145,7 +153,14 @@ func (c *MonitoringClient) fetchPercentileData(ctx context.Context, filter strin
 		},
 	}
 
-	return c.collectDataPoints(ctx, req)
+	points, err := c.collectDataPoints(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(points, func(i, j int) bool {
+		return points[i].Timestamp.Before(points[j].Timestamp)
+	})
+	return points, nil
 }
 
 // collectDataPoints iterates a ListTimeSeries response and extracts data points.

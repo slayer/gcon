@@ -298,6 +298,9 @@ func (a *App) handleSidebarNavigation(msg sidebar.NavigateMsg) tea.Cmd {
 	case sidebar.ViewCloudRunServices:
 		if a.currentView != ViewCloudRunServices && a.currentView != ViewCloudRunServiceDetails && a.currentView != ViewCloudRunServiceEdit {
 			a.currentView = ViewCloudRunServices
+			if a.cloudRunServiceDetailsView != nil {
+				a.cloudRunServiceDetailsView.Close()
+			}
 			a.cloudRunServiceDetailsView = nil
 			a.cloudRunServiceEditView = nil
 			a.selectedCloudRunService = nil
@@ -647,6 +650,9 @@ func (a *App) clearAllViews() {
 	a.customRolesView = nil
 	a.customRoleDetailsView = nil
 	a.cloudRunServicesView = nil
+	if a.cloudRunServiceDetailsView != nil {
+		a.cloudRunServiceDetailsView.Close()
+	}
 	a.cloudRunServiceDetailsView = nil
 	a.cloudRunServiceEditView = nil
 	a.formDemoView = nil
@@ -2617,6 +2623,9 @@ func (a *App) handleCloudRunServiceActionResult(msg views.CloudRunServiceActionR
 				a.viewStack = a.viewStack[:lastViewIndex]
 			}
 
+			if a.cloudRunServiceDetailsView != nil {
+				a.cloudRunServiceDetailsView.Close()
+			}
 			a.cloudRunServiceDetailsView = nil
 			a.selectedCloudRunService = nil
 			a.updateSidebarActiveView()
