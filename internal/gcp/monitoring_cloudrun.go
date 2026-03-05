@@ -21,7 +21,7 @@ type CloudRunMetrics struct {
 	Latency99     []DataPoint // p99 latency in ms
 	ErrorCount4xx []DataPoint // 4xx error count over time
 	ErrorCount5xx []DataPoint // 5xx error count over time
-	CPU           []DataPoint // CPU utilization (0-1)
+	CPU           []DataPoint // CPU usage in vCPU-seconds/second (can exceed 1.0 for multi-vCPU services)
 	BillableInstanceTime []DataPoint // billable instance time (seconds/second)
 	InstanceCount []DataPoint // Active instance count
 	LastFetch     time.Time
