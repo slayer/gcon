@@ -15,7 +15,10 @@ import (
 )
 
 // Internal messages for Cloud Run observability data loading.
-type crMetricsLoadedMsg struct{ metrics *gcp.CloudRunMetrics }
+type crMetricsLoadedMsg struct {
+	metrics  *gcp.CloudRunMetrics
+	warnings []string // non-fatal per-metric errors
+}
 type crMetricsErrorMsg struct{ err error }
 type crLogsLoadedMsg struct{ logs []gcp.LogEntry }
 type crLogsErrorMsg struct{ err error }
@@ -28,12 +31,12 @@ type cloudRunObservability struct {
 	projectID   string
 	serviceName string
 	gcpClient   *gcp.Client
-	runClient   *gcp.CloudRunClient
 
 	// Metrics state
-	metrics        *gcp.CloudRunMetrics
-	metricsLoading bool
-	metricsError   error
+	metrics         *gcp.CloudRunMetrics
+	metricsLoading  bool
+	metricsError    error
+	metricsWarnings []string // non-fatal per-metric fetch errors
 
 	// Logs state
 	logs        []gcp.LogEntry
@@ -47,17 +50,15 @@ type cloudRunObservability struct {
 	timeRange   time.Duration
 	autoRefresh bool
 
-	spinner     spinner.Model
-	width       int
-	initialized bool
+	spinner spinner.Model
+	width   int
 }
 
-func newCloudRunObservability(projectID, serviceName string, gcpClient *gcp.Client, runClient *gcp.CloudRunClient) *cloudRunObservability {
+func newCloudRunObservability(projectID, serviceName string, gcpClient *gcp.Client) *cloudRunObservability {
 	return &cloudRunObservability{
 		projectID:   projectID,
 		serviceName: serviceName,
 		gcpClient:   gcpClient,
-		runClient:   runClient,
 		severityEnabled: map[string]bool{
 			"INFO":    true,
 			"WARNING": true,
@@ -75,7 +76,6 @@ func (o *cloudRunObservability) Init() tea.Cmd {
 	o.metricsError = nil
 	o.logsLoading = true
 	o.logsError = nil
-	o.initialized = true
 	return tea.Batch(o.spinner.Tick, o.loadMetrics(), o.loadLogs())
 }
 
@@ -88,6 +88,7 @@ func (o *cloudRunObservability) Update(msg tea.Msg) (tea.Cmd, bool) {
 		o.metricsLoading = false
 		o.metricsError = nil
 		o.metrics = msg.metrics
+		o.metricsWarnings = msg.warnings
 		return nil, true
 
 	case crMetricsErrorMsg:
@@ -223,6 +224,13 @@ func (o *cloudRunObservability) View() string {
 	if o.metrics != nil {
 		o.renderRequestMetrics(&b, sectionStyle, mutedStyle)
 		o.renderResourceMetrics(&b, sectionStyle, mutedStyle)
+	}
+
+	// Show warnings for partially failed metric fetches
+	if len(o.metricsWarnings) > 0 {
+		warnStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FBBC04"))
+		b.WriteString(warnStyle.Render(fmt.Sprintf("  ⚠ Some metrics unavailable: %s", strings.Join(o.metricsWarnings, "; "))))
+		b.WriteString("\n\n")
 	}
 
 	// Logs section
@@ -482,17 +490,40 @@ func (o *cloudRunObservability) loadMetrics() tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		metrics := &gcp.CloudRunMetrics{LastFetch: time.Now()}
+		var warnings []string
 
-		// Fetch each metric independently; failures for individual metrics are non-fatal
-		metrics.RequestCount, _ = monClient.GetCloudRunRequestCount(ctx, serviceName, timeRange)                                       //nolint:errcheck // non-fatal: empty data shown if unavailable
-		metrics.Latency50, metrics.Latency95, metrics.Latency99, _ = monClient.GetCloudRunRequestLatencies(ctx, serviceName, timeRange) //nolint:errcheck // non-fatal: empty data shown if unavailable
-		metrics.ErrorCount4xx, _ = monClient.GetCloudRunRequestCountByCode(ctx, serviceName, "4xx", timeRange)                         //nolint:errcheck // non-fatal: empty data shown if unavailable
-		metrics.ErrorCount5xx, _ = monClient.GetCloudRunRequestCountByCode(ctx, serviceName, "5xx", timeRange)                         //nolint:errcheck // non-fatal: empty data shown if unavailable
-		metrics.CPU, _ = monClient.GetCloudRunCPUUtilization(ctx, serviceName, timeRange)                                              //nolint:errcheck // non-fatal: empty data shown if unavailable
-		metrics.BillableInstanceTime, _ = monClient.GetCloudRunBillableInstanceTime(ctx, serviceName, timeRange) //nolint:errcheck // non-fatal: empty data shown if unavailable
-		metrics.InstanceCount, _ = monClient.GetCloudRunInstanceCount(ctx, serviceName, timeRange)                                     //nolint:errcheck // non-fatal: empty data shown if unavailable
+		// Fetch each metric independently; failures are non-fatal but surfaced as warnings
+		var metricErr error
+		metrics.RequestCount, metricErr = monClient.GetCloudRunRequestCount(ctx, serviceName, timeRange)
+		if metricErr != nil {
+			warnings = append(warnings, fmt.Sprintf("request count: %v", metricErr))
+		}
+		metrics.Latency50, metrics.Latency95, metrics.Latency99, metricErr = monClient.GetCloudRunRequestLatencies(ctx, serviceName, timeRange)
+		if metricErr != nil {
+			warnings = append(warnings, fmt.Sprintf("latency: %v", metricErr))
+		}
+		metrics.ErrorCount4xx, metricErr = monClient.GetCloudRunRequestCountByCode(ctx, serviceName, "4xx", timeRange)
+		if metricErr != nil {
+			warnings = append(warnings, fmt.Sprintf("4xx errors: %v", metricErr))
+		}
+		metrics.ErrorCount5xx, metricErr = monClient.GetCloudRunRequestCountByCode(ctx, serviceName, "5xx", timeRange)
+		if metricErr != nil {
+			warnings = append(warnings, fmt.Sprintf("5xx errors: %v", metricErr))
+		}
+		metrics.CPU, metricErr = monClient.GetCloudRunCPUUtilization(ctx, serviceName, timeRange)
+		if metricErr != nil {
+			warnings = append(warnings, fmt.Sprintf("CPU: %v", metricErr))
+		}
+		metrics.BillableInstanceTime, metricErr = monClient.GetCloudRunBillableInstanceTime(ctx, serviceName, timeRange)
+		if metricErr != nil {
+			warnings = append(warnings, fmt.Sprintf("billable time: %v", metricErr))
+		}
+		metrics.InstanceCount, metricErr = monClient.GetCloudRunInstanceCount(ctx, serviceName, timeRange)
+		if metricErr != nil {
+			warnings = append(warnings, fmt.Sprintf("instance count: %v", metricErr))
+		}
 
-		return crMetricsLoadedMsg{metrics: metrics}
+		return crMetricsLoadedMsg{metrics: metrics, warnings: warnings}
 	}
 }
 

@@ -168,6 +168,61 @@ func (v *View) loadData() tea.Cmd {
 }
 ```
 
+## Ticker Goroutines Need a `done` Channel to Avoid Leaks
+
+**Critical**: `time.Ticker.Stop()` stops sending ticks but does **not** close `ticker.C`. A goroutine blocking on `<-ticker.C` will hang forever after `Stop()` — this is a goroutine leak.
+
+Always pair a ticker with a `done chan struct{}`. Use `select` on both, and `close(done)` when stopping.
+
+```go
+type View struct {
+    autoRefreshTicker *time.Ticker
+    autoRefreshDone   chan struct{}
+}
+
+func (v *View) tickAutoRefresh() tea.Cmd {
+    ticker := v.autoRefreshTicker
+    done := v.autoRefreshDone
+    if ticker == nil || done == nil {
+        return nil
+    }
+    return func() tea.Msg {
+        select {
+        case <-ticker.C:
+            return refreshTickMsg{}
+        case <-done:
+            return nil
+        }
+    }
+}
+
+func (v *View) startAutoRefresh() {
+    v.stopAutoRefresh() // clean up previous
+    v.autoRefreshTicker = time.NewTicker(30 * time.Second)
+    v.autoRefreshDone = make(chan struct{})
+}
+
+func (v *View) stopAutoRefresh() {
+    if v.autoRefreshTicker != nil {
+        v.autoRefreshTicker.Stop()
+        v.autoRefreshTicker = nil
+    }
+    if v.autoRefreshDone != nil {
+        close(v.autoRefreshDone)
+        v.autoRefreshDone = nil
+    }
+}
+```
+
+**Checklist** when using tickers in `tea.Cmd`:
+1. Add a `done chan struct{}` field alongside the ticker
+2. Create both together (`NewTicker` + `make(chan struct{})`)
+3. `select` on both `ticker.C` and `done` in the blocking goroutine
+4. Close `done` in every code path that stops the ticker (toggle off, tab switch, `Close()`)
+5. Set both to nil after cleanup to prevent double-close panics
+
+See: `cloudrun_observability.go`, `instance_details.go`
+
 ## Dialog Update() Must Accept tea.Msg (Not Just tea.KeyMsg)
 
 Dialogs with text inputs (e.g., traffic split editor, inline editors) must accept `tea.Msg` in their `Update()` method, not just `tea.KeyMsg`. The `textinput.Model` component emits blink commands (`textinput.Blink`) that must be processed for the cursor to blink.

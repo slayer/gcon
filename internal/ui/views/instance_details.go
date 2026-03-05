@@ -139,6 +139,7 @@ type InstanceDetailsView struct {
 	timeRange         time.Duration
 	autoRefresh       bool
 	autoRefreshTicker *time.Ticker
+	autoRefreshDone   chan struct{} // closed to unblock tickAutoRefresh goroutine
 	gcpClient         *gcp.Client
 	// Delete confirmation state
 	deleteConfirm     *confirm.TypeConfirmDialog
@@ -258,6 +259,10 @@ func (v *InstanceDetailsView) Close() {
 	if v.autoRefreshTicker != nil {
 		v.autoRefreshTicker.Stop()
 		v.autoRefreshTicker = nil
+	}
+	if v.autoRefreshDone != nil {
+		close(v.autoRefreshDone)
+		v.autoRefreshDone = nil
 	}
 }
 
@@ -382,6 +387,7 @@ func (v *InstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 			if v.autoRefresh {
 				if v.autoRefreshTicker == nil {
 					v.autoRefreshTicker = time.NewTicker(30 * time.Second)
+					v.autoRefreshDone = make(chan struct{})
 				}
 				cmds = append(cmds, v.tickAutoRefresh())
 			}
@@ -390,10 +396,14 @@ func (v *InstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 			}
 			return nil
 		}
-		// When leaving the observability tab, stop any running auto-refresh ticker
+		// When leaving the observability tab, stop ticker and unblock goroutine
 		if v.autoRefreshTicker != nil {
 			v.autoRefreshTicker.Stop()
 			v.autoRefreshTicker = nil
+		}
+		if v.autoRefreshDone != nil {
+			close(v.autoRefreshDone)
+			v.autoRefreshDone = nil
 		}
 		return nil
 
@@ -508,14 +518,19 @@ func (v *InstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 			case "a":
 				v.autoRefresh = !v.autoRefresh
 				if v.autoRefresh {
-					// Start auto-refresh ticker
+					// Start auto-refresh ticker with done channel for clean shutdown
 					v.autoRefreshTicker = time.NewTicker(30 * time.Second)
+					v.autoRefreshDone = make(chan struct{})
 					return v.tickAutoRefresh()
-				} else if v.autoRefreshTicker != nil {
-					// Stop auto-refresh ticker. We intentionally do not set
-					// v.autoRefreshTicker to nil here to avoid a race with the
-					// tickAutoRefresh goroutine that may still read from it.
+				}
+				// Stop ticker and unblock the waiting goroutine via done channel
+				if v.autoRefreshTicker != nil {
 					v.autoRefreshTicker.Stop()
+					v.autoRefreshTicker = nil
+				}
+				if v.autoRefreshDone != nil {
+					close(v.autoRefreshDone)
+					v.autoRefreshDone = nil
 				}
 				v.updateViewportContent()
 				return nil
@@ -846,24 +861,22 @@ func (v *InstanceDetailsView) loadLogs() tea.Cmd {
 	}
 }
 
-// tickAutoRefresh creates a command for auto-refresh ticker
+// tickAutoRefresh creates a command that blocks until the next tick or shutdown.
+// Uses a done channel to unblock when auto-refresh is stopped (ticker.Stop
+// doesn't close the channel, so without this the goroutine would leak).
 func (v *InstanceDetailsView) tickAutoRefresh() tea.Cmd {
+	ticker := v.autoRefreshTicker
+	done := v.autoRefreshDone
+	if ticker == nil || done == nil {
+		return nil
+	}
 	return func() tea.Msg {
-		// If auto-refresh is disabled or the ticker is not available, do nothing.
-		if v.autoRefreshTicker == nil || !v.autoRefresh {
+		select {
+		case <-ticker.C:
+			return refreshTickMsg{}
+		case <-done:
 			return nil
 		}
-
-		// Block until the next tick. If the ticker has been stopped, this command
-		// should not be scheduled again when auto-refresh is turned off.
-		<-v.autoRefreshTicker.C
-
-		// Auto-refresh may have been turned off while waiting; in that case,
-		// do not emit a refresh tick message.
-		if !v.autoRefresh {
-			return nil
-		}
-		return refreshTickMsg{}
 	}
 }
 

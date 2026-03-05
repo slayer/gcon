@@ -11,11 +11,10 @@ import (
 )
 
 func TestCloudRunObservability_InitialState(t *testing.T) {
-	obs := newCloudRunObservability("test-project", "my-service", nil, nil)
+	obs := newCloudRunObservability("test-project", "my-service", nil)
 
 	assert.True(t, obs.autoRefresh, "auto-refresh should default to true")
 	assert.Equal(t, time.Hour, obs.timeRange, "time range should default to 1h")
-	assert.False(t, obs.initialized, "should not be initialized before Init()")
 	assert.Nil(t, obs.metrics, "metrics should be nil before Init()")
 	assert.Nil(t, obs.logs, "logs should be nil before Init()")
 
@@ -28,11 +27,10 @@ func TestCloudRunObservability_InitialState(t *testing.T) {
 	obs.Init()
 	assert.True(t, obs.metricsLoading, "metricsLoading should be true after Init()")
 	assert.True(t, obs.logsLoading, "logsLoading should be true after Init()")
-	assert.True(t, obs.initialized, "initialized should be true after Init()")
 }
 
 func TestCloudRunObservability_SeverityFilter(t *testing.T) {
-	obs := newCloudRunObservability("test-project", "my-service", nil, nil)
+	obs := newCloudRunObservability("test-project", "my-service", nil)
 
 	// All enabled by default
 	assert.True(t, obs.severityEnabled["INFO"])
@@ -80,7 +78,7 @@ func TestCloudRunObservability_ActiveSeverities(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			obs := newCloudRunObservability("p", "s", nil, nil)
+			obs := newCloudRunObservability("p", "s", nil)
 			obs.severityEnabled = tc.enabled
 			assert.Equal(t, tc.expected, obs.activeSeverities())
 		})
@@ -88,7 +86,7 @@ func TestCloudRunObservability_ActiveSeverities(t *testing.T) {
 }
 
 func TestCloudRunObservability_FilteredLogs(t *testing.T) {
-	obs := newCloudRunObservability("p", "s", nil, nil)
+	obs := newCloudRunObservability("p", "s", nil)
 	now := time.Now()
 
 	obs.logs = []gcp.LogEntry{
@@ -118,7 +116,7 @@ func TestCloudRunObservability_FilteredLogs(t *testing.T) {
 }
 
 func TestCloudRunObservability_RenderView_Loading(t *testing.T) {
-	obs := newCloudRunObservability("p", "s", nil, nil)
+	obs := newCloudRunObservability("p", "s", nil)
 	obs.width = 80
 	obs.metricsLoading = true
 
@@ -129,7 +127,7 @@ func TestCloudRunObservability_RenderView_Loading(t *testing.T) {
 }
 
 func TestCloudRunObservability_RenderView_WithMetrics(t *testing.T) {
-	obs := newCloudRunObservability("p", "s", nil, nil)
+	obs := newCloudRunObservability("p", "s", nil)
 	obs.width = 80
 	obs.metricsLoading = false
 	obs.logsLoading = false
@@ -175,7 +173,7 @@ func TestCloudRunObservability_ExtractValues(t *testing.T) {
 }
 
 func TestCloudRunObservability_RenderView_Error(t *testing.T) {
-	obs := newCloudRunObservability("p", "s", nil, nil)
+	obs := newCloudRunObservability("p", "s", nil)
 	obs.width = 80
 	obs.metricsLoading = false
 	obs.metricsError = assert.AnError
@@ -206,7 +204,7 @@ func TestFormatLatency(t *testing.T) {
 }
 
 func TestCloudRunObservability_AutoRefreshToggle(t *testing.T) {
-	obs := newCloudRunObservability("p", "s", nil, nil)
+	obs := newCloudRunObservability("p", "s", nil)
 	assert.True(t, obs.autoRefresh, "auto-refresh should default to true")
 
 	// Press 'a' to toggle off
@@ -223,7 +221,7 @@ func TestCloudRunObservability_AutoRefreshToggle(t *testing.T) {
 }
 
 func TestCloudRunObservability_TimeRangeKeys(t *testing.T) {
-	obs := newCloudRunObservability("p", "s", nil, nil)
+	obs := newCloudRunObservability("p", "s", nil)
 	assert.Equal(t, time.Hour, obs.timeRange)
 
 	// Press '3' to switch to 24h
@@ -239,7 +237,7 @@ func TestCloudRunObservability_TimeRangeKeys(t *testing.T) {
 }
 
 func TestCloudRunObservability_SeverityKeys(t *testing.T) {
-	obs := newCloudRunObservability("p", "s", nil, nil)
+	obs := newCloudRunObservability("p", "s", nil)
 	assert.True(t, obs.severityEnabled["INFO"])
 
 	// Press 'I' to toggle INFO off
