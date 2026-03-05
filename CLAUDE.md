@@ -259,7 +259,7 @@ On developing or updating a new feature keep in mind the following guidelines:
   - Custom Role details with 2 tabs (Details/Permissions)
 - [x] Cloud Run services
   - List services across all regions with status, URL, latest revision
-  - Service details view with 3 tabs (Details/Revisions/YAML)
+  - Service details view with 4 tabs (Details/Revisions/YAML/Observability)
   - Traffic split editing dialog (validates percentages sum to 100)
   - Delete service with type-to-confirm
   - Container config, scaling, environment variables, labels display
@@ -267,6 +267,16 @@ On developing or updating a new feature keep in mind the following guidelines:
   - Edit existing service configuration with diff preview before deploy
   - Create new services with full form (container, scaling, networking, security)
   - Form-based editor with 7 sections and validation
+  - Observability tab with request metrics, resource metrics, and filterable logs
+    - Request count with sparkline trends
+    - Request latency (p50/p95/p99) with sparklines
+    - Error rate (4xx/5xx) with sparklines
+    - CPU utilization with sparkline trends
+    - Billable instance time with sparkline trends
+    - Instance count with sparkline trends
+    - Filterable log viewer (INFO/WARNING/ERROR severity toggles)
+    - Time range selection (1h/6h/24h/7d/30d)
+    - Auto-refresh capability (30s interval)
 
 ## Planned Features
 - [ ] Subnets list and management

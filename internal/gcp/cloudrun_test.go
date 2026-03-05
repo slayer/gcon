@@ -1,11 +1,18 @@
 package gcp
 
 import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
+	"google.golang.org/api/option"
 	run "google.golang.org/api/run/v2"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestExtractShortName(t *testing.T) {
@@ -645,5 +652,122 @@ func TestBuildContainerFromUpdate_PreservesOriginal(t *testing.T) {
 		assert.Equal(t, "new:v2", container.Image)
 		// Original should be unchanged
 		assert.Equal(t, "old:v1", original.Image)
+	})
+}
+
+func TestWaitForOperation(t *testing.T) {
+	t.Run("nil operation returns immediately", func(t *testing.T) {
+		client := &CloudRunClient{}
+		err := client.waitForOperation(context.Background(), nil)
+		assert.NoError(t, err)
+	})
+
+	t.Run("already done operation returns immediately", func(t *testing.T) {
+		client := &CloudRunClient{}
+		op := &run.GoogleLongrunningOperation{Done: true}
+		err := client.waitForOperation(context.Background(), op)
+		assert.NoError(t, err)
+	})
+
+	t.Run("done operation with error returns error", func(t *testing.T) {
+		client := &CloudRunClient{}
+		op := &run.GoogleLongrunningOperation{
+			Done:  true,
+			Error: &run.GoogleRpcStatus{Message: "quota exceeded"},
+		}
+		err := client.waitForOperation(context.Background(), op)
+		assert.ErrorContains(t, err, "quota exceeded")
+	})
+
+	t.Run("polls until done", func(t *testing.T) {
+		var callCount atomic.Int32
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			count := callCount.Add(1)
+			resp := &run.GoogleLongrunningOperation{
+				Name: "operations/op-123",
+				Done: count >= 2, // Done on second call
+			}
+			w.Header().Set("Content-Type", "application/json")
+			data, _ := json.Marshal(resp) //nolint:errcheck
+			w.Write(data)                //nolint:errcheck
+		}))
+		defer server.Close()
+
+		svc, err := run.NewService(context.Background(),
+			option.WithEndpoint(server.URL),
+			option.WithoutAuthentication(),
+		)
+		require.NoError(t, err)
+
+		client := &CloudRunClient{service: svc}
+		op := &run.GoogleLongrunningOperation{
+			Name: "projects/p/locations/us-central1/operations/op-123",
+			Done: false,
+		}
+
+		err = client.waitForOperation(context.Background(), op)
+		assert.NoError(t, err)
+		assert.GreaterOrEqual(t, callCount.Load(), int32(2))
+	})
+
+	t.Run("returns error from completed operation", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			resp := &run.GoogleLongrunningOperation{
+				Name:  "operations/op-456",
+				Done:  true,
+				Error: &run.GoogleRpcStatus{Message: "permission denied"},
+			}
+			w.Header().Set("Content-Type", "application/json")
+			data, _ := json.Marshal(resp) //nolint:errcheck
+			w.Write(data)                //nolint:errcheck
+		}))
+		defer server.Close()
+
+		svc, err := run.NewService(context.Background(),
+			option.WithEndpoint(server.URL),
+			option.WithoutAuthentication(),
+		)
+		require.NoError(t, err)
+
+		client := &CloudRunClient{service: svc}
+		op := &run.GoogleLongrunningOperation{
+			Name: "projects/p/locations/us-central1/operations/op-456",
+			Done: false,
+		}
+
+		err = client.waitForOperation(context.Background(), op)
+		assert.ErrorContains(t, err, "permission denied")
+	})
+
+	t.Run("respects context cancellation", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Never completes — context should cancel first
+			resp := &run.GoogleLongrunningOperation{
+				Name: "operations/op-789",
+				Done: false,
+			}
+			w.Header().Set("Content-Type", "application/json")
+			data, _ := json.Marshal(resp) //nolint:errcheck
+			w.Write(data)                //nolint:errcheck
+		}))
+		defer server.Close()
+
+		svc, err := run.NewService(context.Background(),
+			option.WithEndpoint(server.URL),
+			option.WithoutAuthentication(),
+		)
+		require.NoError(t, err)
+
+		client := &CloudRunClient{service: svc}
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel() // Cancel immediately
+
+		op := &run.GoogleLongrunningOperation{
+			Name: "projects/p/locations/us-central1/operations/op-789",
+			Done: false,
+		}
+
+		err = client.waitForOperation(ctx, op)
+		assert.Error(t, err)
 	})
 }

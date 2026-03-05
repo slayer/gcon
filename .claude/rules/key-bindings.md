@@ -391,9 +391,26 @@ description: Keyboard shortcuts reference for all views
 | `t` | Edit traffic split (Revisions tab) |
 | `r` | Refresh details and revisions |
 | `Tab` | Switch focus (tabs/content) |
-| `h/l` or `1/2/3` | Switch tabs (Details/Revisions/YAML) |
+| `h/l` or `1/2/3/4` | Switch tabs (Details/Revisions/YAML/Observability) — when tabs focused |
 | `j/k` or `↓/↑` | Scroll content |
 | `Esc` | Go back |
+
+## Cloud Run Service Details - Observability Tab
+
+These keys are active when the **content area** is focused (use `Tab` to switch focus):
+
+| Key | Action |
+|-----|--------|
+| `1` | Set time range to 1 hour |
+| `2` | Set time range to 6 hours |
+| `3` | Set time range to 24 hours |
+| `4` | Set time range to 7 days |
+| `5` | Set time range to 30 days |
+| `a` | Toggle auto-refresh (30s interval) |
+| `I` | Toggle INFO log filter |
+| `W` | Toggle WARNING log filter |
+| `E` | Toggle ERROR/CRITICAL log filter |
+| `r` | Manual refresh |
 
 ## Cloud Run Edit/Create View
 

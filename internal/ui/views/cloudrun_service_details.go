@@ -29,9 +29,10 @@ import (
 
 // Tab IDs for Cloud Run service details
 const (
-	runTabIDDetails   = "details"
-	runTabIDRevisions = "revisions"
-	runTabIDYAML      = "yaml"
+	runTabIDDetails       = "details"
+	runTabIDRevisions     = "revisions"
+	runTabIDYAML          = "yaml"
+	runTabIDObservability = "observability"
 )
 
 // Focus region IDs
@@ -93,6 +94,10 @@ type CloudRunServiceDetailsView struct {
 	trafficDialog     *trafficSplitDialog
 	showTrafficDialog bool
 
+	// Observability tab
+	observability *cloudRunObservability
+	gcpClient     *gcp.Client
+
 	keys crServiceDetailsKeyMap
 }
 
@@ -140,13 +145,14 @@ func defaultCRServiceDetailsKeyMap() crServiceDetailsKeyMap {
 }
 
 // NewCloudRunServiceDetailsView creates a new Cloud Run service details view
-func NewCloudRunServiceDetailsView(projectID, serviceName, fullName string, runClient *gcp.CloudRunClient) *CloudRunServiceDetailsView {
+func NewCloudRunServiceDetailsView(projectID, serviceName, fullName string, runClient *gcp.CloudRunClient, gcpClient *gcp.Client) *CloudRunServiceDetailsView {
 	s := components.NewGCPSpinner()
 
 	tabsComponent := tabs.New([]tabs.Tab{
 		{ID: runTabIDDetails, Label: "Details"},
 		{ID: runTabIDRevisions, Label: "Revisions"},
 		{ID: runTabIDYAML, Label: "YAML"},
+		{ID: runTabIDObservability, Label: "Observability"},
 	})
 
 	fm := focus.NewManager()
@@ -157,6 +163,7 @@ func NewCloudRunServiceDetailsView(projectID, serviceName, fullName string, runC
 
 	return &CloudRunServiceDetailsView{
 		runClient:        runClient,
+		gcpClient:        gcpClient,
 		projectID:        projectID,
 		serviceName:      serviceName,
 		fullName:         fullName,
@@ -165,9 +172,20 @@ func NewCloudRunServiceDetailsView(projectID, serviceName, fullName string, runC
 		revisionsLoading: true,
 		keys:             defaultCRServiceDetailsKeyMap(),
 		tabs:             tabsComponent,
-		tabViewports:     make([]viewport.Model, 3),
+		tabViewports:     make([]viewport.Model, 4),
 		focusMgr:         fm,
 		regionMgr:        mouse.NewRegionManager(),
+	}
+}
+
+// Close releases resources associated with the view.
+// Must be called before nil-ing the view to prevent goroutine/ticker leaks.
+func (v *CloudRunServiceDetailsView) Close() {
+	if v == nil {
+		return
+	}
+	if v.observability != nil {
+		v.observability.StopAutoRefresh()
 	}
 }
 
@@ -251,11 +269,27 @@ func (v *CloudRunServiceDetailsView) Update(msg tea.Msg) tea.Cmd {
 		v.updateViewportContent()
 		return nil
 
+	case crMetricsLoadedMsg, crMetricsErrorMsg, crLogsLoadedMsg, crLogsErrorMsg, crRefreshTickMsg:
+		if v.observability != nil {
+			cmd, _ := v.observability.Update(msg)
+			v.updateViewportContent()
+			return cmd
+		}
+		return nil
+
 	case spinner.TickMsg:
 		if v.detailsLoading || v.revisionsLoading {
 			var cmd tea.Cmd
 			v.spinner, cmd = v.spinner.Update(msg)
 			return cmd
+		}
+		// Forward spinner ticks to observability when on that tab
+		if v.observability != nil && v.tabs.ActiveTab().ID == runTabIDObservability {
+			cmd, handled := v.observability.Update(msg)
+			if handled {
+				v.updateViewportContent()
+				return cmd
+			}
 		}
 		return nil
 
@@ -285,6 +319,19 @@ func (v *CloudRunServiceDetailsView) Update(msg tea.Msg) tea.Cmd {
 
 	case tabs.TabChangedMsg:
 		v.updateViewportContent()
+		// Lazy-load observability on first tab switch; manage auto-refresh lifecycle
+		if v.tabs.ActiveTab().ID == runTabIDObservability {
+			if v.observability == nil {
+				v.observability = newCloudRunObservability(v.projectID, v.serviceName, v.gcpClient)
+				v.observability.width = v.width
+				return tea.Batch(v.observability.Init(), v.observability.StartAutoRefresh())
+			}
+			return v.observability.StartAutoRefresh()
+		}
+		// Stop auto-refresh when leaving observability tab
+		if v.observability != nil {
+			v.observability.StopAutoRefresh()
+		}
 		return nil
 
 	case focus.FocusChangedMsg:
@@ -368,6 +415,16 @@ func (v *CloudRunServiceDetailsView) Update(msg tea.Msg) tea.Cmd {
 			}
 
 		case focus.RegionViewport:
+			// Route observability keys (time range 1-5, severity, auto-refresh) only
+			// when viewport is focused, so numeric tab switching still works from tabs region
+			if v.tabs.ActiveTab().ID == runTabIDObservability && v.observability != nil {
+				cmd, handled := v.observability.Update(msg)
+				if handled {
+					v.updateViewportContent()
+					return cmd
+				}
+			}
+
 			activeIdx := v.tabs.ActiveIndex()
 			if activeIdx >= 0 && activeIdx < len(v.tabViewports) {
 				var cmd tea.Cmd
@@ -424,7 +481,12 @@ func (v *CloudRunServiceDetailsView) refresh() tea.Cmd {
 	v.revisionsLoading = true
 	v.detailsErr = nil
 	v.revisionsErr = nil
-	return tea.Batch(v.spinner.Tick, v.loadDetails(), v.loadRevisions())
+	cmds := []tea.Cmd{v.spinner.Tick, v.loadDetails(), v.loadRevisions()}
+	// Also refresh observability data when on that tab
+	if v.observability != nil && v.tabs.ActiveTab().ID == runTabIDObservability {
+		cmds = append(cmds, v.observability.Init())
+	}
+	return tea.Batch(cmds...)
 }
 
 func (v *CloudRunServiceDetailsView) initiateDelete() tea.Cmd {
@@ -573,6 +635,10 @@ func (v *CloudRunServiceDetailsView) applySize(width, height int) {
 		}
 	}
 
+	if v.observability != nil {
+		v.observability.width = width
+	}
+
 	if v.details != nil {
 		v.updateViewportContent()
 	}
@@ -596,6 +662,10 @@ func (v *CloudRunServiceDetailsView) updateViewportContent() {
 		content = v.renderRevisionsTab()
 	case runTabIDYAML:
 		content = v.renderYAMLTab()
+	case runTabIDObservability:
+		if v.observability != nil {
+			content = v.observability.View()
+		}
 	default:
 		content = v.renderDetailsTab()
 	}
@@ -787,9 +857,17 @@ func (v *CloudRunServiceDetailsView) buildHelpText() string {
 	helpStr := focus.FormatHelp(bindings)
 	badge := focus.FormatRegionBadge(v.focusMgr.Active())
 
-	actionHints := ".: actions • D: delete"
-	if v.tabs.ActiveTab().ID == runTabIDRevisions && len(v.revisions) > 0 {
-		actionHints += " • t: traffic"
+	var actionHints string
+	switch v.tabs.ActiveTab().ID {
+	case runTabIDObservability:
+		actionHints = "1-5: range • a: auto-refresh • I/W/E: logs • r: refresh"
+	case runTabIDRevisions:
+		actionHints = ".: actions • D: delete"
+		if len(v.revisions) > 0 {
+			actionHints += " • t: traffic"
+		}
+	default:
+		actionHints = ".: actions • D: delete"
 	}
 
 	if badge != "" {
@@ -1005,8 +1083,8 @@ func (d *trafficSplitDialog) Result() []gcp.CloudRunTrafficTarget {
 		if parseErr != nil {
 			continue // validated before submit, skip on unexpected error
 		}
-		if pct == 0 {
-			continue // Skip zero-traffic entries
+		if pct == 0 && d.entries[i].Tag == "" {
+			continue // Skip untagged zero-traffic entries; tagged 0% routes provide a URL
 		}
 		targets = append(targets, gcp.CloudRunTrafficTarget{
 			RevisionName: d.entries[i].RevisionName,
