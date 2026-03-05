@@ -396,15 +396,6 @@ func (v *CloudRunServiceDetailsView) Update(msg tea.Msg) tea.Cmd {
 			return nil
 		}
 
-		// Route keys to observability tab (time range, severity, auto-refresh)
-		if v.tabs.ActiveTab().ID == runTabIDObservability && v.observability != nil {
-			cmd, handled := v.observability.Update(msg)
-			if handled {
-				v.updateViewportContent()
-				return cmd
-			}
-		}
-
 		// Route remaining keys based on currently focused region
 		switch v.focusMgr.ActiveType() {
 		case focus.RegionTabs:
@@ -413,6 +404,16 @@ func (v *CloudRunServiceDetailsView) Update(msg tea.Msg) tea.Cmd {
 			}
 
 		case focus.RegionViewport:
+			// Route observability keys (time range 1-5, severity, auto-refresh) only
+			// when viewport is focused, so numeric tab switching still works from tabs region
+			if v.tabs.ActiveTab().ID == runTabIDObservability && v.observability != nil {
+				cmd, handled := v.observability.Update(msg)
+				if handled {
+					v.updateViewportContent()
+					return cmd
+				}
+			}
+
 			activeIdx := v.tabs.ActiveIndex()
 			if activeIdx >= 0 && activeIdx < len(v.tabViewports) {
 				var cmd tea.Cmd

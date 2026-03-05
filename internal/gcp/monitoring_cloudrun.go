@@ -21,7 +21,7 @@ type CloudRunMetrics struct {
 	ErrorCount4xx []DataPoint // 4xx error count over time
 	ErrorCount5xx []DataPoint // 5xx error count over time
 	CPU           []DataPoint // CPU utilization (0-1)
-	Memory        []DataPoint // Memory utilization (0-1)
+	BillableInstanceTime []DataPoint // Billable instance time (rate)
 	InstanceCount []DataPoint // Active instance count
 	LastFetch     time.Time
 }
@@ -85,11 +85,10 @@ func (c *MonitoringClient) GetCloudRunCPUUtilization(ctx context.Context, servic
 	return c.fetchCloudRunMetric(ctx, filter, duration, monitoringpb.Aggregation_ALIGN_RATE, monitoringpb.Aggregation_REDUCE_SUM)
 }
 
-// GetCloudRunMemoryUtilization fetches container memory usage in bytes.
-// Uses billable_instance_time as a proxy — this metric exists when instances are active.
-// Note: Cloud Run doesn't expose a direct memory utilization percentage metric.
-// Returns empty data if no billable instance time exists (service idle).
-func (c *MonitoringClient) GetCloudRunMemoryUtilization(ctx context.Context, serviceName string, duration time.Duration) ([]DataPoint, error) {
+// GetCloudRunBillableInstanceTime fetches billable instance time rate.
+// This metric tracks how much instance time is being billed, serving as a
+// proxy for overall activity level. Returns empty data if service is idle.
+func (c *MonitoringClient) GetCloudRunBillableInstanceTime(ctx context.Context, serviceName string, duration time.Duration) ([]DataPoint, error) {
 	filter := cloudRunFilter(serviceName, "run.googleapis.com/container/billable_instance_time")
 	return c.fetchCloudRunMetric(ctx, filter, duration, monitoringpb.Aggregation_ALIGN_RATE, monitoringpb.Aggregation_REDUCE_SUM)
 }

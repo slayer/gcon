@@ -271,8 +271,8 @@ On developing or updating a new feature keep in mind the following guidelines:
     - Request count with sparkline trends
     - Request latency (p50/p95/p99) with sparklines
     - Error rate (4xx/5xx) with sparklines
-    - CPU utilization with sparkline and metric bar
-    - Memory utilization with sparkline and metric bar
+    - CPU utilization with sparkline trends
+    - Billable instance time with sparkline trends
     - Instance count with sparkline trends
     - Filterable log viewer (INFO/WARNING/ERROR severity toggles)
     - Time range selection (1h/6h/24h/7d/30d)

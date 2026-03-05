@@ -391,21 +391,13 @@ description: Keyboard shortcuts reference for all views
 | `t` | Edit traffic split (Revisions tab) |
 | `r` | Refresh details and revisions |
 | `Tab` | Switch focus (tabs/content) |
-| `h/l` or `1/2/3/4` | Switch tabs (Details/Revisions/YAML/Observability) |
+| `h/l` or `1/2/3/4` | Switch tabs (Details/Revisions/YAML/Observability) — when tabs focused |
 | `j/k` or `↓/↑` | Scroll content |
 | `Esc` | Go back |
 
-## Cloud Run Edit/Create View
-
-| Key | Action |
-|-----|--------|
-| `Ctrl+S` | Preview changes (show diff) |
-| `Enter` | Confirm deploy (from diff view) |
-| `Tab/↓` | Next field |
-| `Shift+Tab/↑` | Previous field |
-| `Esc` | Back (diff → form) / Cancel (form → back) |
-
 ## Cloud Run Service Details - Observability Tab
+
+These keys are active when the **content area** is focused (use `Tab` to switch focus):
 
 | Key | Action |
 |-----|--------|
@@ -419,3 +411,13 @@ description: Keyboard shortcuts reference for all views
 | `W` | Toggle WARNING log filter |
 | `E` | Toggle ERROR/CRITICAL log filter |
 | `r` | Manual refresh |
+
+## Cloud Run Edit/Create View
+
+| Key | Action |
+|-----|--------|
+| `Ctrl+S` | Preview changes (show diff) |
+| `Enter` | Confirm deploy (from diff view) |
+| `Tab/↓` | Next field |
+| `Shift+Tab/↑` | Previous field |
+| `Esc` | Back (diff → form) / Cancel (form → back) |

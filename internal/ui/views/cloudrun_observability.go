@@ -44,9 +44,8 @@ type cloudRunObservability struct {
 	severityEnabled map[string]bool
 
 	// Time range and refresh
-	timeRange        time.Duration
-	autoRefresh      bool
-	autoRefreshTimer *time.Ticker
+	timeRange   time.Duration
+	autoRefresh bool
 
 	spinner     spinner.Model
 	width       int
@@ -108,7 +107,10 @@ func (o *cloudRunObservability) Update(msg tea.Msg) (tea.Cmd, bool) {
 		return nil, true
 
 	case crRefreshTickMsg:
-		// Auto-refresh triggered; reload everything
+		// Drop stale ticks if auto-refresh was turned off while waiting
+		if !o.autoRefresh {
+			return nil, true
+		}
 		o.metricsLoading = true
 		o.logsLoading = true
 		return tea.Batch(o.loadMetrics(), o.loadLogs(), o.tickAutoRefresh()), true
@@ -190,7 +192,7 @@ func (o *cloudRunObservability) View() string {
 	// Title
 	b.WriteString(titleStyle.Render("Observability"))
 	b.WriteString("\n")
-	b.WriteString(strings.Repeat("─", min(o.width-4, 60)))
+	b.WriteString(strings.Repeat("─", max(0, min(o.width-4, 60))))
 	b.WriteString("\n\n")
 
 	// Time range selector
@@ -237,12 +239,12 @@ func (o *cloudRunObservability) View() string {
 // renderRequestMetrics renders the request count, latency, and error rate sections.
 func (o *cloudRunObservability) renderRequestMetrics(b *strings.Builder, sectionStyle, mutedStyle lipgloss.Style) {
 	m := o.metrics
-	sparkWidth := min(o.width-12, 50)
+	sparkWidth := max(1, min(o.width-12, 50))
 
 	// Request count
 	b.WriteString(sectionStyle.Render("Request Count"))
 	b.WriteString("\n")
-	b.WriteString(strings.Repeat("━", min(o.width-4, 60)))
+	b.WriteString(strings.Repeat("━", max(0, min(o.width-4, 60))))
 	b.WriteString("\n")
 	if len(m.RequestCount) > 0 {
 		values := extractValues(m.RequestCount)
@@ -265,7 +267,7 @@ func (o *cloudRunObservability) renderRequestMetrics(b *strings.Builder, section
 	// Latency (p50/p95/p99)
 	b.WriteString(sectionStyle.Render("Request Latency"))
 	b.WriteString("\n")
-	b.WriteString(strings.Repeat("━", min(o.width-4, 60)))
+	b.WriteString(strings.Repeat("━", max(0, min(o.width-4, 60))))
 	b.WriteString("\n")
 	hasLatency := len(m.Latency50) > 0 || len(m.Latency95) > 0 || len(m.Latency99) > 0
 	if hasLatency {
@@ -295,7 +297,7 @@ func (o *cloudRunObservability) renderRequestMetrics(b *strings.Builder, section
 	// Error rates (4xx/5xx)
 	b.WriteString(sectionStyle.Render("Error Rate"))
 	b.WriteString("\n")
-	b.WriteString(strings.Repeat("━", min(o.width-4, 60)))
+	b.WriteString(strings.Repeat("━", max(0, min(o.width-4, 60))))
 	b.WriteString("\n")
 	hasErrors := len(m.ErrorCount4xx) > 0 || len(m.ErrorCount5xx) > 0
 	if hasErrors {
@@ -321,12 +323,12 @@ func (o *cloudRunObservability) renderRequestMetrics(b *strings.Builder, section
 // renderResourceMetrics renders CPU, memory, and instance count sections.
 func (o *cloudRunObservability) renderResourceMetrics(b *strings.Builder, sectionStyle, mutedStyle lipgloss.Style) {
 	m := o.metrics
-	sparkWidth := min(o.width-12, 50)
+	sparkWidth := max(1, min(o.width-12, 50))
 
 	// CPU usage — values are vCPU-seconds/second (1.0 = 1 full vCPU)
 	b.WriteString(sectionStyle.Render("CPU Usage"))
 	b.WriteString("\n")
-	b.WriteString(strings.Repeat("━", min(o.width-4, 60)))
+	b.WriteString(strings.Repeat("━", max(0, min(o.width-4, 60))))
 	b.WriteString("\n")
 	if len(m.CPU) > 0 {
 		cpuValues := extractValues(m.CPU)
@@ -349,15 +351,15 @@ func (o *cloudRunObservability) renderResourceMetrics(b *strings.Builder, sectio
 	// Billable instance time — proxy for activity level (no direct memory utilization metric)
 	b.WriteString(sectionStyle.Render("Billable Instance Time"))
 	b.WriteString("\n")
-	b.WriteString(strings.Repeat("━", min(o.width-4, 60)))
+	b.WriteString(strings.Repeat("━", max(0, min(o.width-4, 60))))
 	b.WriteString("\n")
-	if len(m.Memory) > 0 {
-		values := extractValues(m.Memory)
+	if len(m.BillableInstanceTime) > 0 {
+		values := extractValues(m.BillableInstanceTime)
 		sparkline := components.RenderSparkline(values, sparkWidth)
 		fmt.Fprintf(b, "  Trend (%s): %s\n", formatDuration(o.timeRange), sparkline)
 
 		current := values[len(values)-1]
-		avg, peak, peakTime := calculateStats(m.Memory)
+		avg, peak, peakTime := calculateStats(m.BillableInstanceTime)
 		fmt.Fprintf(b, "     Current: %.2f  |  Avg: %.2f  |  Peak: %.2f", current, avg, peak)
 		if !peakTime.IsZero() {
 			fmt.Fprintf(b, " (%s)", peakTime.Format("3:04 PM"))
@@ -372,7 +374,7 @@ func (o *cloudRunObservability) renderResourceMetrics(b *strings.Builder, sectio
 	// Instance count
 	b.WriteString(sectionStyle.Render("Instance Count"))
 	b.WriteString("\n")
-	b.WriteString(strings.Repeat("━", min(o.width-4, 60)))
+	b.WriteString(strings.Repeat("━", max(0, min(o.width-4, 60))))
 	b.WriteString("\n")
 	if len(m.InstanceCount) > 0 {
 		values := extractValues(m.InstanceCount)
@@ -397,7 +399,7 @@ func (o *cloudRunObservability) renderResourceMetrics(b *strings.Builder, sectio
 func (o *cloudRunObservability) renderLogs(b *strings.Builder, sectionStyle, mutedStyle, errorStyle lipgloss.Style) {
 	b.WriteString(sectionStyle.Render("Logs"))
 	b.WriteString("\n")
-	b.WriteString(strings.Repeat("━", min(o.width-4, 60)))
+	b.WriteString(strings.Repeat("━", max(0, min(o.width-4, 60))))
 	b.WriteString("\n")
 
 	// Severity filter pills
@@ -477,7 +479,8 @@ func (o *cloudRunObservability) loadMetrics() tea.Cmd {
 			return crMetricsErrorMsg{err: fmt.Errorf("monitoring client: %w", err)}
 		}
 
-		ctx := context.Background()
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
 		metrics := &gcp.CloudRunMetrics{LastFetch: time.Now()}
 
 		// Fetch each metric independently; failures for individual metrics are non-fatal
@@ -486,7 +489,7 @@ func (o *cloudRunObservability) loadMetrics() tea.Cmd {
 		metrics.ErrorCount4xx, _ = monClient.GetCloudRunRequestCountByCode(ctx, serviceName, "4xx", timeRange)                         //nolint:errcheck // non-fatal: empty data shown if unavailable
 		metrics.ErrorCount5xx, _ = monClient.GetCloudRunRequestCountByCode(ctx, serviceName, "5xx", timeRange)                         //nolint:errcheck // non-fatal: empty data shown if unavailable
 		metrics.CPU, _ = monClient.GetCloudRunCPUUtilization(ctx, serviceName, timeRange)                                              //nolint:errcheck // non-fatal: empty data shown if unavailable
-		metrics.Memory, _ = monClient.GetCloudRunMemoryUtilization(ctx, serviceName, timeRange)                                        //nolint:errcheck // non-fatal: empty data shown if unavailable
+		metrics.BillableInstanceTime, _ = monClient.GetCloudRunBillableInstanceTime(ctx, serviceName, timeRange) //nolint:errcheck // non-fatal: empty data shown if unavailable
 		metrics.InstanceCount, _ = monClient.GetCloudRunInstanceCount(ctx, serviceName, timeRange)                                     //nolint:errcheck // non-fatal: empty data shown if unavailable
 
 		return crMetricsLoadedMsg{metrics: metrics}
@@ -497,6 +500,7 @@ func (o *cloudRunObservability) loadMetrics() tea.Cmd {
 func (o *cloudRunObservability) loadLogs() tea.Cmd {
 	projectID := o.projectID
 	serviceName := o.serviceName
+	timeRange := o.timeRange
 	client := o.gcpClient
 
 	return func() tea.Msg {
@@ -509,9 +513,10 @@ func (o *cloudRunObservability) loadLogs() tea.Cmd {
 			return crLogsErrorMsg{err: fmt.Errorf("logging client: %w", err)}
 		}
 
-		ctx := context.Background()
-		// Fetch recent logs (all severities); client-side filtering applies later
-		logs, err := logClient.GetCloudRunLogs(ctx, serviceName, nil, 50)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		// Fetch logs within the selected time range; client-side severity filtering applies later
+		logs, err := logClient.GetCloudRunLogs(ctx, serviceName, nil, timeRange, 50)
 		if err != nil {
 			return crLogsErrorMsg{err: err}
 		}
@@ -519,35 +524,28 @@ func (o *cloudRunObservability) loadLogs() tea.Cmd {
 	}
 }
 
-// tickAutoRefresh blocks on the ticker channel and returns a refresh tick.
+// tickAutoRefresh schedules a single auto-refresh tick using Bubble Tea's timing.
+// Each tick reschedules the next one, avoiding goroutine leaks from long-lived tickers.
 func (o *cloudRunObservability) tickAutoRefresh() tea.Cmd {
-	ticker := o.autoRefreshTimer
-	if ticker == nil {
+	if !o.autoRefresh {
 		return nil
 	}
-	return func() tea.Msg {
-		<-ticker.C
+	return tea.Tick(30*time.Second, func(_ time.Time) tea.Msg {
 		return crRefreshTickMsg{}
-	}
+	})
 }
 
-// StartAutoRefresh creates and starts the auto-refresh ticker (30s interval).
+// StartAutoRefresh schedules the next auto-refresh tick (30s interval).
 func (o *cloudRunObservability) StartAutoRefresh() tea.Cmd {
 	if !o.autoRefresh {
 		return nil
 	}
-	// Stop any existing ticker to avoid leaks
-	o.StopAutoRefresh()
-	o.autoRefreshTimer = time.NewTicker(30 * time.Second)
 	return o.tickAutoRefresh()
 }
 
-// StopAutoRefresh stops the auto-refresh ticker and cleans up.
+// StopAutoRefresh is a no-op — refresh ticks are dropped in Update when autoRefresh is false.
 func (o *cloudRunObservability) StopAutoRefresh() {
-	if o.autoRefreshTimer != nil {
-		o.autoRefreshTimer.Stop()
-		o.autoRefreshTimer = nil
-	}
+	// No resources to clean up; tea.Tick-based approach is self-cleaning
 }
 
 // toggleSeverity flips the enabled state for a severity level.

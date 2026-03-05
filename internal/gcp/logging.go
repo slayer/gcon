@@ -97,14 +97,22 @@ func (c *LoggingClient) GetRecentLogs(
 
 // GetCloudRunLogs fetches recent logs for a Cloud Run service.
 // severities filters by log severity (e.g. ["INFO", "WARNING"]). nil or empty means all severities.
+// duration limits how far back to look (0 means no time filter).
 func (c *LoggingClient) GetCloudRunLogs(
 	ctx context.Context,
 	serviceName string,
 	severities []string,
+	duration time.Duration,
 	limit int,
 ) ([]LogEntry, error) {
 	// Filter by Cloud Run revision resource with the given service name
 	filter := fmt.Sprintf(`resource.type="cloud_run_revision" AND resource.labels.service_name="%s"`, serviceName) //nolint:gocritic // GCP filter syntax requires double quotes
+
+	// Apply time range filter
+	if duration > 0 {
+		cutoff := time.Now().Add(-duration).UTC().Format(time.RFC3339)
+		filter += fmt.Sprintf(` AND timestamp >= "%s"`, cutoff) //nolint:gocritic // GCP filter syntax requires double quotes
+	}
 
 	// Optionally restrict to specific severity levels
 	if len(severities) > 0 {

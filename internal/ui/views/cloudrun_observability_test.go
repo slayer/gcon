@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -142,7 +143,7 @@ func TestCloudRunObservability_RenderView_WithMetrics(t *testing.T) {
 			{Timestamp: time.Now(), Value: 0.25},
 			{Timestamp: time.Now(), Value: 0.50},
 		},
-		Memory: []gcp.DataPoint{
+		BillableInstanceTime: []gcp.DataPoint{
 			{Timestamp: time.Now(), Value: 0.40},
 		},
 		InstanceCount: []gcp.DataPoint{
@@ -206,14 +207,50 @@ func TestFormatLatency(t *testing.T) {
 
 func TestCloudRunObservability_AutoRefreshToggle(t *testing.T) {
 	obs := newCloudRunObservability("p", "s", nil, nil)
+	assert.True(t, obs.autoRefresh, "auto-refresh should default to true")
 
-	assert.True(t, obs.autoRefresh)
-
-	// Simulate key 'a' to toggle off
-	obs.autoRefresh = false
+	// Press 'a' to toggle off
+	cmd, handled := obs.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	assert.True(t, handled)
+	assert.Nil(t, cmd, "stopping auto-refresh should return nil cmd")
 	assert.False(t, obs.autoRefresh)
 
-	// Toggle back on
-	obs.autoRefresh = true
+	// Press 'a' again to toggle back on — should schedule a tick
+	cmd, handled = obs.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	assert.True(t, handled)
+	assert.NotNil(t, cmd, "starting auto-refresh should return a tick cmd")
 	assert.True(t, obs.autoRefresh)
+}
+
+func TestCloudRunObservability_TimeRangeKeys(t *testing.T) {
+	obs := newCloudRunObservability("p", "s", nil, nil)
+	assert.Equal(t, time.Hour, obs.timeRange)
+
+	// Press '3' to switch to 24h
+	cmd, handled := obs.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'3'}})
+	assert.True(t, handled)
+	assert.NotNil(t, cmd, "changing time range should trigger reload")
+	assert.Equal(t, 24*time.Hour, obs.timeRange)
+
+	// Same key again should be a no-op
+	cmd, handled = obs.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'3'}})
+	assert.True(t, handled)
+	assert.Nil(t, cmd, "same time range should be no-op")
+}
+
+func TestCloudRunObservability_SeverityKeys(t *testing.T) {
+	obs := newCloudRunObservability("p", "s", nil, nil)
+	assert.True(t, obs.severityEnabled["INFO"])
+
+	// Press 'I' to toggle INFO off
+	cmd, handled := obs.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'I'}})
+	assert.True(t, handled)
+	assert.Nil(t, cmd)
+	assert.False(t, obs.severityEnabled["INFO"])
+
+	// Press 'I' again to toggle back on
+	cmd, handled = obs.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'I'}})
+	assert.True(t, handled)
+	assert.Nil(t, cmd)
+	assert.True(t, obs.severityEnabled["INFO"])
 }
