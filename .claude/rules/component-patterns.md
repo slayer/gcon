@@ -20,7 +20,7 @@ Use the shared helpers in `internal/ui/views/helpers.go` and `internal/ui/compon
 | `formWidthPadding` / `formHeightPadding` | `views/helpers.go` | Standard form sizing padding (both = 4) |
 | `TableClickDelegate` | `views/helpers.go` | Embed in list views for mouse click delegation |
 | `CreateViewBase` | `views/create_view_base.go` | Embed in creation views for full lifecycle |
-| `metricchart.New(title, height)` | `components/metricchart/` | Braille time series charts for metrics |
+| `metricchart.New(height)` | `components/metricchart/` | Braille time series charts for metrics |
 
 ## Metric Charts (metricchart package)
 
@@ -28,7 +28,7 @@ Use `metricchart.Chart` for rendering time series metrics in observability tabs.
 
 ```go
 // Single-series chart (CPU, memory, request count)
-chart := metricchart.New("CPU", metricchart.HeightStandard)
+chart := metricchart.New(metricchart.HeightStandard)
 chart.SetYRange(0, 100).
     SetStatsFormatter(metricchart.FormatPercentageStats).
     SetYLabelFormatter(metricchart.PercentYLabel)
@@ -36,7 +36,7 @@ chart.SetData(dataPoints)         // []gcp.DataPoint
 output := chart.View()            // renders chart + stats line
 
 // Multi-series overlay (latency p50/p95/p99, error rates 4xx/5xx)
-chart := metricchart.New("Latency", metricchart.HeightStandard)
+chart := metricchart.New(metricchart.HeightStandard)
 chart.SetStatsFormatter(nil).     // no per-series stats for multi-dataset
     SetYLabelFormatter(metricchart.LatencyYLabel)
 chart.SetDataSets([]metricchart.DataSet{

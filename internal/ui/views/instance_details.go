@@ -1017,7 +1017,7 @@ func (v *InstanceDetailsView) applySize(width, height int) {
 	}
 
 	// Resize metric charts to match viewport content area
-	chartWidth := viewportWidth - 4 // viewport padding
+	chartWidth := max(1, viewportWidth-4) // viewport padding, clamp for narrow terminals
 	if v.cpuChart != nil {
 		v.cpuChart.Resize(chartWidth)
 	}

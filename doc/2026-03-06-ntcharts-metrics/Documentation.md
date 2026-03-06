@@ -56,6 +56,11 @@ A wrapper around `github.com/NimbleMarkets/ntcharts` time series line chart:
 
 - **Chart width off-by-1**: `observability.width` was set to the full `width` instead of `viewportWidth` (which accounts for the focus accent bar), causing charts to clip by 1 column. Fixed by using `viewportWidth` in `applySize()` and `max(1, v.width-1)` in the lazy-init path.
 - **Auto-refresh leak**: Leaving the Observability tab called `StopAutoRefresh()` but pending `tea.Tick` callbacks would still fire and trigger API polling. Fixed by adding a `tabActive` flag that `StopAutoRefresh()` clears and `tickAutoRefresh()` checks before scheduling the next tick.
+- **Stale refresh ticks**: `crRefreshTickMsg` handler only checked `autoRefresh` but not `tabActive`, allowing one stale tick to trigger a background refresh after leaving the tab. Fixed by also checking `!tabActive`.
+- **Empty first frame on Observability tab**: `updateViewportContent()` was called before creating the observability instance on first tab switch, causing an empty frame. Fixed by creating the instance first, then updating viewport content.
+- **Chart width clamping**: `chartWidth` could become ≤ 0 in very narrow terminals, leaving charts at stale width. Fixed by clamping to `max(1, ...)` in both `resizeCharts()` and `instance_details.go`.
+- **Dead code removal**: Removed orphaned `formatLatency` and `extractValues` functions (superseded by `metricchart/stats.go`).
+- **Unused `title` field**: Removed `Chart.title` field and simplified `New()` signature to `New(height int)`.
 
 ## Testing
 

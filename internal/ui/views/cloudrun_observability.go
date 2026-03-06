@@ -106,7 +106,7 @@ func newCloudRunObservability(projectID, serviceName string, gcpClient *gcp.Clie
 
 // resizeCharts updates all chart widths to match the current view width.
 func (o *cloudRunObservability) resizeCharts() {
-	chartWidth := o.width - 4 // account for padding
+	chartWidth := max(1, o.width-4) // account for padding, clamp for narrow terminals
 	for _, ch := range []*metricchart.Chart{
 		o.requestCountChart, o.latencyChart, o.errorRateChart,
 		o.cpuChart, o.billableTimeChart, o.instanceCountChart,
@@ -155,8 +155,8 @@ func (o *cloudRunObservability) Update(msg tea.Msg) (tea.Cmd, bool) {
 		return nil, true
 
 	case crRefreshTickMsg:
-		// Drop stale ticks if auto-refresh was turned off while waiting
-		if !o.autoRefresh {
+		// Drop stale ticks if auto-refresh was turned off or tab became inactive
+		if !o.autoRefresh || !o.tabActive {
 			return nil, true
 		}
 		o.metricsLoading = true
