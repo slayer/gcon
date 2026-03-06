@@ -70,11 +70,7 @@ func (c *MonitoringClient) GetCloudRunRequestLatencies(ctx context.Context, serv
 		return nil, nil, nil, fmt.Errorf("failed to fetch p99 latency: %w", err)
 	}
 
-	// Convert from seconds to milliseconds
-	scaleToMs(p50)
-	scaleToMs(p95)
-	scaleToMs(p99)
-
+	// API returns values already in milliseconds — no conversion needed
 	return p50, p95, p99, nil
 }
 
@@ -196,11 +192,4 @@ func (c *MonitoringClient) collectDataPoints(ctx context.Context, req *monitorin
 	}
 
 	return dataPoints, nil
-}
-
-// scaleToMs converts data point values from seconds to milliseconds in-place.
-func scaleToMs(points []DataPoint) {
-	for i := range points {
-		points[i].Value *= 1000
-	}
 }
