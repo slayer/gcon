@@ -17,6 +17,7 @@ import (
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/actionmenu"
+	"github.com/slayer/gcon/internal/ui/components/metricchart"
 	"github.com/slayer/gcon/internal/ui/components/confirm"
 	"github.com/slayer/gcon/internal/ui/components/links"
 	"github.com/slayer/gcon/internal/ui/components/tabs"
@@ -144,6 +145,9 @@ type InstanceDetailsView struct {
 	// Delete confirmation state
 	deleteConfirm     *confirm.TypeConfirmDialog
 	showDeleteConfirm bool
+	// Metric charts for observability tab
+	cpuChart    *metricchart.Chart
+	memoryChart *metricchart.Chart
 }
 
 type instanceDetailsKeyMap struct {
@@ -223,6 +227,14 @@ func NewInstanceDetailsView(projectID, zone, instanceName string, computeClient 
 		focus.NewRegion(regionIDViewport, focus.RegionViewport, "Content"),
 	})
 
+	// CPU chart: percentage range 0-100
+	cpuChart := metricchart.New("CPU", metricchart.HeightStandard)
+	cpuChart.SetYRange(0, 100).SetStatsFormatter(metricchart.FormatPercentageStats).SetYLabelFormatter(metricchart.PercentYLabel)
+
+	// Memory chart: percentage range 0-100
+	memChart := metricchart.New("Memory", metricchart.HeightStandard)
+	memChart.SetYRange(0, 100).SetStatsFormatter(metricchart.FormatPercentageStats).SetYLabelFormatter(metricchart.PercentYLabel)
+
 	return &InstanceDetailsView{
 		computeClient: computeClient,
 		gcpClient:     gcpClient,
@@ -239,6 +251,8 @@ func NewInstanceDetailsView(projectID, zone, instanceName string, computeClient 
 		regionMgr:     mouse.NewRegionManager(),
 		timeRange:     6 * time.Hour, // Default to 6 hours
 		autoRefresh:   true,          // Auto-refresh enabled by default
+		cpuChart:      cpuChart,
+		memoryChart:   memChart,
 	}
 }
 
@@ -1002,6 +1016,15 @@ func (v *InstanceDetailsView) applySize(width, height int) {
 		}
 	}
 
+	// Resize metric charts to match viewport content area
+	chartWidth := viewportWidth - 4 // viewport padding
+	if v.cpuChart != nil {
+		v.cpuChart.Resize(chartWidth)
+	}
+	if v.memoryChart != nil {
+		v.memoryChart.Resize(chartWidth)
+	}
+
 	if v.details != nil {
 		v.updateViewportContent()
 	}
@@ -1300,27 +1323,13 @@ func (v *InstanceDetailsView) renderObservabilityTab() string {
 	b.WriteString(strings.Repeat("━", min(v.width-4, 60)))
 	b.WriteString("\n")
 	if len(m.CPU) > 0 {
-		// Extract values for sparkline
-		cpuValues := make([]float64, len(m.CPU))
+		// Convert to percentage for chart (API returns 0-1 range)
+		cpuPercent := make([]gcp.DataPoint, len(m.CPU))
 		for i, dp := range m.CPU {
-			cpuValues[i] = dp.Value * 100 // Convert to percentage
+			cpuPercent[i] = gcp.DataPoint{Timestamp: dp.Timestamp, Value: dp.Value * 100}
 		}
-
-		// Calculate stats
-		current := cpuValues[len(cpuValues)-1]
-		avg, peak, peakTime := calculateStats(m.CPU)
-		avg *= 100
-		peak *= 100
-
-		// Render sparkline
-		sparkline := components.RenderSparkline(cpuValues, min(v.width-12, 50))
-		b.WriteString(fmt.Sprintf("  Trend (%s): %s\n", formatDuration(v.timeRange), sparkline))
-
-		// Render bar
-		bar := components.RenderMetricBar("", current, avg, peak, peakTime, v.width-4)
-		b.WriteString("  ")
-		b.WriteString(bar)
-		b.WriteString("\n")
+		v.cpuChart.SetData(cpuPercent)
+		b.WriteString(v.cpuChart.View())
 	} else {
 		b.WriteString(mutedStyle.Render("  No CPU data available"))
 		b.WriteString("\n")
@@ -1333,25 +1342,9 @@ func (v *InstanceDetailsView) renderObservabilityTab() string {
 	b.WriteString(strings.Repeat("━", min(v.width-4, 60)))
 	b.WriteString("\n")
 	if len(m.Memory) > 0 {
-		// Extract values for sparkline
-		memValues := make([]float64, len(m.Memory))
-		for i, dp := range m.Memory {
-			memValues[i] = dp.Value
-		}
-
-		// Calculate stats
-		current := memValues[len(memValues)-1]
-		avg, peak, peakTime := calculateStats(m.Memory)
-
-		// Render sparkline
-		sparkline := components.RenderSparkline(memValues, min(v.width-12, 50))
-		b.WriteString(fmt.Sprintf("  Trend (%s): %s\n", formatDuration(v.timeRange), sparkline))
-
-		// Render bar
-		bar := components.RenderMetricBar("", current, avg, peak, peakTime, v.width-4)
-		b.WriteString("  ")
-		b.WriteString(bar)
-		b.WriteString("\n")
+		// Memory values already in percentage (0-100)
+		v.memoryChart.SetData(m.Memory)
+		b.WriteString(v.memoryChart.View())
 	} else {
 		b.WriteString(warningStyle.Render("  ⚠ Cloud Monitoring (Ops) Agent not installed"))
 		b.WriteString("\n\n")
