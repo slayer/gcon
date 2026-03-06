@@ -14,6 +14,20 @@ sort.Slice(dataPoints, func(i, j int) bool {
 
 This applies to both `fetchMetricData` (Compute Engine) and `fetchCloudRunMetric` / `fetchPercentileData` (Cloud Run). The sort should happen at the data layer, not in UI consumers.
 
+## Cloud Run: `request_latencies` metric is already in milliseconds
+
+`run.googleapis.com/request_latencies` returns distribution values in **milliseconds**, not seconds. Do not multiply by 1000 — the data is ready to use as-is.
+
+```go
+// Wrong — values are already in ms, this inflates 27ms → 27000ms → displayed as "27s"
+scaleToMs(p50)  // multiplies by 1000
+
+// Correct — use raw values directly, they're in milliseconds
+return p50, p95, p99, nil
+```
+
+The `LatencyYLabel` formatter in `metricchart` expects milliseconds: values < 1000 display as "Xms", values >= 1000 display as "X.Ys". Double-scaling produces absurd values like "27214.6s".
+
 ## Cloud SQL: `state` field means capability, not running status
 
 GCP's `state` field on `DatabaseInstance` represents operational capability, not whether the instance is currently running. Per the docs: `RUNNABLE` = "running, **or has been stopped by owner**".

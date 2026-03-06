@@ -256,6 +256,42 @@ func (v *View) stopAutoRefresh() {
 
 See: `cloudrun_observability.go`, `instance_details.go`
 
+## `tea.Tick()` Messages Survive Context Switches
+
+**Critical**: Unlike `time.Ticker` goroutines, `tea.Tick()` schedules a message on Bubble Tea's internal queue. There is no way to cancel a pending `tea.Tick()` message — it will always be delivered.
+
+When using `tea.Tick()` for periodic refresh (e.g., auto-refresh on an observability tab), the tick handler must guard against stale delivery after the user has navigated away:
+
+```go
+type View struct {
+    autoRefresh bool  // user preference
+    tabActive   bool  // whether this tab is currently visible
+}
+
+func (v *View) tickAutoRefresh() tea.Cmd {
+    // Don't schedule if either condition is false
+    if !v.autoRefresh || !v.tabActive {
+        return nil
+    }
+    return tea.Tick(30*time.Second, func(_ time.Time) tea.Msg {
+        return refreshTickMsg{}
+    })
+}
+
+// In Update():
+case refreshTickMsg:
+    // Drop stale ticks — user may have left the tab while tick was pending
+    if !v.autoRefresh || !v.tabActive {
+        return nil, true
+    }
+    // Safe to refresh
+    return v.loadMetrics(), true
+```
+
+**Key difference from `time.Ticker`**: `time.Ticker` leaks goroutines if not properly stopped. `tea.Tick()` doesn't leak goroutines but delivers stale messages. Both need guards, but the mechanism differs.
+
+See: `cloudrun_observability.go`
+
 ## Dialog Update() Must Accept tea.Msg (Not Just tea.KeyMsg)
 
 Dialogs with text inputs (e.g., traffic split editor, inline editors) must accept `tea.Msg` in their `Update()` method, not just `tea.KeyMsg`. The `textinput.Model` component emits blink commands (`textinput.Blink`) that must be processed for the cursor to blink.
