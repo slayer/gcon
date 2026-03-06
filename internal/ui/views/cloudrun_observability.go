@@ -65,22 +65,22 @@ type cloudRunObservability struct {
 }
 
 func newCloudRunObservability(projectID, serviceName string, gcpClient *gcp.Client) *cloudRunObservability {
-	reqChart := metricchart.New("Request Count", metricchart.HeightStandard)
+	reqChart := metricchart.New(metricchart.HeightStandard)
 	reqChart.SetStatsFormatter(metricchart.FormatCountStats)
 
-	latChart := metricchart.New("Latency", metricchart.HeightStandard)
+	latChart := metricchart.New(metricchart.HeightStandard)
 	latChart.SetStatsFormatter(nil).SetYLabelFormatter(metricchart.LatencyYLabel)
 
-	errChart := metricchart.New("Error Rate", metricchart.HeightCompact)
+	errChart := metricchart.New(metricchart.HeightCompact)
 	errChart.SetStatsFormatter(nil)
 
-	cpuChart := metricchart.New("CPU", metricchart.HeightStandard)
+	cpuChart := metricchart.New(metricchart.HeightStandard)
 	cpuChart.SetStatsFormatter(metricchart.FormatVCPUStats).SetYLabelFormatter(metricchart.VCPUYLabel)
 
-	billChart := metricchart.New("Billable Time", metricchart.HeightCompact)
+	billChart := metricchart.New(metricchart.HeightCompact)
 	billChart.SetStatsFormatter(metricchart.FormatGenericStats)
 
-	instChart := metricchart.New("Instance Count", metricchart.HeightCompact)
+	instChart := metricchart.New(metricchart.HeightCompact)
 	instChart.SetStatsFormatter(metricchart.FormatInstanceCountStats)
 
 	return &cloudRunObservability{
@@ -607,30 +607,3 @@ func (o *cloudRunObservability) filteredLogs() []gcp.LogEntry {
 	return result
 }
 
-// formatLatency formats milliseconds into human-readable form (e.g., "123ms", "1.5s", "2m 30s")
-func formatLatency(ms float64) string {
-	switch {
-	case ms < 1:
-		return fmt.Sprintf("%.2fms", ms)
-	case ms < 1000:
-		return fmt.Sprintf("%.0fms", ms)
-	case ms < 60000:
-		return fmt.Sprintf("%.1fs", ms/1000)
-	default:
-		mins := int(ms / 60000)
-		secs := int(ms/1000) % 60
-		if secs == 0 {
-			return fmt.Sprintf("%dm", mins)
-		}
-		return fmt.Sprintf("%dm %ds", mins, secs)
-	}
-}
-
-// extractValues pulls float64 values from a slice of DataPoints.
-func extractValues(data []gcp.DataPoint) []float64 {
-	values := make([]float64, len(data))
-	for i, dp := range data {
-		values[i] = dp.Value
-	}
-	return values
-}

@@ -20,6 +20,39 @@ Use the shared helpers in `internal/ui/views/helpers.go` and `internal/ui/compon
 | `formWidthPadding` / `formHeightPadding` | `views/helpers.go` | Standard form sizing padding (both = 4) |
 | `TableClickDelegate` | `views/helpers.go` | Embed in list views for mouse click delegation |
 | `CreateViewBase` | `views/create_view_base.go` | Embed in creation views for full lifecycle |
+| `metricchart.New(title, height)` | `components/metricchart/` | Braille time series charts for metrics |
+
+## Metric Charts (metricchart package)
+
+Use `metricchart.Chart` for rendering time series metrics in observability tabs. Charts are **stateful renderers**, not Bubble Tea models — no `tea.Msg` routing needed.
+
+```go
+// Single-series chart (CPU, memory, request count)
+chart := metricchart.New("CPU", metricchart.HeightStandard)
+chart.SetYRange(0, 100).
+    SetStatsFormatter(metricchart.FormatPercentageStats).
+    SetYLabelFormatter(metricchart.PercentYLabel)
+chart.SetData(dataPoints)         // []gcp.DataPoint
+output := chart.View()            // renders chart + stats line
+
+// Multi-series overlay (latency p50/p95/p99, error rates 4xx/5xx)
+chart := metricchart.New("Latency", metricchart.HeightStandard)
+chart.SetStatsFormatter(nil).     // no per-series stats for multi-dataset
+    SetYLabelFormatter(metricchart.LatencyYLabel)
+chart.SetDataSets([]metricchart.DataSet{
+    {Name: "p50", Data: p50Data, Color: "#34A853"},
+    {Name: "p95", Data: p95Data, Color: "#FBBC04"},
+    {Name: "p99", Data: p99Data, Color: "#EA4335"},
+})
+output := chart.View()            // renders chart + color-coded legend
+```
+
+Key points:
+- Call `chart.Resize(width)` when parent width changes (subtract padding for indent)
+- Heights: `HeightStandard = 8` for primary metrics, `HeightCompact = 5` for secondary
+- Y-axis formatters: `humanYLabel` (default, SI suffixes), `PercentYLabel`, `LatencyYLabel`, `VCPUYLabel`
+- Use `SetYRange(0, 100)` for percentage metrics to prevent misleading auto-scaling
+- GCP color palette for multi-series: green=#34A853, yellow=#FBBC04, red=#EA4335
 
 ## Always Create Fresh Modal Instances
 

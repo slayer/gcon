@@ -28,7 +28,6 @@ type DataSet struct {
 // Chart wraps ntcharts timeserieslinechart for gcon's metric rendering.
 // It's a stateful renderer, not a Bubble Tea model — no tea.Msg routing needed.
 type Chart struct {
-	title    string
 	width    int
 	height   int
 	datasets []DataSet
@@ -48,10 +47,9 @@ type Chart struct {
 // StatsFormatter renders a stats summary line from data points.
 type StatsFormatter func(data []gcp.DataPoint) string
 
-// New creates a chart with the given title and height.
-func New(title string, height int) *Chart {
+// New creates a chart with the given height.
+func New(height int) *Chart {
 	return &Chart{
-		title:           title,
 		width:           60,
 		height:          height,
 		statsFormatter:  FormatGenericStats,

@@ -23,15 +23,14 @@ func makeDataPoints(values []float64) []gcp.DataPoint {
 }
 
 func TestNew(t *testing.T) {
-	c := New("CPU", HeightStandard)
-	assert.Equal(t, "CPU", c.title)
+	c := New(HeightStandard)
 	assert.Equal(t, HeightStandard, c.height)
 	assert.Equal(t, 60, c.width)
 	assert.False(t, c.hasData)
 }
 
 func TestSetData_SingleSeries(t *testing.T) {
-	c := New("CPU", HeightStandard)
+	c := New(HeightStandard)
 	data := makeDataPoints([]float64{10, 20, 30, 40, 50})
 	c.SetData(data)
 
@@ -42,7 +41,7 @@ func TestSetData_SingleSeries(t *testing.T) {
 }
 
 func TestSetData_Empty(t *testing.T) {
-	c := New("CPU", HeightStandard)
+	c := New(HeightStandard)
 	c.SetData(nil)
 
 	assert.False(t, c.hasData)
@@ -50,7 +49,7 @@ func TestSetData_Empty(t *testing.T) {
 }
 
 func TestSetDataSets_MultiSeries(t *testing.T) {
-	c := New("Latency", HeightStandard)
+	c := New(HeightStandard)
 	c.SetDataSets([]DataSet{
 		{Name: "p50", Data: makeDataPoints([]float64{10, 20}), Color: "#34A853"},
 		{Name: "p95", Data: makeDataPoints([]float64{50, 60}), Color: "#FBBC04"},
@@ -62,7 +61,7 @@ func TestSetDataSets_MultiSeries(t *testing.T) {
 }
 
 func TestSetDataSets_AllEmpty(t *testing.T) {
-	c := New("Latency", HeightStandard)
+	c := New(HeightStandard)
 	c.SetDataSets([]DataSet{
 		{Name: "p50", Data: nil, Color: "#34A853"},
 	})
@@ -70,13 +69,13 @@ func TestSetDataSets_AllEmpty(t *testing.T) {
 }
 
 func TestView_NoData(t *testing.T) {
-	c := New("CPU", HeightStandard)
+	c := New(HeightStandard)
 	view := c.View()
 	assert.Contains(t, view, "No data available")
 }
 
 func TestView_SingleSeries(t *testing.T) {
-	c := New("CPU", HeightStandard)
+	c := New(HeightStandard)
 	c.Resize(60)
 	data := makeDataPoints([]float64{10, 20, 30, 40, 50, 40, 30})
 	c.SetData(data)
@@ -90,7 +89,7 @@ func TestView_SingleSeries(t *testing.T) {
 }
 
 func TestView_MultiSeries_HasLegend(t *testing.T) {
-	c := New("Latency", HeightStandard)
+	c := New(HeightStandard)
 	c.Resize(60)
 	c.SetStatsFormatter(nil) // no per-series stats for multi-dataset
 	c.SetDataSets([]DataSet{
@@ -105,7 +104,7 @@ func TestView_MultiSeries_HasLegend(t *testing.T) {
 }
 
 func TestResize_NoPanic(t *testing.T) {
-	c := New("CPU", HeightStandard)
+	c := New(HeightStandard)
 	data := makeDataPoints([]float64{10, 20, 30})
 	c.SetData(data)
 
@@ -119,13 +118,13 @@ func TestResize_NoPanic(t *testing.T) {
 }
 
 func TestResize_Zero(t *testing.T) {
-	c := New("CPU", HeightStandard)
+	c := New(HeightStandard)
 	c.Resize(0) // should be ignored
 	assert.Equal(t, 60, c.width)
 }
 
 func TestSetYRange(t *testing.T) {
-	c := New("CPU", HeightStandard)
+	c := New(HeightStandard)
 	c.SetYRange(0, 100)
 	assert.NotNil(t, c.fixedYMin)
 	assert.NotNil(t, c.fixedYMax)
@@ -134,7 +133,7 @@ func TestSetYRange(t *testing.T) {
 }
 
 func TestAutoYRange(t *testing.T) {
-	c := New("CPU", HeightStandard)
+	c := New(HeightStandard)
 	c.SetData(makeDataPoints([]float64{10, 50, 30}))
 	minY, maxY := c.autoYRange()
 	assert.Equal(t, 0.0, minY) // floor at 0
@@ -142,7 +141,7 @@ func TestAutoYRange(t *testing.T) {
 }
 
 func TestAutoYRange_AllZero(t *testing.T) {
-	c := New("CPU", HeightStandard)
+	c := New(HeightStandard)
 	c.SetData(makeDataPoints([]float64{0, 0, 0}))
 	_, maxY := c.autoYRange()
 	assert.Equal(t, 1.0, maxY) // avoid zero-height chart
@@ -155,7 +154,7 @@ func TestFindTimeRange(t *testing.T) {
 		{Timestamp: now.Add(5 * time.Minute), Value: 2},
 		{Timestamp: now.Add(10 * time.Minute), Value: 3},
 	}
-	c := New("test", HeightStandard)
+	c := New(HeightStandard)
 	c.SetData(data)
 
 	minT, maxT := c.findTimeRange()
@@ -164,7 +163,7 @@ func TestFindTimeRange(t *testing.T) {
 }
 
 func TestRenderLegend(t *testing.T) {
-	c := New("test", HeightStandard)
+	c := New(HeightStandard)
 	c.SetDataSets([]DataSet{
 		{Name: "p50", Data: makeDataPoints([]float64{1}), Color: "#34A853"},
 		{Name: "p95", Data: makeDataPoints([]float64{2}), Color: "#FBBC04"},
@@ -244,7 +243,7 @@ func TestVCPUYLabel(t *testing.T) {
 }
 
 func TestView_IndentedOutput(t *testing.T) {
-	c := New("CPU", HeightStandard)
+	c := New(HeightStandard)
 	c.Resize(40)
 	c.SetData(makeDataPoints([]float64{10, 20, 30, 40, 50}))
 

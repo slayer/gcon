@@ -21,6 +21,10 @@ Replace minimal sparklines with ntcharts time series charts in observability tab
 - [x] Replace error rate sparklines (4xx/5xx) with multi-series chart
 - [x] Replace CPU/resource sparklines with charts
 
+### Bug Fixes (Code Review)
+- [x] Fix chart width off-by-1 (use viewportWidth instead of width)
+- [x] Fix auto-refresh leak (add tabActive flag)
+
 ### Verification
 - [x] `make test` passes
 - [x] `make lint` passes

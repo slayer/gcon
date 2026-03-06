@@ -52,6 +52,11 @@ A wrapper around `github.com/NimbleMarkets/ntcharts` time series line chart:
 - Multi-series charts (latency, error rates) use GCP color palette: green=#34A853, yellow=#FBBC04, red=#EA4335.
 - Old sparkline/metric_bar components are NOT deleted — they have zero maintenance cost and may be useful elsewhere.
 
+### Bug Fixes (Code Review)
+
+- **Chart width off-by-1**: `observability.width` was set to the full `width` instead of `viewportWidth` (which accounts for the focus accent bar), causing charts to clip by 1 column. Fixed by using `viewportWidth` in `applySize()` and `max(1, v.width-1)` in the lazy-init path.
+- **Auto-refresh leak**: Leaving the Observability tab called `StopAutoRefresh()` but pending `tea.Tick` callbacks would still fire and trigger API polling. Fixed by adding a `tabActive` flag that `StopAutoRefresh()` clears and `tickAutoRefresh()` checks before scheduling the next tick.
+
 ## Testing
 
 - 28 new unit tests in `metricchart_test.go` and `stats_test.go`

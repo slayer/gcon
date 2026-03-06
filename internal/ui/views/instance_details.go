@@ -228,11 +228,11 @@ func NewInstanceDetailsView(projectID, zone, instanceName string, computeClient 
 	})
 
 	// CPU chart: percentage range 0-100
-	cpuChart := metricchart.New("CPU", metricchart.HeightStandard)
+	cpuChart := metricchart.New(metricchart.HeightStandard)
 	cpuChart.SetYRange(0, 100).SetStatsFormatter(metricchart.FormatPercentageStats).SetYLabelFormatter(metricchart.PercentYLabel)
 
 	// Memory chart: percentage range 0-100
-	memChart := metricchart.New("Memory", metricchart.HeightStandard)
+	memChart := metricchart.New(metricchart.HeightStandard)
 	memChart.SetYRange(0, 100).SetStatsFormatter(metricchart.FormatPercentageStats).SetYLabelFormatter(metricchart.PercentYLabel)
 
 	return &InstanceDetailsView{
