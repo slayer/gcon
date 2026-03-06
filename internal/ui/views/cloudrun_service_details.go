@@ -323,7 +323,7 @@ func (v *CloudRunServiceDetailsView) Update(msg tea.Msg) tea.Cmd {
 		if v.tabs.ActiveTab().ID == runTabIDObservability {
 			if v.observability == nil {
 				v.observability = newCloudRunObservability(v.projectID, v.serviceName, v.gcpClient)
-				v.observability.width = v.width
+				v.observability.width = max(1, v.width-1) // match applySize viewport width
 				v.observability.resizeCharts()
 				return tea.Batch(v.observability.Init(), v.observability.StartAutoRefresh())
 			}
@@ -637,7 +637,7 @@ func (v *CloudRunServiceDetailsView) applySize(width, height int) {
 	}
 
 	if v.observability != nil {
-		v.observability.width = width
+		v.observability.width = viewportWidth
 		v.observability.resizeCharts()
 	}
 

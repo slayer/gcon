@@ -49,7 +49,8 @@ type cloudRunObservability struct {
 
 	// Time range and refresh
 	timeRange   time.Duration
-	autoRefresh bool
+	autoRefresh bool // user preference (toggled with 'a' key)
+	tabActive   bool // true when observability tab is currently visible
 
 	spinner spinner.Model
 	width   int
@@ -548,7 +549,7 @@ func (o *cloudRunObservability) loadLogs() tea.Cmd {
 // tickAutoRefresh schedules a single auto-refresh tick using Bubble Tea's timing.
 // Each tick reschedules the next one, avoiding goroutine leaks from long-lived tickers.
 func (o *cloudRunObservability) tickAutoRefresh() tea.Cmd {
-	if !o.autoRefresh {
+	if !o.autoRefresh || !o.tabActive {
 		return nil
 	}
 	return tea.Tick(30*time.Second, func(_ time.Time) tea.Msg {
@@ -556,17 +557,18 @@ func (o *cloudRunObservability) tickAutoRefresh() tea.Cmd {
 	})
 }
 
-// StartAutoRefresh schedules the next auto-refresh tick (30s interval).
+// StartAutoRefresh marks the tab as active and schedules the next tick.
 func (o *cloudRunObservability) StartAutoRefresh() tea.Cmd {
+	o.tabActive = true
 	if !o.autoRefresh {
 		return nil
 	}
 	return o.tickAutoRefresh()
 }
 
-// StopAutoRefresh is a no-op — refresh ticks are dropped in Update when autoRefresh is false.
+// StopAutoRefresh marks the tab as inactive so pending ticks are dropped.
 func (o *cloudRunObservability) StopAutoRefresh() {
-	// No resources to clean up; tea.Tick-based approach is self-cleaning
+	o.tabActive = false
 }
 
 // toggleSeverity flips the enabled state for a severity level.
