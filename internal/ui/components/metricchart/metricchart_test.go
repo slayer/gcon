@@ -242,6 +242,75 @@ func TestVCPUYLabel(t *testing.T) {
 	assert.Equal(t, "0.005", VCPUYLabel(0, 0.005))
 }
 
+func TestFillGaps_NoGap(t *testing.T) {
+	// Evenly spaced points — no gaps to fill
+	now := time.Now()
+	data := []gcp.DataPoint{
+		{Timestamp: now, Value: 1},
+		{Timestamp: now.Add(1 * time.Minute), Value: 2},
+		{Timestamp: now.Add(2 * time.Minute), Value: 3},
+	}
+	result := fillGaps(data)
+	assert.Len(t, result, 3, "no gap means no extra points")
+}
+
+func TestFillGaps_WithGap(t *testing.T) {
+	// 1-minute intervals with a 10-minute gap in the middle
+	now := time.Now()
+	data := []gcp.DataPoint{
+		{Timestamp: now, Value: 1},
+		{Timestamp: now.Add(1 * time.Minute), Value: 2},
+		{Timestamp: now.Add(2 * time.Minute), Value: 3},
+		// gap: 10 minutes
+		{Timestamp: now.Add(12 * time.Minute), Value: 4},
+		{Timestamp: now.Add(13 * time.Minute), Value: 5},
+	}
+	result := fillGaps(data)
+	// Should insert 2 zero-value boundary points at the gap
+	assert.Len(t, result, 7, "gap should insert 2 zero-value points")
+
+	// Check that the inserted points have Value=0
+	assert.Equal(t, 0.0, result[3].Value, "first boundary should be zero")
+	assert.Equal(t, 0.0, result[4].Value, "second boundary should be zero")
+
+	// Boundaries should be near the gap edges
+	assert.True(t, result[3].Timestamp.After(data[2].Timestamp))
+	assert.True(t, result[4].Timestamp.Before(data[3].Timestamp))
+}
+
+func TestFillGaps_SinglePoint(t *testing.T) {
+	now := time.Now()
+	data := []gcp.DataPoint{{Timestamp: now, Value: 1}}
+	result := fillGaps(data)
+	assert.Len(t, result, 1)
+}
+
+func TestFillGaps_TwoPoints_NoGap(t *testing.T) {
+	now := time.Now()
+	data := []gcp.DataPoint{
+		{Timestamp: now, Value: 1},
+		{Timestamp: now.Add(1 * time.Minute), Value: 2},
+	}
+	result := fillGaps(data)
+	assert.Len(t, result, 2)
+}
+
+func TestFillGaps_MultipleGaps(t *testing.T) {
+	now := time.Now()
+	data := []gcp.DataPoint{
+		{Timestamp: now, Value: 1},
+		{Timestamp: now.Add(1 * time.Minute), Value: 2},
+		// gap 1
+		{Timestamp: now.Add(11 * time.Minute), Value: 3},
+		{Timestamp: now.Add(12 * time.Minute), Value: 4},
+		// gap 2
+		{Timestamp: now.Add(22 * time.Minute), Value: 5},
+	}
+	result := fillGaps(data)
+	// 5 original + 2 boundary pairs = 9
+	assert.Len(t, result, 9)
+}
+
 func TestView_IndentedOutput(t *testing.T) {
 	c := New(HeightStandard)
 	c.Resize(40)

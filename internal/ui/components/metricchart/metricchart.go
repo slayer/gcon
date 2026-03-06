@@ -164,23 +164,25 @@ func (c *Chart) renderChart() string {
 
 	chart := timeserieslinechart.New(chartWidth, chartHeight, opts...)
 
-	// Push data and set styles per dataset
+	// Push data and set styles per dataset.
+	// fillGaps inserts zero-value boundaries so ntcharts doesn't draw lines across data gaps.
 	for _, ds := range c.datasets {
 		if len(ds.Data) == 0 {
 			continue
 		}
+		points := fillGaps(ds.Data)
 		style := lipgloss.NewStyle().Foreground(lipgloss.Color(ds.Color))
 
 		if ds.Name == "default" {
 			chart.SetStyle(style)
 			chart.SetLineStyle(runes.ArcLineStyle)
-			for _, dp := range ds.Data {
+			for _, dp := range points {
 				chart.Push(timeserieslinechart.TimePoint{Time: dp.Timestamp, Value: dp.Value})
 			}
 		} else {
 			chart.SetDataSetStyle(ds.Name, style)
 			chart.SetDataSetLineStyle(ds.Name, runes.ArcLineStyle)
-			for _, dp := range ds.Data {
+			for _, dp := range points {
 				chart.PushDataSet(ds.Name, timeserieslinechart.TimePoint{Time: dp.Timestamp, Value: dp.Value})
 			}
 		}
@@ -261,6 +263,48 @@ func (c *Chart) autoYRange() (minY, maxY float64) {
 	}
 
 	return minY, maxY
+}
+
+// fillGaps inserts zero-value boundary points where consecutive data points
+// are separated by more than gapThreshold * minIntervalInterval. This prevents
+// ntcharts from drawing lines across periods with no data (e.g., when a
+// Cloud Run service scales to zero).
+func fillGaps(data []gcp.DataPoint) []gcp.DataPoint {
+	if len(data) < 2 {
+		return data
+	}
+
+	// Find the typical data interval (minimum non-zero gap between points).
+	// This represents the actual sampling frequency; larger gaps are data holes.
+	var minInterval time.Duration
+	for i := 1; i < len(data); i++ {
+		d := data[i].Timestamp.Sub(data[i-1].Timestamp)
+		if d > 0 && (minInterval == 0 || d < minInterval) {
+			minInterval = d
+		}
+	}
+	if minInterval == 0 {
+		return data
+	}
+
+	// Gap threshold: 3x the typical interval
+	const gapMultiplier = 3
+	threshold := minInterval * gapMultiplier
+
+	result := make([]gcp.DataPoint, 0, len(data))
+	result = append(result, data[0])
+	for i := 1; i < len(data); i++ {
+		gap := data[i].Timestamp.Sub(data[i-1].Timestamp)
+		if gap > threshold {
+			// Insert zero just after the last real point and just before the next
+			result = append(result,
+				gcp.DataPoint{Timestamp: data[i-1].Timestamp.Add(minInterval), Value: 0},
+				gcp.DataPoint{Timestamp: data[i].Timestamp.Add(-minInterval), Value: 0},
+			)
+		}
+		result = append(result, data[i])
+	}
+	return result
 }
 
 // findTimeRange computes the earliest and latest timestamps across all datasets.
