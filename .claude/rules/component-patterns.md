@@ -53,6 +53,7 @@ Key points:
 - Y-axis formatters: `humanYLabel` (default, SI suffixes), `PercentYLabel`, `LatencyYLabel`, `VCPUYLabel`
 - Use `SetYRange(0, 100)` for percentage metrics to prevent misleading auto-scaling
 - GCP color palette for multi-series: green=#34A853, yellow=#FBBC04, red=#EA4335
+- **Data gaps are handled automatically**: `fillGaps()` inserts zero-value boundary points when consecutive data points are >3x the minimum interval apart. This prevents ntcharts from drawing misleading lines across periods with no data (e.g., Cloud Run scaled to zero). No action needed by callers — it runs inside `renderChart()`.
 
 ## Always Create Fresh Modal Instances
 
