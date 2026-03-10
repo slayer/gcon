@@ -949,6 +949,195 @@ func TestSnapshotMethods(t *testing.T) {
 	})
 }
 
+func TestInstanceCreateConfig(t *testing.T) {
+	t.Run("all fields populated", func(t *testing.T) {
+		config := InstanceCreateConfig{
+			Name:         "my-vm",
+			Zone:         "us-central1-a",
+			MachineType:  "e2-medium",
+			ImageProject: "debian-cloud",
+			ImageFamily:  "debian-12",
+			DiskSizeGB:   20,
+			DiskType:     "pd-balanced",
+			Network:      "my-network",
+			Subnetwork:   "my-subnet",
+			ExternalIP:   true,
+		}
+
+		assert.Equal(t, "my-vm", config.Name)
+		assert.Equal(t, "us-central1-a", config.Zone)
+		assert.Equal(t, "e2-medium", config.MachineType)
+		assert.Equal(t, "debian-cloud", config.ImageProject)
+		assert.Equal(t, "debian-12", config.ImageFamily)
+		assert.Equal(t, int64(20), config.DiskSizeGB)
+		assert.Equal(t, "pd-balanced", config.DiskType)
+		assert.Equal(t, "my-network", config.Network)
+		assert.Equal(t, "my-subnet", config.Subnetwork)
+		assert.True(t, config.ExternalIP)
+	})
+
+	t.Run("defaults for optional fields", func(t *testing.T) {
+		config := InstanceCreateConfig{
+			Name:         "minimal-vm",
+			Zone:         "us-east1-b",
+			MachineType:  "e2-micro",
+			ImageProject: "debian-cloud",
+			ImageFamily:  "debian-12",
+			DiskSizeGB:   10,
+			DiskType:     "pd-standard",
+		}
+
+		// Optional fields default to zero values
+		assert.Empty(t, config.Network)
+		assert.Empty(t, config.Subnetwork)
+		assert.False(t, config.ExternalIP)
+	})
+}
+
+func TestFormatMachineTypeDescription(t *testing.T) {
+	tests := []struct {
+		name     string
+		cpus     int64
+		memoryMB int64
+		expected string
+	}{
+		{
+			name:     "whole GB memory",
+			cpus:     2,
+			memoryMB: 4096,
+			expected: "2 vCPU, 4 GB RAM",
+		},
+		{
+			name:     "fractional GB memory",
+			cpus:     2,
+			memoryMB: 1024 + 512, // 1.5 GB
+			expected: "2 vCPU, 1.5 GB RAM",
+		},
+		{
+			name:     "e2-micro specs",
+			cpus:     2,
+			memoryMB: 1024,
+			expected: "2 vCPU, 1 GB RAM",
+		},
+		{
+			name:     "large instance",
+			cpus:     96,
+			memoryMB: 393216, // 384 GB
+			expected: "96 vCPU, 384 GB RAM",
+		},
+		{
+			name:     "e2-medium specs (non-power-of-2 memory)",
+			cpus:     2,
+			memoryMB: 4096,
+			expected: "2 vCPU, 4 GB RAM",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := FormatMachineTypeDescription(tt.cpus, tt.memoryMB)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestSubnetworkInfoNetworkExtraction(t *testing.T) {
+	tests := []struct {
+		name       string
+		networkURL string
+		expected   string
+	}{
+		{
+			name:       "full network URL",
+			networkURL: "projects/my-project/global/networks/my-vpc",
+			expected:   "my-vpc",
+		},
+		{
+			name:       "self link URL",
+			networkURL: "https://www.googleapis.com/compute/v1/projects/prod-project/global/networks/production",
+			expected:   "production",
+		},
+		{
+			name:       "just a name",
+			networkURL: "default",
+			expected:   "default",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// extractName is used internally by ListSubnetworks to populate Network field
+			result := extractName(tt.networkURL)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestBootDiskImages(t *testing.T) {
+	assert.NotEmpty(t, BootDiskImages, "curated boot images list should not be empty")
+
+	for _, img := range BootDiskImages {
+		t.Run(img.Label, func(t *testing.T) {
+			assert.NotEmpty(t, img.Label, "label is required")
+			assert.NotEmpty(t, img.Project, "project is required")
+			assert.NotEmpty(t, img.Family, "family is required")
+			assert.Greater(t, img.DefaultSizeGB, int64(0), "default disk size must be positive")
+		})
+	}
+}
+
+func TestDiskTypes(t *testing.T) {
+	assert.NotEmpty(t, DiskTypes, "disk types list should not be empty")
+
+	for _, dt := range DiskTypes {
+		t.Run(dt.Value, func(t *testing.T) {
+			assert.NotEmpty(t, dt.Value, "value is required")
+			assert.NotEmpty(t, dt.Label, "label is required")
+			// Value should appear in the label for clarity
+			assert.Contains(t, dt.Label, dt.Value, "label should contain the disk type value")
+		})
+	}
+
+	// pd-balanced should be the first (default) option
+	assert.Equal(t, "pd-balanced", DiskTypes[0].Value, "pd-balanced should be the default (first) option")
+}
+
+func TestRegionFromZone(t *testing.T) {
+	tests := []struct {
+		name     string
+		zone     string
+		expected string
+	}{
+		{
+			name:     "standard zone",
+			zone:     "us-central1-a",
+			expected: "us-central1",
+		},
+		{
+			name:     "zone with letter suffix",
+			zone:     "europe-west1-b",
+			expected: "europe-west1",
+		},
+		{
+			name:     "zone with numeric region",
+			zone:     "asia-east2-c",
+			expected: "asia-east2",
+		},
+		{
+			name:     "no dash",
+			zone:     "invalid",
+			expected: "invalid",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := regionFromZone(tt.zone)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
 func TestSnapshotDetailsFromAPI(t *testing.T) {
 	tests := []struct {
 		name     string

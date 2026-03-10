@@ -15,16 +15,16 @@ import (
 
 // CloudRunMetrics aggregates all Cloud Run observability data
 type CloudRunMetrics struct {
-	RequestCount  []DataPoint // requests/sec over time
-	Latency50     []DataPoint // p50 latency in ms
-	Latency95     []DataPoint // p95 latency in ms
-	Latency99     []DataPoint // p99 latency in ms
-	ErrorCount4xx []DataPoint // 4xx error count over time
-	ErrorCount5xx []DataPoint // 5xx error count over time
-	CPU           []DataPoint // CPU usage in vCPU-seconds/second (can exceed 1.0 for multi-vCPU services)
+	RequestCount         []DataPoint // requests/sec over time
+	Latency50            []DataPoint // p50 latency in ms
+	Latency95            []DataPoint // p95 latency in ms
+	Latency99            []DataPoint // p99 latency in ms
+	ErrorCount4xx        []DataPoint // 4xx error count over time
+	ErrorCount5xx        []DataPoint // 5xx error count over time
+	CPU                  []DataPoint // CPU usage in vCPU-seconds/second (can exceed 1.0 for multi-vCPU services)
 	BillableInstanceTime []DataPoint // billable instance time (seconds/second)
-	InstanceCount []DataPoint // Active instance count
-	LastFetch     time.Time
+	InstanceCount        []DataPoint // Active instance count
+	LastFetch            time.Time
 }
 
 // cloudRunFilter builds a filter scoped to a specific Cloud Run service.

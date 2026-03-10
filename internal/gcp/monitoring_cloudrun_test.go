@@ -20,7 +20,6 @@ func TestCloudRunMetrics_ZeroValue(t *testing.T) {
 	assert.True(t, m.LastFetch.IsZero())
 }
 
-
 func TestCloudRunFilter(t *testing.T) {
 	filter := cloudRunFilter("my-service", "run.googleapis.com/request_count")
 	assert.Contains(t, filter, `resource.type = "cloud_run_revision"`)

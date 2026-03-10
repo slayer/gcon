@@ -689,7 +689,7 @@ func TestWaitForOperation(t *testing.T) {
 			}
 			w.Header().Set("Content-Type", "application/json")
 			data, _ := json.Marshal(resp) //nolint:errcheck
-			w.Write(data)                //nolint:errcheck
+			w.Write(data)                 //nolint:errcheck
 		}))
 		defer server.Close()
 
@@ -719,7 +719,7 @@ func TestWaitForOperation(t *testing.T) {
 			}
 			w.Header().Set("Content-Type", "application/json")
 			data, _ := json.Marshal(resp) //nolint:errcheck
-			w.Write(data)                //nolint:errcheck
+			w.Write(data)                 //nolint:errcheck
 		}))
 		defer server.Close()
 
@@ -748,7 +748,7 @@ func TestWaitForOperation(t *testing.T) {
 			}
 			w.Header().Set("Content-Type", "application/json")
 			data, _ := json.Marshal(resp) //nolint:errcheck
-			w.Write(data)                //nolint:errcheck
+			w.Write(data)                 //nolint:errcheck
 		}))
 		defer server.Close()
 
