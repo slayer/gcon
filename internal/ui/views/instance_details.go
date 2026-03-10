@@ -482,72 +482,48 @@ func (v *InstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 			}
 
 		case focus.RegionViewport:
+			// Route observability keys (time range 1-5, auto-refresh) before viewport
+			// consumes them, so numeric keys work when content is focused
+			if v.tabs.ActiveTab().ID == tabIDObservability {
+				switch msg.String() {
+				case "1":
+					return v.setTimeRange(components.PredefinedTimeRanges[0].Duration)
+				case "2":
+					return v.setTimeRange(components.PredefinedTimeRanges[1].Duration)
+				case "3":
+					return v.setTimeRange(components.PredefinedTimeRanges[2].Duration)
+				case "4":
+					return v.setTimeRange(components.PredefinedTimeRanges[3].Duration)
+				case "5":
+					return v.setTimeRange(components.PredefinedTimeRanges[4].Duration)
+				case "a":
+					v.autoRefresh = !v.autoRefresh
+					if v.autoRefresh {
+						// Start auto-refresh ticker with done channel for clean shutdown
+						v.autoRefreshTicker = time.NewTicker(30 * time.Second)
+						v.autoRefreshDone = make(chan struct{})
+						return v.tickAutoRefresh()
+					}
+					// Stop ticker and unblock the waiting goroutine via done channel
+					if v.autoRefreshTicker != nil {
+						v.autoRefreshTicker.Stop()
+						v.autoRefreshTicker = nil
+					}
+					if v.autoRefreshDone != nil {
+						close(v.autoRefreshDone)
+						v.autoRefreshDone = nil
+					}
+					v.updateViewportContent()
+					return nil
+				}
+			}
+
 			// When viewport region is focused, j/k scroll content
 			activeIdx := v.tabs.ActiveIndex()
 			if activeIdx >= 0 && activeIdx < len(v.tabViewports) {
 				var cmd tea.Cmd
 				v.tabViewports[activeIdx], cmd = v.tabViewports[activeIdx].Update(msg)
 				return cmd
-			}
-		}
-
-		// In Observability tab, handle time range and refresh keys
-		if v.tabs.ActiveTab().ID == tabIDObservability {
-			switch msg.String() {
-			case "1":
-				v.timeRange = 1 * time.Hour
-				v.metricsError = nil
-				v.logsError = nil
-				v.metricsLoading = true
-				v.logsLoading = true
-				return tea.Batch(v.spinner.Tick, v.loadMetrics(), v.loadLogs())
-			case "2":
-				v.timeRange = 6 * time.Hour
-				v.metricsError = nil
-				v.logsError = nil
-				v.metricsLoading = true
-				v.logsLoading = true
-				return tea.Batch(v.spinner.Tick, v.loadMetrics(), v.loadLogs())
-			case "3":
-				v.timeRange = 24 * time.Hour
-				v.metricsError = nil
-				v.logsError = nil
-				v.metricsLoading = true
-				v.logsLoading = true
-				return tea.Batch(v.spinner.Tick, v.loadMetrics(), v.loadLogs())
-			case "4":
-				v.timeRange = 7 * 24 * time.Hour
-				v.metricsError = nil
-				v.logsError = nil
-				v.metricsLoading = true
-				v.logsLoading = true
-				return tea.Batch(v.spinner.Tick, v.loadMetrics(), v.loadLogs())
-			case "5":
-				v.timeRange = 30 * time.Hour
-				v.metricsError = nil
-				v.logsError = nil
-				v.metricsLoading = true
-				v.logsLoading = true
-				return tea.Batch(v.spinner.Tick, v.loadMetrics(), v.loadLogs())
-			case "a":
-				v.autoRefresh = !v.autoRefresh
-				if v.autoRefresh {
-					// Start auto-refresh ticker with done channel for clean shutdown
-					v.autoRefreshTicker = time.NewTicker(30 * time.Second)
-					v.autoRefreshDone = make(chan struct{})
-					return v.tickAutoRefresh()
-				}
-				// Stop ticker and unblock the waiting goroutine via done channel
-				if v.autoRefreshTicker != nil {
-					v.autoRefreshTicker.Stop()
-					v.autoRefreshTicker = nil
-				}
-				if v.autoRefreshDone != nil {
-					close(v.autoRefreshDone)
-					v.autoRefreshDone = nil
-				}
-				v.updateViewportContent()
-				return nil
 			}
 		}
 
@@ -785,6 +761,16 @@ func protectionLabel(isProtected bool) string {
 		return " (protected)"
 	}
 	return ""
+}
+
+// setTimeRange updates time range and reloads metrics and logs.
+func (v *InstanceDetailsView) setTimeRange(d time.Duration) tea.Cmd {
+	v.timeRange = d
+	v.metricsError = nil
+	v.logsError = nil
+	v.metricsLoading = true
+	v.logsLoading = true
+	return tea.Batch(v.spinner.Tick, v.loadMetrics(), v.loadLogs())
 }
 
 // loadMetrics fetches observability metrics from Cloud Monitoring
