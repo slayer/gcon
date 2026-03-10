@@ -6,6 +6,7 @@ require (
 	cloud.google.com/go/logging v1.13.1
 	cloud.google.com/go/monitoring v1.24.3
 	cloud.google.com/go/storage v1.59.0
+	github.com/NimbleMarkets/ntcharts v0.4.0
 	github.com/bevicted/teatile v1.3.0
 	github.com/charmbracelet/bubbles v0.21.0
 	github.com/charmbracelet/bubbletea v1.3.10
@@ -49,6 +50,7 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.11 // indirect
 	github.com/googleapis/gax-go/v2 v2.17.0 // indirect
+	github.com/lrstanley/bubblezone v0.0.0-20240914071701-b48c55a5e78e // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-localereader v0.0.1 // indirect

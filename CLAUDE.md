@@ -9,6 +9,7 @@ A terminal-based user interface for managing Google Cloud Platform resources, bu
 - **Language**: Go 1.22+
 - **TUI Framework**: [Bubble Tea](https://github.com/charmbracelet/bubbletea) (Elm-inspired architecture)
 - **Styling**: [Lip Gloss](https://github.com/charmbracelet/lipgloss)
+- **Charts**: [ntcharts](https://github.com/NimbleMarkets/ntcharts) (braille time series)
 - **GCP SDK**: `cloud.google.com/go` + `google.golang.org/api`
 - **Auth**: Application Default Credentials (ADC)
 - **Testing**: Go's built-in testing package
@@ -42,7 +43,8 @@ A terminal-based user interface for managing Google Cloud Platform resources, bu
 │   │   │   └── instances.go # Compute Engine instances view
 │   │   └── components/      # Reusable UI widgets
 │   │       ├── spinner.go   # Loading spinner
-│   │       └── statusbar.go # Status bar widget
+│   │       ├── statusbar.go # Status bar widget
+│   │       └── metricchart/ # Time series charts (ntcharts wrapper)
 │   ├── config/              # Configuration management (planned)
 │   └── cache/               # Local caching layer (planned)
 ├── go.mod
@@ -190,8 +192,8 @@ On developing or updating a new feature keep in mind the following guidelines:
 - [x] Compute Engine instances list
 - [x] Compute Engine instance details view
 - [x] Compute Engine instance observability tab with real-time metrics
-  - CPU utilization with sparkline trends
-  - Memory usage with sparkline trends (requires Ops Agent)
+  - CPU utilization with braille time series chart
+  - Memory usage with braille time series chart (requires Ops Agent)
   - Network traffic statistics
   - Disk I/O metrics
   - Instance health and uptime
@@ -268,12 +270,12 @@ On developing or updating a new feature keep in mind the following guidelines:
   - Create new services with full form (container, scaling, networking, security)
   - Form-based editor with 7 sections and validation
   - Observability tab with request metrics, resource metrics, and filterable logs
-    - Request count with sparkline trends
-    - Request latency (p50/p95/p99) with sparklines
-    - Error rate (4xx/5xx) with sparklines
-    - CPU utilization with sparkline trends
-    - Billable instance time with sparkline trends
-    - Instance count with sparkline trends
+    - Request count with braille time series chart
+    - Request latency (p50/p95/p99) with multi-series overlay chart
+    - Error rate (4xx/5xx) with multi-series overlay chart
+    - CPU utilization with braille time series chart
+    - Billable instance time with braille time series chart
+    - Instance count with braille time series chart
     - Filterable log viewer (INFO/WARNING/ERROR severity toggles)
     - Time range selection (1h/6h/24h/7d/30d)
     - Auto-refresh capability (30s interval)
