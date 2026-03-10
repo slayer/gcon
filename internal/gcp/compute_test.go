@@ -1,10 +1,16 @@
 package gcp
 
 import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/api/compute/v1"
+	"google.golang.org/api/option"
 )
 
 func TestExtractName(t *testing.T) {
@@ -949,8 +955,25 @@ func TestSnapshotMethods(t *testing.T) {
 	})
 }
 
-func TestInstanceCreateConfig(t *testing.T) {
-	t.Run("all fields populated", func(t *testing.T) {
+func TestCreateInstance(t *testing.T) {
+	t.Run("builds correct request with all fields", func(t *testing.T) {
+		var capturedBody compute.Instance
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			err := json.NewDecoder(r.Body).Decode(&capturedBody)
+			require.NoError(t, err)
+			w.Header().Set("Content-Type", "application/json")
+			resp, _ := json.Marshal(&compute.Operation{Status: "DONE"}) //nolint:errcheck
+			w.Write(resp)                                               //nolint:errcheck
+		}))
+		defer server.Close()
+
+		svc, err := compute.NewService(context.Background(),
+			option.WithEndpoint(server.URL),
+			option.WithoutAuthentication(),
+		)
+		require.NoError(t, err)
+		client := &ComputeClient{service: svc}
+
 		config := InstanceCreateConfig{
 			Name:         "my-vm",
 			Zone:         "us-central1-a",
@@ -964,19 +987,43 @@ func TestInstanceCreateConfig(t *testing.T) {
 			ExternalIP:   true,
 		}
 
-		assert.Equal(t, "my-vm", config.Name)
-		assert.Equal(t, "us-central1-a", config.Zone)
-		assert.Equal(t, "e2-medium", config.MachineType)
-		assert.Equal(t, "debian-cloud", config.ImageProject)
-		assert.Equal(t, "debian-12", config.ImageFamily)
-		assert.Equal(t, int64(20), config.DiskSizeGB)
-		assert.Equal(t, "pd-balanced", config.DiskType)
-		assert.Equal(t, "my-network", config.Network)
-		assert.Equal(t, "my-subnet", config.Subnetwork)
-		assert.True(t, config.ExternalIP)
+		err = client.CreateInstance(context.Background(), "test-proj", config)
+		require.NoError(t, err)
+
+		assert.Equal(t, "zones/us-central1-a/machineTypes/e2-medium", capturedBody.MachineType)
+		require.Len(t, capturedBody.Disks, 1)
+		initParams := capturedBody.Disks[0].InitializeParams
+		assert.Equal(t, "projects/debian-cloud/global/images/family/debian-12", initParams.SourceImage)
+		assert.Equal(t, "zones/us-central1-a/diskTypes/pd-balanced", initParams.DiskType)
+		assert.Equal(t, int64(20), initParams.DiskSizeGb)
+
+		require.Len(t, capturedBody.NetworkInterfaces, 1)
+		nic := capturedBody.NetworkInterfaces[0]
+		assert.Equal(t, "projects/test-proj/global/networks/my-network", nic.Network)
+		// Region derived from zone for subnetwork URL
+		assert.Equal(t, "projects/test-proj/regions/us-central1/subnetworks/my-subnet", nic.Subnetwork)
+		require.Len(t, nic.AccessConfigs, 1)
+		assert.Equal(t, "ONE_TO_ONE_NAT", nic.AccessConfigs[0].Type)
 	})
 
-	t.Run("defaults for optional fields", func(t *testing.T) {
+	t.Run("defaults network to 'default' when empty", func(t *testing.T) {
+		var capturedBody compute.Instance
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			err := json.NewDecoder(r.Body).Decode(&capturedBody)
+			require.NoError(t, err)
+			w.Header().Set("Content-Type", "application/json")
+			resp, _ := json.Marshal(&compute.Operation{Status: "DONE"}) //nolint:errcheck
+			w.Write(resp)                                               //nolint:errcheck
+		}))
+		defer server.Close()
+
+		svc, err := compute.NewService(context.Background(),
+			option.WithEndpoint(server.URL),
+			option.WithoutAuthentication(),
+		)
+		require.NoError(t, err)
+		client := &ComputeClient{service: svc}
+
 		config := InstanceCreateConfig{
 			Name:         "minimal-vm",
 			Zone:         "us-east1-b",
@@ -985,12 +1032,69 @@ func TestInstanceCreateConfig(t *testing.T) {
 			ImageFamily:  "debian-12",
 			DiskSizeGB:   10,
 			DiskType:     "pd-standard",
+			// Network intentionally empty — should default to "default"
 		}
 
-		// Optional fields default to zero values
-		assert.Empty(t, config.Network)
-		assert.Empty(t, config.Subnetwork)
-		assert.False(t, config.ExternalIP)
+		err = client.CreateInstance(context.Background(), "test-proj", config)
+		require.NoError(t, err)
+
+		nic := capturedBody.NetworkInterfaces[0]
+		assert.Equal(t, "projects/test-proj/global/networks/default", nic.Network)
+		assert.Empty(t, nic.Subnetwork)
+	})
+
+	t.Run("no AccessConfig when ExternalIP is false", func(t *testing.T) {
+		var capturedBody compute.Instance
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			err := json.NewDecoder(r.Body).Decode(&capturedBody)
+			require.NoError(t, err)
+			w.Header().Set("Content-Type", "application/json")
+			resp, _ := json.Marshal(&compute.Operation{Status: "DONE"}) //nolint:errcheck
+			w.Write(resp)                                               //nolint:errcheck
+		}))
+		defer server.Close()
+
+		svc, err := compute.NewService(context.Background(),
+			option.WithEndpoint(server.URL),
+			option.WithoutAuthentication(),
+		)
+		require.NoError(t, err)
+		client := &ComputeClient{service: svc}
+
+		config := InstanceCreateConfig{
+			Name:         "internal-vm",
+			Zone:         "us-central1-a",
+			MachineType:  "e2-small",
+			ImageProject: "debian-cloud",
+			ImageFamily:  "debian-12",
+			DiskSizeGB:   10,
+			DiskType:     "pd-standard",
+			ExternalIP:   false,
+		}
+
+		err = client.CreateInstance(context.Background(), "test-proj", config)
+		require.NoError(t, err)
+
+		nic := capturedBody.NetworkInterfaces[0]
+		assert.Empty(t, nic.AccessConfigs, "internal-only VM should have no AccessConfigs")
+	})
+
+	t.Run("rejects non-positive disk size", func(t *testing.T) {
+		client := &ComputeClient{}
+
+		err := client.CreateInstance(context.Background(), "proj", InstanceCreateConfig{
+			Name: "vm", Zone: "us-central1-a", MachineType: "e2-micro",
+			ImageProject: "debian-cloud", ImageFamily: "debian-12",
+			DiskSizeGB: 0, DiskType: "pd-standard",
+		})
+		assert.ErrorContains(t, err, "disk size must be positive")
+
+		err = client.CreateInstance(context.Background(), "proj", InstanceCreateConfig{
+			Name: "vm", Zone: "us-central1-a", MachineType: "e2-micro",
+			ImageProject: "debian-cloud", ImageFamily: "debian-12",
+			DiskSizeGB: -1, DiskType: "pd-standard",
+		})
+		assert.ErrorContains(t, err, "disk size must be positive")
 	})
 }
 
@@ -1028,8 +1132,8 @@ func TestFormatMachineTypeDescription(t *testing.T) {
 		{
 			name:     "e2-medium specs (non-power-of-2 memory)",
 			cpus:     2,
-			memoryMB: 4096,
-			expected: "2 vCPU, 4 GB RAM",
+			memoryMB: 3840, // 3.75 GB — actual e2-medium spec
+			expected: "2 vCPU, 3.8 GB RAM",
 		},
 	}
 

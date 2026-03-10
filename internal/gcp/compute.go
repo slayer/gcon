@@ -1424,6 +1424,11 @@ func FormatMachineTypeDescription(cpus, memoryMB int64) string {
 
 // CreateInstance creates a new VM instance with the given configuration
 func (c *ComputeClient) CreateInstance(ctx context.Context, projectID string, config InstanceCreateConfig) error {
+	// Catch invalid disk size before making the API call
+	if config.DiskSizeGB <= 0 {
+		return fmt.Errorf("disk size must be positive, got %d", config.DiskSizeGB)
+	}
+
 	// Build machine type URL from short name if needed
 	machineType := config.MachineType
 	if !strings.Contains(machineType, "/") {
@@ -1473,9 +1478,10 @@ func (c *ComputeClient) CreateInstance(ctx context.Context, projectID string, co
 				Boot:       true,
 				AutoDelete: true,
 				InitializeParams: &compute.AttachedDiskInitializeParams{
-					SourceImage: sourceImage,
-					DiskSizeGb:  config.DiskSizeGB,
-					DiskType:    diskType,
+					SourceImage:     sourceImage,
+					DiskSizeGb:      config.DiskSizeGB,
+					DiskType:        diskType,
+					ForceSendFields: []string{"DiskSizeGb"},
 				},
 			},
 		},
@@ -1569,6 +1575,11 @@ func (c *ComputeClient) ListSubnetworks(ctx context.Context, projectID, region s
 	if err != nil {
 		return nil, WrapListError(err, "subnetworks", region)
 	}
+
+	// Consistent ordering for UI display, matching ListMachineTypes pattern
+	sort.Slice(subnets, func(i, j int) bool {
+		return subnets[i].Name < subnets[j].Name
+	})
 
 	return subnets, nil
 }
