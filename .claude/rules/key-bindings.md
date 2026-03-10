@@ -49,6 +49,7 @@ description: Keyboard shortcuts reference for all views
 | `Enter` | View instance details |
 | `.` | Open action menu |
 | `S` | Open sort menu |
+| `c` | Create new instance |
 | `s` | Start stopped instance |
 | `x` | Stop running instance |
 | `z` | Suspend running instance |
@@ -64,6 +65,7 @@ description: Keyboard shortcuts reference for all views
 | Key | Action |
 |-----|--------|
 | `.` | Open action menu |
+| `e` | Edit instance configuration |
 | `l` | Edit labels |
 | `s` | Start instance (if stopped) |
 | `x` | Stop instance (if running) |
@@ -88,6 +90,16 @@ description: Keyboard shortcuts reference for all views
 | `Tab` | Switch key/value input |
 | `Ctrl+S` | Preview changes |
 | `Esc` | Back (global: navigate to previous view) |
+
+## Instance Create/Edit View
+
+| Key | Action |
+|-----|--------|
+| `Ctrl+S` | Submit / Preview changes (show diff) |
+| `Enter` | Confirm deploy (from diff view) |
+| `Tab/↓` | Next field |
+| `Shift+Tab/↑` | Previous field |
+| `Esc` | Back (diff → form) / Cancel (form → back) |
 
 ## Instance Details - Observability Tab
 
