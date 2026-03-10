@@ -7,7 +7,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestCloudRunObservability_InitialState(t *testing.T) {
@@ -159,19 +158,6 @@ func TestCloudRunObservability_RenderView_WithMetrics(t *testing.T) {
 	assert.Contains(t, view, "Logs")
 }
 
-func TestCloudRunObservability_ExtractValues(t *testing.T) {
-	data := []gcp.DataPoint{
-		{Value: 1.0},
-		{Value: 2.5},
-		{Value: 3.7},
-	}
-	values := extractValues(data)
-	require.Len(t, values, 3)
-	assert.Equal(t, 1.0, values[0])
-	assert.Equal(t, 2.5, values[1])
-	assert.Equal(t, 3.7, values[2])
-}
-
 func TestCloudRunObservability_RenderView_Error(t *testing.T) {
 	obs := newCloudRunObservability("p", "s", nil)
 	obs.width = 80
@@ -182,25 +168,6 @@ func TestCloudRunObservability_RenderView_Error(t *testing.T) {
 
 	assert.Contains(t, view, "Error loading metrics")
 	assert.Contains(t, view, "retry")
-}
-
-func TestFormatLatency(t *testing.T) {
-	tests := []struct {
-		ms       float64
-		expected string
-	}{
-		{0.5, "0.50ms"},
-		{42, "42ms"},
-		{999, "999ms"},
-		{1500, "1.5s"},
-		{59999, "60.0s"},
-		{60000, "1m"},
-		{90000, "1m 30s"},
-		{372343, "6m 12s"},
-	}
-	for _, tt := range tests {
-		assert.Equal(t, tt.expected, formatLatency(tt.ms), "formatLatency(%f)", tt.ms)
-	}
 }
 
 func TestCloudRunObservability_AutoRefreshToggle(t *testing.T) {

@@ -20,6 +20,40 @@ Use the shared helpers in `internal/ui/views/helpers.go` and `internal/ui/compon
 | `formWidthPadding` / `formHeightPadding` | `views/helpers.go` | Standard form sizing padding (both = 4) |
 | `TableClickDelegate` | `views/helpers.go` | Embed in list views for mouse click delegation |
 | `CreateViewBase` | `views/create_view_base.go` | Embed in creation views for full lifecycle |
+| `metricchart.New(height)` | `components/metricchart/` | Braille time series charts for metrics |
+
+## Metric Charts (metricchart package)
+
+Use `metricchart.Chart` for rendering time series metrics in observability tabs. Charts are **stateful renderers**, not Bubble Tea models — no `tea.Msg` routing needed.
+
+```go
+// Single-series chart (CPU, memory, request count)
+chart := metricchart.New(metricchart.HeightStandard)
+chart.SetYRange(0, 100).
+    SetStatsFormatter(metricchart.FormatPercentageStats).
+    SetYLabelFormatter(metricchart.PercentYLabel)
+chart.SetData(dataPoints)         // []gcp.DataPoint
+output := chart.View()            // renders chart + stats line
+
+// Multi-series overlay (latency p50/p95/p99, error rates 4xx/5xx)
+chart := metricchart.New(metricchart.HeightStandard)
+chart.SetStatsFormatter(nil).     // no per-series stats for multi-dataset
+    SetYLabelFormatter(metricchart.LatencyYLabel)
+chart.SetDataSets([]metricchart.DataSet{
+    {Name: "p50", Data: p50Data, Color: "#34A853"},
+    {Name: "p95", Data: p95Data, Color: "#FBBC04"},
+    {Name: "p99", Data: p99Data, Color: "#EA4335"},
+})
+output := chart.View()            // renders chart + color-coded legend
+```
+
+Key points:
+- Call `chart.Resize(width)` when parent width changes (subtract padding for indent)
+- Heights: `HeightStandard = 8` for primary metrics, `HeightCompact = 5` for secondary
+- Y-axis formatters: `humanYLabel` (default, SI suffixes), `PercentYLabel`, `LatencyYLabel`, `VCPUYLabel`
+- Use `SetYRange(0, 100)` for percentage metrics to prevent misleading auto-scaling
+- GCP color palette for multi-series: green=#34A853, yellow=#FBBC04, red=#EA4335
+- **Data gaps are handled automatically**: `fillGaps()` inserts zero-value boundary points when consecutive data points are >3x the minimum interval apart. This prevents ntcharts from drawing misleading lines across periods with no data (e.g., Cloud Run scaled to zero). No action needed by callers — it runs inside `renderChart()`.
 
 ## Always Create Fresh Modal Instances
 
@@ -222,6 +256,42 @@ func (v *View) stopAutoRefresh() {
 5. Set both to nil after cleanup to prevent double-close panics
 
 See: `cloudrun_observability.go`, `instance_details.go`
+
+## `tea.Tick()` Messages Survive Context Switches
+
+**Critical**: Unlike `time.Ticker` goroutines, `tea.Tick()` schedules a message on Bubble Tea's internal queue. There is no way to cancel a pending `tea.Tick()` message — it will always be delivered.
+
+When using `tea.Tick()` for periodic refresh (e.g., auto-refresh on an observability tab), the tick handler must guard against stale delivery after the user has navigated away:
+
+```go
+type View struct {
+    autoRefresh bool  // user preference
+    tabActive   bool  // whether this tab is currently visible
+}
+
+func (v *View) tickAutoRefresh() tea.Cmd {
+    // Don't schedule if either condition is false
+    if !v.autoRefresh || !v.tabActive {
+        return nil
+    }
+    return tea.Tick(30*time.Second, func(_ time.Time) tea.Msg {
+        return refreshTickMsg{}
+    })
+}
+
+// In Update():
+case refreshTickMsg:
+    // Drop stale ticks — user may have left the tab while tick was pending
+    if !v.autoRefresh || !v.tabActive {
+        return nil, true
+    }
+    // Safe to refresh
+    return v.loadMetrics(), true
+```
+
+**Key difference from `time.Ticker`**: `time.Ticker` leaks goroutines if not properly stopped. `tea.Tick()` doesn't leak goroutines but delivers stale messages. Both need guards, but the mechanism differs.
+
+See: `cloudrun_observability.go`
 
 ## Dialog Update() Must Accept tea.Msg (Not Just tea.KeyMsg)
 

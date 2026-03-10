@@ -318,12 +318,16 @@ func (v *CloudRunServiceDetailsView) Update(msg tea.Msg) tea.Cmd {
 		return nil
 
 	case tabs.TabChangedMsg:
-		v.updateViewportContent()
 		// Lazy-load observability on first tab switch; manage auto-refresh lifecycle
 		if v.tabs.ActiveTab().ID == runTabIDObservability {
 			if v.observability == nil {
 				v.observability = newCloudRunObservability(v.projectID, v.serviceName, v.gcpClient)
-				v.observability.width = v.width
+				v.observability.width = max(1, v.width-1) // match applySize viewport width
+				v.observability.resizeCharts()
+			}
+			// Update viewport after observability exists so first frame shows loading state
+			v.updateViewportContent()
+			if v.observability.metricsLoading || v.observability.metrics == nil {
 				return tea.Batch(v.observability.Init(), v.observability.StartAutoRefresh())
 			}
 			return v.observability.StartAutoRefresh()
@@ -332,6 +336,7 @@ func (v *CloudRunServiceDetailsView) Update(msg tea.Msg) tea.Cmd {
 		if v.observability != nil {
 			v.observability.StopAutoRefresh()
 		}
+		v.updateViewportContent()
 		return nil
 
 	case focus.FocusChangedMsg:
@@ -636,7 +641,8 @@ func (v *CloudRunServiceDetailsView) applySize(width, height int) {
 	}
 
 	if v.observability != nil {
-		v.observability.width = width
+		v.observability.width = viewportWidth
+		v.observability.resizeCharts()
 	}
 
 	if v.details != nil {

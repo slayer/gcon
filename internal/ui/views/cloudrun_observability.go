@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components"
+	"github.com/slayer/gcon/internal/ui/components/metricchart"
 	uierrors "github.com/slayer/gcon/internal/ui/errors"
 )
 
@@ -48,13 +49,40 @@ type cloudRunObservability struct {
 
 	// Time range and refresh
 	timeRange   time.Duration
-	autoRefresh bool
+	autoRefresh bool // user preference (toggled with 'a' key)
+	tabActive   bool // true when observability tab is currently visible
 
 	spinner spinner.Model
 	width   int
+
+	// Metric charts
+	requestCountChart  *metricchart.Chart
+	latencyChart       *metricchart.Chart // multi-dataset: p50/p95/p99
+	errorRateChart     *metricchart.Chart // multi-dataset: 4xx/5xx
+	cpuChart           *metricchart.Chart
+	billableTimeChart  *metricchart.Chart
+	instanceCountChart *metricchart.Chart
 }
 
 func newCloudRunObservability(projectID, serviceName string, gcpClient *gcp.Client) *cloudRunObservability {
+	reqChart := metricchart.New(metricchart.HeightStandard)
+	reqChart.SetStatsFormatter(metricchart.FormatCountStats)
+
+	latChart := metricchart.New(metricchart.HeightStandard)
+	latChart.SetStatsFormatter(nil).SetYLabelFormatter(metricchart.LatencyYLabel)
+
+	errChart := metricchart.New(metricchart.HeightCompact)
+	errChart.SetStatsFormatter(nil)
+
+	cpuChart := metricchart.New(metricchart.HeightStandard)
+	cpuChart.SetStatsFormatter(metricchart.FormatVCPUStats).SetYLabelFormatter(metricchart.VCPUYLabel)
+
+	billChart := metricchart.New(metricchart.HeightCompact)
+	billChart.SetStatsFormatter(metricchart.FormatGenericStats)
+
+	instChart := metricchart.New(metricchart.HeightCompact)
+	instChart.SetStatsFormatter(metricchart.FormatInstanceCountStats)
+
 	return &cloudRunObservability{
 		projectID:   projectID,
 		serviceName: serviceName,
@@ -64,9 +92,28 @@ func newCloudRunObservability(projectID, serviceName string, gcpClient *gcp.Clie
 			"WARNING": true,
 			"ERROR":   true,
 		},
-		timeRange:   time.Hour,
-		autoRefresh: true,
-		spinner:     components.NewGCPSpinner(),
+		timeRange:          time.Hour,
+		autoRefresh:        true,
+		spinner:            components.NewGCPSpinner(),
+		requestCountChart:  reqChart,
+		latencyChart:       latChart,
+		errorRateChart:     errChart,
+		cpuChart:           cpuChart,
+		billableTimeChart:  billChart,
+		instanceCountChart: instChart,
+	}
+}
+
+// resizeCharts updates all chart widths to match the current view width.
+func (o *cloudRunObservability) resizeCharts() {
+	chartWidth := max(1, o.width-4) // account for padding, clamp for narrow terminals
+	for _, ch := range []*metricchart.Chart{
+		o.requestCountChart, o.latencyChart, o.errorRateChart,
+		o.cpuChart, o.billableTimeChart, o.instanceCountChart,
+	} {
+		if ch != nil {
+			ch.Resize(chartWidth)
+		}
 	}
 }
 
@@ -108,8 +155,8 @@ func (o *cloudRunObservability) Update(msg tea.Msg) (tea.Cmd, bool) {
 		return nil, true
 
 	case crRefreshTickMsg:
-		// Drop stale ticks if auto-refresh was turned off while waiting
-		if !o.autoRefresh {
+		// Drop stale ticks if auto-refresh was turned off or tab became inactive
+		if !o.autoRefresh || !o.tabActive {
 			return nil, true
 		}
 		o.metricsLoading = true
@@ -247,7 +294,6 @@ func (o *cloudRunObservability) View() string {
 // renderRequestMetrics renders the request count, latency, and error rate sections.
 func (o *cloudRunObservability) renderRequestMetrics(b *strings.Builder, sectionStyle, mutedStyle lipgloss.Style) {
 	m := o.metrics
-	sparkWidth := max(1, min(o.width-12, 50))
 
 	// Request count
 	b.WriteString(sectionStyle.Render("Request Count"))
@@ -255,72 +301,45 @@ func (o *cloudRunObservability) renderRequestMetrics(b *strings.Builder, section
 	b.WriteString(strings.Repeat("━", max(0, min(o.width-4, 60))))
 	b.WriteString("\n")
 	if len(m.RequestCount) > 0 {
-		values := extractValues(m.RequestCount)
-		sparkline := components.RenderSparkline(values, sparkWidth)
-		fmt.Fprintf(b, "  Trend (%s): %s\n", formatDuration(o.timeRange), sparkline)
-
-		avg, peak, peakTime := calculateStats(m.RequestCount)
-		current := values[len(values)-1]
-		fmt.Fprintf(b, "     Current: %.1f req/s  |  Avg: %.1f req/s  |  Peak: %.1f req/s", current, avg, peak)
-		if !peakTime.IsZero() {
-			fmt.Fprintf(b, " (%s)", peakTime.Format("3:04 PM"))
-		}
-		b.WriteString("\n")
+		o.requestCountChart.SetData(m.RequestCount)
+		b.WriteString(o.requestCountChart.View())
 	} else {
 		b.WriteString(mutedStyle.Render("  No request data available"))
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")
 
-	// Latency (p50/p95/p99)
+	// Latency (p50/p95/p99) — overlaid in one chart
 	b.WriteString(sectionStyle.Render("Request Latency"))
 	b.WriteString("\n")
 	b.WriteString(strings.Repeat("━", max(0, min(o.width-4, 60))))
 	b.WriteString("\n")
 	hasLatency := len(m.Latency50) > 0 || len(m.Latency95) > 0 || len(m.Latency99) > 0
 	if hasLatency {
-		for _, entry := range []struct {
-			label string
-			data  []gcp.DataPoint
-		}{
-			{"p50", m.Latency50},
-			{"p95", m.Latency95},
-			{"p99", m.Latency99},
-		} {
-			if len(entry.data) > 0 {
-				values := extractValues(entry.data)
-				sparkline := components.RenderSparkline(values, sparkWidth)
-				avg, peak, _ := calculateStats(entry.data)
-				current := values[len(values)-1]
-				fmt.Fprintf(b, "  %s: %s  (cur: %s  avg: %s  peak: %s)\n",
-					entry.label, sparkline, formatLatency(current), formatLatency(avg), formatLatency(peak))
-			}
-		}
+		o.latencyChart.SetDataSets([]metricchart.DataSet{
+			{Name: "p50", Data: m.Latency50, Color: "#34A853"},
+			{Name: "p95", Data: m.Latency95, Color: "#FBBC04"},
+			{Name: "p99", Data: m.Latency99, Color: "#EA4335"},
+		})
+		b.WriteString(o.latencyChart.View())
 	} else {
 		b.WriteString(mutedStyle.Render("  No latency data available"))
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")
 
-	// Error rates (4xx/5xx)
+	// Error rates (4xx/5xx) — overlaid in one chart
 	b.WriteString(sectionStyle.Render("Error Rate"))
 	b.WriteString("\n")
 	b.WriteString(strings.Repeat("━", max(0, min(o.width-4, 60))))
 	b.WriteString("\n")
 	hasErrors := len(m.ErrorCount4xx) > 0 || len(m.ErrorCount5xx) > 0
 	if hasErrors {
-		if len(m.ErrorCount4xx) > 0 {
-			values := extractValues(m.ErrorCount4xx)
-			sparkline := components.RenderSparkline(values, sparkWidth)
-			avg, _, _ := calculateStats(m.ErrorCount4xx)
-			fmt.Fprintf(b, "  4xx: %s  (avg: %.1f/s)\n", sparkline, avg)
-		}
-		if len(m.ErrorCount5xx) > 0 {
-			values := extractValues(m.ErrorCount5xx)
-			sparkline := components.RenderSparkline(values, sparkWidth)
-			avg, _, _ := calculateStats(m.ErrorCount5xx)
-			fmt.Fprintf(b, "  5xx: %s  (avg: %.1f/s)\n", sparkline, avg)
-		}
+		o.errorRateChart.SetDataSets([]metricchart.DataSet{
+			{Name: "4xx", Data: m.ErrorCount4xx, Color: "#FBBC04"},
+			{Name: "5xx", Data: m.ErrorCount5xx, Color: "#EA4335"},
+		})
+		b.WriteString(o.errorRateChart.View())
 	} else {
 		b.WriteString(mutedStyle.Render("  No error data available"))
 		b.WriteString("\n")
@@ -331,7 +350,6 @@ func (o *cloudRunObservability) renderRequestMetrics(b *strings.Builder, section
 // renderResourceMetrics renders CPU, memory, and instance count sections.
 func (o *cloudRunObservability) renderResourceMetrics(b *strings.Builder, sectionStyle, mutedStyle lipgloss.Style) {
 	m := o.metrics
-	sparkWidth := max(1, min(o.width-12, 50))
 
 	// CPU usage — values are vCPU-seconds/second (1.0 = 1 full vCPU)
 	b.WriteString(sectionStyle.Render("CPU Usage"))
@@ -339,40 +357,22 @@ func (o *cloudRunObservability) renderResourceMetrics(b *strings.Builder, sectio
 	b.WriteString(strings.Repeat("━", max(0, min(o.width-4, 60))))
 	b.WriteString("\n")
 	if len(m.CPU) > 0 {
-		cpuValues := extractValues(m.CPU)
-		sparkline := components.RenderSparkline(cpuValues, sparkWidth)
-		fmt.Fprintf(b, "  Trend (%s): %s\n", formatDuration(o.timeRange), sparkline)
-
-		current := cpuValues[len(cpuValues)-1]
-		avg, peak, peakTime := calculateStats(m.CPU)
-		fmt.Fprintf(b, "     Current: %.2f vCPU  |  Avg: %.2f vCPU  |  Peak: %.2f vCPU", current, avg, peak)
-		if !peakTime.IsZero() {
-			fmt.Fprintf(b, " (%s)", peakTime.Format("3:04 PM"))
-		}
-		b.WriteString("\n")
+		o.cpuChart.SetData(m.CPU)
+		b.WriteString(o.cpuChart.View())
 	} else {
 		b.WriteString(mutedStyle.Render("  No CPU data available"))
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")
 
-	// Billable instance time — proxy for activity level (no direct memory utilization metric)
+	// Billable instance time — proxy for activity level
 	b.WriteString(sectionStyle.Render("Billable Instance Time"))
 	b.WriteString("\n")
 	b.WriteString(strings.Repeat("━", max(0, min(o.width-4, 60))))
 	b.WriteString("\n")
 	if len(m.BillableInstanceTime) > 0 {
-		values := extractValues(m.BillableInstanceTime)
-		sparkline := components.RenderSparkline(values, sparkWidth)
-		fmt.Fprintf(b, "  Trend (%s): %s\n", formatDuration(o.timeRange), sparkline)
-
-		current := values[len(values)-1]
-		avg, peak, peakTime := calculateStats(m.BillableInstanceTime)
-		fmt.Fprintf(b, "     Current: %.2f  |  Avg: %.2f  |  Peak: %.2f", current, avg, peak)
-		if !peakTime.IsZero() {
-			fmt.Fprintf(b, " (%s)", peakTime.Format("3:04 PM"))
-		}
-		b.WriteString("\n")
+		o.billableTimeChart.SetData(m.BillableInstanceTime)
+		b.WriteString(o.billableTimeChart.View())
 	} else {
 		b.WriteString(mutedStyle.Render("  No billable instance data available"))
 		b.WriteString("\n")
@@ -385,17 +385,8 @@ func (o *cloudRunObservability) renderResourceMetrics(b *strings.Builder, sectio
 	b.WriteString(strings.Repeat("━", max(0, min(o.width-4, 60))))
 	b.WriteString("\n")
 	if len(m.InstanceCount) > 0 {
-		values := extractValues(m.InstanceCount)
-		sparkline := components.RenderSparkline(values, sparkWidth)
-		fmt.Fprintf(b, "  Trend (%s): %s\n", formatDuration(o.timeRange), sparkline)
-
-		avg, peak, peakTime := calculateStats(m.InstanceCount)
-		current := values[len(values)-1]
-		fmt.Fprintf(b, "     Current: %.0f  |  Avg: %.1f  |  Peak: %.0f", current, avg, peak)
-		if !peakTime.IsZero() {
-			fmt.Fprintf(b, " (%s)", peakTime.Format("3:04 PM"))
-		}
-		b.WriteString("\n")
+		o.instanceCountChart.SetData(m.InstanceCount)
+		b.WriteString(o.instanceCountChart.View())
 	} else {
 		b.WriteString(mutedStyle.Render("  No instance count data available"))
 		b.WriteString("\n")
@@ -558,7 +549,7 @@ func (o *cloudRunObservability) loadLogs() tea.Cmd {
 // tickAutoRefresh schedules a single auto-refresh tick using Bubble Tea's timing.
 // Each tick reschedules the next one, avoiding goroutine leaks from long-lived tickers.
 func (o *cloudRunObservability) tickAutoRefresh() tea.Cmd {
-	if !o.autoRefresh {
+	if !o.autoRefresh || !o.tabActive {
 		return nil
 	}
 	return tea.Tick(30*time.Second, func(_ time.Time) tea.Msg {
@@ -566,17 +557,18 @@ func (o *cloudRunObservability) tickAutoRefresh() tea.Cmd {
 	})
 }
 
-// StartAutoRefresh schedules the next auto-refresh tick (30s interval).
+// StartAutoRefresh marks the tab as active and schedules the next tick.
 func (o *cloudRunObservability) StartAutoRefresh() tea.Cmd {
+	o.tabActive = true
 	if !o.autoRefresh {
 		return nil
 	}
 	return o.tickAutoRefresh()
 }
 
-// StopAutoRefresh is a no-op — refresh ticks are dropped in Update when autoRefresh is false.
+// StopAutoRefresh marks the tab as inactive so pending ticks are dropped.
 func (o *cloudRunObservability) StopAutoRefresh() {
-	// No resources to clean up; tea.Tick-based approach is self-cleaning
+	o.tabActive = false
 }
 
 // toggleSeverity flips the enabled state for a severity level.
@@ -615,30 +607,3 @@ func (o *cloudRunObservability) filteredLogs() []gcp.LogEntry {
 	return result
 }
 
-// formatLatency formats milliseconds into human-readable form (e.g., "123ms", "1.5s", "2m 30s")
-func formatLatency(ms float64) string {
-	switch {
-	case ms < 1:
-		return fmt.Sprintf("%.2fms", ms)
-	case ms < 1000:
-		return fmt.Sprintf("%.0fms", ms)
-	case ms < 60000:
-		return fmt.Sprintf("%.1fs", ms/1000)
-	default:
-		mins := int(ms / 60000)
-		secs := int(ms/1000) % 60
-		if secs == 0 {
-			return fmt.Sprintf("%dm", mins)
-		}
-		return fmt.Sprintf("%dm %ds", mins, secs)
-	}
-}
-
-// extractValues pulls float64 values from a slice of DataPoints.
-func extractValues(data []gcp.DataPoint) []float64 {
-	values := make([]float64, len(data))
-	for i, dp := range data {
-		values[i] = dp.Value
-	}
-	return values
-}

@@ -276,6 +276,34 @@ case sidebar.ViewCloudRunServices:
 
 **Rule**: When adding a new child view (edit, create, details), always check all sidebar guard conditions for the parent feature and add the new view type.
 
+### 14. Lazy-Loaded Sub-Views Must Be Created Before `updateViewportContent()`
+
+When a tab lazily creates a sub-view (e.g., observability tab creates its view on first visit), the sub-view must exist **before** calling `updateViewportContent()`. Otherwise the viewport renders empty for one frame.
+
+```go
+// Wrong — updateViewportContent runs before observability exists, empty frame
+case tabs.TabChangedMsg:
+    v.updateViewportContent()  // observability is nil → renders empty
+    if v.tabs.ActiveTab().ID == "observability" {
+        if v.observability == nil {
+            v.observability = newObservability()
+        }
+    }
+
+// Correct — create first, then update viewport
+case tabs.TabChangedMsg:
+    if v.tabs.ActiveTab().ID == "observability" {
+        if v.observability == nil {
+            v.observability = newObservability()
+        }
+        v.updateViewportContent()  // observability exists → renders loading state
+        return v.observability.Init()
+    }
+    v.updateViewportContent()
+```
+
+**Symptom**: Tab shows blank content for a single frame before loading spinner appears.
+
 ## Common Symptoms
 
 - **"View not implemented"** when navigating → forgot `renderCurrentView()` in `app_render.go`
@@ -284,3 +312,4 @@ case sidebar.ViewCloudRunServices:
 - **View not in command palette** → forgot step 10 (command palette navigation commands)
 - **Stale data after refresh** → `Init()` not idempotent (step 11)
 - **Dead handler code** → message has no producer (step 12)
+- **Empty frame on first tab visit** → lazy sub-view created after `updateViewportContent()` (step 14)
