@@ -11,63 +11,67 @@ Add ability to create new VM instances and edit existing ones via form-based UI.
 ## Implementation Plan
 
 ### Phase 1: GCP Client Layer
-- [ ] Add `InstanceCreateConfig` struct
-- [ ] Add `MachineType`, `NetworkInfo`, `SubnetworkInfo` types
-- [ ] Add `CreateInstance()` method
-- [ ] Add `SetMachineType()` method
-- [ ] Add `ResizeBootDisk()` method
-- [ ] Add `ListMachineTypes()` method (zone-specific)
-- [ ] Add `ListSubnetworks()` method (region-specific)
-- [ ] Add curated boot disk images list
-- [ ] Add curated disk type options
-- [ ] Write tests for new client methods
+- [x] Add `InstanceCreateConfig` struct
+- [x] Add `MachineType`, `NetworkInfo`, `SubnetworkInfo` types
+- [x] Add `CreateInstance()` method
+- [x] Add `SetMachineType()` method
+- [x] Add `ResizeBootDisk()` method
+- [x] Add `ListMachineTypes()` method (zone-specific)
+- [x] Add `ListSubnetworks()` method (region-specific)
+- [x] Add curated boot disk images list
+- [x] Add curated disk type options
+- [x] Write tests for new client methods
 
 ### Phase 2: Shared Form Builder
-- [ ] Create `instance_form.go` with shared form-building logic
-- [ ] `buildInstanceForm(mode)` — creates form with all sections
-- [ ] `populateFromDetails(form, details)` — fills form from existing instance
-- [ ] Machine type caching (`map[string][]MachineType` by zone)
-- [ ] Zone change triggers async machine type fetch
-- [ ] Network/subnetwork dynamic loading
+- [x] Create `instance_form.go` with shared form-building logic
+- [x] `buildInstanceForm(mode)` — creates form with all sections
+- [x] `populateFromDetails(form, details)` — fills form from existing instance
+- [x] Machine type caching (`map[string][]MachineType` by zone)
+- [x] Zone change triggers async machine type fetch
+- [x] Network/subnetwork dynamic loading
 
 ### Phase 3: Create View
-- [ ] Create `instance_create.go` using `CreateViewBase`
-- [ ] Form sections: Basic, Machine Config, Boot Disk, Networking
-- [ ] Validation: resource name, disk size, required fields
-- [ ] Submit flow: form → saving → result
-- [ ] Add `c` key binding to instances list view
-- [ ] Add message types: `InstanceCreateRequestMsg`, `CreateInstanceMsg`, `InstanceCreateResultMsg`
-- [ ] Write view tests
+- [x] Create `instance_create.go` using `CreateViewBase`
+- [x] Form sections: Basic, Machine Config, Boot Disk, Networking
+- [x] Validation: resource name, disk size, required fields
+- [x] Submit flow: form → saving → result
+- [x] Add `c` key binding to instances list view
+- [x] Add message types: `InstanceCreateRequestMsg`, `CreateInstanceMsg`, `InstanceCreateResultMsg`
+- [x] Write view tests
 
 ### Phase 4: Edit View
-- [ ] Create `instance_edit.go` with state machine (Loading → Form → Diff → Saving)
-- [ ] Load current instance config on init
-- [ ] Read-only fields: name, zone, boot disk image, disk type, network, subnetwork
-- [ ] Editable fields: machine type, disk size (expand only), external IP (defer to tier 2)
-- [ ] Diff preview before applying changes
-- [ ] Sequential API calls: SetMachineType, ResizeBootDisk
-- [ ] Partial failure reporting
-- [ ] Machine type warning when instance is running
-- [ ] Add `e` key binding to instance details view
-- [ ] Add message types: `InstanceEditRequestMsg`, `InstanceEditSubmitMsg`, `InstanceEditResultMsg`
-- [ ] Write view tests
+- [x] Create `instance_config_edit.go` with state machine (Loading → Form → Diff → Saving)
+- [x] Load current instance config on init
+- [x] Read-only fields: name, zone, boot disk image, disk type, network, subnetwork
+- [x] Editable fields: machine type, disk size (expand only)
+- [x] Diff preview before applying changes
+- [x] Sequential API calls: SetMachineType, ResizeBootDisk
+- [x] Partial failure reporting
+- [x] Machine type warning when instance is running
+- [x] Add `e` key binding to instance details view
+- [x] Add message types: `InstanceConfigEditRequestMsg`, `InstanceConfigEditSubmitMsg`, `InstanceConfigEditResultMsg`
+- [x] Write view tests
 
 ### Phase 5: App Integration
-- [ ] Add `ViewInstanceCreate` and `ViewInstanceEdit` to ViewType enum
-- [ ] Add view fields to App struct
-- [ ] Add cases to `getCurrentViewModel()`
-- [ ] Add cases to `renderCurrentView()`
-- [ ] Add message handlers in `Update()`
-- [ ] Add navigation handlers in `app_navigation.go`
-- [ ] Add to `clearAllViews()`
-- [ ] Add to `updateViewSizes()`
-- [ ] Update sidebar guards for Compute Engine hierarchy
-- [ ] Add command palette entry: "Compute: Create Instance"
+- [x] Add `ViewInstanceCreate` and `ViewInstanceConfigEdit` to ViewType enum
+- [x] Add view fields to App struct
+- [x] Add cases to `getCurrentViewModel()`
+- [x] Add cases to `renderCurrentView()`
+- [x] Add message handlers in `Update()`
+- [x] Add navigation handlers in `app_navigation.go`
+- [x] Add to `clearAllViews()`
+- [x] Add to `updateViewSizes()`
+- [x] Update sidebar guards for Compute Engine hierarchy
+- [x] Update `updateSidebarActiveView()` for new views
+- [x] Add breadcrumb support for create/edit views
+- [x] Add Esc/back cleanup in leavingView switch
+- [x] Add to `reloadCurrentView()` for project switching
+- [ ] Add command palette entry: "Compute: Create Instance" (skipped — accessible via `c` key from instances list)
 - [ ] Update key bindings doc
 
 ### Phase 6: Testing & Polish
-- [ ] Run full test suite
-- [ ] Run linter
+- [x] Run full test suite
+- [x] Run linter
 - [ ] Manual testing: create instance, edit instance
 - [ ] Verify error handling (API failures, validation)
 - [ ] Verify cancel during saving works

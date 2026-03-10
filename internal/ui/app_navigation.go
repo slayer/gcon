@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/slayer/gcon/internal/gcp"
@@ -168,7 +170,7 @@ func (a *App) handleSidebarNavigation(msg sidebar.NavigateMsg) tea.Cmd {
 	// Map sidebar ViewType to app ViewType and navigate
 	switch msg.ViewType {
 	case sidebar.ViewInstances:
-		if a.currentView != ViewInstances && a.currentView != ViewInstanceDetails {
+		if a.currentView != ViewInstances && a.currentView != ViewInstanceDetails && a.currentView != ViewInstanceEditor && a.currentView != ViewInstanceCreate && a.currentView != ViewInstanceConfigEdit {
 			a.currentView = ViewInstances
 			a.instanceDetailsView = nil
 			a.selectedInstance = nil
@@ -329,7 +331,7 @@ func (a *App) handleSidebarNavigation(msg sidebar.NavigateMsg) tea.Cmd {
 // updateSidebarActiveView sets the active view highlight in sidebar based on current view
 func (a *App) updateSidebarActiveView() {
 	switch a.currentView {
-	case ViewInstances, ViewInstanceDetails:
+	case ViewInstances, ViewInstanceDetails, ViewInstanceCreate, ViewInstanceConfigEdit:
 		a.sidebar.SetActiveView(sidebar.ViewInstances)
 	case ViewDisks, ViewDiskDetails:
 		a.sidebar.SetActiveView(sidebar.ViewDisks)
@@ -633,6 +635,8 @@ func (a *App) clearAllViews() {
 	a.projectMetadataView = nil
 	a.metadataView = nil
 	a.instanceEditorView = nil
+	a.instanceCreateView = nil
+	a.instanceConfigEditView = nil
 	a.bucketCreateView = nil
 	a.snapshotCreateView = nil
 	a.imageCreateView = nil
@@ -679,9 +683,11 @@ func (a *App) clearAllViews() {
 // For ViewProjects, switches to ViewInstances. For other views, reloads in-place.
 func (a *App) reloadCurrentView(projectID string) tea.Cmd {
 	switch a.currentView {
-	case ViewInstances, ViewInstanceDetails:
+	case ViewInstances, ViewInstanceDetails, ViewInstanceCreate, ViewInstanceConfigEdit:
 		// Return to instances list
 		a.currentView = ViewInstances
+		a.instanceCreateView = nil
+		a.instanceConfigEditView = nil
 		a.instancesView = views.NewInstancesView(projectID)
 		a.updateSidebarActiveView()
 		a.updateViewSizes()
@@ -2754,5 +2760,214 @@ func (a *App) handleCloudRunEditCanceled() {
 		a.viewStack = a.viewStack[:len(a.viewStack)-1]
 	}
 	a.cloudRunServiceEditView = nil
+	a.updateSidebarActiveView()
+}
+
+// --- Instance Create/Edit handlers ---
+
+// handleInstanceCreateRequest opens the instance creation form
+func (a *App) handleInstanceCreateRequest(msg views.InstanceCreateRequestMsg) tea.Cmd {
+	a.viewStack = append(a.viewStack, a.currentView)
+	a.currentView = ViewInstanceCreate
+
+	// Reuse the compute client from the instances list view
+	var computeClient *gcp.ComputeClient
+	if a.instancesView != nil {
+		computeClient = a.instancesView.GetComputeClient()
+	}
+
+	a.instanceCreateView = views.NewInstanceCreateView(msg.ProjectID, computeClient)
+	a.updateSidebarActiveView()
+	a.updateViewSizes()
+	return a.instanceCreateView.Init()
+}
+
+// handleCreateInstance performs the GCP API call to create a VM instance
+func (a *App) handleCreateInstance(msg views.CreateInstanceMsg) tea.Cmd {
+	a.registerRunningTask("instance-create", "Creating instance "+msg.Config.Name+"...")
+
+	var computeClient *gcp.ComputeClient
+	if a.instanceCreateView != nil {
+		computeClient = a.instanceCreateView.GetComputeClient()
+	}
+
+	projectID := ""
+	if a.selectedProject != nil {
+		projectID = a.selectedProject.ID
+	}
+
+	config := msg.Config
+	return func() tea.Msg {
+		if computeClient == nil {
+			return views.InstanceCreateResultMsg{
+				Name:  config.Name,
+				Error: uierrors.ErrClientNotInitialized,
+			}
+		}
+		err := computeClient.CreateInstance(gocontext.Background(), projectID, config)
+		if err != nil {
+			return views.InstanceCreateResultMsg{
+				Name:  config.Name,
+				Error: err,
+			}
+		}
+		return views.InstanceCreateResultMsg{
+			Name:    config.Name,
+			Success: true,
+		}
+	}
+}
+
+func (a *App) handleInstanceCreateResult(msg views.InstanceCreateResultMsg) tea.Cmd {
+	cmd := a.finishTask("instance-create", msg.Error)
+
+	if msg.Error != nil {
+		a.err = msg.Error
+		// Propagate error back to the view so it exits saving state
+		if a.instanceCreateView != nil {
+			a.instanceCreateView.SetError(msg.Error)
+		}
+		return cmd
+	}
+
+	// Pop back to instances list and refresh
+	if len(a.viewStack) > 0 {
+		a.currentView = a.viewStack[len(a.viewStack)-1]
+		a.viewStack = a.viewStack[:len(a.viewStack)-1]
+	}
+	a.instanceCreateView = nil
+	a.updateSidebarActiveView()
+
+	if a.currentView == ViewInstances && a.instancesView != nil {
+		return tea.Batch(cmd, a.instancesView.Init())
+	}
+	return cmd
+}
+
+func (a *App) handleInstanceCreateCanceled() {
+	if len(a.viewStack) > 0 {
+		a.currentView = a.viewStack[len(a.viewStack)-1]
+		a.viewStack = a.viewStack[:len(a.viewStack)-1]
+	}
+	a.instanceCreateView = nil
+	a.updateSidebarActiveView()
+}
+
+// handleInstanceConfigEditRequest opens the instance config edit form
+func (a *App) handleInstanceConfigEditRequest(msg views.InstanceConfigEditRequestMsg) tea.Cmd {
+	a.viewStack = append(a.viewStack, a.currentView)
+	a.currentView = ViewInstanceConfigEdit
+
+	// Reuse compute client from the instance details or instances list view
+	var computeClient *gcp.ComputeClient
+	if a.instanceDetailsView != nil {
+		computeClient = a.instanceDetailsView.GetComputeClient()
+	} else if a.instancesView != nil {
+		computeClient = a.instancesView.GetComputeClient()
+	}
+
+	a.instanceConfigEditView = views.NewInstanceConfigEditView(
+		msg.ProjectID, msg.InstanceName, msg.Zone, computeClient,
+	)
+	a.updateSidebarActiveView()
+	a.updateViewSizes()
+	return a.instanceConfigEditView.Init()
+}
+
+// handleInstanceConfigEditSubmit applies the config changes via GCP API calls.
+// Each change (machine type, disk resize) is applied independently because they
+// are separate API operations — partial failures are collected and reported.
+//
+//nolint:gocognit // Multiple independent API calls with partial error collection
+func (a *App) handleInstanceConfigEditSubmit(msg views.InstanceConfigEditSubmitMsg) tea.Cmd {
+	a.registerRunningTask("instance-config-edit", "Updating instance "+msg.InstanceName+"...")
+
+	var computeClient *gcp.ComputeClient
+	if a.instanceConfigEditView != nil {
+		computeClient = a.instanceConfigEditView.GetComputeClient()
+	}
+
+	return func() tea.Msg {
+		if computeClient == nil {
+			return views.InstanceConfigEditResultMsg{
+				Action: "config_edit",
+				Error:  uierrors.ErrClientNotInitialized,
+			}
+		}
+
+		ctx := gocontext.Background()
+		var partialErrors []string
+
+		for _, change := range msg.Changes {
+			switch change.Field {
+			case "machine_type":
+				err := computeClient.SetMachineType(ctx, msg.ProjectID, msg.Zone, msg.InstanceName, change.NewValue)
+				if err != nil {
+					partialErrors = append(partialErrors, fmt.Sprintf("Machine type: %v", err))
+				}
+			case "disk_size":
+				sizeGB, parseErr := strconv.ParseInt(change.NewValue, 10, 64)
+				if parseErr != nil {
+					partialErrors = append(partialErrors, fmt.Sprintf("Disk resize: invalid size %q", change.NewValue))
+					continue
+				}
+				// Boot disk name typically matches instance name
+				err := computeClient.ResizeBootDisk(ctx, msg.ProjectID, msg.Zone, msg.InstanceName, sizeGB)
+				if err != nil {
+					partialErrors = append(partialErrors, fmt.Sprintf("Disk resize: %v", err))
+				}
+			}
+		}
+
+		if len(partialErrors) > 0 {
+			return views.InstanceConfigEditResultMsg{
+				Action:        "config_edit",
+				Error:         fmt.Errorf("%w: %s", uierrors.ErrPartialConfigEditFailed, strings.Join(partialErrors, "; ")),
+				PartialErrors: partialErrors,
+			}
+		}
+
+		return views.InstanceConfigEditResultMsg{
+			Action:  "config_edit",
+			Success: true,
+		}
+	}
+}
+
+func (a *App) handleInstanceConfigEditResult(msg views.InstanceConfigEditResultMsg) tea.Cmd {
+	cmd := a.finishTask("instance-config-edit", msg.Error)
+
+	if msg.Error != nil {
+		a.err = msg.Error
+		if a.instanceConfigEditView != nil {
+			a.instanceConfigEditView.SetError(msg.Error)
+		}
+		return cmd
+	}
+
+	// Pop back and refresh the previous view
+	if len(a.viewStack) > 0 {
+		a.currentView = a.viewStack[len(a.viewStack)-1]
+		a.viewStack = a.viewStack[:len(a.viewStack)-1]
+	}
+	a.instanceConfigEditView = nil
+	a.updateSidebarActiveView()
+
+	// Refresh the parent view to show updated config
+	if a.currentView == ViewInstanceDetails && a.instanceDetailsView != nil {
+		return tea.Batch(cmd, a.instanceDetailsView.Init())
+	}
+	if a.currentView == ViewInstances && a.instancesView != nil {
+		return tea.Batch(cmd, a.instancesView.Init())
+	}
+	return cmd
+}
+
+func (a *App) handleInstanceConfigEditCanceled() {
+	if len(a.viewStack) > 0 {
+		a.currentView = a.viewStack[len(a.viewStack)-1]
+		a.viewStack = a.viewStack[:len(a.viewStack)-1]
+	}
+	a.instanceConfigEditView = nil
 	a.updateSidebarActiveView()
 }

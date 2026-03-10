@@ -319,6 +319,11 @@ func (v *InstanceCreateView) handleSubmit() tea.Cmd {
 	})
 }
 
+// GetComputeClient returns the compute client for reuse
+func (v *InstanceCreateView) GetComputeClient() *gcp.ComputeClient {
+	return v.computeClient
+}
+
 // GetProjectID returns the project ID for breadcrumbs.
 func (v *InstanceCreateView) GetProjectID() string {
 	return v.projectID

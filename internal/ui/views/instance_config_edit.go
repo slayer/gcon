@@ -390,6 +390,16 @@ func (v *InstanceConfigEditView) emitSubmit() tea.Cmd {
 	}
 }
 
+// GetComputeClient returns the compute client for reuse
+func (v *InstanceConfigEditView) GetComputeClient() *gcp.ComputeClient {
+	return v.computeClient
+}
+
+// GetInstanceName returns the instance name for breadcrumbs
+func (v *InstanceConfigEditView) GetInstanceName() string {
+	return v.instanceName
+}
+
 // fieldLabelToKey converts a human-readable field label to an API field key.
 func fieldLabelToKey(label string) string {
 	switch label {
