@@ -17,9 +17,9 @@ import (
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/actionmenu"
-	"github.com/slayer/gcon/internal/ui/components/metricchart"
 	"github.com/slayer/gcon/internal/ui/components/confirm"
 	"github.com/slayer/gcon/internal/ui/components/links"
+	"github.com/slayer/gcon/internal/ui/components/metricchart"
 	"github.com/slayer/gcon/internal/ui/components/tabs"
 	"github.com/slayer/gcon/internal/ui/context"
 	uierrors "github.com/slayer/gcon/internal/ui/errors"
@@ -153,6 +153,7 @@ type InstanceDetailsView struct {
 type instanceDetailsKeyMap struct {
 	Up         key.Binding
 	Down       key.Binding
+	Edit       key.Binding
 	Start      key.Binding
 	Stop       key.Binding
 	Suspend    key.Binding
@@ -172,6 +173,10 @@ func defaultInstanceDetailsKeyMap() instanceDetailsKeyMap {
 		Down: key.NewBinding(
 			key.WithKeys("down", "j"),
 			key.WithHelp("↓/j", "down"),
+		),
+		Edit: key.NewBinding(
+			key.WithKeys("e"),
+			key.WithHelp("e", "edit config"),
 		),
 		Start: key.NewBinding(
 			key.WithKeys("s"),
@@ -608,6 +613,17 @@ func (v *InstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 				return tea.Batch(v.spinner.Tick, v.resumeInstance())
 			}
 
+		case key.Matches(msg, v.keys.Edit):
+			if v.details != nil {
+				return func() tea.Msg {
+					return InstanceConfigEditRequestMsg{
+						ProjectID:    v.projectID,
+						InstanceName: v.instanceName,
+						Zone:         v.zone,
+					}
+				}
+			}
+
 		case key.Matches(msg, v.keys.Delete):
 			if v.details != nil {
 				return v.showDeleteConfirmation()
@@ -627,6 +643,7 @@ func (v *InstanceDetailsView) buildActions() []actionmenu.Action {
 	isProtected := v.details != nil && v.details.DeletionProtection
 
 	return []actionmenu.Action{
+		{Key: 'e', Label: "Edit Configuration", Enabled: true},
 		{Key: 's', Label: "Start", Enabled: isStopped},
 		{Key: 'x', Label: "Stop", Enabled: isRunning},
 		{Key: 'z', Label: "Suspend", Enabled: isRunning},
@@ -646,6 +663,14 @@ func (v *InstanceDetailsView) executeAction(actionKey rune) tea.Cmd {
 	}
 
 	switch actionKey {
+	case 'e':
+		return func() tea.Msg {
+			return InstanceConfigEditRequestMsg{
+				ProjectID:    v.projectID,
+				InstanceName: v.instanceName,
+				Zone:         v.zone,
+			}
+		}
 	case 's':
 		if v.isInstanceStopped() {
 			v.actionLoading = true
@@ -1556,7 +1581,6 @@ func formatMaintenance(m string) string {
 		return defaultIfEmpty(m, "—")
 	}
 }
-
 
 var diskSourceRegex = regexp.MustCompile(`projects/[^/]+/zones/([^/]+)/disks/([^/]+)`)
 

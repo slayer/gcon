@@ -2,6 +2,7 @@ package gcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -9,6 +10,9 @@ import (
 	"google.golang.org/api/compute/v1"
 	"google.golang.org/api/option"
 )
+
+// ErrInvalidDiskSize is returned when the disk size is not positive.
+var ErrInvalidDiskSize = errors.New("disk size must be positive")
 
 // Storage location options for snapshots and images
 var (
@@ -1426,7 +1430,7 @@ func FormatMachineTypeDescription(cpus, memoryMB int64) string {
 func (c *ComputeClient) CreateInstance(ctx context.Context, projectID string, config InstanceCreateConfig) error {
 	// Catch invalid disk size before making the API call
 	if config.DiskSizeGB <= 0 {
-		return fmt.Errorf("disk size must be positive, got %d", config.DiskSizeGB)
+		return fmt.Errorf("%w: got %d", ErrInvalidDiskSize, config.DiskSizeGB)
 	}
 
 	// Build machine type URL from short name if needed

@@ -51,6 +51,7 @@ type InstancesView struct {
 // instanceKeyMap defines instance-specific key bindings
 type instanceKeyMap struct {
 	Enter      key.Binding
+	Create     key.Binding
 	Start      key.Binding
 	Stop       key.Binding
 	Reset      key.Binding
@@ -66,6 +67,10 @@ func defaultInstanceKeyMap() instanceKeyMap {
 		Enter: key.NewBinding(
 			key.WithKeys("enter"),
 			key.WithHelp("enter", "details"),
+		),
+		Create: key.NewBinding(
+			key.WithKeys("c"),
+			key.WithHelp("c", "create"),
 		),
 		Start: key.NewBinding(
 			key.WithKeys("s"),
@@ -366,6 +371,11 @@ func (v *InstancesView) Update(msg tea.Msg) tea.Cmd {
 			}
 			return nil
 
+		case key.Matches(msg, v.keys.Create):
+			return func() tea.Msg {
+				return InstanceCreateRequestMsg{ProjectID: v.projectID}
+			}
+
 		case key.Matches(msg, v.keys.Enter):
 			// Navigate to instance details on Enter
 			if row := v.table.SelectedRow(); row != nil {
@@ -469,6 +479,7 @@ func (v *InstancesView) buildActions(inst gcp.Instance) []actionmenu.Action { //
 	isSuspended := inst.IsSuspended()
 
 	return []actionmenu.Action{
+		{Key: 'c', Label: "Create Instance", Enabled: true},
 		{Key: 's', Label: "Start", Enabled: isStopped},
 		{Key: 'x', Label: "Stop", Enabled: isRunning},
 		{Key: 'z', Label: "Suspend", Enabled: isRunning},
@@ -491,6 +502,10 @@ func (v *InstancesView) executeAction(actionKey rune) tea.Cmd {
 	}
 
 	switch actionKey {
+	case 'c':
+		return func() tea.Msg {
+			return InstanceCreateRequestMsg{ProjectID: v.projectID}
+		}
 	case 's':
 		if inst.IsStopped() {
 			v.actionLoading = true
@@ -664,7 +679,7 @@ func (v *InstancesView) View() string {
 
 	// Help text for actions - include '.' for action menu
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
-	help := helpStyle.Render("\n  enter: details • .: actions • s: start • x: stop • z: suspend • Z: resume • S: sort • /: filter • r: refresh")
+	help := helpStyle.Render("\n  enter: details • c: create • .: actions • s: start • x: stop • z: suspend • Z: resume • S: sort • /: filter • r: refresh")
 
 	mainContent := header + v.table.View() + help
 
