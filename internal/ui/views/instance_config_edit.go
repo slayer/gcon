@@ -175,6 +175,10 @@ func (v *InstanceConfigEditView) Update(msg tea.Msg) tea.Cmd {
 		return v.handleKeyMsg(msg)
 	}
 
+	// Forward remaining messages to form (e.g., cursor blink commands)
+	if v.state == instanceConfigEditStateForm && v.form != nil {
+		return v.form.Update(msg)
+	}
 	return nil
 }
 
@@ -380,11 +384,23 @@ func (v *InstanceConfigEditView) emitSubmit() tea.Cmd {
 		}
 	}
 
+	// Resolve boot disk name from loaded instance details
+	bootDiskName := v.instanceName
+	if v.original != nil {
+		for _, disk := range v.original.Disks {
+			if disk.Boot {
+				bootDiskName = disk.Name
+				break
+			}
+		}
+	}
+
 	return func() tea.Msg {
 		return InstanceConfigEditSubmitMsg{
 			ProjectID:    v.projectID,
 			InstanceName: v.instanceName,
 			Zone:         v.zone,
+			BootDiskName: bootDiskName,
 			Changes:      changes,
 		}
 	}

@@ -2,7 +2,6 @@ package views
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components/forms"
@@ -249,13 +248,4 @@ func subnetworkDropdownOptions(subnets []gcp.SubnetworkInfo) []forms.Option {
 		})
 	}
 	return opts
-}
-
-// regionFromZoneName extracts region from zone name (e.g., "us-central1-a" -> "us-central1").
-func regionFromZoneName(zone string) string {
-	lastDash := strings.LastIndex(zone, "-")
-	if lastDash == -1 {
-		return zone
-	}
-	return zone[:lastDash]
 }

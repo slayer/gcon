@@ -2911,8 +2911,8 @@ func (a *App) handleInstanceConfigEditSubmit(msg views.InstanceConfigEditSubmitM
 					partialErrors = append(partialErrors, fmt.Sprintf("Disk resize: invalid size %q", change.NewValue))
 					continue
 				}
-				// Boot disk name typically matches instance name
-				err := computeClient.ResizeBootDisk(ctx, msg.ProjectID, msg.Zone, msg.InstanceName, sizeGB)
+				// Use actual boot disk name from instance details
+				err := computeClient.ResizeBootDisk(ctx, msg.ProjectID, msg.Zone, msg.BootDiskName, sizeGB)
 				if err != nil {
 					partialErrors = append(partialErrors, fmt.Sprintf("Disk resize: %v", err))
 				}

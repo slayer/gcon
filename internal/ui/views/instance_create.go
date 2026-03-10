@@ -165,7 +165,7 @@ func (v *InstanceCreateView) onZoneChanged(zone string) tea.Cmd {
 	}
 
 	// Load subnetworks for the zone's region
-	region := regionFromZoneName(zone)
+	region := gcp.RegionFromZone(zone)
 	cmds = append(cmds, v.fetchSubnetworks(region))
 
 	if len(cmds) > 0 {

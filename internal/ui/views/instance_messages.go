@@ -61,6 +61,7 @@ type InstanceConfigEditSubmitMsg struct {
 	ProjectID    string
 	InstanceName string
 	Zone         string
+	BootDiskName string // actual boot disk name (may differ from instance name)
 	Changes      []InstanceConfigEditChange
 }
 

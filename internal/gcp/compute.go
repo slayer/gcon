@@ -1460,7 +1460,7 @@ func (c *ComputeClient) CreateInstance(ctx context.Context, projectID string, co
 	// Subnetwork is optional — auto-mode networks select it automatically
 	if config.Subnetwork != "" {
 		// Extract region from zone (e.g., "us-central1-a" -> "us-central1")
-		region := regionFromZone(config.Zone)
+		region := RegionFromZone(config.Zone)
 		nic.Subnetwork = fmt.Sprintf("projects/%s/regions/%s/subnetworks/%s", projectID, region, config.Subnetwork)
 	}
 
@@ -1588,8 +1588,8 @@ func (c *ComputeClient) ListSubnetworks(ctx context.Context, projectID, region s
 	return subnets, nil
 }
 
-// regionFromZone extracts region from a zone name (e.g., "us-central1-a" -> "us-central1")
-func regionFromZone(zone string) string {
+// RegionFromZone extracts region from a zone name (e.g., "us-central1-a" -> "us-central1")
+func RegionFromZone(zone string) string {
 	lastDash := strings.LastIndex(zone, "-")
 	if lastDash == -1 {
 		return zone

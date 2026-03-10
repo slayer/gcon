@@ -1236,7 +1236,7 @@ func TestRegionFromZone(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := regionFromZone(tt.zone)
+			result := RegionFromZone(tt.zone)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
