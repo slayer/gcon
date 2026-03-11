@@ -281,6 +281,31 @@ data["vpc_egress"] = details.VPCEgressRaw
 
 **Rule**: Details/model structs should carry raw API enum values (with `Raw` suffix) when those values need to survive a form edit round-trip.
 
+### Don't Assume Dropdown SetValue Matches
+
+`Field.SetValue()` on a dropdown silently falls back to showing option[0] when the value doesn't match any option. This is dangerous when populating edit forms from API data where the actual value (e.g., a custom machine type like `n2-custom-8-20480`) might not be in the curated option list.
+
+```go
+// WRONG - if details.MachineType isn't in options, shows first option silently
+field.SetValue(details.MachineType)
+
+// CORRECT - check for match first, fall back to alternative field
+found := false
+for _, opt := range field.Options {
+    if opt.Value == details.MachineType {
+        found = true
+        break
+    }
+}
+if found {
+    field.SetValue(details.MachineType)
+} else if customField := f.GetField("custom_machine_type"); customField != nil {
+    customField.SetValue(details.MachineType)
+}
+```
+
+**Rule**: When populating dropdowns from API data in edit forms, always verify the value exists in options before calling `SetValue`. Provide a fallback (text field override, read-only display) for values outside the curated list.
+
 ### Don't Modify textInput Directly
 
 ```go
