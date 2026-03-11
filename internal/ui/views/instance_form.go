@@ -164,7 +164,19 @@ func populateInstanceFormFromDetails(f *forms.Form, details *gcp.InstanceDetails
 
 	// Machine Type — try to find in dropdown options, fall back to custom field
 	if field := f.GetField("machine_type"); field != nil {
-		field.SetValue(details.MachineType)
+		found := false
+		for _, opt := range field.Options {
+			if opt.Value == details.MachineType {
+				found = true
+				break
+			}
+		}
+		if found {
+			field.SetValue(details.MachineType)
+		} else if customField := f.GetField("custom_machine_type"); customField != nil {
+			// Custom/unrecognized machine type — populate the override field
+			customField.SetValue(details.MachineType)
+		}
 	}
 
 	// Boot Disk — first disk marked as boot
