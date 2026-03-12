@@ -535,6 +535,49 @@ func TestTextAreaFieldView(t *testing.T) {
 	assert.Contains(t, view, "Enter your startup script")
 }
 
+func TestHiddenField(t *testing.T) {
+	t.Run("hidden field is not editable", func(t *testing.T) {
+		field := NewTextField("ip", "IP Address").SetHidden(true)
+		assert.False(t, field.IsEditable())
+	})
+
+	t.Run("hidden field renders empty", func(t *testing.T) {
+		field := NewTextField("ip", "IP Address").
+			SetHidden(true).
+			SetValue("10.0.0.1")
+		assert.Equal(t, "", field.View())
+	})
+
+	t.Run("hidden field skips validation", func(t *testing.T) {
+		field := NewTextField("ip", "IP Address").
+			SetRequired(true).
+			SetHidden(true)
+		// Required + hidden + empty value → should still pass
+		err := field.Validate()
+		assert.NoError(t, err)
+		assert.False(t, field.HasError())
+	})
+
+	t.Run("hidden field has zero height", func(t *testing.T) {
+		field := NewTextField("ip", "IP Address").SetHidden(true)
+		assert.Equal(t, 0, field.EstimatedHeight())
+	})
+
+	t.Run("SetHidden toggles visibility", func(t *testing.T) {
+		field := NewTextField("ip", "IP Address")
+		assert.False(t, field.Hidden)
+		assert.True(t, field.IsEditable())
+
+		field.SetHidden(true)
+		assert.True(t, field.Hidden)
+		assert.False(t, field.IsEditable())
+
+		field.SetHidden(false)
+		assert.False(t, field.Hidden)
+		assert.True(t, field.IsEditable())
+	})
+}
+
 func TestFieldIsTextInput(t *testing.T) {
 	// Text fields that accept character input
 	assert.True(t, NewTextField("name", "Name").IsTextInput())

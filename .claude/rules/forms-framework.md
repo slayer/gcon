@@ -387,6 +387,21 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 }
 ```
 
+### Don't Replace Dropdown Options Without Considering Cursor State
+
+`SetOptions()`/`SetOptionsFromStrings()` now clamp `selectedIndex` and `dropdownScrollOffset` automatically — but callers should be aware that replacing options resets the selection to index 0 when the old index exceeds the new list length. The dropdown also closes on empty replacement to prevent rendering stale state.
+
+If you need to preserve the user's selection across an option list update (e.g., zone cache refresh), re-apply `SetValue()` after `SetOptions()`:
+
+```go
+// After refreshing options, restore previous selection if still valid
+prevValue := field.GetValue()
+field.SetOptions(newOptions)  // clamps index, may reset to 0
+if prevValue != nil {
+    field.SetValue(prevValue)  // re-selects if value still exists in new list
+}
+```
+
 ### Don't Open Dropdowns Without Handling Empty Options
 
 When `dropdownOpen = true` and `len(Options) == 0`, the render loop produces an empty string — the field value vanishes. Always render a fallback message. The dropdown uses `field.Placeholder` for this: if set, it shows the placeholder; otherwise "(no options available)".
@@ -444,6 +459,49 @@ Large dropdowns (100+ options like machine types) render a scrollable window of 
 - `ensureDropdownScrollVisible()` adjusts offset after each navigation
 - `EstimatedHeight()` returns the capped visible height (not total options) for `scrollToFocused()` calculations
 - `scrollToFocused()` uses `field.EstimatedHeight()` instead of hardcoded 4 lines per field
+
+## Scroll Position Estimation
+
+`scrollToFocused()` and `estimateSectionLines()` estimate field positions by summing section headers and `EstimatedHeight()` per field. These estimates **must account for extra lines that `section.View()` adds** beyond individual field heights:
+
+- **Expanded section**: +2 extra lines (Container `MarginBottom(1)` wrapping fields + trailing `"\n"` between sections)
+- **Collapsed section**: +1 extra line (trailing `"\n"`, no Container since content is empty)
+
+Without these, the cumulative drift is ~2 lines per preceding section. By a 4th section, the estimated position is 6+ lines off, causing the viewport to scroll to the wrong place.
+
+**Debugging tip**: When scroll estimates seem wrong, write a test that renders actual section content and compares newline counts rather than reasoning about lipgloss margin interactions:
+
+```go
+var content strings.Builder
+for _, sec := range form.Sections() {
+    content.WriteString(sec.View())
+}
+actualNewlines := strings.Count(content.String(), "\n")
+estimated := form.estimateSectionLines()
+assert.InDelta(t, actualNewlines, estimated, 1)
+```
+
+## Scroll After Every Section Delegation in Form.Update()
+
+**Critical**: Every code path in `Form.Update()` that calls `section.Update(msg)` **must** call `f.scrollToFocused()` afterward. Dropdown open/close changes the field's `EstimatedHeight()`, and the viewport needs to adjust.
+
+The generic delegation at the bottom of `Update()` already does this, but early-return paths (Enter key, Down/Up when dropdown is open) bypass it. If you add a new key handler that delegates to a section, always pair it:
+
+```go
+// WRONG — early return skips scroll update
+if field.dropdownOpen {
+    return section.Update(msg)
+}
+
+// CORRECT — scroll after delegation
+if field.dropdownOpen {
+    cmd := section.Update(msg)
+    f.scrollToFocused()
+    return cmd
+}
+```
+
+**Symptom**: Dropdown options render outside the visible viewport area when navigating with arrow keys.
 
 ## Edge Cases
 

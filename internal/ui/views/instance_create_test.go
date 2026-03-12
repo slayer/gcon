@@ -244,6 +244,156 @@ func TestInstanceCreateView_OnImageChangedUpdatesDiskSize(t *testing.T) {
 	assert.Equal(t, int64(10), data["disk_size_gb"])
 }
 
+func TestInstanceCreateView_ExtractConfigStaticExternalIP(t *testing.T) {
+	v := NewInstanceCreateView("project-id", nil)
+	if f := v.Form.GetField("machine_type"); f != nil {
+		f.SetOptions([]forms.Option{{Value: "e2-medium", Label: "e2-medium"}})
+	}
+
+	// Add static IP option to dropdown before SetData (dropdown ignores unknown values)
+	addresses := []gcp.StaticAddress{
+		{Name: "my-static-ip", Address: "35.192.0.1", AddressType: "EXTERNAL"},
+	}
+	if eipField := v.Form.GetField("external_ip"); eipField != nil {
+		eipField.SetOptions(externalIPDropdownOptions(addresses))
+	}
+	v.lastLoadedAddresses = addresses
+
+	v.Form.SetData(map[string]any{
+		"name":         "static-ip-vm",
+		"zone":         "us-central1-a",
+		"machine_type": "e2-medium",
+		"image":        "debian-cloud/debian-12",
+		"disk_size_gb": int64(10),
+		"disk_type":    "pd-balanced",
+		"network":      "default",
+		"external_ip":  "static:my-static-ip",
+	})
+
+	v.handleSubmit()
+	require.NotNil(t, v.pendingConfig)
+
+	assert.Equal(t, "my-static-ip", v.pendingConfig.ExternalIPType)
+	assert.Equal(t, "35.192.0.1", v.pendingConfig.ExternalIPAddr)
+}
+
+func TestInstanceCreateView_ExtractConfigCustomInternalIP(t *testing.T) {
+	v := NewInstanceCreateView("project-id", nil)
+
+	// Populate machine type options for SetData to work
+	if f := v.Form.GetField("machine_type"); f != nil {
+		f.SetOptions([]forms.Option{{Value: "e2-medium", Label: "e2-medium"}})
+	}
+	// Populate internal_ip_type options (already set in buildForm)
+
+	v.Form.SetData(map[string]any{
+		"name":             "custom-ip-vm",
+		"zone":             "us-central1-a",
+		"machine_type":     "e2-medium",
+		"image":            "debian-cloud/debian-12",
+		"disk_size_gb":     int64(10),
+		"disk_type":        "pd-balanced",
+		"network":          "default",
+		"external_ip":      "ephemeral",
+		"internal_ip_type": "custom",
+	})
+
+	// Unhide and set the internal IP field
+	if ipField := v.Form.GetField("internal_ip"); ipField != nil {
+		ipField.SetHidden(false)
+		ipField.SetValue("10.128.0.50")
+	}
+
+	v.handleSubmit()
+	require.NotNil(t, v.pendingConfig)
+
+	assert.Equal(t, "10.128.0.50", v.pendingConfig.InternalIP)
+	assert.Equal(t, "ephemeral", v.pendingConfig.ExternalIPType)
+}
+
+func TestInstanceCreateView_ExtractConfigAutoInternalIP(t *testing.T) {
+	v := setupCreateViewWithData(map[string]any{
+		"name":             "auto-ip-vm",
+		"zone":             "us-central1-a",
+		"machine_type":     "e2-medium",
+		"image":            "debian-cloud/debian-12",
+		"disk_size_gb":     int64(10),
+		"disk_type":        "pd-balanced",
+		"network":          "default",
+		"external_ip":      "ephemeral",
+		"internal_ip_type": "auto",
+	})
+
+	v.handleSubmit()
+	require.NotNil(t, v.pendingConfig)
+
+	// Auto mode → empty internal IP
+	assert.Empty(t, v.pendingConfig.InternalIP)
+}
+
+func TestInstanceCreateView_InternalIPTypeFieldChange(t *testing.T) {
+	v := NewInstanceCreateView("project-id", nil)
+
+	ipField := v.Form.GetField("internal_ip")
+	require.NotNil(t, ipField)
+	assert.True(t, ipField.Hidden, "should start hidden")
+
+	// Simulate selecting "custom" in internal_ip_type dropdown
+	v.handleFieldChanged(forms.FieldChangedMsg{FieldID: "internal_ip_type", Value: "custom"})
+	assert.False(t, ipField.Hidden, "should be visible after selecting custom")
+
+	// Switch back to auto
+	v.handleFieldChanged(forms.FieldChangedMsg{FieldID: "internal_ip_type", Value: "auto"})
+	assert.True(t, ipField.Hidden, "should be hidden again after selecting auto")
+}
+
+func TestInstanceCreateView_ConfirmShowsIPInfo(t *testing.T) {
+	v := NewInstanceCreateView("project-id", nil)
+	if f := v.Form.GetField("machine_type"); f != nil {
+		f.SetOptions([]forms.Option{{Value: "e2-medium", Label: "e2-medium"}})
+	}
+	v.Form.SetData(map[string]any{
+		"name":             "ip-test-vm",
+		"zone":             "us-central1-a",
+		"machine_type":     "e2-medium",
+		"image":            "debian-cloud/debian-12",
+		"disk_size_gb":     int64(10),
+		"disk_type":        "pd-balanced",
+		"network":          "default",
+		"external_ip":      "none",
+		"internal_ip_type": "custom",
+	})
+	if ipField := v.Form.GetField("internal_ip"); ipField != nil {
+		ipField.SetHidden(false)
+		ipField.SetValue("10.128.0.99")
+	}
+
+	v.handleSubmit()
+	require.True(t, v.showConfirm)
+
+	view := v.View()
+	assert.Contains(t, view, "10.128.0.99", "custom internal IP should appear in confirmation")
+	assert.Contains(t, view, "None", "external IP should show None")
+}
+
+func TestInstanceCreateView_AddressesLoadedUpdatesDropdown(t *testing.T) {
+	v := NewInstanceCreateView("project-id", nil)
+
+	eipField := v.Form.GetField("external_ip")
+	require.NotNil(t, eipField)
+	assert.Len(t, eipField.Options, 2, "should start with ephemeral + none")
+
+	// Simulate addresses loaded
+	v.Update(instanceAddressesLoadedMsg{
+		addresses: []gcp.StaticAddress{
+			{Name: "web-ip", Address: "35.1.2.3", AddressType: "EXTERNAL"},
+		},
+	})
+
+	assert.Len(t, eipField.Options, 3, "should now have ephemeral + none + static")
+	assert.Equal(t, "static:web-ip", eipField.Options[2].Value)
+}
+
 func TestInstanceCreateView_CancelEmitsMessage(t *testing.T) {
 	v := NewInstanceCreateView("project-id", nil)
 

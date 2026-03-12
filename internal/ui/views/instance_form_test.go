@@ -204,3 +204,83 @@ func TestDiskTypeLabelFromValue(t *testing.T) {
 	assert.Contains(t, diskTypeLabelFromValue("pd-ssd"), "SSD")
 	assert.Equal(t, "pd-extreme", diskTypeLabelFromValue("pd-extreme"))
 }
+
+func TestBuildInstanceForm_CreateMode_IPFields(t *testing.T) {
+	f := buildInstanceForm(forms.FormModeCreate, false)
+
+	// Internal IP type dropdown exists with auto/custom options
+	ipTypeField := f.GetField("internal_ip_type")
+	require.NotNil(t, ipTypeField, "internal_ip_type field must exist in create mode")
+	assert.Equal(t, forms.FieldDropdown, ipTypeField.Type)
+	assert.Len(t, ipTypeField.Options, 2)
+	assert.Equal(t, "auto", ipTypeField.Options[0].Value)
+	assert.Equal(t, "custom", ipTypeField.Options[1].Value)
+
+	// Custom internal IP field exists but is hidden
+	ipField := f.GetField("internal_ip")
+	require.NotNil(t, ipField, "internal_ip field must exist in create mode")
+	assert.True(t, ipField.Hidden, "internal_ip should start hidden")
+	assert.Equal(t, forms.FieldText, ipField.Type)
+}
+
+func TestBuildInstanceForm_EditMode_IPFields(t *testing.T) {
+	f := buildInstanceForm(forms.FormModeEdit, true)
+
+	// Internal IP is read-only in edit mode
+	ipField := f.GetField("internal_ip")
+	require.NotNil(t, ipField, "internal_ip field must exist in edit mode")
+	assert.Equal(t, forms.FieldReadOnly, ipField.Type)
+
+	// No internal_ip_type field in edit mode (not needed)
+	assert.Nil(t, f.GetField("internal_ip_type"))
+}
+
+func TestPopulateInstanceFormFromDetails_InternalIP(t *testing.T) {
+	f := buildInstanceForm(forms.FormModeEdit, true)
+
+	details := &gcp.InstanceDetails{
+		Name:        "test-vm",
+		Zone:        "us-central1-a",
+		MachineType: "e2-medium",
+		Disks:       []gcp.DiskInfo{{Boot: true, SizeGB: 10, Type: "pd-balanced"}},
+		NetworkInterfaces: []gcp.NetworkInterfaceInfo{
+			{Network: "default", Subnetwork: "default", InternalIP: "10.128.0.42", ExternalIP: "35.1.2.3"},
+		},
+	}
+
+	// Pre-populate machine type options
+	if mt := f.GetField("machine_type"); mt != nil {
+		mt.SetOptions([]forms.Option{{Value: "e2-medium", Label: "e2-medium"}})
+	}
+
+	populateInstanceFormFromDetails(f, details)
+
+	data := f.GetData()
+	assert.Equal(t, "10.128.0.42", data["internal_ip"])
+	assert.Equal(t, "35.1.2.3", data["external_ip"])
+}
+
+func TestExternalIPDropdownOptions(t *testing.T) {
+	t.Run("no static addresses", func(t *testing.T) {
+		opts := externalIPDropdownOptions(nil)
+		assert.Len(t, opts, 2)
+		assert.Equal(t, "ephemeral", opts[0].Value)
+		assert.Equal(t, "none", opts[1].Value)
+	})
+
+	t.Run("with static external addresses", func(t *testing.T) {
+		addrs := []gcp.StaticAddress{
+			{Name: "web-ip", Address: "35.192.0.1", AddressType: "EXTERNAL"},
+			{Name: "internal-ip", Address: "10.0.0.5", AddressType: "INTERNAL"},
+			{Name: "api-ip", Address: "35.192.0.2", AddressType: "EXTERNAL"},
+		}
+		opts := externalIPDropdownOptions(addrs)
+		// ephemeral + none + 2 external static addresses (internal filtered out)
+		assert.Len(t, opts, 4)
+		assert.Equal(t, "ephemeral", opts[0].Value)
+		assert.Equal(t, "none", opts[1].Value)
+		assert.Equal(t, "static:web-ip", opts[2].Value)
+		assert.Contains(t, opts[2].Label, "35.192.0.1")
+		assert.Equal(t, "static:api-ip", opts[3].Value)
+	})
+}

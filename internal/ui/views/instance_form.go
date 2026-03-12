@@ -88,6 +88,7 @@ func buildInstanceForm(mode forms.FormMode, isEdit bool) *forms.Form {
 		netSection.SetCollapsible(true).SetCollapsed(true)
 		netSection.AddField(forms.NewReadOnlyField("network", "Network", ""))
 		netSection.AddField(forms.NewReadOnlyField("subnetwork", "Subnetwork", ""))
+		netSection.AddField(forms.NewReadOnlyField("internal_ip", "Internal IP", ""))
 		netSection.AddField(forms.NewReadOnlyField("external_ip", "External IP", ""))
 	} else {
 		netSection.SetCollapsible(true).SetCollapsed(true)
@@ -98,6 +99,7 @@ func buildInstanceForm(mode forms.FormMode, isEdit bool) *forms.Form {
 			SetHelpText("VPC network"))
 		netSection.AddField(forms.NewDropdownField("subnetwork", "Subnetwork").
 			SetHelpText("Auto-selected for auto-mode networks"))
+		// External IP: ephemeral/none base options, static IPs appended async
 		netSection.AddField(forms.NewDropdownField("external_ip", "External IP").
 			SetRequired(true).
 			SetOptions([]forms.Option{
@@ -106,6 +108,20 @@ func buildInstanceForm(mode forms.FormMode, isEdit bool) *forms.Form {
 			}).
 			SetValue("ephemeral").
 			SetHelpText("External IP allocation"))
+		// Internal IP type selector
+		netSection.AddField(forms.NewDropdownField("internal_ip_type", "Internal IP").
+			SetOptions([]forms.Option{
+				{Value: "auto", Label: "Automatic (ephemeral)"},
+				{Value: "custom", Label: "Custom"},
+			}).
+			SetValue("auto").
+			SetHelpText("How the internal IP is assigned"))
+		// Custom internal IP — hidden until "Custom" is selected
+		netSection.AddField(forms.NewTextField("internal_ip", "Custom Internal IP").
+			SetHidden(true).
+			SetPlaceholder("e.g., 10.128.0.50").
+			SetHelpText("Must be within the selected subnet CIDR range").
+			SetValidator(forms.ValidateIPAddress()))
 	}
 	f.AddSection(netSection)
 
@@ -229,6 +245,13 @@ func populateInstanceFormFromDetails(f *forms.Form, details *gcp.InstanceDetails
 			}
 			field.SetValue(sub)
 		}
+		if field := f.GetField("internal_ip"); field != nil {
+			ip := nic.InternalIP
+			if ip == "" {
+				ip = "(auto)"
+			}
+			field.SetValue(ip)
+		}
 		if field := f.GetField("external_ip"); field != nil {
 			if nic.ExternalIP != "" {
 				field.SetValue(nic.ExternalIP)
@@ -237,6 +260,25 @@ func populateInstanceFormFromDetails(f *forms.Form, details *gcp.InstanceDetails
 			}
 		}
 	}
+}
+
+// externalIPDropdownOptions builds the external IP dropdown options.
+// Base options (Ephemeral, None) plus any reserved static addresses.
+func externalIPDropdownOptions(addresses []gcp.StaticAddress) []forms.Option {
+	opts := []forms.Option{
+		{Value: "ephemeral", Label: "Ephemeral"},
+		{Value: "none", Label: "None"},
+	}
+	for _, addr := range addresses {
+		if addr.AddressType != "EXTERNAL" {
+			continue
+		}
+		opts = append(opts, forms.Option{
+			Value: "static:" + addr.Name,
+			Label: fmt.Sprintf("%s (%s)", addr.Name, addr.Address),
+		})
+	}
+	return opts
 }
 
 // machineTypeDropdownOptions converts a list of MachineType structs to form options.

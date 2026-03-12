@@ -417,3 +417,64 @@ func (v *DetailsView) View() string {
 ```
 
 **Tip:** Use separate error fields (`detailsErr` for load failures, `actionErr` for action failures) to distinguish recoverable action errors from fatal load errors.
+
+### ❌ Global Loading Flag for Parameterized Fetches
+
+When async loading is parameterized (by zone, by region, by ID), a global boolean flag blocks concurrent fetches. Rapid parameter changes cause only the first fetch to proceed; subsequent changes are silently dropped.
+
+```go
+// WRONG — global flag blocks fetch for new zone while old zone is in flight
+loadingMachineTypes bool
+
+func (v *View) onZoneChanged(zone string) tea.Cmd {
+    if !v.loadingMachineTypes {  // zone B fetch blocked while zone A in flight
+        v.loadingMachineTypes = true
+        return v.fetchMachineTypes(zone)
+    }
+    return nil  // zone B never fetched
+}
+```
+
+### ✅ Correct — Track the Parameter Being Loaded
+
+```go
+// Track which zone is loading, not just whether something is loading
+loadingMachineZone string
+
+func (v *View) onZoneChanged(zone string) tea.Cmd {
+    v.loadingMachineZone = zone
+    return v.fetchMachineTypes(zone)  // always starts fetch for new zone
+}
+```
+
+### ❌ Fetch Error Silently Clears Pre-Populated Dropdown
+
+When a dropdown has a default value (e.g., "default" network) and the async fetch fails, returning nil data and unconditionally updating options wipes the default.
+
+```go
+// WRONG — error path returns nil, handler clears the dropdown
+func (v *View) fetchNetworks() tea.Cmd {
+    return func() tea.Msg {
+        networks, err := v.client.ListNetworks(ctx, v.projectID)
+        if err != nil {
+            return networksLoadedMsg{networks: nil}  // nil = error
+        }
+        return networksLoadedMsg{networks: networks}
+    }
+}
+
+// Handler unconditionally updates — wipes "default" on error
+case networksLoadedMsg:
+    field.SetOptionsFromStrings(networkDropdownOptions(msg.networks))  // empty list!
+```
+
+### ✅ Correct — Only Update Dropdown on Successful Fetch
+
+```go
+case networksLoadedMsg:
+    if msg.networks != nil {  // only update on success
+        field.SetOptionsFromStrings(networkDropdownOptions(msg.networks))
+    }
+```
+
+**Rule**: When an async fetch populates dropdown options, only overwrite on success. On error, preserve existing options so the form remains submittable with defaults.

@@ -831,3 +831,86 @@ func TestFormHasTextInputFocused(t *testing.T) {
 		assert.True(t, form.HasTextInputFocused())
 	})
 }
+
+func TestHiddenFieldNavigation(t *testing.T) {
+	// Hidden fields should be skipped during Tab navigation
+	form := NewForm("Test", FormModeCreate).
+		AddSection(NewSection("net", "Networking").
+			AddField(NewDropdownField("external_ip", "External IP").
+				SetOptionsFromStrings([]string{"ephemeral", "none"})).
+			AddField(NewDropdownField("internal_ip_type", "Internal IP").
+				SetOptionsFromStrings([]string{"auto", "custom"})).
+			AddField(NewTextField("internal_ip", "Custom IP").
+				SetHidden(true)).
+			AddField(NewToggleField("enable_logging", "Logging")))
+
+	form.Init()
+	assert.Equal(t, "external_ip", form.FocusedSection().FocusedField().ID)
+
+	// Tab → internal_ip_type (skip hidden internal_ip)
+	form.Update(tea.KeyMsg{Type: tea.KeyTab})
+	assert.Equal(t, "internal_ip_type", form.FocusedSection().FocusedField().ID)
+
+	// Tab → enable_logging (hidden field skipped)
+	form.Update(tea.KeyMsg{Type: tea.KeyTab})
+	assert.Equal(t, "enable_logging", form.FocusedSection().FocusedField().ID)
+
+	// Shift+Tab back → internal_ip_type (hidden field skipped)
+	form.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	assert.Equal(t, "internal_ip_type", form.FocusedSection().FocusedField().ID)
+}
+
+func TestHiddenFieldExcludedFromGetData(t *testing.T) {
+	form := NewForm("Test", FormModeCreate).
+		AddSection(NewSection("net", "Networking").
+			AddField(NewTextField("visible", "Visible").SetRequired(false)).
+			AddField(NewTextField("hidden_field", "Hidden").SetHidden(true)))
+
+	form.GetField("visible").SetValue("yes")
+	form.GetField("hidden_field").SetValue("secret")
+
+	data := form.GetData()
+	assert.Equal(t, "yes", data["visible"])
+	_, hasHidden := data["hidden_field"]
+	assert.False(t, hasHidden, "hidden field should not appear in GetData()")
+}
+
+func TestHiddenFieldExcludedFromValidation(t *testing.T) {
+	form := NewForm("Test", FormModeCreate).
+		AddSection(NewSection("net", "Networking").
+			AddField(NewTextField("name", "Name").SetRequired(true)).
+			AddField(NewTextField("internal_ip", "IP").
+				SetRequired(true).
+				SetHidden(true)))
+
+	form.GetField("name").SetValue("test")
+	// internal_ip is required but hidden → should not cause validation error
+	errors := form.Validate()
+	assert.Empty(t, errors)
+}
+
+func TestHiddenFieldDynamicToggle(t *testing.T) {
+	// Simulates the internal IP workflow: hidden → unhide → navigate → hide
+	form := NewForm("Test", FormModeCreate).
+		AddSection(NewSection("net", "Networking").
+			AddField(NewDropdownField("ip_type", "IP Type").
+				SetOptionsFromStrings([]string{"auto", "custom"})).
+			AddField(NewTextField("custom_ip", "Custom IP").
+				SetHidden(true)))
+
+	form.Init()
+	assert.Equal(t, "ip_type", form.FocusedSection().FocusedField().ID)
+
+	// Tab goes straight to actions (custom_ip is hidden)
+	form.Update(tea.KeyMsg{Type: tea.KeyTab})
+	assert.True(t, form.focusedOnActions, "should reach actions since hidden field is skipped")
+
+	// Unhide the field
+	form.GetField("custom_ip").SetHidden(false)
+
+	// Go back from actions
+	form.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	assert.False(t, form.focusedOnActions)
+	assert.Equal(t, "custom_ip", form.FocusedSection().FocusedField().ID,
+		"unhidden field should now be reachable")
+}

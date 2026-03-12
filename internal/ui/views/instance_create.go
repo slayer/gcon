@@ -21,6 +21,7 @@ type instanceMachineTypesLoadedMsg struct {
 type instanceMachineTypesErrorMsg struct{ err error }
 type instanceNetworksLoadedMsg struct{ networks []gcp.Network }
 type instanceSubnetworksLoadedMsg struct{ subnets []gcp.SubnetworkInfo }
+type instanceAddressesLoadedMsg struct{ addresses []gcp.StaticAddress }
 
 // InstanceCreateView allows creating a new VM instance using a form.
 // Uses CreateViewBase for form/saving states, adds a confirmation diff step in between.
@@ -39,7 +40,8 @@ type InstanceCreateView struct {
 	machineTypeCache     map[string][]gcp.MachineType
 	loadingMachineZone   string // zone currently being fetched (empty = idle)
 	networksLoaded       bool
-	lastLoadedSubnets    []gcp.SubnetworkInfo // cached subnets for filtering by network
+	lastLoadedSubnets    []gcp.SubnetworkInfo   // cached subnets for filtering by network
+	lastLoadedAddresses  []gcp.StaticAddress     // cached addresses for resolving static IP names
 
 	// Track current zone to detect changes and trigger machine type fetch
 	lastZone string
@@ -155,6 +157,18 @@ func (v *InstanceCreateView) Update(msg tea.Msg) tea.Cmd {
 		v.filterSubnetsByNetwork()
 		return nil
 
+	case instanceAddressesLoadedMsg:
+		v.lastLoadedAddresses = msg.addresses
+		if field := v.Form.GetField("external_ip"); field != nil {
+			// Preserve current selection across option refresh
+			current := field.GetValue()
+			field.SetOptions(externalIPDropdownOptions(msg.addresses))
+			if s, ok := current.(string); ok && s != "" {
+				field.SetValue(s)
+			}
+		}
+		return nil
+
 	case forms.FieldChangedMsg:
 		return v.handleFieldChanged(msg)
 
@@ -182,6 +196,18 @@ func (v *InstanceCreateView) handleFieldChanged(msg forms.FieldChangedMsg) tea.C
 	case "image":
 		if img, ok := msg.Value.(string); ok {
 			v.onImageChanged(img)
+		}
+	case "internal_ip_type":
+		if val, ok := msg.Value.(string); ok {
+			if ipField := v.Form.GetField("internal_ip"); ipField != nil {
+				if val == "custom" {
+					ipField.SetHidden(false)
+				} else {
+					ipField.SetHidden(true)
+					// Clear the value when switching back to auto
+					ipField.SetValue("")
+				}
+			}
 		}
 	}
 	return nil
@@ -217,9 +243,10 @@ func (v *InstanceCreateView) onZoneChanged(zone string) tea.Cmd {
 		cmds = append(cmds, v.fetchMachineTypes(zone))
 	}
 
-	// Load subnetworks for the zone's region
+	// Load subnetworks and addresses for the zone's region
 	region := gcp.RegionFromZone(zone)
 	cmds = append(cmds, v.fetchSubnetworks(region))
+	cmds = append(cmds, v.fetchAddresses(region))
 
 	if len(cmds) > 0 {
 		return tea.Batch(cmds...)
@@ -317,6 +344,20 @@ func (v *InstanceCreateView) fetchSubnetworks(region string) tea.Cmd {
 	}
 }
 
+func (v *InstanceCreateView) fetchAddresses(region string) tea.Cmd {
+	return func() tea.Msg {
+		if v.computeClient == nil {
+			return instanceAddressesLoadedMsg{addresses: nil}
+		}
+		addresses, err := v.computeClient.ListAddresses(gocontext.Background(), v.projectID, region)
+		if err != nil {
+			// Non-fatal — keep base ephemeral/none options
+			return instanceAddressesLoadedMsg{addresses: nil}
+		}
+		return instanceAddressesLoadedMsg{addresses: addresses}
+	}
+}
+
 // handleSubmit validates form data and shows the confirmation view.
 func (v *InstanceCreateView) handleSubmit() tea.Cmd {
 	if errors := v.Form.Validate(); len(errors) > 0 {
@@ -399,9 +440,30 @@ func (v *InstanceCreateView) extractConfig() gcp.InstanceCreateConfig {
 		subnetwork = s
 	}
 
+	// External IP: "ephemeral", "none", or "static:<name>"
 	externalIPType := "ephemeral"
+	externalIPAddr := ""
 	if eip, ok := data["external_ip"].(string); ok && eip != "" {
 		externalIPType = eip
+	}
+	// Resolve static address name to actual IP
+	if strings.HasPrefix(externalIPType, "static:") {
+		addrName := strings.TrimPrefix(externalIPType, "static:")
+		for _, addr := range v.lastLoadedAddresses {
+			if addr.Name == addrName {
+				externalIPAddr = addr.Address
+				break
+			}
+		}
+		externalIPType = addrName // Use the address name as the type identifier
+	}
+
+	// Internal IP: empty means auto-assign
+	internalIP := ""
+	if ipType, ok := data["internal_ip_type"].(string); ok && ipType == "custom" {
+		if ip, ok := data["internal_ip"].(string); ok {
+			internalIP = strings.TrimSpace(ip)
+		}
 	}
 
 	return gcp.InstanceCreateConfig{
@@ -415,6 +477,8 @@ func (v *InstanceCreateView) extractConfig() gcp.InstanceCreateConfig {
 		Network:        network,
 		Subnetwork:     subnetwork,
 		ExternalIPType: externalIPType,
+		ExternalIPAddr: externalIPAddr,
+		InternalIP:     internalIP,
 	}
 }
 
@@ -424,14 +488,29 @@ func (v *InstanceCreateView) showConfirmation(config gcp.InstanceCreateConfig) {
 	imageLabel := imageLabelFromValue(config.ImageProject + "/" + config.ImageFamily)
 	diskTypeLabel := diskTypeLabelFromValue(config.DiskType)
 
-	externalIPLabel := "Ephemeral"
-	if config.ExternalIPType == "none" {
+	// External IP display
+	var externalIPLabel string
+	switch config.ExternalIPType {
+	case "none":
 		externalIPLabel = "None"
+	case "ephemeral", "":
+		externalIPLabel = "Ephemeral"
+	default:
+		// Static address — show name and IP
+		externalIPLabel = config.ExternalIPType
+		if config.ExternalIPAddr != "" {
+			externalIPLabel += " (" + config.ExternalIPAddr + ")"
+		}
 	}
 
 	subnetLabel := config.Subnetwork
 	if subnetLabel == "" {
 		subnetLabel = "(auto)"
+	}
+
+	internalIPLabel := "Automatic"
+	if config.InternalIP != "" {
+		internalIPLabel = config.InternalIP
 	}
 
 	fields := []diff.Field{
@@ -443,6 +522,7 @@ func (v *InstanceCreateView) showConfirmation(config gcp.InstanceCreateConfig) {
 		{Label: "Boot Disk Type", OldValue: "", NewValue: diskTypeLabel},
 		{Label: "Network", OldValue: "", NewValue: config.Network},
 		{Label: "Subnetwork", OldValue: "", NewValue: subnetLabel},
+		{Label: "Internal IP", OldValue: "", NewValue: internalIPLabel},
 		{Label: "External IP", OldValue: "", NewValue: externalIPLabel},
 	}
 
