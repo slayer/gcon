@@ -142,6 +142,9 @@ type InstanceDetailsView struct {
 	autoRefreshTicker *time.Ticker
 	autoRefreshDone   chan struct{} // closed to unblock tickAutoRefresh goroutine
 	gcpClient         *gcp.Client
+	// Stop confirmation state
+	stopConfirm     *confirm.ConfirmDialog
+	showStopConfirm bool
 	// Delete confirmation state
 	deleteConfirm     *confirm.TypeConfirmDialog
 	showDeleteConfirm bool
@@ -368,6 +371,20 @@ func (v *InstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 		v.menuOpen = false
 		return nil
 
+	case confirm.ConfirmMsg:
+		// Stop confirmation accepted
+		v.showStopConfirm = false
+		if v.details != nil && v.isInstanceRunning() {
+			v.actionLoading = true
+			v.actionMsg = fmt.Sprintf("Stopping %s...", v.instanceName)
+			return tea.Batch(v.spinner.Tick, v.stopInstance())
+		}
+		return nil
+
+	case confirm.CancelMsg:
+		v.showStopConfirm = false
+		return nil
+
 	case confirm.TypeConfirmMsg:
 		v.showDeleteConfirm = false
 		if v.details != nil {
@@ -447,6 +464,11 @@ func (v *InstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 		return nil
 
 	case tea.KeyMsg:
+		// Route to stop confirmation dialog when shown
+		if v.showStopConfirm && v.stopConfirm != nil {
+			return v.stopConfirm.Update(msg)
+		}
+
 		// Route to delete confirmation dialog when shown
 		if v.showDeleteConfirm && v.deleteConfirm != nil {
 			return v.deleteConfirm.Update(msg)
@@ -587,9 +609,7 @@ func (v *InstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 
 		case key.Matches(msg, v.keys.Stop):
 			if v.details != nil && v.isInstanceRunning() {
-				v.actionLoading = true
-				v.actionMsg = fmt.Sprintf("Stopping %s...", v.instanceName)
-				return tea.Batch(v.spinner.Tick, v.stopInstance())
+				return v.showStopConfirmationDialog()
 			}
 
 		case key.Matches(msg, v.keys.Reset):
@@ -679,9 +699,7 @@ func (v *InstanceDetailsView) executeAction(actionKey rune) tea.Cmd {
 		}
 	case 'x':
 		if v.isInstanceRunning() {
-			v.actionLoading = true
-			v.actionMsg = fmt.Sprintf("Stopping %s...", v.instanceName)
-			return tea.Batch(v.spinner.Tick, v.stopInstance())
+			return v.showStopConfirmationDialog()
 		}
 	case 'z':
 		if v.isInstanceRunning() {
@@ -773,6 +791,24 @@ func (v *InstanceDetailsView) resumeInstance() tea.Cmd {
 		err := v.computeClient.ResumeInstance(gocontext.Background(), v.projectID, v.zone, v.instanceName)
 		return instanceActionMsg{action: "Resume", instance: v.instanceName, err: err}
 	}
+}
+
+// showStopConfirmationDialog creates and shows the stop confirmation dialog
+func (v *InstanceDetailsView) showStopConfirmationDialog() tea.Cmd {
+	if v.details == nil {
+		return nil
+	}
+
+	v.stopConfirm = confirm.New(
+		"Stop Instance",
+		fmt.Sprintf("Are you sure you want to stop instance %q?", v.instanceName),
+		[]string{
+			fmt.Sprintf("Zone: %s", v.zone),
+			fmt.Sprintf("Machine type: %s", v.details.MachineType),
+		},
+	)
+	v.showStopConfirm = true
+	return v.stopConfirm.Init()
 }
 
 // showDeleteConfirmation creates and shows the delete confirmation dialog
@@ -975,6 +1011,11 @@ func (v *InstanceDetailsView) View() string {
 		return v.renderWithOverlay(mainContent, v.actionMenu.View())
 	}
 
+	// Overlay stop confirmation if shown
+	if v.showStopConfirm && v.stopConfirm != nil {
+		return v.renderWithOverlay(mainContent, v.stopConfirm.View())
+	}
+
 	// Overlay delete confirmation if shown
 	if v.showDeleteConfirm && v.deleteConfirm != nil {
 		return v.renderWithOverlay(mainContent, v.deleteConfirm.View())
@@ -1000,7 +1041,7 @@ func (v *InstanceDetailsView) SetContext(ctx *context.ProgramContext) {
 
 // IsMenuOpen returns true if the action menu or delete confirm is open
 func (v *InstanceDetailsView) IsMenuOpen() bool {
-	return v.menuOpen || v.showDeleteConfirm
+	return v.menuOpen || v.showStopConfirm || v.showDeleteConfirm
 }
 
 // HasTextInputFocused returns true if the delete confirm input is active.

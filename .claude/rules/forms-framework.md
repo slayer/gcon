@@ -363,11 +363,70 @@ func (v *View) Update(msg tea.Msg) tea.Cmd {
 }
 ```
 
+### Don't Open Dropdowns Without Handling Empty Options
+
+When `dropdownOpen = true` and `len(Options) == 0`, the render loop produces an empty string — the field value vanishes. Always render a fallback message. The dropdown uses `field.Placeholder` for this: if set, it shows the placeholder; otherwise "(no options available)".
+
+```go
+// In renderDropdown() — empty options case
+if len(f.Options) == 0 {
+    msg := "(no options available)"
+    if f.Placeholder != "" {
+        msg = f.Placeholder
+    }
+    return f.styles.HelpText.Inline(true).Render(msg)
+}
+```
+
+### Don't Assume Default Dropdown Selection Triggers FieldChangedMsg
+
+Dropdowns default to `selectedIndex = 0` on creation, but `FieldChangedMsg` is only emitted when the user explicitly selects a value. If downstream logic depends on the selected value (e.g., loading machine types for a zone), the initial default is silently ignored.
+
+```go
+// WRONG — machine types never load for the default zone
+func (v *CreateView) Init() tea.Cmd {
+    return v.CreateViewBase.Init()
+}
+
+// CORRECT — read default value and trigger dependent loading
+func (v *CreateView) Init() tea.Cmd {
+    cmds := []tea.Cmd{v.CreateViewBase.Init()}
+    if field := v.Form.GetField("zone"); field != nil {
+        if zone, ok := field.GetValue().(string); ok && zone != "" {
+            cmds = append(cmds, v.onZoneChanged(zone))
+        }
+    }
+    return tea.Batch(cmds...)
+}
+```
+
+### Use Placeholder for Dropdown Loading States
+
+When a dropdown's options are loaded asynchronously, set `field.SetPlaceholder("Loading...")` before the fetch and clear it when options arrive. The closed dropdown shows the placeholder instead of "(none)" when `len(Options) == 0`.
+
+```go
+// Before async fetch
+field.SetPlaceholder("Loading...")
+
+// After options loaded
+field.SetPlaceholder("")
+field.SetOptions(options)
+```
+
+## Dropdown Scrolling
+
+Large dropdowns (100+ options like machine types) render a scrollable window of `dropdownMaxVisible = 10` items with `↑ N more` / `↓ N more` scroll indicators. The `dropdownScrollOffset` field tracks the first visible option.
+
+- `ensureDropdownScrollVisible()` adjusts offset after each navigation
+- `EstimatedHeight()` returns the capped visible height (not total options) for `scrollToFocused()` calculations
+- `scrollToFocused()` uses `field.EstimatedHeight()` instead of hardcoded 4 lines per field
+
 ## Edge Cases
 
 - **Number field**: `SetValue()` accepts int, int64, float64, string. Float values truncated.
 - **MultiSelect**: Always returns `[]string`, never nil. Empty slice when no selections.
 - **Dropdown open**: Up/Down keys captured by dropdown when open. Form navigation paused.
+- **Dropdown scrolling**: Large lists show max 10 items with scroll indicators. Offset resets on open.
 - **ReadOnly fields**: Not editable, not included in dirty checking, skipped during Tab navigation.
 - **Character limits**: Text 256 chars default, TextArea no limit (0).
 

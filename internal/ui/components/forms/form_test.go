@@ -500,6 +500,67 @@ func TestFormSubmitButtonActivation(t *testing.T) {
 	assert.Equal(t, "Test", submitMsg.Data["name"])
 }
 
+func TestScrollToFocusedWithOpenDropdown(t *testing.T) {
+	// Create a form with enough fields that the dropdown near the bottom
+	// extends below the viewport when opened
+	form := NewForm("Test", FormModeCreate).
+		EnableViewport().
+		AddSection(NewSection("basic", "Basic").
+			AddField(NewTextField("f1", "Field 1")).
+			AddField(NewTextField("f2", "Field 2")).
+			AddField(NewTextField("f3", "Field 3")).
+			AddField(NewTextField("f4", "Field 4")).
+			AddField(NewTextField("f5", "Field 5")).
+			AddField(NewDropdownField("dropdown", "Dropdown").
+				SetOptionsFromStrings([]string{
+					"opt1", "opt2", "opt3", "opt4", "opt5",
+					"opt6", "opt7", "opt8", "opt9", "opt10",
+				})))
+
+	// Small viewport so the dropdown overflows
+	form.SetSize(80, 28) // contentHeight = 28-8 = 20
+	form.Init()
+
+	// Navigate to the dropdown field (5 Tabs to skip 5 text fields)
+	for range 5 {
+		form.Update(tea.KeyMsg{Type: tea.KeyTab})
+	}
+	require.Equal(t, "dropdown", form.FocusedSection().FocusedField().ID)
+
+	// Render once to populate viewport content (SetYOffset clamps based on content)
+	form.View()
+
+	// Record offset before opening dropdown
+	offsetBefore := form.viewport.YOffset
+
+	// Open the dropdown — EstimatedHeight jumps from 4 to ~13
+	form.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	// Render again so viewport content reflects expanded dropdown
+	form.View()
+	dropdown := form.GetField("dropdown")
+	require.True(t, dropdown.dropdownOpen, "dropdown should be open")
+
+	fieldHeight := dropdown.EstimatedHeight()
+	assert.Greater(t, fieldHeight, 4, "open dropdown should be taller than default")
+
+	viewportHeight := form.viewport.Height
+	currentTop := form.viewport.YOffset
+
+	// The viewport should have scrolled down when the dropdown opened
+	assert.Greater(t, currentTop, offsetBefore,
+		"viewport should scroll down when dropdown opens near bottom")
+
+	// The dropdown's rendered content should be within the visible viewport.
+	// We verify this by checking the viewport output contains dropdown options.
+	viewOutput := form.View()
+	assert.Contains(t, viewOutput, "opt1", "first dropdown option should be visible")
+	assert.Contains(t, viewOutput, "opt5", "middle dropdown option should be visible")
+
+	// Sanity: viewport height hasn't changed
+	assert.Equal(t, viewportHeight, form.viewport.Height)
+}
+
 func TestFormHasTextInputFocused(t *testing.T) {
 	t.Run("text field focused", func(t *testing.T) {
 		form := NewForm("Test", FormModeCreate).

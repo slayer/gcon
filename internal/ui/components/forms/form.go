@@ -377,20 +377,7 @@ func (f *Form) scrollToFocused() {
 
 	// When action bar is focused, scroll to the bottom of content
 	if f.focusedOnActions {
-		// Calculate total content height and scroll to bottom
-		totalLines := 0
-		for _, section := range f.sections {
-			if section.Collapsed {
-				totalLines += 2
-			} else {
-				headerLines := 2
-				if section.Description != "" {
-					headerLines++
-				}
-				totalLines += headerLines + len(section.Fields())*4
-			}
-		}
-		// Scroll to show the bottom of content (action bar is rendered below viewport)
+		totalLines := f.estimateSectionLines()
 		maxOffset := totalLines - f.viewport.Height
 		if maxOffset > 0 {
 			f.viewport.SetYOffset(maxOffset)
@@ -401,32 +388,43 @@ func (f *Form) scrollToFocused() {
 	// Calculate the line position of the focused field
 	linePos := 0
 	for i, section := range f.sections {
-		// Section header takes ~2-3 lines
 		sectionHeaderLines := 2
 		if section.Description != "" {
 			sectionHeaderLines++
 		}
 
 		if i == f.focusSectionIdx {
-			// Found the focused section
 			linePos += sectionHeaderLines
 
-			// Add lines for fields before the focused one
+			// Use actual field heights (accounts for open dropdowns)
 			focusedFieldIdx := section.FocusedFieldIndex()
-			for j := 0; j < focusedFieldIdx && j < len(section.Fields()); j++ {
-				// Each field takes ~3-4 lines (label, input, help/error, margin)
-				linePos += 4
+			for j, field := range section.Fields() {
+				if j >= focusedFieldIdx {
+					break
+				}
+				linePos += field.EstimatedHeight()
 			}
 			break
 		}
 
-		// Add all lines for this section
 		if section.Collapsed {
-			linePos += 2 // Just the header
+			linePos += 2
 		} else {
-			linePos += sectionHeaderLines + len(section.Fields())*4
+			linePos += sectionHeaderLines
+			for _, field := range section.Fields() {
+				linePos += field.EstimatedHeight()
+			}
 		}
 	}
+
+	// Get focused field height to ensure bottom (e.g. open dropdown) is visible
+	fieldHeight := 4
+	if f.focusSectionIdx < len(f.sections) {
+		if ff := f.sections[f.focusSectionIdx].FocusedField(); ff != nil {
+			fieldHeight = ff.EstimatedHeight()
+		}
+	}
+	fieldBottom := linePos + fieldHeight
 
 	// Scroll viewport to show the focused field with some padding
 	viewportHeight := f.viewport.Height
@@ -440,6 +438,36 @@ func (f *Form) scrollToFocused() {
 	if linePos > currentTop+viewportHeight-4 {
 		f.viewport.SetYOffset(linePos - viewportHeight + 6)
 	}
+	// If field bottom (e.g. open dropdown) extends below viewport, scroll down
+	// but don't push field top out of view. Re-read offset since prior checks may have changed it.
+	currentTop = f.viewport.YOffset
+	if fieldBottom > currentTop+viewportHeight {
+		newOffset := fieldBottom - viewportHeight + 1
+		if newOffset > linePos {
+			newOffset = linePos
+		}
+		f.viewport.SetYOffset(newOffset)
+	}
+}
+
+// estimateSectionLines returns the total estimated line count for all sections.
+func (f *Form) estimateSectionLines() int {
+	totalLines := 0
+	for _, section := range f.sections {
+		if section.Collapsed {
+			totalLines += 2
+		} else {
+			headerLines := 2
+			if section.Description != "" {
+				headerLines++
+			}
+			totalLines += headerLines
+			for _, field := range section.Fields() {
+				totalLines += field.EstimatedHeight()
+			}
+		}
+	}
+	return totalLines
 }
 
 // Validation
@@ -631,7 +659,10 @@ func (f *Form) Update(msg tea.Msg) tea.Cmd {
 
 	// Delegate to current section
 	if section := f.FocusedSection(); section != nil && !f.focusedOnActions {
-		return section.Update(msg)
+		cmd := section.Update(msg)
+		// Scroll after delegation — dropdown open/close changes field height
+		f.scrollToFocused()
+		return cmd
 	}
 
 	return nil
@@ -670,6 +701,9 @@ func (f *Form) View() string {
 
 	if f.useViewport && f.contentReady {
 		f.viewport.SetContent(sectionsContent.String())
+		// Re-apply scroll after content is set, since SetYOffset clamps
+		// based on content length which wasn't available during Update().
+		f.scrollToFocused()
 		b.WriteString(f.viewport.View())
 	} else {
 		b.WriteString(sectionsContent.String())

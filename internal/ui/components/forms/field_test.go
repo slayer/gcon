@@ -1,6 +1,7 @@
 package forms
 
 import (
+	"fmt"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -295,6 +296,94 @@ func TestDropdownFieldNavigation(t *testing.T) {
 	assert.False(t, field.dropdownOpen)
 	assert.Equal(t, "us-central1-b", field.GetValue())
 	require.NotNil(t, cmd)
+}
+
+func TestDropdownEmptyOptionsShowsPlaceholder(t *testing.T) {
+	field := NewDropdownField("machine_type", "Machine Type").
+		SetRequired(true)
+	field.Focus()
+
+	// Open dropdown with no options — should open but show placeholder
+	field.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	assert.True(t, field.dropdownOpen, "dropdown should open even with no options")
+
+	view := field.View()
+	assert.Contains(t, view, "no options available", "open empty dropdown should show placeholder")
+
+	// Close with Esc
+	field.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	assert.False(t, field.dropdownOpen)
+
+	// Closed state shows "(none)"
+	view = field.View()
+	assert.Contains(t, view, "(none)")
+}
+
+func TestDropdownRenderShowsOptionsWhenOpen(t *testing.T) {
+	field := NewDropdownField("zone", "Zone").
+		SetOptionsFromStrings([]string{"us-central1-a", "us-central1-b"})
+	field.Focus()
+	field.SetValue("us-central1-a")
+
+	// Open dropdown
+	field.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	assert.True(t, field.dropdownOpen)
+
+	view := field.View()
+	assert.Contains(t, view, "us-central1-a")
+	assert.Contains(t, view, "us-central1-b")
+}
+
+func TestDropdownEstimatedHeight(t *testing.T) {
+	field := NewDropdownField("zone", "Zone").
+		SetOptionsFromStrings([]string{"a", "b", "c"})
+
+	// Closed dropdown: base height
+	assert.Equal(t, 4, field.EstimatedHeight())
+
+	// Open dropdown: base + extra lines for options
+	field.Focus()
+	field.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	assert.Equal(t, 6, field.EstimatedHeight()) // 4 base + (3-1) options
+}
+
+func TestDropdownScrollableWindow(t *testing.T) {
+	// Create dropdown with more options than dropdownMaxVisible
+	opts := make([]string, 20)
+	for i := range opts {
+		opts[i] = fmt.Sprintf("option-%02d", i)
+	}
+	field := NewDropdownField("big", "Big List").
+		SetOptionsFromStrings(opts)
+	field.Focus()
+	field.SetValue("option-00")
+
+	// Open dropdown
+	field.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	assert.True(t, field.dropdownOpen)
+
+	view := field.View()
+	// Should show first 10 options
+	assert.Contains(t, view, "option-00")
+	assert.Contains(t, view, "option-09")
+	// Should NOT show option-10 (beyond visible window)
+	assert.NotContains(t, view, "option-10")
+	// Should show "more" indicator at bottom
+	assert.Contains(t, view, "↓ 10 more")
+	// Should NOT show "more" indicator at top (at start)
+	assert.NotContains(t, view, "↑")
+
+	// Navigate down past visible window
+	for range 10 {
+		field.Update(tea.KeyMsg{Type: tea.KeyDown})
+	}
+	assert.Equal(t, 10, field.selectedIndex)
+
+	view = field.View()
+	// Now option-10 should be visible, option-00 may not
+	assert.Contains(t, view, "option-10")
+	// Should show top scroll indicator
+	assert.Contains(t, view, "↑")
 }
 
 func TestMultiSelectFieldNavigation(t *testing.T) {

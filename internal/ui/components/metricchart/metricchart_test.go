@@ -136,7 +136,7 @@ func TestAutoYRange(t *testing.T) {
 	c := New(HeightStandard)
 	c.SetData(makeDataPoints([]float64{10, 50, 30}))
 	minY, maxY := c.autoYRange()
-	assert.Equal(t, 0.0, minY) // floor at 0
+	assert.Equal(t, 0.0, minY)         // floor at 0
 	assert.InDelta(t, 55.0, maxY, 0.1) // 50 * 1.1 = 55
 }
 

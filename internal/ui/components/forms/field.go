@@ -12,6 +12,10 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// dropdownMaxVisible is the maximum number of options shown at once in a dropdown.
+// Dropdowns with more options scroll as the user navigates.
+const dropdownMaxVisible = 10
+
 // Colors for form fields
 var (
 	fieldColorSecondary = lipgloss.Color("#34A853")
@@ -149,14 +153,15 @@ type Field struct {
 	selectedSet   []int // For multiselect: indices of selected options
 
 	// UI state
-	focused       bool
-	dropdownOpen  bool
-	validationErr string
-	width         int
-	height        int
-	textInput     textinput.Model
-	textArea      textarea.Model
-	textAreaRows  int // Number of visible rows for textarea
+	focused              bool
+	dropdownOpen         bool
+	dropdownScrollOffset int // First visible option index when dropdown is scrollable
+	validationErr        string
+	width                int
+	height               int
+	textInput            textinput.Model
+	textArea             textarea.Model
+	textAreaRows         int // Number of visible rows for textarea
 
 	// Styling
 	styles fieldStyles
@@ -632,6 +637,7 @@ func (f *Field) updateDropdown(msg tea.Msg) tea.Cmd {
 		switch keyMsg.String() {
 		case "enter", " ":
 			f.dropdownOpen = true
+			f.ensureDropdownScrollVisible()
 			return nil
 		}
 		return nil
@@ -642,12 +648,14 @@ func (f *Field) updateDropdown(msg tea.Msg) tea.Cmd {
 	case key.Matches(keyMsg, f.keys.Up):
 		if f.selectedIndex > 0 {
 			f.selectedIndex--
+			f.ensureDropdownScrollVisible()
 		}
 		return nil
 
 	case key.Matches(keyMsg, f.keys.Down):
 		if f.selectedIndex < len(f.Options)-1 {
 			f.selectedIndex++
+			f.ensureDropdownScrollVisible()
 		}
 		return nil
 
@@ -665,6 +673,22 @@ func (f *Field) updateDropdown(msg tea.Msg) tea.Cmd {
 	return nil
 }
 
+// ensureDropdownScrollVisible adjusts dropdownScrollOffset so selectedIndex is visible.
+func (f *Field) ensureDropdownScrollVisible() {
+	if len(f.Options) <= dropdownMaxVisible {
+		f.dropdownScrollOffset = 0
+		return
+	}
+	// Scroll up if selected is above visible window
+	if f.selectedIndex < f.dropdownScrollOffset {
+		f.dropdownScrollOffset = f.selectedIndex
+	}
+	// Scroll down if selected is below visible window
+	if f.selectedIndex >= f.dropdownScrollOffset+dropdownMaxVisible {
+		f.dropdownScrollOffset = f.selectedIndex - dropdownMaxVisible + 1
+	}
+}
+
 // updateMultiSelect handles input for multi-select fields
 func (f *Field) updateMultiSelect(msg tea.Msg) tea.Cmd {
 	keyMsg, ok := msg.(tea.KeyMsg)
@@ -673,7 +697,7 @@ func (f *Field) updateMultiSelect(msg tea.Msg) tea.Cmd {
 	}
 
 	if !f.dropdownOpen {
-		// Open on Enter or Space
+		// Open on Enter or Space (only if there are options to show)
 		switch keyMsg.String() {
 		case "enter", " ":
 			f.dropdownOpen = true
@@ -748,6 +772,29 @@ func (f *Field) updateToggle(msg tea.Msg) tea.Cmd {
 	}
 
 	return nil
+}
+
+// EstimatedHeight returns the approximate number of lines this field occupies.
+// Used by scrollToFocused to calculate viewport offsets.
+func (f *Field) EstimatedHeight() int {
+	// label + input + margin = ~3-4 lines base
+	h := 4
+	if f.dropdownOpen && len(f.Options) > 0 {
+		// Open dropdown replaces the 1-line input with a visible window of options
+		visibleOptions := min(len(f.Options), dropdownMaxVisible)
+		h += visibleOptions - 1
+		// Scroll indicators add 1 line each
+		if f.dropdownScrollOffset > 0 {
+			h++
+		}
+		if f.dropdownScrollOffset+dropdownMaxVisible < len(f.Options) {
+			h++
+		}
+	}
+	if f.Type == FieldTextArea {
+		h += f.textAreaRows - 1
+	}
+	return h
 }
 
 // View renders the field
@@ -842,6 +889,9 @@ func (f *Field) renderDropdown() string {
 
 	// Current selected value
 	selectedLabel := "(none)"
+	if f.Placeholder != "" && len(f.Options) == 0 {
+		selectedLabel = f.Placeholder
+	}
 	if f.selectedIndex >= 0 && f.selectedIndex < len(f.Options) {
 		selectedLabel = f.Options[f.selectedIndex].Label
 	}
@@ -860,8 +910,28 @@ func (f *Field) renderDropdown() string {
 		return boxStyle.Render(style.Render(selectedLabel + " ▼"))
 	}
 
-	// Open dropdown: show all options
-	for i, opt := range f.Options {
+	// Open dropdown: show visible window of options
+	if len(f.Options) == 0 {
+		msg := "(no options available)"
+		if f.Placeholder != "" {
+			msg = f.Placeholder
+		}
+		return f.styles.HelpText.Inline(true).Render(msg)
+	}
+
+	total := len(f.Options)
+	visibleCount := min(total, dropdownMaxVisible)
+	start := f.dropdownScrollOffset
+	end := start + visibleCount
+
+	// Scroll indicator at top
+	if start > 0 {
+		b.WriteString(f.styles.HelpText.Inline(true).Render(fmt.Sprintf("  ↑ %d more", start)))
+		b.WriteString("\n")
+	}
+
+	for i := start; i < end; i++ {
+		opt := f.Options[i]
 		prefix := "  "
 		style := f.styles.Option
 
@@ -871,9 +941,16 @@ func (f *Field) renderDropdown() string {
 		}
 
 		b.WriteString(style.Render(prefix + opt.Label))
-		if i < len(f.Options)-1 {
+		if i < end-1 {
 			b.WriteString("\n")
 		}
+	}
+
+	// Scroll indicator at bottom
+	remaining := total - end
+	if remaining > 0 {
+		b.WriteString("\n")
+		b.WriteString(f.styles.HelpText.Inline(true).Render(fmt.Sprintf("  ↓ %d more", remaining)))
 	}
 
 	return b.String()
