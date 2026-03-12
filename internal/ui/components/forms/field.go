@@ -777,8 +777,12 @@ func (f *Field) updateToggle(msg tea.Msg) tea.Cmd {
 // EstimatedHeight returns the approximate number of lines this field occupies.
 // Used by scrollToFocused to calculate viewport offsets.
 func (f *Field) EstimatedHeight() int {
-	// label + input + margin = ~3-4 lines base
-	h := 4
+	// label(1) + input(1) + MarginBottom(1) = 3 base
+	// +1 if help text or validation error present
+	h := 3
+	if f.HelpText != "" || f.validationErr != "" {
+		h++
+	}
 	if f.dropdownOpen && len(f.Options) > 0 {
 		// Open dropdown replaces the 1-line input with a visible window of options
 		visibleOptions := min(len(f.Options), dropdownMaxVisible)

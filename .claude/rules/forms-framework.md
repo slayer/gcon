@@ -306,6 +306,30 @@ if found {
 
 **Rule**: When populating dropdowns from API data in edit forms, always verify the value exists in options before calling `SetValue`. Provide a fallback (text field override, read-only display) for values outside the curated list.
 
+### Don't SetData on Dropdowns Without Options (Testing Gotcha)
+
+`form.SetData()` on a dropdown field silently does nothing when the value doesn't match any option. In tests, dropdowns start with no options (async-loaded), so `SetData({"machine_type": "e2-medium"})` appears to succeed but the field stays empty. Form validation then fails on the "required" check, causing `handleSubmit()` to return nil — a confusing test failure.
+
+```go
+// WRONG — SetData silently fails because dropdown has no options
+v := NewInstanceCreateView("project-id", nil)
+v.Form.SetData(map[string]any{
+    "machine_type": "e2-medium",  // silently ignored
+})
+cmd := v.handleSubmit()  // returns nil — validation fails, not obvious why
+
+// CORRECT — populate options first, then set data
+v := NewInstanceCreateView("project-id", nil)
+if f := v.Form.GetField("machine_type"); f != nil {
+    f.SetOptions([]forms.Option{{Value: "e2-medium", Label: "e2-medium"}})
+}
+v.Form.SetData(map[string]any{
+    "machine_type": "e2-medium",  // now matches an option, works
+})
+```
+
+**Rule**: In tests, always populate dropdown options before calling `SetData` or `SetValue` with values that need to match. This mirrors runtime behavior where options are loaded asynchronously before user interaction.
+
 ### Don't Modify textInput Directly
 
 ```go

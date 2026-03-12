@@ -561,6 +561,118 @@ func TestScrollToFocusedWithOpenDropdown(t *testing.T) {
 	assert.Equal(t, viewportHeight, form.viewport.Height)
 }
 
+func TestScrollToFocusedWithCollapsibleSectionDropdown(t *testing.T) {
+	// Mimics the VM create form: multiple sections with a collapsible
+	// networking section whose Subnetwork dropdown is near the bottom.
+	form := NewForm("Create VM", FormModeCreate).
+		EnableViewport().
+		AddSection(NewSection("basic", "Basic Settings").
+			AddField(NewTextField("name", "Name")).
+			AddField(NewDropdownField("zone", "Zone").
+				SetOptionsFromStrings([]string{"us-central1-a", "us-central1-b"}))).
+		AddSection(NewSection("machine", "Machine Configuration").
+			AddField(NewDropdownField("machine_type", "Machine Type").
+				SetOptionsFromStrings([]string{"e2-micro", "e2-small", "e2-medium"})).
+			AddField(NewTextField("custom_machine_type", "Custom Machine Type"))).
+		AddSection(NewSection("disk", "Boot Disk").
+			AddField(NewDropdownField("image", "Image").
+				SetOptionsFromStrings([]string{"debian-12", "ubuntu-22.04"})).
+			AddField(NewNumberField("disk_size_gb", "Disk Size (GB)")).
+			AddField(NewDropdownField("disk_type", "Disk Type").
+				SetOptionsFromStrings([]string{"pd-balanced", "pd-ssd"}))).
+		AddSection(NewSection("networking", "Networking").
+			SetCollapsible(true).
+			SetCollapsed(true).
+			AddField(NewDropdownField("network", "Network").
+				SetOptionsFromStrings([]string{"default", "custom-vpc"})).
+			AddField(NewDropdownField("subnetwork", "Subnetwork").
+				SetOptionsFromStrings([]string{
+					"subnet-1", "subnet-2", "subnet-3", "subnet-4", "subnet-5",
+					"subnet-6", "subnet-7", "subnet-8",
+				})).
+			AddField(NewDropdownField("external_ip", "External IP").
+				SetOptionsFromStrings([]string{"ephemeral", "none"})))
+
+	// Typical terminal height
+	form.SetSize(80, 30) // contentHeight = 30-8 = 22
+	form.Init()
+
+	// Navigate through all fields to reach the networking section
+	// Section 1: name, zone (2 fields)
+	// Section 2: machine_type, custom_machine_type (2 fields)
+	// Section 3: image, disk_size_gb, disk_type (3 fields)
+	// Section 4: collapsed section header → press Enter to expand → network, subnetwork
+	for range 7 { // 2+2+3 = 7 fields
+		form.Update(tea.KeyMsg{Type: tea.KeyTab})
+	}
+	// Now on collapsed networking section
+	require.Equal(t, "networking", form.FocusedSection().ID)
+	require.True(t, form.FocusedSection().Collapsed)
+
+	// Expand the section
+	form.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	require.False(t, form.FocusedSection().Collapsed)
+	require.Equal(t, "network", form.FocusedSection().FocusedField().ID)
+
+	// Navigate to subnetwork
+	form.Update(tea.KeyMsg{Type: tea.KeyTab})
+	require.Equal(t, "subnetwork", form.FocusedSection().FocusedField().ID)
+
+	// Render to populate viewport content before opening dropdown
+	form.View()
+
+	// Open the subnetwork dropdown
+	form.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	// Render to apply the scroll with updated content
+	viewOutput := form.View()
+
+	dropdown := form.GetField("subnetwork")
+	require.True(t, dropdown.dropdownOpen, "subnetwork dropdown should be open")
+
+	// Verify the dropdown label and first options are visible
+	assert.Contains(t, viewOutput, "Subnetwork", "field label should be visible")
+	assert.Contains(t, viewOutput, "subnet-1", "first/selected option should be visible")
+	assert.Contains(t, viewOutput, "subnet-4", "options should be visible")
+}
+
+func TestScrollToFocusedLastFieldDropdown(t *testing.T) {
+	// When a dropdown is the last (or near-last) field in the form,
+	// the viewport content barely extends past the viewport height.
+	// Opening the dropdown adds options that would render below the content,
+	// but without bottom padding the viewport can't scroll to show them.
+	form := NewForm("Test", FormModeCreate).
+		EnableViewport().
+		AddSection(NewSection("basic", "Basic").
+			AddField(NewTextField("f1", "Field 1").SetHelpText("help")).
+			AddField(NewTextField("f2", "Field 2").SetHelpText("help")).
+			AddField(NewDropdownField("last_dropdown", "Last Dropdown").
+				SetHelpText("pick one").
+				SetOptionsFromStrings([]string{"opt-a", "opt-b", "opt-c", "opt-d"})))
+
+	// Viewport just barely fits all fields when dropdown is closed
+	form.SetSize(80, 24)
+	form.Init()
+
+	// Navigate to the last dropdown
+	form.Update(tea.KeyMsg{Type: tea.KeyTab})
+	form.Update(tea.KeyMsg{Type: tea.KeyTab})
+	require.Equal(t, "last_dropdown", form.FocusedSection().FocusedField().ID)
+
+	form.View()
+
+	// Open dropdown
+	form.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	viewOutput := form.View()
+
+	dropdown := form.GetField("last_dropdown")
+	require.True(t, dropdown.dropdownOpen)
+
+	// All options must be visible even though the field is at the bottom
+	assert.Contains(t, viewOutput, "opt-a", "first option should be visible")
+	assert.Contains(t, viewOutput, "opt-d", "last option should be visible")
+}
+
 func TestFormHasTextInputFocused(t *testing.T) {
 	t.Run("text field focused", func(t *testing.T) {
 		form := NewForm("Test", FormModeCreate).

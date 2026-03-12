@@ -338,13 +338,19 @@ func TestDropdownEstimatedHeight(t *testing.T) {
 	field := NewDropdownField("zone", "Zone").
 		SetOptionsFromStrings([]string{"a", "b", "c"})
 
-	// Closed dropdown: base height
-	assert.Equal(t, 4, field.EstimatedHeight())
+	// Closed dropdown without help text: label + input + margin = 3
+	assert.Equal(t, 3, field.EstimatedHeight())
 
-	// Open dropdown: base + extra lines for options
+	// Open dropdown: 3 base + (3-1) options = 5
 	field.Focus()
 	field.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	assert.Equal(t, 6, field.EstimatedHeight()) // 4 base + (3-1) options
+	assert.Equal(t, 5, field.EstimatedHeight())
+
+	// With help text: adds 1 line
+	field2 := NewDropdownField("region", "Region").
+		SetOptionsFromStrings([]string{"a", "b"}).
+		SetHelpText("Select a region")
+	assert.Equal(t, 4, field2.EstimatedHeight()) // 3 base + 1 help
 }
 
 func TestDropdownScrollableWindow(t *testing.T) {

@@ -450,6 +450,27 @@ func (f *Form) scrollToFocused() {
 	}
 }
 
+// bottomPaddingForFocusedField returns extra lines needed so the focused field's
+// bottom (e.g. an open dropdown) can scroll into view. Returns 0 when the
+// existing content below the field is sufficient.
+func (f *Form) bottomPaddingForFocusedField() int {
+	if f.focusSectionIdx >= len(f.sections) {
+		return 0
+	}
+	ff := f.sections[f.focusSectionIdx].FocusedField()
+	if ff == nil {
+		return 0
+	}
+	fieldHeight := ff.EstimatedHeight()
+	// Only need padding when the field is taller than the default (dropdown open, textarea)
+	if fieldHeight <= 4 {
+		return 0
+	}
+	// Padding = focused field height, capped at viewport height.
+	// This is a ceiling — scrollToFocused will only scroll as needed.
+	return min(fieldHeight, f.viewport.Height)
+}
+
 // estimateSectionLines returns the total estimated line count for all sections.
 func (f *Form) estimateSectionLines() int {
 	totalLines := 0
@@ -700,7 +721,18 @@ func (f *Form) View() string {
 	}
 
 	if f.useViewport && f.contentReady {
-		f.viewport.SetContent(sectionsContent.String())
+		content := sectionsContent.String()
+		// Add bottom padding so dropdowns near the end of the form can expand.
+		// Without padding, SetYOffset clamps to (contentLines - viewportHeight)
+		// and options render below the visible area. Only pad when a field is
+		// focused (not the action bar) to avoid blank space at the bottom.
+		if !f.focusedOnActions {
+			padding := f.bottomPaddingForFocusedField()
+			if padding > 0 {
+				content += strings.Repeat("\n", padding)
+			}
+		}
+		f.viewport.SetContent(content)
 		// Re-apply scroll after content is set, since SetYOffset clamps
 		// based on content length which wasn't available during Update().
 		f.scrollToFocused()
