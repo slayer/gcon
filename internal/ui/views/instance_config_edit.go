@@ -18,6 +18,7 @@ import (
 )
 
 var errNoConfigChanges = errors.New("no changes to apply")
+var errMachineTypeRequiresStopped = errors.New("instance must be stopped before changing machine type")
 
 // instanceConfigEditState represents the view lifecycle
 type instanceConfigEditState int
@@ -300,7 +301,7 @@ func (v *InstanceConfigEditView) populateForm() {
 
 	// Add running-state warning as form subtitle
 	if v.original.Status == "RUNNING" {
-		v.form.SetSubtitle("⚠ Instance must be stopped to change machine type")
+		v.form.SetSubtitle("⚠ Stop the instance before changing machine type")
 	}
 }
 
@@ -318,11 +319,13 @@ func (v *InstanceConfigEditView) showDiffPreview() tea.Cmd {
 		return nil
 	}
 
-	// Warn about stopped-instance requirement for machine type changes
+	// Block machine type changes on running instances — the API will reject them anyway,
+	// but failing early gives a clearer error than a cryptic GCP 400 response
 	for _, f := range fields {
 		if f.Label == "Machine Type" && f.IsChanged() && v.original != nil && v.original.Status == "RUNNING" {
-			viewer.SetWarnings([]string{"Instance must be stopped before machine type can be changed"})
-			break
+			v.err = fmt.Errorf("%w (current status: %s)", errMachineTypeRequiresStopped, v.original.Status)
+			v.state = instanceConfigEditStateForm
+			return nil
 		}
 	}
 

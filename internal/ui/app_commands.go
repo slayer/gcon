@@ -103,6 +103,13 @@ func (a *App) handleActionCommand(cmd commandpalette.Command) (tea.Model, tea.Cm
 		a.projectSelector = projectselector.New(a.gcpClient, currentProjectID)
 		a.showProjectSelector = true
 		return a, a.projectSelector.Init()
+	case "action:create-instance":
+		if a.selectedProject != nil {
+			return a, func() tea.Msg {
+				return views.InstanceCreateRequestMsg{ProjectID: a.selectedProject.ID}
+			}
+		}
+		return a, nil
 	case "action:form-demo":
 		return a.openFormDemo()
 	}

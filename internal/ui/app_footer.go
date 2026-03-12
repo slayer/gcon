@@ -14,7 +14,7 @@ import (
 func (a *App) syncFooter() {
 	// Left1: Navigation hint (esc back/quit)
 	switch a.currentView {
-	case ViewInstanceDetails, ViewMetadata, ViewProjectMetadata, ViewDiskDetails, ViewSnapshotDetails, ViewImageDetails, ViewObjects, ViewInstanceEditor, ViewFirewallDetails:
+	case ViewInstanceDetails, ViewMetadata, ViewProjectMetadata, ViewDiskDetails, ViewSnapshotDetails, ViewImageDetails, ViewObjects, ViewInstanceEditor, ViewInstanceCreate, ViewInstanceConfigEdit, ViewFirewallDetails:
 		a.footer.SetLeft1("esc back")
 	case ViewProjects, ViewInstances, ViewDisks, ViewSnapshots, ViewImages, ViewBuckets, ViewNetworks, ViewFirewall:
 		a.footer.SetLeft1("esc quit")

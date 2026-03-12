@@ -1523,7 +1523,8 @@ func (c *ComputeClient) SetMachineType(ctx context.Context, projectID, zone, ins
 // The API enforces that the new size must be larger — no pre-check needed.
 func (c *ComputeClient) ResizeBootDisk(ctx context.Context, projectID, zone, diskName string, sizeGB int64) error {
 	req := &compute.DisksResizeRequest{
-		SizeGb: sizeGB,
+		SizeGb:          sizeGB,
+		ForceSendFields: []string{"SizeGb"},
 	}
 
 	_, err := c.service.Disks.Resize(projectID, zone, diskName, req).Context(ctx).Do()
