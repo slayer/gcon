@@ -2,11 +2,14 @@ package views
 
 import (
 	gocontext "context"
+	"fmt"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/slayer/gcon/internal/gcp"
+	"github.com/slayer/gcon/internal/ui/components/diff"
 	"github.com/slayer/gcon/internal/ui/components/forms"
+	"github.com/slayer/gcon/internal/ui/context"
 	uierrors "github.com/slayer/gcon/internal/ui/errors"
 )
 
@@ -20,11 +23,17 @@ type instanceNetworksLoadedMsg struct{ networks []gcp.Network }
 type instanceSubnetworksLoadedMsg struct{ subnets []gcp.SubnetworkInfo }
 
 // InstanceCreateView allows creating a new VM instance using a form.
-// Follows the CreateViewBase pattern — see disk_create.go for reference.
+// Uses CreateViewBase for form/saving states, adds a confirmation diff step in between.
 type InstanceCreateView struct {
 	CreateViewBase
 	computeClient *gcp.ComputeClient
 	projectID     string
+
+	// Confirmation state between form and saving
+	showConfirm bool
+	diffViewer  *diff.Viewer
+	// Holds the parsed config so we don't re-extract on confirm
+	pendingConfig *gcp.InstanceCreateConfig
 
 	// Cached async data to avoid redundant fetches
 	machineTypeCache    map[string][]gcp.MachineType
@@ -53,14 +62,37 @@ func (v *InstanceCreateView) buildForm() {
 	v.Form = buildInstanceForm(forms.FormModeCreate, false)
 }
 
-// Init starts the form and triggers initial network loading.
+// Init starts the form and triggers initial network and machine type loading.
 func (v *InstanceCreateView) Init() tea.Cmd {
 	cmds := []tea.Cmd{v.CreateViewBase.Init()}
 	// Pre-fetch networks so the dropdown is populated
 	if !v.networksLoaded {
 		cmds = append(cmds, v.fetchNetworks())
 	}
+	// Pre-fetch machine types for the default zone so the dropdown is populated on first open
+	if field := v.Form.GetField("zone"); field != nil {
+		if zone, ok := field.GetValue().(string); ok && zone != "" {
+			cmds = append(cmds, v.onZoneChanged(zone))
+		}
+	}
 	return tea.Batch(cmds...)
+}
+
+// View renders the current state: form, confirmation, or saving.
+func (v *InstanceCreateView) View() string {
+	// Confirmation takes priority over the base form/saving view
+	if v.showConfirm && v.diffViewer != nil {
+		return v.diffViewer.View()
+	}
+	return v.CreateViewBase.View()
+}
+
+// SetContext updates dimensions and propagates to form and diff viewer.
+func (v *InstanceCreateView) SetContext(ctx *context.ProgramContext) {
+	v.CreateViewBase.SetContext(ctx)
+	if v.diffViewer != nil {
+		v.diffViewer.SetSize(ctx.ContentWidth-8, ctx.ContentHeight-10)
+	}
 }
 
 // Update handles messages for the create view.
@@ -70,6 +102,24 @@ func (v *InstanceCreateView) Update(msg tea.Msg) tea.Cmd {
 	// Let base handle spinner ticks and cancel-during-saving
 	if cmd, handled := v.HandleBaseUpdate(msg, InstanceCreateCanceledMsg{}); handled {
 		return cmd
+	}
+
+	// Handle confirmation state messages
+	if v.showConfirm {
+		switch msg.(type) {
+		case diff.ConfirmMsg:
+			return v.confirmCreate()
+		case diff.CancelMsg:
+			v.showConfirm = false
+			v.diffViewer = nil
+			v.pendingConfig = nil
+			return nil
+		}
+		// Delegate key events to diff viewer
+		if v.diffViewer != nil {
+			return v.diffViewer.Update(msg)
+		}
+		return nil
 	}
 
 	switch msg := msg.(type) {
@@ -97,6 +147,10 @@ func (v *InstanceCreateView) Update(msg tea.Msg) tea.Cmd {
 	case instanceSubnetworksLoadedMsg:
 		if field := v.Form.GetField("subnetwork"); field != nil {
 			field.SetOptions(subnetworkDropdownOptions(msg.subnets))
+			// Auto-select first real subnet (custom-mode networks require explicit subnet)
+			if len(msg.subnets) > 0 {
+				field.SetValue(msg.subnets[0].Name)
+			}
 		}
 		return nil
 
@@ -110,9 +164,8 @@ func (v *InstanceCreateView) Update(msg tea.Msg) tea.Cmd {
 		return func() tea.Msg { return InstanceCreateCanceledMsg{} }
 	}
 
-	// After delegating to the form, check if zone/image changed
 	cmd := v.UpdateForm(msg)
-	v.checkFieldChanges()
+	v.checkImageChange()
 	return cmd
 }
 
@@ -131,21 +184,13 @@ func (v *InstanceCreateView) handleFieldChanged(msg forms.FieldChangedMsg) tea.C
 	return nil
 }
 
-// checkFieldChanges polls form data for zone/image changes that don't emit FieldChangedMsg.
-// Text inputs don't emit FieldChangedMsg, but dropdowns do — so this is a safety net.
-func (v *InstanceCreateView) checkFieldChanges() {
+// checkImageChange detects image dropdown changes that weren't caught by FieldChangedMsg
+// and updates the default disk size accordingly.
+func (v *InstanceCreateView) checkImageChange() {
 	if v.Form == nil {
 		return
 	}
 	data := v.Form.GetData()
-
-	// Check zone change
-	if zone, ok := data["zone"].(string); ok && zone != "" && zone != v.lastZone {
-		// Zone changed but we missed the FieldChangedMsg — unlikely for dropdown but defensive
-		v.lastZone = zone
-	}
-
-	// Check image change — update default disk size
 	if img, ok := data["image"].(string); ok && img != "" && img != v.lastImage {
 		v.onImageChanged(img)
 	}
@@ -161,6 +206,9 @@ func (v *InstanceCreateView) onZoneChanged(zone string) tea.Cmd {
 		v.updateMachineTypeDropdown(cached)
 	} else if !v.loadingMachineTypes {
 		v.loadingMachineTypes = true
+		if field := v.Form.GetField("machine_type"); field != nil {
+			field.SetPlaceholder("Loading...")
+		}
 		cmds = append(cmds, v.fetchMachineTypes(zone))
 	}
 
@@ -185,6 +233,7 @@ func (v *InstanceCreateView) onImageChanged(imageValue string) {
 
 func (v *InstanceCreateView) updateMachineTypeDropdown(types []gcp.MachineType) {
 	if field := v.Form.GetField("machine_type"); field != nil {
+		field.SetPlaceholder("")
 		field.SetOptions(machineTypeDropdownOptions(types))
 		// Auto-select e2-medium if available
 		for _, mt := range types {
@@ -237,12 +286,36 @@ func (v *InstanceCreateView) fetchSubnetworks(region string) tea.Cmd {
 	}
 }
 
-// handleSubmit validates form data and emits a CreateInstanceMsg.
+// handleSubmit validates form data and shows the confirmation view.
 func (v *InstanceCreateView) handleSubmit() tea.Cmd {
 	if errors := v.Form.Validate(); len(errors) > 0 {
 		return nil
 	}
 
+	config := v.extractConfig()
+	v.pendingConfig = &config
+	v.showConfirmation(config)
+	return nil
+}
+
+// confirmCreate proceeds with the actual API call after user confirms.
+func (v *InstanceCreateView) confirmCreate() tea.Cmd {
+	if v.pendingConfig == nil {
+		return nil
+	}
+	config := *v.pendingConfig
+	v.showConfirm = false
+	v.diffViewer = nil
+	v.pendingConfig = nil
+
+	cmd := v.BeginSaving()
+	return tea.Batch(cmd, func() tea.Msg {
+		return CreateInstanceMsg{Config: config}
+	})
+}
+
+// extractConfig builds an InstanceCreateConfig from form data.
+func (v *InstanceCreateView) extractConfig() gcp.InstanceCreateConfig {
 	data := v.Form.GetData()
 
 	name := ""
@@ -300,7 +373,7 @@ func (v *InstanceCreateView) handleSubmit() tea.Cmd {
 		externalIP = eip == "ephemeral"
 	}
 
-	config := gcp.InstanceCreateConfig{
+	return gcp.InstanceCreateConfig{
 		Name:         name,
 		Zone:         zone,
 		MachineType:  machineType,
@@ -312,11 +385,41 @@ func (v *InstanceCreateView) handleSubmit() tea.Cmd {
 		Subnetwork:   subnetwork,
 		ExternalIP:   externalIP,
 	}
+}
 
-	cmd := v.BeginSaving()
-	return tea.Batch(cmd, func() tea.Msg {
-		return CreateInstanceMsg{Config: config}
-	})
+// showConfirmation builds a diff viewer with the VM configuration summary.
+func (v *InstanceCreateView) showConfirmation(config gcp.InstanceCreateConfig) {
+	// Resolve human-readable labels for display
+	imageLabel := imageLabelFromValue(config.ImageProject + "/" + config.ImageFamily)
+	diskTypeLabel := diskTypeLabelFromValue(config.DiskType)
+
+	externalIPLabel := "Ephemeral"
+	if !config.ExternalIP {
+		externalIPLabel = "None"
+	}
+
+	subnetLabel := config.Subnetwork
+	if subnetLabel == "" {
+		subnetLabel = "(auto)"
+	}
+
+	fields := []diff.Field{
+		{Label: "Name", OldValue: "", NewValue: config.Name},
+		{Label: "Zone", OldValue: "", NewValue: config.Zone},
+		{Label: "Machine Type", OldValue: "", NewValue: config.MachineType},
+		{Label: "Boot Image", OldValue: "", NewValue: imageLabel},
+		{Label: "Boot Disk Size", OldValue: "", NewValue: fmt.Sprintf("%d GB", config.DiskSizeGB)},
+		{Label: "Boot Disk Type", OldValue: "", NewValue: diskTypeLabel},
+		{Label: "Network", OldValue: "", NewValue: config.Network},
+		{Label: "Subnetwork", OldValue: "", NewValue: subnetLabel},
+		{Label: "External IP", OldValue: "", NewValue: externalIPLabel},
+	}
+
+	v.diffViewer = diff.New("Confirm VM Instance Creation", fields)
+	if v.Width > 0 {
+		v.diffViewer.SetSize(v.Width-8, v.Height-10)
+	}
+	v.showConfirm = true
 }
 
 // GetComputeClient returns the compute client for reuse

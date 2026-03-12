@@ -147,6 +147,26 @@ func defaultDiskSizeForImage(imageValue string) int64 {
 	return 10
 }
 
+// imageLabelFromValue resolves a human-readable label from "project/family" value.
+func imageLabelFromValue(imageValue string) string {
+	for _, img := range gcp.BootDiskImages {
+		if img.Project+"/"+img.Family == imageValue {
+			return img.Label
+		}
+	}
+	return imageValue
+}
+
+// diskTypeLabelFromValue resolves a human-readable label from a disk type value.
+func diskTypeLabelFromValue(value string) string {
+	for _, dt := range gcp.DiskTypes {
+		if dt.Value == value {
+			return dt.Label
+		}
+	}
+	return value
+}
+
 // populateInstanceFormFromDetails fills a form with values from an existing instance.
 // Used by the edit view to pre-populate the form with current configuration.
 func populateInstanceFormFromDetails(f *forms.Form, details *gcp.InstanceDetails) {
@@ -246,9 +266,7 @@ func networkDropdownOptions(networks []gcp.Network) []string {
 
 // subnetworkDropdownOptions converts a list of SubnetworkInfo structs to form options.
 func subnetworkDropdownOptions(subnets []gcp.SubnetworkInfo) []forms.Option {
-	opts := make([]forms.Option, 0, len(subnets)+1)
-	// Empty option for auto-selection
-	opts = append(opts, forms.Option{Value: "", Label: "(auto)"})
+	opts := make([]forms.Option, 0, len(subnets))
 	for _, s := range subnets {
 		label := s.Name
 		if s.IPRange != "" {
