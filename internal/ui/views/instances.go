@@ -311,7 +311,7 @@ func (v *InstancesView) Update(msg tea.Msg) tea.Cmd {
 		return nil
 
 	case confirm.CancelMsg:
-		// Stop confirmation cancelled
+		// Stop confirmation canceled
 		v.showStopConfirm = false
 		v.pendingStop = nil
 		return nil
