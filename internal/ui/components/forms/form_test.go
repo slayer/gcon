@@ -1,6 +1,7 @@
 package forms
 
 import (
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -671,6 +672,119 @@ func TestScrollToFocusedLastFieldDropdown(t *testing.T) {
 	// All options must be visible even though the field is at the bottom
 	assert.Contains(t, viewOutput, "opt-a", "first option should be visible")
 	assert.Contains(t, viewOutput, "opt-d", "last option should be visible")
+}
+
+func TestEstimateSectionLinesMatchesRendered(t *testing.T) {
+	// Verify that estimateSectionLines() closely matches actual rendered newline count.
+	// This catches drift between scroll estimation and section rendering.
+	form := NewForm("Test", FormModeCreate).EnableViewport()
+
+	form.AddSection(NewSection("s1", "Section 1").
+		AddField(NewTextField("f1", "F1").SetHelpText("help")).
+		AddField(NewDropdownField("f2", "F2").
+			SetHelpText("help").
+			SetOptionsFromStrings([]string{"a", "b"})))
+
+	form.AddSection(NewSection("s2", "Section 2").
+		AddField(NewTextField("f3", "F3").SetHelpText("help")).
+		AddField(NewTextField("f4", "F4"))) // no help text
+
+	form.AddSection(NewSection("s3", "Section 3").
+		SetCollapsible(true).SetCollapsed(true).
+		AddField(NewTextField("f5", "F5").SetHelpText("help")))
+
+	form.SetSize(80, 40)
+	form.Init()
+
+	// Render sections content
+	var content strings.Builder
+	for _, sec := range form.Sections() {
+		content.WriteString(sec.View())
+	}
+	actualNewlines := strings.Count(content.String(), "\n")
+	estimated := form.estimateSectionLines()
+
+	// Allow ±1 tolerance (trailing newline at end may not correspond to a visible line)
+	assert.InDelta(t, actualNewlines, estimated, 1,
+		"estimateSectionLines should closely match actual rendered lines (estimated=%d, actual=%d)", estimated, actualNewlines)
+}
+
+func TestScrollToFocusedBottomDropdownMultiSection(t *testing.T) {
+	// Simulates the VM create form: 4 sections, collapsible networking at bottom.
+	// Subnetwork dropdown in the last section should be visible when opened.
+	form := NewForm("Create VM", FormModeCreate).EnableViewport()
+
+	// Section 1: Basic Settings (2 fields)
+	form.AddSection(NewSection("basic", "Basic Settings").
+		AddField(NewTextField("name", "Name").SetHelpText("Instance name")).
+		AddField(NewDropdownField("zone", "Zone").
+			SetHelpText("Zone").
+			SetOptionsFromStrings([]string{"us-central1-a", "us-east1-b"})))
+
+	// Section 2: Machine Configuration (2 fields)
+	form.AddSection(NewSection("machine", "Machine Configuration").
+		AddField(NewDropdownField("machine_type", "Machine Type").
+			SetHelpText("Select machine type").
+			SetOptionsFromStrings([]string{"e2-micro", "e2-small", "e2-medium"})).
+		AddField(NewTextField("custom_type", "Custom Type").
+			SetHelpText("Override if set")))
+
+	// Section 3: Boot Disk (3 fields)
+	form.AddSection(NewSection("disk", "Boot Disk").
+		AddField(NewDropdownField("image", "Image").
+			SetHelpText("OS image").
+			SetOptionsFromStrings([]string{"debian-12", "ubuntu-22"})).
+		AddField(NewNumberField("disk_size", "Disk Size (GB)").
+			SetHelpText("Min 10 GB")).
+		AddField(NewDropdownField("disk_type", "Disk Type").
+			SetHelpText("Disk type").
+			SetOptionsFromStrings([]string{"pd-balanced", "pd-ssd"})))
+
+	// Section 4: Networking (collapsible, starts collapsed, then expanded)
+	form.AddSection(NewSection("net", "Networking").
+		SetCollapsible(true).SetCollapsed(true).
+		AddField(NewDropdownField("network", "Network").
+			SetHelpText("VPC network").
+			SetOptionsFromStrings([]string{"default"})).
+		AddField(NewDropdownField("subnetwork", "Subnetwork").
+			SetHelpText("Subnetwork").
+			SetOptionsFromStrings([]string{"subnet-a", "subnet-b", "subnet-c"})).
+		AddField(NewDropdownField("external_ip", "External IP").
+			SetHelpText("External IP").
+			SetOptionsFromStrings([]string{"ephemeral", "none"})))
+
+	form.SetSize(80, 30) // realistic terminal height
+	form.Init()
+
+	// Navigate past all fields in sections 1-3, then into collapsed section 4
+	// Section 1: name, zone (2 fields)
+	form.Update(tea.KeyMsg{Type: tea.KeyTab}) // -> zone
+	form.Update(tea.KeyMsg{Type: tea.KeyTab}) // -> section 2: machine_type
+	form.Update(tea.KeyMsg{Type: tea.KeyTab}) // -> custom_type
+	form.Update(tea.KeyMsg{Type: tea.KeyTab}) // -> section 3: image
+	form.Update(tea.KeyMsg{Type: tea.KeyTab}) // -> disk_size
+	form.Update(tea.KeyMsg{Type: tea.KeyTab}) // -> disk_type
+	form.Update(tea.KeyMsg{Type: tea.KeyTab}) // -> section 4 (collapsed)
+
+	// Expand the collapsed networking section
+	form.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	require.False(t, form.sections[3].Collapsed, "networking section should be expanded")
+
+	// Navigate to subnetwork (second field in networking)
+	form.Update(tea.KeyMsg{Type: tea.KeyTab}) // -> subnetwork
+	require.NotNil(t, form.FocusedSection().FocusedField())
+	require.Equal(t, "subnetwork", form.FocusedSection().FocusedField().ID)
+
+	// Open the subnetwork dropdown
+	form.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	viewOutput := form.View()
+
+	subnetField := form.GetField("subnetwork")
+	require.True(t, subnetField.dropdownOpen, "subnetwork dropdown should be open")
+
+	// All options should be visible in the viewport
+	assert.Contains(t, viewOutput, "subnet-a", "first option should be visible")
+	assert.Contains(t, viewOutput, "subnet-c", "last option should be visible")
 }
 
 func TestFormHasTextInputFocused(t *testing.T) {

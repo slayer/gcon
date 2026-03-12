@@ -392,6 +392,51 @@ func TestDropdownScrollableWindow(t *testing.T) {
 	assert.Contains(t, view, "↑")
 }
 
+func TestDropdownSetOptionsShrinkClampsState(t *testing.T) {
+	// Regression: replacing a long options list with a shorter one while
+	// selectedIndex pointed past the new list caused an index-out-of-range panic.
+	opts := make([]string, 50)
+	for i := range opts {
+		opts[i] = fmt.Sprintf("machine-type-%02d", i)
+	}
+	field := NewDropdownField("mt", "Machine Type").
+		SetOptionsFromStrings(opts)
+	field.Focus()
+
+	// Navigate to index 30 (well past any short replacement list)
+	field.selectedIndex = 30
+	field.dropdownScrollOffset = 20
+
+	// Replace with a short list — must not panic
+	field.SetOptionsFromStrings([]string{"e2-micro", "e2-small", "e2-medium"})
+
+	assert.Equal(t, 0, field.selectedIndex, "selectedIndex must be clamped to valid range")
+	assert.Equal(t, 0, field.dropdownScrollOffset, "scroll offset must be reset")
+	assert.False(t, field.dropdownOpen, "dropdown should close on option replacement to empty-ish list")
+
+	// Rendering must not panic
+	view := field.View()
+	assert.Contains(t, view, "e2-micro")
+}
+
+func TestDropdownSetOptionsEmptyCloseDropdown(t *testing.T) {
+	field := NewDropdownField("mt", "Machine Type").
+		SetOptionsFromStrings([]string{"a", "b", "c"})
+	field.Focus()
+	field.selectedIndex = 2
+	field.dropdownOpen = true
+
+	// Replace with empty list
+	field.SetOptions(nil)
+
+	assert.Equal(t, 0, field.selectedIndex)
+	assert.False(t, field.dropdownOpen, "dropdown must close when options become empty")
+
+	// Rendering must not panic
+	view := field.View()
+	assert.NotEmpty(t, view)
+}
+
 func TestMultiSelectFieldNavigation(t *testing.T) {
 	field := NewMultiSelectField("tags", "Tags").
 		SetOptionsFromStrings([]string{"http-server", "https-server", "allow-ssh"})

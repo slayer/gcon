@@ -72,7 +72,7 @@ func TestInstanceCreateView_SubmitShowsConfirmation(t *testing.T) {
 	assert.Equal(t, "debian-cloud", v.pendingConfig.ImageProject)
 	assert.Equal(t, "debian-12", v.pendingConfig.ImageFamily)
 	assert.Equal(t, int64(20), v.pendingConfig.DiskSizeGB)
-	assert.True(t, v.pendingConfig.ExternalIP)
+	assert.Equal(t, "ephemeral", v.pendingConfig.ExternalIPType)
 
 	// View should render the diff viewer, not the form
 	view := v.View()
@@ -165,7 +165,7 @@ func TestInstanceCreateView_ConfirmCustomMachineType(t *testing.T) {
 
 	// Custom machine type overrides dropdown
 	assert.Equal(t, "n2-custom-8-20480", v.pendingConfig.MachineType)
-	assert.False(t, v.pendingConfig.ExternalIP)
+	assert.Equal(t, "none", v.pendingConfig.ExternalIPType)
 
 	// Confirmation view should show the custom type
 	view := v.View()

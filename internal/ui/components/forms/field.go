@@ -152,6 +152,9 @@ type Field struct {
 	selectedIndex int   // For dropdown: currently highlighted option
 	selectedSet   []int // For multiselect: indices of selected options
 
+	// Visibility
+	Hidden bool // When true, field is not rendered, not validated, not navigable
+
 	// UI state
 	focused              bool
 	dropdownOpen         bool
@@ -309,19 +312,29 @@ func (f *Field) SetValidator(validator Validator) *Field {
 	return f
 }
 
-// SetOptions sets the available options for dropdown/multiselect fields
+// SetOptions sets the available options for dropdown/multiselect fields.
+// Clamps selectedIndex and scroll offset to prevent out-of-bounds access.
 func (f *Field) SetOptions(options []Option) *Field {
 	f.Options = options
+	f.clampDropdownState()
 	return f
 }
 
-// SetOptionsFromStrings creates options from simple string values
+// SetOptionsFromStrings creates options from simple string values.
+// Clamps selectedIndex and scroll offset to prevent out-of-bounds access.
 func (f *Field) SetOptionsFromStrings(values []string) *Field {
 	options := make([]Option, len(values))
 	for i, v := range values {
 		options[i] = Option{Value: v, Label: v}
 	}
 	f.Options = options
+	f.clampDropdownState()
+	return f
+}
+
+// SetHidden controls whether this field is rendered, validated, or navigable.
+func (f *Field) SetHidden(hidden bool) *Field {
+	f.Hidden = hidden
 	return f
 }
 
@@ -491,7 +504,7 @@ func (f *Field) IsFocused() bool {
 
 // IsEditable returns true if the field can be edited
 func (f *Field) IsEditable() bool {
-	return f.Type != FieldReadOnly
+	return f.Type != FieldReadOnly && !f.Hidden
 }
 
 // IsTextInput returns true if this field accepts free text input (and thus
@@ -529,6 +542,10 @@ func (f *Field) SetSize(width, height int) {
 // Validate runs the field's validator and returns any error
 func (f *Field) Validate() error {
 	f.validationErr = ""
+
+	if f.Hidden {
+		return nil
+	}
 
 	// Check required first
 	if f.Required {
@@ -674,6 +691,21 @@ func (f *Field) updateDropdown(msg tea.Msg) tea.Cmd {
 }
 
 // ensureDropdownScrollVisible adjusts dropdownScrollOffset so selectedIndex is visible.
+// clampDropdownState resets selectedIndex and scroll offset when the option
+// list changes so they can't point past the end of the new list.
+func (f *Field) clampDropdownState() {
+	if len(f.Options) == 0 {
+		f.selectedIndex = 0
+		f.dropdownScrollOffset = 0
+		f.dropdownOpen = false
+		return
+	}
+	if f.selectedIndex >= len(f.Options) {
+		f.selectedIndex = 0
+	}
+	f.ensureDropdownScrollVisible()
+}
+
 func (f *Field) ensureDropdownScrollVisible() {
 	if len(f.Options) <= dropdownMaxVisible {
 		f.dropdownScrollOffset = 0
@@ -777,6 +809,9 @@ func (f *Field) updateToggle(msg tea.Msg) tea.Cmd {
 // EstimatedHeight returns the approximate number of lines this field occupies.
 // Used by scrollToFocused to calculate viewport offsets.
 func (f *Field) EstimatedHeight() int {
+	if f.Hidden {
+		return 0
+	}
 	// label(1) + input(1) + MarginBottom(1) = 3 base
 	// +1 if help text or validation error present
 	h := 3
@@ -803,6 +838,10 @@ func (f *Field) EstimatedHeight() int {
 
 // View renders the field
 func (f *Field) View() string {
+	if f.Hidden {
+		return ""
+	}
+
 	var b strings.Builder
 
 	// Label with required indicator

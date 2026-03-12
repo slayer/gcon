@@ -641,6 +641,11 @@ func (i *Instance) IsStopped() bool {
 	return i.Status == "TERMINATED" || i.Status == "STOPPED"
 }
 
+// IsStopped returns true if the instance is in TERMINATED or STOPPED state
+func (d *InstanceDetails) IsStopped() bool {
+	return d.Status == "TERMINATED" || d.Status == "STOPPED"
+}
+
 // IsSuspended returns true if the instance is in SUSPENDED state
 func (i *Instance) IsSuspended() bool {
 	return i.Status == "SUSPENDED"
@@ -1354,16 +1359,18 @@ func (c *ComputeClient) SetProjectMetadata(ctx context.Context, projectID string
 
 // InstanceCreateConfig holds parameters for creating a new VM instance
 type InstanceCreateConfig struct {
-	Name         string
-	Zone         string
-	MachineType  string // Short name like "e2-medium" or full URL
-	ImageProject string // e.g., "debian-cloud"
-	ImageFamily  string // e.g., "debian-12"
-	DiskSizeGB   int64
-	DiskType     string // "pd-balanced", "pd-standard", "pd-ssd"
-	Network      string // Network name, defaults to "default"
-	Subnetwork   string // Subnetwork name, can be empty for auto-mode networks
-	ExternalIP   bool   // true = ephemeral external IP, false = internal only
+	Name           string
+	Zone           string
+	MachineType    string // Short name like "e2-medium" or full URL
+	ImageProject   string // e.g., "debian-cloud"
+	ImageFamily    string // e.g., "debian-12"
+	DiskSizeGB     int64
+	DiskType       string // "pd-balanced", "pd-standard", "pd-ssd"
+	Network        string // Network name, defaults to "default"
+	Subnetwork     string // Subnetwork name, can be empty for auto-mode networks
+	ExternalIPType string // "none", "ephemeral", or a reserved address name
+	ExternalIPAddr string // The actual IP when using a static address
+	InternalIP     string // Empty = auto-assign, otherwise a specific IP from the subnet CIDR
 }
 
 // MachineType represents an available machine type in a zone
@@ -1380,6 +1387,16 @@ type SubnetworkInfo struct {
 	Region  string
 	IPRange string
 	Network string // Network name extracted from full URL
+}
+
+// StaticAddress represents a reserved IP address (external or internal)
+type StaticAddress struct {
+	Name        string // "my-static-ip"
+	Address     string // The actual IP address, e.g. "35.192.0.1"
+	AddressType string // "INTERNAL" or "EXTERNAL"
+	Status      string // "RESERVED" or "IN_USE"
+	Region      string
+	Subnetwork  string // For internal addresses
 }
 
 // BootDiskImage represents a curated OS image for VM creation
@@ -1426,6 +1443,39 @@ func FormatMachineTypeDescription(cpus, memoryMB int64) string {
 	return fmt.Sprintf("%d vCPU, %.1f GB RAM", cpus, memoryGB)
 }
 
+// ListAddresses returns reserved static IP addresses for a region.
+// Only RESERVED (unattached) addresses are returned, sorted by name.
+func (c *ComputeClient) ListAddresses(ctx context.Context, projectID, region string) ([]StaticAddress, error) {
+	var addresses []StaticAddress
+
+	req := c.service.Addresses.List(projectID, region).
+		Filter("status = \"RESERVED\"").
+		Context(ctx)
+
+	err := req.Pages(ctx, func(page *compute.AddressList) error {
+		for _, addr := range page.Items {
+			addresses = append(addresses, StaticAddress{
+				Name:        addr.Name,
+				Address:     addr.Address,
+				AddressType: addr.AddressType,
+				Status:      addr.Status,
+				Region:      region,
+				Subnetwork:  lastSegment(addr.Subnetwork),
+			})
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, WrapActionError(err, "list addresses", region)
+	}
+
+	sort.Slice(addresses, func(i, j int) bool {
+		return addresses[i].Name < addresses[j].Name
+	})
+
+	return addresses, nil
+}
+
 // CreateInstance creates a new VM instance with the given configuration
 func (c *ComputeClient) CreateInstance(ctx context.Context, projectID string, config InstanceCreateConfig) error {
 	// Catch invalid disk size before making the API call
@@ -1464,12 +1514,29 @@ func (c *ComputeClient) CreateInstance(ctx context.Context, projectID string, co
 		nic.Subnetwork = fmt.Sprintf("projects/%s/regions/%s/subnetworks/%s", projectID, region, config.Subnetwork)
 	}
 
-	// Ephemeral external IP vs internal-only
-	if config.ExternalIP {
+	// Custom internal IP from subnet CIDR
+	if config.InternalIP != "" {
+		nic.NetworkIP = config.InternalIP
+	}
+
+	// External IP: ephemeral, static, or none
+	switch config.ExternalIPType {
+	case "ephemeral":
 		nic.AccessConfigs = []*compute.AccessConfig{
 			{
 				Name: "External NAT",
 				Type: "ONE_TO_ONE_NAT",
+			},
+		}
+	case "none", "":
+		// No external IP — internal only
+	default:
+		// Static reserved address — set the actual IP in NatIP
+		nic.AccessConfigs = []*compute.AccessConfig{
+			{
+				Name:  "External NAT",
+				Type:  "ONE_TO_ONE_NAT",
+				NatIP: config.ExternalIPAddr,
 			},
 		}
 	}
@@ -1596,4 +1663,14 @@ func RegionFromZone(zone string) string {
 		return zone
 	}
 	return zone[:lastDash]
+}
+
+// lastSegment extracts the last path segment from a GCP resource URL.
+// e.g., "projects/p/regions/r/subnetworks/my-subnet" → "my-subnet"
+func lastSegment(url string) string {
+	if url == "" {
+		return ""
+	}
+	parts := strings.Split(url, "/")
+	return parts[len(parts)-1]
 }

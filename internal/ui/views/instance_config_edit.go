@@ -299,8 +299,8 @@ func (v *InstanceConfigEditView) populateForm() {
 	}
 	populateInstanceFormFromDetails(v.form, v.original)
 
-	// Add running-state warning as form subtitle
-	if v.original.Status == "RUNNING" {
+	// Warn if instance isn't stopped — machine type changes require TERMINATED/STOPPED
+	if !v.original.IsStopped() {
 		v.form.SetSubtitle("⚠ Stop the instance before changing machine type")
 	}
 }
@@ -322,7 +322,7 @@ func (v *InstanceConfigEditView) showDiffPreview() tea.Cmd {
 	// Block machine type changes on running instances — the API will reject them anyway,
 	// but failing early gives a clearer error than a cryptic GCP 400 response
 	for _, f := range fields {
-		if f.Label == "Machine Type" && f.IsChanged() && v.original != nil && v.original.Status == "RUNNING" {
+		if f.Label == "Machine Type" && f.IsChanged() && v.original != nil && !v.original.IsStopped() {
 			v.err = fmt.Errorf("%w (current status: %s)", errMachineTypeRequiresStopped, v.original.Status)
 			v.state = instanceConfigEditStateForm
 			return nil

@@ -984,7 +984,7 @@ func TestCreateInstance(t *testing.T) {
 			DiskType:     "pd-balanced",
 			Network:      "my-network",
 			Subnetwork:   "my-subnet",
-			ExternalIP:   true,
+			ExternalIPType: "ephemeral",
 		}
 
 		err = client.CreateInstance(context.Background(), "test-proj", config)
@@ -1069,7 +1069,7 @@ func TestCreateInstance(t *testing.T) {
 			ImageFamily:  "debian-12",
 			DiskSizeGB:   10,
 			DiskType:     "pd-standard",
-			ExternalIP:   false,
+			ExternalIPType: "none",
 		}
 
 		err = client.CreateInstance(context.Background(), "test-proj", config)

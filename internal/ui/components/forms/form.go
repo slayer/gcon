@@ -385,7 +385,10 @@ func (f *Form) scrollToFocused() {
 		return
 	}
 
-	// Calculate the line position of the focused field
+	// Calculate the line position of the focused field.
+	// Section.View() renders extra lines beyond field heights:
+	//   - expanded section: +2 (Container MarginBottom + trailing newline)
+	//   - collapsed section: +1 (trailing newline)
 	linePos := 0
 	for i, section := range f.sections {
 		sectionHeaderLines := 2
@@ -408,12 +411,13 @@ func (f *Form) scrollToFocused() {
 		}
 
 		if section.Collapsed {
-			linePos += 2
+			linePos += 3 // title + 2 trailing newlines
 		} else {
 			linePos += sectionHeaderLines
 			for _, field := range section.Fields() {
 				linePos += field.EstimatedHeight()
 			}
+			linePos += 2 // section Container MarginBottom + trailing newline
 		}
 	}
 
@@ -476,7 +480,7 @@ func (f *Form) estimateSectionLines() int {
 	totalLines := 0
 	for _, section := range f.sections {
 		if section.Collapsed {
-			totalLines += 2
+			totalLines += 3 // title + 2 trailing newlines
 		} else {
 			headerLines := 2
 			if section.Description != "" {
@@ -486,6 +490,7 @@ func (f *Form) estimateSectionLines() int {
 			for _, field := range section.Fields() {
 				totalLines += field.EstimatedHeight()
 			}
+			totalLines += 2 // section Container MarginBottom + trailing newline
 		}
 	}
 	return totalLines
@@ -604,7 +609,9 @@ func (f *Form) Update(msg tea.Msg) tea.Cmd {
 		}
 		// Delegate Enter to section when not on actions
 		if section := f.FocusedSection(); section != nil {
-			return section.Update(msg)
+			cmd := section.Update(msg)
+			f.scrollToFocused()
+			return cmd
 		}
 		return nil
 
@@ -646,7 +653,9 @@ func (f *Form) Update(msg tea.Msg) tea.Cmd {
 		if section := f.FocusedSection(); section != nil {
 			if field := section.FocusedField(); field != nil {
 				if field.dropdownOpen {
-					return section.Update(msg)
+					cmd := section.Update(msg)
+					f.scrollToFocused()
+					return cmd
 				}
 			}
 		}
@@ -669,7 +678,9 @@ func (f *Form) Update(msg tea.Msg) tea.Cmd {
 		if section := f.FocusedSection(); section != nil {
 			if field := section.FocusedField(); field != nil {
 				if field.dropdownOpen {
-					return section.Update(msg)
+					cmd := section.Update(msg)
+					f.scrollToFocused()
+					return cmd
 				}
 			}
 		}

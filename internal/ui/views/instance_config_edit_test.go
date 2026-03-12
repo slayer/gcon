@@ -128,6 +128,38 @@ func TestInstanceConfigEditView_BlocksMachineTypeChangeOnRunningInstance(t *test
 	assert.Contains(t, v.err.Error(), "must be stopped")
 }
 
+func TestInstanceConfigEditView_BlocksMachineTypeChangeOnSuspendedInstance(t *testing.T) {
+	v := NewInstanceConfigEditView("proj", "my-vm", "us-central1-a", nil)
+
+	v.original = &gcp.InstanceDetails{
+		Name:        "my-vm",
+		Zone:        "us-central1-a",
+		MachineType: "e2-medium",
+		Status:      "SUSPENDED",
+		Disks: []gcp.DiskInfo{
+			{Name: "my-vm", SizeGB: 20, Type: "pd-balanced", Boot: true},
+		},
+	}
+
+	v.machineTypes = []gcp.MachineType{
+		{Name: "e2-medium", Description: "2 vCPU, 4 GB RAM"},
+		{Name: "e2-standard-4", Description: "4 vCPU, 16 GB RAM"},
+	}
+	v.buildForm()
+	v.populateForm()
+
+	mtField := v.form.GetField("machine_type")
+	require.NotNil(t, mtField)
+	mtField.SetValue("e2-standard-4")
+
+	// SUSPENDED is not a stopped state — should block machine type changes
+	cmd := v.showDiffPreview()
+	assert.Nil(t, cmd)
+	assert.Equal(t, instanceConfigEditStateForm, v.state)
+	require.NotNil(t, v.err)
+	assert.Contains(t, v.err.Error(), "must be stopped")
+}
+
 func TestInstanceConfigEditView_AllowsMachineTypeChangeOnStoppedInstance(t *testing.T) {
 	v := NewInstanceConfigEditView("proj", "my-vm", "us-central1-a", nil)
 

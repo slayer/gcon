@@ -36,9 +36,10 @@ type InstanceCreateView struct {
 	pendingConfig *gcp.InstanceCreateConfig
 
 	// Cached async data to avoid redundant fetches
-	machineTypeCache    map[string][]gcp.MachineType
-	loadingMachineTypes bool
-	networksLoaded      bool
+	machineTypeCache     map[string][]gcp.MachineType
+	loadingMachineZone   string // zone currently being fetched (empty = idle)
+	networksLoaded       bool
+	lastLoadedSubnets    []gcp.SubnetworkInfo // cached subnets for filtering by network
 
 	// Track current zone to detect changes and trigger machine type fetch
 	lastZone string
@@ -124,8 +125,10 @@ func (v *InstanceCreateView) Update(msg tea.Msg) tea.Cmd {
 
 	switch msg := msg.(type) {
 	case instanceMachineTypesLoadedMsg:
-		v.loadingMachineTypes = false
 		v.machineTypeCache[msg.zone] = msg.types
+		if v.loadingMachineZone == msg.zone {
+			v.loadingMachineZone = ""
+		}
 		// Update dropdown only if we're still on the same zone
 		if v.lastZone == msg.zone {
 			v.updateMachineTypeDropdown(msg.types)
@@ -133,25 +136,23 @@ func (v *InstanceCreateView) Update(msg tea.Msg) tea.Cmd {
 		return nil
 
 	case instanceMachineTypesErrorMsg:
-		v.loadingMachineTypes = false
+		v.loadingMachineZone = ""
 		v.SetError(msg.err)
 		return nil
 
 	case instanceNetworksLoadedMsg:
 		v.networksLoaded = true
-		if field := v.Form.GetField("network"); field != nil {
-			field.SetOptionsFromStrings(networkDropdownOptions(msg.networks))
+		// Only update options when fetch succeeded — nil means error, keep "default"
+		if msg.networks != nil {
+			if field := v.Form.GetField("network"); field != nil {
+				field.SetOptionsFromStrings(networkDropdownOptions(msg.networks))
+			}
 		}
 		return nil
 
 	case instanceSubnetworksLoadedMsg:
-		if field := v.Form.GetField("subnetwork"); field != nil {
-			field.SetOptions(subnetworkDropdownOptions(msg.subnets))
-			// Auto-select first real subnet (custom-mode networks require explicit subnet)
-			if len(msg.subnets) > 0 {
-				field.SetValue(msg.subnets[0].Name)
-			}
-		}
+		v.lastLoadedSubnets = msg.subnets
+		v.filterSubnetsByNetwork()
 		return nil
 
 	case forms.FieldChangedMsg:
@@ -176,6 +177,8 @@ func (v *InstanceCreateView) handleFieldChanged(msg forms.FieldChangedMsg) tea.C
 		if zone, ok := msg.Value.(string); ok && zone != "" {
 			return v.onZoneChanged(zone)
 		}
+	case "network":
+		v.filterSubnetsByNetwork()
 	case "image":
 		if img, ok := msg.Value.(string); ok {
 			v.onImageChanged(img)
@@ -201,11 +204,13 @@ func (v *InstanceCreateView) onZoneChanged(zone string) tea.Cmd {
 	v.lastZone = zone
 	var cmds []tea.Cmd
 
-	// Load machine types (use cache if available)
+	// Load machine types (use cache if available, otherwise fetch even if
+	// another zone fetch is in flight — its result will be cached but ignored
+	// for the dropdown since lastZone won't match)
 	if cached, ok := v.machineTypeCache[zone]; ok {
 		v.updateMachineTypeDropdown(cached)
-	} else if !v.loadingMachineTypes {
-		v.loadingMachineTypes = true
+	} else {
+		v.loadingMachineZone = zone
 		if field := v.Form.GetField("machine_type"); field != nil {
 			field.SetPlaceholder("Loading...")
 		}
@@ -242,6 +247,32 @@ func (v *InstanceCreateView) updateMachineTypeDropdown(types []gcp.MachineType) 
 				break
 			}
 		}
+	}
+}
+
+// filterSubnetsByNetwork updates the subnetwork dropdown to show only subnets
+// belonging to the currently selected network.
+func (v *InstanceCreateView) filterSubnetsByNetwork() {
+	field := v.Form.GetField("subnetwork")
+	if field == nil {
+		return
+	}
+	selectedNetwork := ""
+	if data := v.Form.GetData(); data != nil {
+		if n, ok := data["network"].(string); ok {
+			selectedNetwork = n
+		}
+	}
+	// Filter cached subnets by the selected network
+	var filtered []gcp.SubnetworkInfo
+	for _, s := range v.lastLoadedSubnets {
+		if selectedNetwork == "" || s.Network == selectedNetwork {
+			filtered = append(filtered, s)
+		}
+	}
+	field.SetOptions(subnetworkDropdownOptions(filtered))
+	if len(filtered) > 0 {
+		field.SetValue(filtered[0].Name)
 	}
 }
 
@@ -368,22 +399,22 @@ func (v *InstanceCreateView) extractConfig() gcp.InstanceCreateConfig {
 		subnetwork = s
 	}
 
-	externalIP := true
-	if eip, ok := data["external_ip"].(string); ok {
-		externalIP = eip == "ephemeral"
+	externalIPType := "ephemeral"
+	if eip, ok := data["external_ip"].(string); ok && eip != "" {
+		externalIPType = eip
 	}
 
 	return gcp.InstanceCreateConfig{
-		Name:         name,
-		Zone:         zone,
-		MachineType:  machineType,
-		ImageProject: imageProject,
-		ImageFamily:  imageFamily,
-		DiskSizeGB:   diskSizeGB,
-		DiskType:     diskType,
-		Network:      network,
-		Subnetwork:   subnetwork,
-		ExternalIP:   externalIP,
+		Name:           name,
+		Zone:           zone,
+		MachineType:    machineType,
+		ImageProject:   imageProject,
+		ImageFamily:    imageFamily,
+		DiskSizeGB:     diskSizeGB,
+		DiskType:       diskType,
+		Network:        network,
+		Subnetwork:     subnetwork,
+		ExternalIPType: externalIPType,
 	}
 }
 
@@ -394,7 +425,7 @@ func (v *InstanceCreateView) showConfirmation(config gcp.InstanceCreateConfig) {
 	diskTypeLabel := diskTypeLabelFromValue(config.DiskType)
 
 	externalIPLabel := "Ephemeral"
-	if !config.ExternalIP {
+	if config.ExternalIPType == "none" {
 		externalIPLabel = "None"
 	}
 
