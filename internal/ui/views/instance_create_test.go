@@ -394,6 +394,73 @@ func TestInstanceCreateView_AddressesLoadedUpdatesDropdown(t *testing.T) {
 	assert.Equal(t, "static:web-ip", eipField.Options[2].Value)
 }
 
+func TestInstanceCreateView_StaticIPUnresolvedError(t *testing.T) {
+	v := NewInstanceCreateView("project-id", nil)
+	if f := v.Form.GetField("machine_type"); f != nil {
+		f.SetOptions([]forms.Option{{Value: "e2-medium", Label: "e2-medium"}})
+	}
+
+	// Add static IP option but do NOT populate lastLoadedAddresses
+	if eipField := v.Form.GetField("external_ip"); eipField != nil {
+		eipField.SetOptions([]forms.Option{
+			{Value: "ephemeral", Label: "Ephemeral"},
+			{Value: "none", Label: "None"},
+			{Value: "static:missing-ip", Label: "missing-ip"},
+		})
+	}
+
+	v.Form.SetData(map[string]any{
+		"name":         "bad-static-vm",
+		"zone":         "us-central1-a",
+		"machine_type": "e2-medium",
+		"image":        "debian-cloud/debian-12",
+		"disk_size_gb": int64(10),
+		"disk_type":    "pd-balanced",
+		"network":      "default",
+		"external_ip":  "static:missing-ip",
+	})
+
+	cmd := v.handleSubmit()
+	assert.Nil(t, cmd, "should return nil on error")
+	assert.False(t, v.showConfirm, "should not show confirmation")
+	assert.ErrorIs(t, v.Err, errStaticIPUnresolved)
+	assert.Contains(t, v.Err.Error(), "missing-ip")
+}
+
+func TestInstanceCreateView_ConfirmPassesProjectID(t *testing.T) {
+	v := setupCreateViewWithData(map[string]any{
+		"name":         "test-vm",
+		"zone":         "us-central1-a",
+		"machine_type": "e2-medium",
+		"image":        "debian-cloud/debian-12",
+		"disk_size_gb": int64(10),
+		"disk_type":    "pd-balanced",
+		"network":      "default",
+		"external_ip":  "ephemeral",
+	})
+
+	v.handleSubmit()
+	require.True(t, v.showConfirm)
+
+	cmd := v.Update(diff.ConfirmMsg{})
+	require.NotNil(t, cmd)
+
+	batchMsg := cmd()
+	if batch, ok := batchMsg.(tea.BatchMsg); ok {
+		for _, c := range batch {
+			if c == nil {
+				continue
+			}
+			msg := c()
+			if createMsg, ok := msg.(CreateInstanceMsg); ok {
+				assert.Equal(t, "project-id", createMsg.ProjectID)
+				return
+			}
+		}
+		t.Fatal("CreateInstanceMsg not found in batch")
+	}
+}
+
 func TestInstanceCreateView_CancelEmitsMessage(t *testing.T) {
 	v := NewInstanceCreateView("project-id", nil)
 

@@ -2,6 +2,7 @@ package views
 
 import (
 	gocontext "context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -12,6 +13,8 @@ import (
 	"github.com/slayer/gcon/internal/ui/context"
 	uierrors "github.com/slayer/gcon/internal/ui/errors"
 )
+
+var errStaticIPUnresolved = errors.New("could not resolve static IP address")
 
 // Internal messages for async data fetching in the create view
 type instanceMachineTypesLoadedMsg struct {
@@ -147,7 +150,12 @@ func (v *InstanceCreateView) Update(msg tea.Msg) tea.Cmd {
 		// Only update options when fetch succeeded — nil means error, keep "default"
 		if msg.networks != nil {
 			if field := v.Form.GetField("network"); field != nil {
+				// Preserve current selection (e.g., "default") across option refresh
+				current := field.GetValue()
 				field.SetOptionsFromStrings(networkDropdownOptions(msg.networks))
+				if s, ok := current.(string); ok && s != "" {
+					field.SetValue(s)
+				}
 			}
 		}
 		return nil
@@ -364,7 +372,11 @@ func (v *InstanceCreateView) handleSubmit() tea.Cmd {
 		return nil
 	}
 
-	config := v.extractConfig()
+	config, err := v.extractConfig()
+	if err != nil {
+		v.SetError(err)
+		return nil
+	}
 	v.pendingConfig = &config
 	v.showConfirmation(config)
 	return nil
@@ -382,12 +394,13 @@ func (v *InstanceCreateView) confirmCreate() tea.Cmd {
 
 	cmd := v.BeginSaving()
 	return tea.Batch(cmd, func() tea.Msg {
-		return CreateInstanceMsg{Config: config}
+		return CreateInstanceMsg{ProjectID: v.projectID, Config: config}
 	})
 }
 
 // extractConfig builds an InstanceCreateConfig from form data.
-func (v *InstanceCreateView) extractConfig() gcp.InstanceCreateConfig {
+// Returns an error if a static IP address can't be resolved.
+func (v *InstanceCreateView) extractConfig() (gcp.InstanceCreateConfig, error) {
 	data := v.Form.GetData()
 
 	name := ""
@@ -455,6 +468,9 @@ func (v *InstanceCreateView) extractConfig() gcp.InstanceCreateConfig {
 				break
 			}
 		}
+		if externalIPAddr == "" {
+			return gcp.InstanceCreateConfig{}, fmt.Errorf("%w %q — addresses may still be loading", errStaticIPUnresolved, addrName)
+		}
 		externalIPType = addrName // Use the address name as the type identifier
 	}
 
@@ -479,7 +495,7 @@ func (v *InstanceCreateView) extractConfig() gcp.InstanceCreateConfig {
 		ExternalIPType: externalIPType,
 		ExternalIPAddr: externalIPAddr,
 		InternalIP:     internalIP,
-	}
+	}, nil
 }
 
 // showConfirmation builds a diff viewer with the VM configuration summary.

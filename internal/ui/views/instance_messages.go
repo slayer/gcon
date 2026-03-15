@@ -26,7 +26,8 @@ type InstanceCreateRequestMsg struct {
 
 // CreateInstanceMsg carries the config to actually create the instance via the GCP API
 type CreateInstanceMsg struct {
-	Config gcp.InstanceCreateConfig
+	ProjectID string
+	Config    gcp.InstanceCreateConfig
 }
 
 // InstanceCreateResultMsg reports the outcome of the create operation

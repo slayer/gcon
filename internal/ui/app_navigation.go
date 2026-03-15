@@ -2791,11 +2791,9 @@ func (a *App) handleCreateInstance(msg views.CreateInstanceMsg) tea.Cmd {
 		computeClient = a.instanceCreateView.GetComputeClient()
 	}
 
-	projectID := ""
-	if a.selectedProject != nil {
-		projectID = a.selectedProject.ID
-	}
-
+	// Use the projectID captured at view-creation time, not a.selectedProject
+	// which could change if the user switches projects while the form is open
+	projectID := msg.ProjectID
 	config := msg.Config
 	return func() tea.Msg {
 		if computeClient == nil {

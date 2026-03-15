@@ -14,6 +14,9 @@ import (
 // ErrInvalidDiskSize is returned when the disk size is not positive.
 var ErrInvalidDiskSize = errors.New("disk size must be positive")
 
+// ErrStaticIPEmpty is returned when static IP mode is requested but no address was resolved.
+var ErrStaticIPEmpty = errors.New("static IP address is empty — address may not have been resolved")
+
 // Storage location options for snapshots and images
 var (
 	// ComputeMultiRegions contains multi-regional storage locations
@@ -1531,7 +1534,10 @@ func (c *ComputeClient) CreateInstance(ctx context.Context, projectID string, co
 	case "none", "":
 		// No external IP — internal only
 	default:
-		// Static reserved address — set the actual IP in NatIP
+		// Static reserved address — require a resolved IP
+		if config.ExternalIPAddr == "" {
+			return ErrStaticIPEmpty
+		}
 		nic.AccessConfigs = []*compute.AccessConfig{
 			{
 				Name:  "External NAT",

@@ -64,10 +64,10 @@ func TestBuildInstanceForm_EditMode(t *testing.T) {
 	require.NotNil(t, imageField)
 	assert.Equal(t, forms.FieldReadOnly, imageField.Type)
 
-	// Disk type is read-only in edit mode
-	diskTypeField := f.GetField("disk_type")
-	require.NotNil(t, diskTypeField)
-	assert.Equal(t, forms.FieldReadOnly, diskTypeField.Type)
+	// Disk interface is read-only in edit mode (shows SCSI/NVME, not pd-balanced)
+	diskIfField := f.GetField("disk_interface")
+	require.NotNil(t, diskIfField)
+	assert.Equal(t, forms.FieldReadOnly, diskIfField.Type)
 
 	// Disk size is still editable (can expand)
 	diskSizeField := f.GetField("disk_size_gb")

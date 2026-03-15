@@ -63,7 +63,10 @@ func buildInstanceForm(mode forms.FormMode, isEdit bool) *forms.Form {
 			SetRequired(true).
 			SetValidator(forms.ValidateNumber(10, 65536)).
 			SetHelpText("Can only increase, not decrease"))
-		diskSection.AddField(forms.NewReadOnlyField("disk_type", "Disk Type", ""))
+		// AttachedDisk API only provides the interface type (SCSI/NVME),
+		// not the persistent disk type (pd-balanced/pd-ssd). The actual disk
+		// type would require a separate Disks.Get call.
+		diskSection.AddField(forms.NewReadOnlyField("disk_interface", "Disk Interface", ""))
 	} else {
 		diskSection.AddField(forms.NewDropdownField("image", "Image").
 			SetRequired(true).
@@ -116,12 +119,17 @@ func buildInstanceForm(mode forms.FormMode, isEdit bool) *forms.Form {
 			}).
 			SetValue("auto").
 			SetHelpText("How the internal IP is assigned"))
-		// Custom internal IP — hidden until "Custom" is selected
+		// Custom internal IP — hidden until "Custom" is selected.
+		// Required so empty custom IP doesn't silently fall back to auto-assign.
 		netSection.AddField(forms.NewTextField("internal_ip", "Custom Internal IP").
 			SetHidden(true).
+			SetRequired(true).
 			SetPlaceholder("e.g., 10.128.0.50").
 			SetHelpText("Must be within the selected subnet CIDR range").
-			SetValidator(forms.ValidateIPAddress()))
+			SetValidator(forms.ComposeValidators(
+				forms.ValidateRequired,
+				forms.ValidateIPAddress(),
+			)))
 	}
 	f.AddSection(netSection)
 
@@ -221,12 +229,11 @@ func populateInstanceFormFromDetails(f *forms.Form, details *gcp.InstanceDetails
 			if field := f.GetField("disk_size_gb"); field != nil {
 				field.SetValue(disk.SizeGB)
 			}
-			if field := f.GetField("disk_type"); field != nil {
-				field.SetValue(disk.Type)
+			if field := f.GetField("disk_interface"); field != nil {
+				field.SetValue(disk.Type) // Interface type: SCSI/NVME
 			}
 			if field := f.GetField("image"); field != nil {
-				// In edit mode this is read-only, show the source disk name
-				field.SetValue(fmt.Sprintf("%s (%s)", disk.Name, disk.Type))
+				field.SetValue(disk.Name)
 			}
 			break
 		}
