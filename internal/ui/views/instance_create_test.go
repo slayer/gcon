@@ -14,6 +14,8 @@ import (
 )
 
 var errTestCreateFailed = errors.New("create failed")
+var errStaleZone = errors.New("stale zone error")
+var errCurrentZone = errors.New("current zone error")
 
 func TestInstanceCreateView_SetErrorResetsState(t *testing.T) {
 	v := NewInstanceCreateView("project-id", nil)
@@ -378,13 +380,15 @@ func TestInstanceCreateView_ConfirmShowsIPInfo(t *testing.T) {
 
 func TestInstanceCreateView_AddressesLoadedUpdatesDropdown(t *testing.T) {
 	v := NewInstanceCreateView("project-id", nil)
+	v.lastRegion = "us-central1" // must match so handler doesn't drop as stale
 
 	eipField := v.Form.GetField("external_ip")
 	require.NotNil(t, eipField)
 	assert.Len(t, eipField.Options, 2, "should start with ephemeral + none")
 
-	// Simulate addresses loaded
+	// Simulate addresses loaded for matching region
 	v.Update(instanceAddressesLoadedMsg{
+		region: "us-central1",
 		addresses: []gcp.StaticAddress{
 			{Name: "web-ip", Address: "35.1.2.3", AddressType: "EXTERNAL"},
 		},
@@ -392,6 +396,37 @@ func TestInstanceCreateView_AddressesLoadedUpdatesDropdown(t *testing.T) {
 
 	assert.Len(t, eipField.Options, 3, "should now have ephemeral + none + static")
 	assert.Equal(t, "static:web-ip", eipField.Options[2].Value)
+}
+
+func TestInstanceCreateView_StaleRegionResponseDropped(t *testing.T) {
+	v := NewInstanceCreateView("project-id", nil)
+	v.lastRegion = "europe-west1" // current region
+
+	// Stale response from a different region should be dropped
+	v.Update(instanceSubnetworksLoadedMsg{
+		region:  "us-central1",
+		subnets: []gcp.SubnetworkInfo{{Name: "stale-subnet", IPRange: "10.0.0.0/20", Network: "default"}},
+	})
+	assert.Nil(t, v.lastLoadedSubnets, "stale subnets should not be applied")
+
+	v.Update(instanceAddressesLoadedMsg{
+		region:    "us-central1",
+		addresses: []gcp.StaticAddress{{Name: "stale-ip", Address: "35.1.2.3"}},
+	})
+	assert.Nil(t, v.lastLoadedAddresses, "stale addresses should not be applied")
+}
+
+func TestInstanceCreateView_StaleZoneErrorDropped(t *testing.T) {
+	v := NewInstanceCreateView("project-id", nil)
+	v.lastZone = "europe-west1-b"
+
+	// Error from an old zone should not surface
+	v.Update(instanceMachineTypesErrorMsg{zone: "us-central1-a", err: errStaleZone})
+	assert.Nil(t, v.Err, "stale machine type error should be dropped")
+
+	// Error from current zone should surface
+	v.Update(instanceMachineTypesErrorMsg{zone: "europe-west1-b", err: errCurrentZone})
+	assert.ErrorIs(t, v.Err, errCurrentZone)
 }
 
 func TestInstanceCreateView_StaticIPUnresolvedError(t *testing.T) {
@@ -459,6 +494,36 @@ func TestInstanceCreateView_ConfirmPassesProjectID(t *testing.T) {
 		}
 		t.Fatal("CreateInstanceMsg not found in batch")
 	}
+}
+
+func TestRestoreDropdownSelection_NoMatch(t *testing.T) {
+	v := NewInstanceCreateView("project-id", nil)
+	v.lastRegion = "us-central1"
+
+	eipField := v.Form.GetField("external_ip")
+	require.NotNil(t, eipField)
+
+	// Select a static IP
+	eipField.SetOptions([]forms.Option{
+		{Value: "ephemeral", Label: "Ephemeral"},
+		{Value: "none", Label: "None"},
+		{Value: "static:old-ip", Label: "old-ip (35.1.2.3)"},
+	})
+	eipField.SetValue("static:old-ip")
+	assert.Equal(t, "static:old-ip", eipField.GetValue())
+
+	// New region has different addresses — old static IP gone
+	v.Update(instanceAddressesLoadedMsg{
+		region: "us-central1",
+		addresses: []gcp.StaticAddress{
+			{Name: "new-ip", Address: "35.5.6.7", AddressType: "EXTERNAL"},
+		},
+	})
+
+	// Should NOT silently select "static:new-ip" — should fall back to
+	// option[0] ("ephemeral") since old value doesn't exist in new options
+	val := eipField.GetValue()
+	assert.Equal(t, "ephemeral", val, "should fall back to first option, not silently remap")
 }
 
 func TestInstanceCreateView_CancelEmitsMessage(t *testing.T) {

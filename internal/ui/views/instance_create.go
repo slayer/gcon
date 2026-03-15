@@ -21,10 +21,19 @@ type instanceMachineTypesLoadedMsg struct {
 	zone  string
 	types []gcp.MachineType
 }
-type instanceMachineTypesErrorMsg struct{ err error }
+type instanceMachineTypesErrorMsg struct {
+	zone string
+	err  error
+}
 type instanceNetworksLoadedMsg struct{ networks []gcp.Network }
-type instanceSubnetworksLoadedMsg struct{ subnets []gcp.SubnetworkInfo }
-type instanceAddressesLoadedMsg struct{ addresses []gcp.StaticAddress }
+type instanceSubnetworksLoadedMsg struct {
+	region  string
+	subnets []gcp.SubnetworkInfo
+}
+type instanceAddressesLoadedMsg struct {
+	region    string
+	addresses []gcp.StaticAddress
+}
 
 // InstanceCreateView allows creating a new VM instance using a form.
 // Uses CreateViewBase for form/saving states, adds a confirmation diff step in between.
@@ -46,8 +55,9 @@ type InstanceCreateView struct {
 	lastLoadedSubnets    []gcp.SubnetworkInfo   // cached subnets for filtering by network
 	lastLoadedAddresses  []gcp.StaticAddress     // cached addresses for resolving static IP names
 
-	// Track current zone to detect changes and trigger machine type fetch
-	lastZone string
+	// Track current zone/region to detect changes and drop stale async responses
+	lastZone   string
+	lastRegion string
 	// Track current image to auto-fill disk size defaults
 	lastImage string
 }
@@ -141,6 +151,10 @@ func (v *InstanceCreateView) Update(msg tea.Msg) tea.Cmd {
 		return nil
 
 	case instanceMachineTypesErrorMsg:
+		// Drop stale errors from a zone the user has already navigated away from
+		if msg.zone != "" && msg.zone != v.lastZone {
+			return nil
+		}
 		v.loadingMachineZone = ""
 		v.SetError(msg.err)
 		return nil
@@ -150,30 +164,37 @@ func (v *InstanceCreateView) Update(msg tea.Msg) tea.Cmd {
 		// Only update options when fetch succeeded — nil means error, keep "default"
 		if msg.networks != nil {
 			if field := v.Form.GetField("network"); field != nil {
-				// Preserve current selection (e.g., "default") across option refresh
 				current := field.GetValue()
 				field.SetOptionsFromStrings(networkDropdownOptions(msg.networks))
-				if s, ok := current.(string); ok && s != "" {
-					field.SetValue(s)
-				}
+				// Only restore if the old value actually exists in new options;
+				// otherwise let the clamped index 0 stand to avoid silent remapping
+				restoreDropdownSelection(field, current)
 			}
 		}
 		return nil
 
 	case instanceSubnetworksLoadedMsg:
+		// Drop stale responses from a region the user has navigated away from
+		if msg.region != v.lastRegion {
+			return nil
+		}
 		v.lastLoadedSubnets = msg.subnets
 		v.filterSubnetsByNetwork()
 		return nil
 
 	case instanceAddressesLoadedMsg:
+		// Drop stale responses from a region the user has navigated away from
+		if msg.region != v.lastRegion {
+			return nil
+		}
 		v.lastLoadedAddresses = msg.addresses
 		if field := v.Form.GetField("external_ip"); field != nil {
-			// Preserve current selection across option refresh
 			current := field.GetValue()
 			field.SetOptions(externalIPDropdownOptions(msg.addresses))
-			if s, ok := current.(string); ok && s != "" {
-				field.SetValue(s)
-			}
+			// Only restore if the old value exists in new options (e.g., static
+			// IPs are region-scoped, so a previously selected static:addr may
+			// not exist after a region change)
+			restoreDropdownSelection(field, current)
 		}
 		return nil
 
@@ -236,6 +257,7 @@ func (v *InstanceCreateView) checkImageChange() {
 // onZoneChanged triggers machine type and subnetwork fetching for the selected zone.
 func (v *InstanceCreateView) onZoneChanged(zone string) tea.Cmd {
 	v.lastZone = zone
+	v.lastRegion = gcp.RegionFromZone(zone)
 	var cmds []tea.Cmd
 
 	// Load machine types (use cache if available, otherwise fetch even if
@@ -260,6 +282,29 @@ func (v *InstanceCreateView) onZoneChanged(zone string) tea.Cmd {
 		return tea.Batch(cmds...)
 	}
 	return nil
+}
+
+// restoreDropdownSelection re-applies a previously captured dropdown value after
+// SetOptions replaced the option list. Only calls SetValue when the old value
+// actually exists in the new options. When it doesn't match, explicitly selects
+// the first option to prevent the stale selectedIndex from silently mapping to
+// a different value in the new list.
+func restoreDropdownSelection(field *forms.Field, previous any) {
+	s, ok := previous.(string)
+	if !ok || s == "" {
+		return
+	}
+	for _, opt := range field.Options {
+		if opt.Value == s {
+			field.SetValue(s)
+			return
+		}
+	}
+	// Old value gone — explicitly select first option to prevent stale index
+	// from silently pointing at a different value in the new list
+	if len(field.Options) > 0 {
+		field.SetValue(field.Options[0].Value)
+	}
 }
 
 // onImageChanged updates the default disk size based on the selected image.
@@ -314,11 +359,11 @@ func (v *InstanceCreateView) filterSubnetsByNetwork() {
 func (v *InstanceCreateView) fetchMachineTypes(zone string) tea.Cmd {
 	return func() tea.Msg {
 		if v.computeClient == nil {
-			return instanceMachineTypesErrorMsg{err: uierrors.ErrClientNotInitialized}
+			return instanceMachineTypesErrorMsg{zone: zone, err: uierrors.ErrClientNotInitialized}
 		}
 		types, err := v.computeClient.ListMachineTypes(gocontext.Background(), v.projectID, zone)
 		if err != nil {
-			return instanceMachineTypesErrorMsg{err: err}
+			return instanceMachineTypesErrorMsg{zone: zone, err: err}
 		}
 		return instanceMachineTypesLoadedMsg{zone: zone, types: types}
 	}
@@ -341,28 +386,28 @@ func (v *InstanceCreateView) fetchNetworks() tea.Cmd {
 func (v *InstanceCreateView) fetchSubnetworks(region string) tea.Cmd {
 	return func() tea.Msg {
 		if v.computeClient == nil {
-			return instanceSubnetworksLoadedMsg{subnets: nil}
+			return instanceSubnetworksLoadedMsg{region: region, subnets: nil}
 		}
 		subnets, err := v.computeClient.ListSubnetworks(gocontext.Background(), v.projectID, region)
 		if err != nil {
 			// Non-fatal — auto-select will work for auto-mode networks
-			return instanceSubnetworksLoadedMsg{subnets: nil}
+			return instanceSubnetworksLoadedMsg{region: region, subnets: nil}
 		}
-		return instanceSubnetworksLoadedMsg{subnets: subnets}
+		return instanceSubnetworksLoadedMsg{region: region, subnets: subnets}
 	}
 }
 
 func (v *InstanceCreateView) fetchAddresses(region string) tea.Cmd {
 	return func() tea.Msg {
 		if v.computeClient == nil {
-			return instanceAddressesLoadedMsg{addresses: nil}
+			return instanceAddressesLoadedMsg{region: region, addresses: nil}
 		}
 		addresses, err := v.computeClient.ListAddresses(gocontext.Background(), v.projectID, region)
 		if err != nil {
 			// Non-fatal — keep base ephemeral/none options
-			return instanceAddressesLoadedMsg{addresses: nil}
+			return instanceAddressesLoadedMsg{region: region, addresses: nil}
 		}
-		return instanceAddressesLoadedMsg{addresses: addresses}
+		return instanceAddressesLoadedMsg{region: region, addresses: addresses}
 	}
 }
 
