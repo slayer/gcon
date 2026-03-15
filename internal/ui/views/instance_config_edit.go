@@ -19,6 +19,7 @@ import (
 
 var errNoConfigChanges = errors.New("no changes to apply")
 var errMachineTypeRequiresStopped = errors.New("instance must be stopped before changing machine type")
+var errDiskShrinkNotAllowed = errors.New("disk size can only be increased, not decreased")
 
 // instanceConfigEditState represents the view lifecycle
 type instanceConfigEditState int
@@ -39,9 +40,8 @@ type instanceConfigLoadErrorMsg struct{ err error }
 
 // instanceConfigEditKeyMap defines key bindings for the config edit view
 type instanceConfigEditKeyMap struct {
-	Cancel  key.Binding
-	Retry   key.Binding
-	Refresh key.Binding
+	Cancel key.Binding
+	Retry  key.Binding
 }
 
 func defaultInstanceConfigEditKeyMap() instanceConfigEditKeyMap {
@@ -53,10 +53,6 @@ func defaultInstanceConfigEditKeyMap() instanceConfigEditKeyMap {
 		Retry: key.NewBinding(
 			key.WithKeys("r"),
 			key.WithHelp("r", "retry"),
-		),
-		Refresh: key.NewBinding(
-			key.WithKeys("r"),
-			key.WithHelp("r", "refresh"),
 		),
 	}
 }
@@ -319,13 +315,24 @@ func (v *InstanceConfigEditView) showDiffPreview() tea.Cmd {
 		return nil
 	}
 
-	// Block machine type changes on running instances — the API will reject them anyway,
-	// but failing early gives a clearer error than a cryptic GCP 400 response
+	// Pre-submit validations that the form-level validators can't catch
+	// (they require comparing against the original instance state)
 	for _, f := range fields {
 		if f.Label == "Machine Type" && f.IsChanged() && v.original != nil && !v.original.IsStopped() {
 			v.err = fmt.Errorf("%w (current status: %s)", errMachineTypeRequiresStopped, v.original.Status)
 			v.state = instanceConfigEditStateForm
 			return nil
+		}
+		if f.Label == "Boot Disk Size (GB)" && f.IsChanged() && v.original != nil {
+			if newSize, ok := v.form.GetData()["disk_size_gb"].(int64); ok {
+				for _, disk := range v.original.Disks {
+					if disk.Boot && newSize < disk.SizeGB {
+						v.err = fmt.Errorf("%w (current: %d GB)", errDiskShrinkNotAllowed, disk.SizeGB)
+						v.state = instanceConfigEditStateForm
+						return nil
+					}
+				}
+			}
 		}
 	}
 

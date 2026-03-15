@@ -191,3 +191,67 @@ func TestInstanceConfigEditView_AllowsMachineTypeChangeOnStoppedInstance(t *test
 	assert.Equal(t, instanceConfigEditStateDiff, v.state)
 	assert.Nil(t, v.err)
 }
+
+func TestInstanceConfigEditView_BlocksDiskShrink(t *testing.T) {
+	v := NewInstanceConfigEditView("proj", "my-vm", "us-central1-a", nil)
+
+	v.original = &gcp.InstanceDetails{
+		Name:        "my-vm",
+		Zone:        "us-central1-a",
+		MachineType: "e2-medium",
+		Status:      "TERMINATED",
+		Disks: []gcp.DiskInfo{
+			{Name: "my-vm", SizeGB: 50, Type: "pd-balanced", Boot: true},
+		},
+	}
+
+	v.machineTypes = []gcp.MachineType{
+		{Name: "e2-medium", Description: "2 vCPU, 4 GB RAM"},
+	}
+	v.buildForm()
+	v.populateForm()
+
+	// Try to shrink disk from 50 to 20 GB
+	diskField := v.form.GetField("disk_size_gb")
+	require.NotNil(t, diskField)
+	diskField.SetValue(int64(20))
+
+	cmd := v.showDiffPreview()
+	assert.Nil(t, cmd)
+	assert.Equal(t, instanceConfigEditStateForm, v.state)
+	require.NotNil(t, v.err)
+	assert.ErrorIs(t, v.err, errDiskShrinkNotAllowed)
+	assert.Contains(t, v.err.Error(), "50")
+}
+
+func TestInstanceConfigEditView_AllowsDiskExpand(t *testing.T) {
+	v := NewInstanceConfigEditView("proj", "my-vm", "us-central1-a", nil)
+
+	v.original = &gcp.InstanceDetails{
+		Name:        "my-vm",
+		Zone:        "us-central1-a",
+		MachineType: "e2-medium",
+		Status:      "TERMINATED",
+		Disks: []gcp.DiskInfo{
+			{Name: "my-vm", SizeGB: 20, Type: "pd-balanced", Boot: true},
+		},
+	}
+
+	v.machineTypes = []gcp.MachineType{
+		{Name: "e2-medium", Description: "2 vCPU, 4 GB RAM"},
+	}
+	v.buildForm()
+	v.populateForm()
+	v.width = 80
+	v.height = 40
+
+	// Expand disk from 20 to 50 GB
+	diskField := v.form.GetField("disk_size_gb")
+	require.NotNil(t, diskField)
+	diskField.SetValue(int64(50))
+
+	cmd := v.showDiffPreview()
+	assert.Nil(t, cmd)
+	assert.Equal(t, instanceConfigEditStateDiff, v.state)
+	assert.Nil(t, v.err)
+}

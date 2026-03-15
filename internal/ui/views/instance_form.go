@@ -58,7 +58,7 @@ func buildInstanceForm(mode forms.FormMode, isEdit bool) *forms.Form {
 	// Section 3: Boot Disk
 	diskSection := forms.NewSection("disk", "Boot Disk")
 	if isEdit {
-		diskSection.AddField(forms.NewReadOnlyField("image", "Image", ""))
+		diskSection.AddField(forms.NewReadOnlyField("image", "Boot Disk", ""))
 		diskSection.AddField(forms.NewNumberField("disk_size_gb", "Disk Size (GB)").
 			SetRequired(true).
 			SetValidator(forms.ValidateNumber(10, 65536)).
