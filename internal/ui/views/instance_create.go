@@ -255,10 +255,23 @@ func (v *InstanceCreateView) checkImageChange() {
 }
 
 // onZoneChanged triggers machine type and subnetwork fetching for the selected zone.
+// Clears stale region-scoped data immediately so the form can't submit old
+// subnets/addresses while the new fetches are in flight.
 func (v *InstanceCreateView) onZoneChanged(zone string) tea.Cmd {
 	v.lastZone = zone
 	v.lastRegion = gcp.RegionFromZone(zone)
 	var cmds []tea.Cmd
+
+	// Clear stale region data before refetching
+	v.lastLoadedSubnets = nil
+	v.lastLoadedAddresses = nil
+	if field := v.Form.GetField("subnetwork"); field != nil {
+		field.SetOptions(nil)
+	}
+	if field := v.Form.GetField("external_ip"); field != nil {
+		field.SetOptions(externalIPDropdownOptions(nil))
+		field.SetValue("ephemeral")
+	}
 
 	// Load machine types (use cache if available, otherwise fetch even if
 	// another zone fetch is in flight — its result will be cached but ignored
@@ -353,6 +366,10 @@ func (v *InstanceCreateView) filterSubnetsByNetwork() {
 	field.SetOptions(subnetworkDropdownOptions(filtered))
 	if len(filtered) > 0 {
 		field.SetValue(filtered[0].Name)
+	} else {
+		// No matching subnets — clear stale selection to prevent submitting
+		// a subnet from a different network/region.
+		field.SetValue("")
 	}
 }
 

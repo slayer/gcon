@@ -526,6 +526,75 @@ func TestRestoreDropdownSelection_NoMatch(t *testing.T) {
 	assert.Equal(t, "ephemeral", val, "should fall back to first option, not silently remap")
 }
 
+func TestInstanceCreateView_ZoneChangeClearsStaleData(t *testing.T) {
+	v := NewInstanceCreateView("project-id", nil)
+
+	// Simulate loaded subnets and addresses from a previous zone
+	v.lastLoadedSubnets = []gcp.SubnetworkInfo{
+		{Name: "old-subnet", IPRange: "10.0.0.0/24", Network: "default"},
+	}
+	v.lastLoadedAddresses = []gcp.StaticAddress{
+		{Name: "old-ip", Address: "35.1.2.3", AddressType: "EXTERNAL"},
+	}
+
+	// Set subnet and external_ip to stale values
+	if f := v.Form.GetField("subnetwork"); f != nil {
+		f.SetOptions(subnetworkDropdownOptions(v.lastLoadedSubnets))
+		f.SetValue("old-subnet")
+	}
+	if f := v.Form.GetField("external_ip"); f != nil {
+		f.SetOptions(externalIPDropdownOptions(v.lastLoadedAddresses))
+		f.SetValue("static:old-ip")
+	}
+
+	// Zone change should clear stale data immediately
+	_ = v.onZoneChanged("europe-west1-b")
+
+	assert.Nil(t, v.lastLoadedSubnets, "cached subnets should be cleared")
+	assert.Nil(t, v.lastLoadedAddresses, "cached addresses should be cleared")
+
+	// Subnetwork dropdown should have no options
+	if f := v.Form.GetField("subnetwork"); f != nil {
+		assert.Empty(t, f.Options, "subnetwork options should be cleared")
+	}
+
+	// External IP dropdown should be reset to base options with ephemeral selected
+	if f := v.Form.GetField("external_ip"); f != nil {
+		assert.Len(t, f.Options, 2, "should have only ephemeral + none")
+		assert.Equal(t, "ephemeral", f.GetValue())
+	}
+}
+
+func TestInstanceCreateView_FilterSubnetsClearsOnNoMatch(t *testing.T) {
+	v := NewInstanceCreateView("project-id", nil)
+
+	// Cache subnets that belong to "other-vpc" only
+	v.lastLoadedSubnets = []gcp.SubnetworkInfo{
+		{Name: "other-subnet", IPRange: "10.1.0.0/24", Network: "other-vpc"},
+	}
+
+	// Set network to "default" — no subnets match
+	if f := v.Form.GetField("network"); f != nil {
+		f.SetOptionsFromStrings([]string{"default", "other-vpc"})
+		f.SetValue("default")
+	}
+
+	// Pre-set subnetwork to a stale value
+	if f := v.Form.GetField("subnetwork"); f != nil {
+		f.SetOptions(subnetworkDropdownOptions(v.lastLoadedSubnets))
+		f.SetValue("other-subnet")
+	}
+
+	v.filterSubnetsByNetwork()
+
+	// Should clear the stale value since no subnets match "default"
+	if f := v.Form.GetField("subnetwork"); f != nil {
+		assert.Empty(t, f.Options, "no subnets should match 'default' network")
+		val := f.GetValue()
+		assert.Equal(t, "", val, "stale subnet value should be cleared")
+	}
+}
+
 func TestInstanceCreateView_CancelEmitsMessage(t *testing.T) {
 	v := NewInstanceCreateView("project-id", nil)
 
