@@ -17,9 +17,9 @@ import (
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/actionmenu"
-	"github.com/slayer/gcon/internal/ui/components/metricchart"
 	"github.com/slayer/gcon/internal/ui/components/confirm"
 	"github.com/slayer/gcon/internal/ui/components/links"
+	"github.com/slayer/gcon/internal/ui/components/metricchart"
 	"github.com/slayer/gcon/internal/ui/components/tabs"
 	"github.com/slayer/gcon/internal/ui/context"
 	uierrors "github.com/slayer/gcon/internal/ui/errors"
@@ -142,6 +142,9 @@ type InstanceDetailsView struct {
 	autoRefreshTicker *time.Ticker
 	autoRefreshDone   chan struct{} // closed to unblock tickAutoRefresh goroutine
 	gcpClient         *gcp.Client
+	// Stop confirmation state
+	stopConfirm     *confirm.ConfirmDialog
+	showStopConfirm bool
 	// Delete confirmation state
 	deleteConfirm     *confirm.TypeConfirmDialog
 	showDeleteConfirm bool
@@ -153,6 +156,7 @@ type InstanceDetailsView struct {
 type instanceDetailsKeyMap struct {
 	Up         key.Binding
 	Down       key.Binding
+	Edit       key.Binding
 	Start      key.Binding
 	Stop       key.Binding
 	Suspend    key.Binding
@@ -172,6 +176,10 @@ func defaultInstanceDetailsKeyMap() instanceDetailsKeyMap {
 		Down: key.NewBinding(
 			key.WithKeys("down", "j"),
 			key.WithHelp("↓/j", "down"),
+		),
+		Edit: key.NewBinding(
+			key.WithKeys("e"),
+			key.WithHelp("e", "edit config"),
 		),
 		Start: key.NewBinding(
 			key.WithKeys("s"),
@@ -363,6 +371,20 @@ func (v *InstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 		v.menuOpen = false
 		return nil
 
+	case confirm.ConfirmMsg:
+		// Stop confirmation accepted
+		v.showStopConfirm = false
+		if v.details != nil && v.isInstanceRunning() {
+			v.actionLoading = true
+			v.actionMsg = fmt.Sprintf("Stopping %s...", v.instanceName)
+			return tea.Batch(v.spinner.Tick, v.stopInstance())
+		}
+		return nil
+
+	case confirm.CancelMsg:
+		v.showStopConfirm = false
+		return nil
+
 	case confirm.TypeConfirmMsg:
 		v.showDeleteConfirm = false
 		if v.details != nil {
@@ -442,6 +464,11 @@ func (v *InstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 		return nil
 
 	case tea.KeyMsg:
+		// Route to stop confirmation dialog when shown
+		if v.showStopConfirm && v.stopConfirm != nil {
+			return v.stopConfirm.Update(msg)
+		}
+
 		// Route to delete confirmation dialog when shown
 		if v.showDeleteConfirm && v.deleteConfirm != nil {
 			return v.deleteConfirm.Update(msg)
@@ -558,9 +585,7 @@ func (v *InstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 
 		case key.Matches(msg, v.keys.Stop):
 			if v.details != nil && v.isInstanceRunning() {
-				v.actionLoading = true
-				v.actionMsg = fmt.Sprintf("Stopping %s...", v.instanceName)
-				return tea.Batch(v.spinner.Tick, v.stopInstance())
+				return v.showStopConfirmationDialog()
 			}
 
 		case key.Matches(msg, v.keys.Reset):
@@ -584,6 +609,17 @@ func (v *InstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 				return tea.Batch(v.spinner.Tick, v.resumeInstance())
 			}
 
+		case key.Matches(msg, v.keys.Edit):
+			if v.details != nil {
+				return func() tea.Msg {
+					return InstanceConfigEditRequestMsg{
+						ProjectID:    v.projectID,
+						InstanceName: v.instanceName,
+						Zone:         v.zone,
+					}
+				}
+			}
+
 		case key.Matches(msg, v.keys.Delete):
 			if v.details != nil {
 				return v.showDeleteConfirmation()
@@ -603,6 +639,7 @@ func (v *InstanceDetailsView) buildActions() []actionmenu.Action {
 	isProtected := v.details != nil && v.details.DeletionProtection
 
 	return []actionmenu.Action{
+		{Key: 'e', Label: "Edit Configuration", Enabled: true},
 		{Key: 's', Label: "Start", Enabled: isStopped},
 		{Key: 'x', Label: "Stop", Enabled: isRunning},
 		{Key: 'z', Label: "Suspend", Enabled: isRunning},
@@ -622,6 +659,14 @@ func (v *InstanceDetailsView) executeAction(actionKey rune) tea.Cmd {
 	}
 
 	switch actionKey {
+	case 'e':
+		return func() tea.Msg {
+			return InstanceConfigEditRequestMsg{
+				ProjectID:    v.projectID,
+				InstanceName: v.instanceName,
+				Zone:         v.zone,
+			}
+		}
 	case 's':
 		if v.isInstanceStopped() {
 			v.actionLoading = true
@@ -630,9 +675,7 @@ func (v *InstanceDetailsView) executeAction(actionKey rune) tea.Cmd {
 		}
 	case 'x':
 		if v.isInstanceRunning() {
-			v.actionLoading = true
-			v.actionMsg = fmt.Sprintf("Stopping %s...", v.instanceName)
-			return tea.Batch(v.spinner.Tick, v.stopInstance())
+			return v.showStopConfirmationDialog()
 		}
 	case 'z':
 		if v.isInstanceRunning() {
@@ -724,6 +767,24 @@ func (v *InstanceDetailsView) resumeInstance() tea.Cmd {
 		err := v.computeClient.ResumeInstance(gocontext.Background(), v.projectID, v.zone, v.instanceName)
 		return instanceActionMsg{action: "Resume", instance: v.instanceName, err: err}
 	}
+}
+
+// showStopConfirmationDialog creates and shows the stop confirmation dialog
+func (v *InstanceDetailsView) showStopConfirmationDialog() tea.Cmd {
+	if v.details == nil {
+		return nil
+	}
+
+	v.stopConfirm = confirm.New(
+		"Stop Instance",
+		fmt.Sprintf("Are you sure you want to stop instance %q?", v.instanceName),
+		[]string{
+			fmt.Sprintf("Zone: %s", v.zone),
+			fmt.Sprintf("Machine type: %s", v.details.MachineType),
+		},
+	)
+	v.showStopConfirm = true
+	return v.stopConfirm.Init()
 }
 
 // showDeleteConfirmation creates and shows the delete confirmation dialog
@@ -936,6 +997,11 @@ func (v *InstanceDetailsView) View() string {
 		return v.renderWithOverlay(mainContent, v.actionMenu.View())
 	}
 
+	// Overlay stop confirmation if shown
+	if v.showStopConfirm && v.stopConfirm != nil {
+		return v.renderWithOverlay(mainContent, v.stopConfirm.View())
+	}
+
 	// Overlay delete confirmation if shown
 	if v.showDeleteConfirm && v.deleteConfirm != nil {
 		return v.renderWithOverlay(mainContent, v.deleteConfirm.View())
@@ -961,7 +1027,7 @@ func (v *InstanceDetailsView) SetContext(ctx *context.ProgramContext) {
 
 // IsMenuOpen returns true if the action menu or delete confirm is open
 func (v *InstanceDetailsView) IsMenuOpen() bool {
-	return v.menuOpen || v.showDeleteConfirm
+	return v.menuOpen || v.showStopConfirm || v.showDeleteConfirm
 }
 
 // HasTextInputFocused returns true if the delete confirm input is active.
@@ -1542,7 +1608,6 @@ func formatMaintenance(m string) string {
 		return defaultIfEmpty(m, "—")
 	}
 }
-
 
 var diskSourceRegex = regexp.MustCompile(`projects/[^/]+/zones/([^/]+)/disks/([^/]+)`)
 

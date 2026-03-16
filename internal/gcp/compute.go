@@ -2,12 +2,20 @@ package gcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"google.golang.org/api/compute/v1"
 	"google.golang.org/api/option"
 )
+
+// ErrInvalidDiskSize is returned when the disk size is not positive.
+var ErrInvalidDiskSize = errors.New("disk size must be positive")
+
+// ErrStaticIPEmpty is returned when static IP mode is requested but no address was resolved.
+var ErrStaticIPEmpty = errors.New("static IP address is empty — address may not have been resolved")
 
 // Storage location options for snapshots and images
 var (
@@ -634,6 +642,11 @@ func (i *Instance) IsRunning() bool {
 // IsStopped returns true if the instance is in TERMINATED or STOPPED state
 func (i *Instance) IsStopped() bool {
 	return i.Status == "TERMINATED" || i.Status == "STOPPED"
+}
+
+// IsStopped returns true if the instance is in TERMINATED or STOPPED state
+func (d *InstanceDetails) IsStopped() bool {
+	return d.Status == "TERMINATED" || d.Status == "STOPPED"
 }
 
 // IsSuspended returns true if the instance is in SUSPENDED state
@@ -1345,4 +1358,325 @@ func (c *ComputeClient) SetProjectMetadata(ctx context.Context, projectID string
 	}
 
 	return nil
+}
+
+// InstanceCreateConfig holds parameters for creating a new VM instance
+type InstanceCreateConfig struct {
+	Name           string
+	Zone           string
+	MachineType    string // Short name like "e2-medium" or full URL
+	ImageProject   string // e.g., "debian-cloud"
+	ImageFamily    string // e.g., "debian-12"
+	DiskSizeGB     int64
+	DiskType       string // "pd-balanced", "pd-standard", "pd-ssd"
+	Network        string // Network name, defaults to "default"
+	Subnetwork     string // Subnetwork name, can be empty for auto-mode networks
+	ExternalIPType string // "none", "ephemeral", or a reserved address name
+	ExternalIPAddr string // The actual IP when using a static address
+	InternalIP     string // Empty = auto-assign, otherwise a specific IP from the subnet CIDR
+}
+
+// MachineType represents an available machine type in a zone
+type MachineType struct {
+	Name        string // "e2-medium"
+	Description string // "Efficient Instance, 2 vCPUs, 4 GB RAM"
+	CPUs        int64
+	MemoryMB    int64
+}
+
+// SubnetworkInfo represents a subnetwork with extracted fields
+type SubnetworkInfo struct {
+	Name    string
+	Region  string
+	IPRange string
+	Network string // Network name extracted from full URL
+}
+
+// StaticAddress represents a reserved IP address (external or internal)
+type StaticAddress struct {
+	Name        string // "my-static-ip"
+	Address     string // The actual IP address, e.g. "35.192.0.1"
+	AddressType string // "INTERNAL" or "EXTERNAL"
+	Status      string // "RESERVED" or "IN_USE"
+	Region      string
+	Subnetwork  string // For internal addresses
+}
+
+// BootDiskImage represents a curated OS image for VM creation
+type BootDiskImage struct {
+	Label         string // "Debian 12 (Bookworm)"
+	Project       string // "debian-cloud"
+	Family        string // "debian-12"
+	DefaultSizeGB int64  // Minimum recommended disk size
+}
+
+// DiskTypeOption represents an available persistent disk type
+type DiskTypeOption struct {
+	Value string // "pd-balanced"
+	Label string // "Balanced persistent disk (pd-balanced)"
+}
+
+// Curated list of popular OS images — covers the most common choices in GCP Console
+var BootDiskImages = []BootDiskImage{
+	{Label: "Debian 12 (Bookworm)", Project: "debian-cloud", Family: "debian-12", DefaultSizeGB: 10},
+	{Label: "Debian 11 (Bullseye)", Project: "debian-cloud", Family: "debian-11", DefaultSizeGB: 10},
+	{Label: "Ubuntu 24.04 LTS", Project: "ubuntu-os-cloud", Family: "ubuntu-2404-lts-amd64", DefaultSizeGB: 10},
+	{Label: "Ubuntu 22.04 LTS", Project: "ubuntu-os-cloud", Family: "ubuntu-2204-lts", DefaultSizeGB: 10},
+	{Label: "CentOS Stream 9", Project: "centos-cloud", Family: "centos-stream-9", DefaultSizeGB: 20},
+	{Label: "Rocky Linux 9", Project: "rocky-linux-cloud", Family: "rocky-linux-9", DefaultSizeGB: 20},
+	{Label: "RHEL 9", Project: "rhel-cloud", Family: "rhel-9", DefaultSizeGB: 20},
+	{Label: "Windows Server 2022", Project: "windows-cloud", Family: "windows-2022", DefaultSizeGB: 50},
+	{Label: "Container-Optimized OS (cos)", Project: "cos-cloud", Family: "cos-stable", DefaultSizeGB: 10},
+}
+
+// DiskTypes lists the standard persistent disk types for VM creation
+var DiskTypes = []DiskTypeOption{
+	{Value: "pd-balanced", Label: "Balanced persistent disk (pd-balanced)"},
+	{Value: "pd-standard", Label: "Standard persistent disk (pd-standard)"},
+	{Value: "pd-ssd", Label: "SSD persistent disk (pd-ssd)"},
+}
+
+// FormatMachineTypeDescription builds a human-readable description from CPU/memory specs
+func FormatMachineTypeDescription(cpus, memoryMB int64) string {
+	memoryGB := float64(memoryMB) / 1024
+	// Use integer display when memory is a whole number of GB
+	if memoryMB%1024 == 0 {
+		return fmt.Sprintf("%d vCPU, %d GB RAM", cpus, int64(memoryGB))
+	}
+	return fmt.Sprintf("%d vCPU, %.1f GB RAM", cpus, memoryGB)
+}
+
+// ListAddresses returns reserved static IP addresses for a region.
+// Only RESERVED (unattached) addresses are returned, sorted by name.
+func (c *ComputeClient) ListAddresses(ctx context.Context, projectID, region string) ([]StaticAddress, error) {
+	var addresses []StaticAddress
+
+	req := c.service.Addresses.List(projectID, region).
+		Filter("status = \"RESERVED\"").
+		Context(ctx)
+
+	err := req.Pages(ctx, func(page *compute.AddressList) error {
+		for _, addr := range page.Items {
+			addresses = append(addresses, StaticAddress{
+				Name:        addr.Name,
+				Address:     addr.Address,
+				AddressType: addr.AddressType,
+				Status:      addr.Status,
+				Region:      region,
+				Subnetwork:  lastSegment(addr.Subnetwork),
+			})
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, WrapActionError(err, "list addresses", region)
+	}
+
+	sort.Slice(addresses, func(i, j int) bool {
+		return addresses[i].Name < addresses[j].Name
+	})
+
+	return addresses, nil
+}
+
+// CreateInstance creates a new VM instance with the given configuration
+func (c *ComputeClient) CreateInstance(ctx context.Context, projectID string, config InstanceCreateConfig) error {
+	// Catch invalid disk size before making the API call
+	if config.DiskSizeGB <= 0 {
+		return fmt.Errorf("%w: got %d", ErrInvalidDiskSize, config.DiskSizeGB)
+	}
+
+	// Build machine type URL from short name if needed
+	machineType := config.MachineType
+	if !strings.Contains(machineType, "/") {
+		machineType = fmt.Sprintf("zones/%s/machineTypes/%s", config.Zone, config.MachineType)
+	}
+
+	// Boot disk image from family — family ensures we get the latest image
+	sourceImage := fmt.Sprintf("projects/%s/global/images/family/%s", config.ImageProject, config.ImageFamily)
+
+	// Disk type URL
+	diskType := fmt.Sprintf("zones/%s/diskTypes/%s", config.Zone, config.DiskType)
+
+	// Network defaults to "default" if not specified
+	network := config.Network
+	if network == "" {
+		network = "default"
+	}
+	networkURL := fmt.Sprintf("projects/%s/global/networks/%s", projectID, network)
+
+	// Build network interface
+	nic := &compute.NetworkInterface{
+		Network: networkURL,
+	}
+
+	// Subnetwork is optional — auto-mode networks select it automatically
+	if config.Subnetwork != "" {
+		// Extract region from zone (e.g., "us-central1-a" -> "us-central1")
+		region := RegionFromZone(config.Zone)
+		nic.Subnetwork = fmt.Sprintf("projects/%s/regions/%s/subnetworks/%s", projectID, region, config.Subnetwork)
+	}
+
+	// Custom internal IP from subnet CIDR
+	if config.InternalIP != "" {
+		nic.NetworkIP = config.InternalIP
+	}
+
+	// External IP: ephemeral, static, or none
+	switch config.ExternalIPType {
+	case "ephemeral":
+		nic.AccessConfigs = []*compute.AccessConfig{
+			{
+				Name: "External NAT",
+				Type: "ONE_TO_ONE_NAT",
+			},
+		}
+	case "none", "":
+		// No external IP — internal only
+	default:
+		// Static reserved address — require a resolved IP
+		if config.ExternalIPAddr == "" {
+			return ErrStaticIPEmpty
+		}
+		nic.AccessConfigs = []*compute.AccessConfig{
+			{
+				Name:  "External NAT",
+				Type:  "ONE_TO_ONE_NAT",
+				NatIP: config.ExternalIPAddr,
+			},
+		}
+	}
+
+	instance := &compute.Instance{
+		Name:        config.Name,
+		MachineType: machineType,
+		Disks: []*compute.AttachedDisk{
+			{
+				Boot:       true,
+				AutoDelete: true,
+				InitializeParams: &compute.AttachedDiskInitializeParams{
+					SourceImage:     sourceImage,
+					DiskSizeGb:      config.DiskSizeGB,
+					DiskType:        diskType,
+					ForceSendFields: []string{"DiskSizeGb"},
+				},
+			},
+		},
+		NetworkInterfaces: []*compute.NetworkInterface{nic},
+	}
+
+	_, err := c.service.Instances.Insert(projectID, config.Zone, instance).Context(ctx).Do()
+	if err != nil {
+		return WrapActionError(err, "create instance", config.Name)
+	}
+	return nil
+}
+
+// SetMachineType changes the machine type of a stopped instance.
+// The API enforces that the instance must be stopped — no pre-check needed.
+func (c *ComputeClient) SetMachineType(ctx context.Context, projectID, zone, instanceName, machineType string) error {
+	// Accept short name or full URL
+	mt := machineType
+	if !strings.Contains(mt, "/") {
+		mt = fmt.Sprintf("zones/%s/machineTypes/%s", zone, machineType)
+	}
+
+	req := &compute.InstancesSetMachineTypeRequest{
+		MachineType: mt,
+	}
+
+	_, err := c.service.Instances.SetMachineType(projectID, zone, instanceName, req).Context(ctx).Do()
+	if err != nil {
+		return WrapActionError(err, "set machine type", instanceName)
+	}
+	return nil
+}
+
+// ResizeBootDisk increases the size of a persistent disk.
+// The API enforces that the new size must be larger — no pre-check needed.
+func (c *ComputeClient) ResizeBootDisk(ctx context.Context, projectID, zone, diskName string, sizeGB int64) error {
+	req := &compute.DisksResizeRequest{
+		SizeGb:          sizeGB,
+		ForceSendFields: []string{"SizeGb"},
+	}
+
+	_, err := c.service.Disks.Resize(projectID, zone, diskName, req).Context(ctx).Do()
+	if err != nil {
+		return WrapActionError(err, "resize disk", diskName)
+	}
+	return nil
+}
+
+// ListMachineTypes returns available machine types in a zone, sorted by name
+func (c *ComputeClient) ListMachineTypes(ctx context.Context, projectID, zone string) ([]MachineType, error) {
+	var machineTypes []MachineType
+
+	req := c.service.MachineTypes.List(projectID, zone)
+	err := req.Pages(ctx, func(page *compute.MachineTypeList) error {
+		for _, mt := range page.Items {
+			machineTypes = append(machineTypes, MachineType{
+				Name:        mt.Name,
+				Description: FormatMachineTypeDescription(mt.GuestCpus, mt.MemoryMb),
+				CPUs:        mt.GuestCpus,
+				MemoryMB:    mt.MemoryMb,
+			})
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, WrapListError(err, "machine types", zone)
+	}
+
+	sort.Slice(machineTypes, func(i, j int) bool {
+		return machineTypes[i].Name < machineTypes[j].Name
+	})
+
+	return machineTypes, nil
+}
+
+// ListSubnetworks returns subnetworks in a region with network name extracted from URL
+func (c *ComputeClient) ListSubnetworks(ctx context.Context, projectID, region string) ([]SubnetworkInfo, error) {
+	var subnets []SubnetworkInfo
+
+	req := c.service.Subnetworks.List(projectID, region)
+	err := req.Pages(ctx, func(page *compute.SubnetworkList) error {
+		for _, s := range page.Items {
+			subnets = append(subnets, SubnetworkInfo{
+				Name:    s.Name,
+				Region:  region,
+				IPRange: s.IpCidrRange,
+				Network: extractName(s.Network),
+			})
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, WrapListError(err, "subnetworks", region)
+	}
+
+	// Consistent ordering for UI display, matching ListMachineTypes pattern
+	sort.Slice(subnets, func(i, j int) bool {
+		return subnets[i].Name < subnets[j].Name
+	})
+
+	return subnets, nil
+}
+
+// RegionFromZone extracts region from a zone name (e.g., "us-central1-a" -> "us-central1")
+func RegionFromZone(zone string) string {
+	lastDash := strings.LastIndex(zone, "-")
+	if lastDash == -1 {
+		return zone
+	}
+	return zone[:lastDash]
+}
+
+// lastSegment extracts the last path segment from a GCP resource URL.
+// e.g., "projects/p/regions/r/subnetworks/my-subnet" → "my-subnet"
+func lastSegment(url string) string {
+	if url == "" {
+		return ""
+	}
+	parts := strings.Split(url, "/")
+	return parts[len(parts)-1]
 }

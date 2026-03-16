@@ -606,4 +606,3 @@ func (o *cloudRunObservability) filteredLogs() []gcp.LogEntry {
 	}
 	return result
 }
-

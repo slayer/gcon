@@ -205,7 +205,19 @@ On developing or updating a new feature keep in mind the following guidelines:
 - [x] Compute Engine disk details view
 - [x] Compute Engine disk images list
 - [x] Compute Engine image details view
-- [x] Instance actions (start/stop/reset)
+- [x] Instance actions (start/stop/reset/suspend/resume/delete)
+- [x] Create new VM instances with form-based UI
+  - Zone selection with dynamic machine type loading (cached per zone)
+  - Curated boot disk images (Debian, Ubuntu, CentOS, Rocky, RHEL, Windows, COS)
+  - Disk type selection (pd-balanced/pd-standard/pd-ssd)
+  - Network and subnetwork selection (dynamically loaded)
+  - External IP configuration (ephemeral/none)
+  - Custom machine type support
+- [x] Edit existing VM instance configuration
+  - Machine type changes (with stopped-instance warning)
+  - Boot disk resize (expand only)
+  - Diff preview before applying changes
+  - Sequential API calls with partial failure reporting
 - [x] View navigation with breadcrumbs
 - [x] Loading states with spinners
 - [x] Error handling with retry

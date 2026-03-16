@@ -377,20 +377,7 @@ func (f *Form) scrollToFocused() {
 
 	// When action bar is focused, scroll to the bottom of content
 	if f.focusedOnActions {
-		// Calculate total content height and scroll to bottom
-		totalLines := 0
-		for _, section := range f.sections {
-			if section.Collapsed {
-				totalLines += 2
-			} else {
-				headerLines := 2
-				if section.Description != "" {
-					headerLines++
-				}
-				totalLines += headerLines + len(section.Fields())*4
-			}
-		}
-		// Scroll to show the bottom of content (action bar is rendered below viewport)
+		totalLines := f.estimateSectionLines()
 		maxOffset := totalLines - f.viewport.Height
 		if maxOffset > 0 {
 			f.viewport.SetYOffset(maxOffset)
@@ -398,35 +385,50 @@ func (f *Form) scrollToFocused() {
 		return
 	}
 
-	// Calculate the line position of the focused field
+	// Calculate the line position of the focused field.
+	// Section.View() renders extra lines beyond field heights:
+	//   - expanded section: +2 (Container MarginBottom + trailing newline)
+	//   - collapsed section: +1 (trailing newline)
 	linePos := 0
 	for i, section := range f.sections {
-		// Section header takes ~2-3 lines
 		sectionHeaderLines := 2
 		if section.Description != "" {
 			sectionHeaderLines++
 		}
 
 		if i == f.focusSectionIdx {
-			// Found the focused section
 			linePos += sectionHeaderLines
 
-			// Add lines for fields before the focused one
+			// Use actual field heights (accounts for open dropdowns)
 			focusedFieldIdx := section.FocusedFieldIndex()
-			for j := 0; j < focusedFieldIdx && j < len(section.Fields()); j++ {
-				// Each field takes ~3-4 lines (label, input, help/error, margin)
-				linePos += 4
+			for j, field := range section.Fields() {
+				if j >= focusedFieldIdx {
+					break
+				}
+				linePos += field.EstimatedHeight()
 			}
 			break
 		}
 
-		// Add all lines for this section
 		if section.Collapsed {
-			linePos += 2 // Just the header
+			linePos += 3 // title + 2 trailing newlines
 		} else {
-			linePos += sectionHeaderLines + len(section.Fields())*4
+			linePos += sectionHeaderLines
+			for _, field := range section.Fields() {
+				linePos += field.EstimatedHeight()
+			}
+			linePos += 2 // section Container MarginBottom + trailing newline
 		}
 	}
+
+	// Get focused field height to ensure bottom (e.g. open dropdown) is visible
+	fieldHeight := 4
+	if f.focusSectionIdx < len(f.sections) {
+		if ff := f.sections[f.focusSectionIdx].FocusedField(); ff != nil {
+			fieldHeight = ff.EstimatedHeight()
+		}
+	}
+	fieldBottom := linePos + fieldHeight
 
 	// Scroll viewport to show the focused field with some padding
 	viewportHeight := f.viewport.Height
@@ -440,6 +442,58 @@ func (f *Form) scrollToFocused() {
 	if linePos > currentTop+viewportHeight-4 {
 		f.viewport.SetYOffset(linePos - viewportHeight + 6)
 	}
+	// If field bottom (e.g. open dropdown) extends below viewport, scroll down
+	// but don't push field top out of view. Re-read offset since prior checks may have changed it.
+	currentTop = f.viewport.YOffset
+	if fieldBottom > currentTop+viewportHeight {
+		newOffset := fieldBottom - viewportHeight + 1
+		if newOffset > linePos {
+			newOffset = linePos
+		}
+		f.viewport.SetYOffset(newOffset)
+	}
+}
+
+// bottomPaddingForFocusedField returns extra lines needed so the focused field's
+// bottom (e.g. an open dropdown) can scroll into view. Returns 0 when the
+// existing content below the field is sufficient.
+func (f *Form) bottomPaddingForFocusedField() int {
+	if f.focusSectionIdx >= len(f.sections) {
+		return 0
+	}
+	ff := f.sections[f.focusSectionIdx].FocusedField()
+	if ff == nil {
+		return 0
+	}
+	fieldHeight := ff.EstimatedHeight()
+	// Only need padding when the field is taller than the default (dropdown open, textarea)
+	if fieldHeight <= 4 {
+		return 0
+	}
+	// Padding = focused field height, capped at viewport height.
+	// This is a ceiling — scrollToFocused will only scroll as needed.
+	return min(fieldHeight, f.viewport.Height)
+}
+
+// estimateSectionLines returns the total estimated line count for all sections.
+func (f *Form) estimateSectionLines() int {
+	totalLines := 0
+	for _, section := range f.sections {
+		if section.Collapsed {
+			totalLines += 3 // title + 2 trailing newlines
+		} else {
+			headerLines := 2
+			if section.Description != "" {
+				headerLines++
+			}
+			totalLines += headerLines
+			for _, field := range section.Fields() {
+				totalLines += field.EstimatedHeight()
+			}
+			totalLines += 2 // section Container MarginBottom + trailing newline
+		}
+	}
+	return totalLines
 }
 
 // Validation
@@ -555,7 +609,9 @@ func (f *Form) Update(msg tea.Msg) tea.Cmd {
 		}
 		// Delegate Enter to section when not on actions
 		if section := f.FocusedSection(); section != nil {
-			return section.Update(msg)
+			cmd := section.Update(msg)
+			f.scrollToFocused()
+			return cmd
 		}
 		return nil
 
@@ -597,7 +653,9 @@ func (f *Form) Update(msg tea.Msg) tea.Cmd {
 		if section := f.FocusedSection(); section != nil {
 			if field := section.FocusedField(); field != nil {
 				if field.dropdownOpen {
-					return section.Update(msg)
+					cmd := section.Update(msg)
+					f.scrollToFocused()
+					return cmd
 				}
 			}
 		}
@@ -620,7 +678,9 @@ func (f *Form) Update(msg tea.Msg) tea.Cmd {
 		if section := f.FocusedSection(); section != nil {
 			if field := section.FocusedField(); field != nil {
 				if field.dropdownOpen {
-					return section.Update(msg)
+					cmd := section.Update(msg)
+					f.scrollToFocused()
+					return cmd
 				}
 			}
 		}
@@ -631,7 +691,10 @@ func (f *Form) Update(msg tea.Msg) tea.Cmd {
 
 	// Delegate to current section
 	if section := f.FocusedSection(); section != nil && !f.focusedOnActions {
-		return section.Update(msg)
+		cmd := section.Update(msg)
+		// Scroll after delegation — dropdown open/close changes field height
+		f.scrollToFocused()
+		return cmd
 	}
 
 	return nil
@@ -669,7 +732,21 @@ func (f *Form) View() string {
 	}
 
 	if f.useViewport && f.contentReady {
-		f.viewport.SetContent(sectionsContent.String())
+		content := sectionsContent.String()
+		// Add bottom padding so dropdowns near the end of the form can expand.
+		// Without padding, SetYOffset clamps to (contentLines - viewportHeight)
+		// and options render below the visible area. Only pad when a field is
+		// focused (not the action bar) to avoid blank space at the bottom.
+		if !f.focusedOnActions {
+			padding := f.bottomPaddingForFocusedField()
+			if padding > 0 {
+				content += strings.Repeat("\n", padding)
+			}
+		}
+		f.viewport.SetContent(content)
+		// Re-apply scroll after content is set, since SetYOffset clamps
+		// based on content length which wasn't available during Update().
+		f.scrollToFocused()
 		b.WriteString(f.viewport.View())
 	} else {
 		b.WriteString(sectionsContent.String())

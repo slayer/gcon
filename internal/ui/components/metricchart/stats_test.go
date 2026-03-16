@@ -18,7 +18,7 @@ func TestComputeStats(t *testing.T) {
 	}
 
 	s := computeStats(data)
-	assert.Equal(t, 20.0, s.Current) // last value
+	assert.Equal(t, 20.0, s.Current)     // last value
 	assert.InDelta(t, 27.5, s.Avg, 0.01) // (10+30+50+20)/4
 	assert.Equal(t, 50.0, s.Peak)
 	assert.Equal(t, now.Add(2*time.Minute), s.PeakTime)

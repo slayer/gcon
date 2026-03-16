@@ -300,6 +300,9 @@ func (s *Section) SetSize(width, height int) {
 func (s *Section) Validate() []error {
 	var errors []error
 	for _, f := range s.fields {
+		if f.Hidden {
+			continue
+		}
 		if err := f.Validate(); err != nil {
 			errors = append(errors, err)
 		}
@@ -327,10 +330,13 @@ func (s *Section) IsDirty() bool {
 	return false
 }
 
-// GetData returns all field values as a map
+// GetData returns all field values as a map (skips hidden fields)
 func (s *Section) GetData() map[string]interface{} {
 	data := make(map[string]interface{})
 	for _, f := range s.fields {
+		if f.Hidden {
+			continue
+		}
 		data[f.ID] = f.GetValue()
 	}
 	return data
@@ -460,6 +466,9 @@ func (s *Section) View() string {
 	// Fields (only if not collapsed)
 	if !s.Collapsed {
 		for _, field := range s.fields {
+			if field.Hidden {
+				continue
+			}
 			content.WriteString(field.View())
 			content.WriteString("\n")
 		}

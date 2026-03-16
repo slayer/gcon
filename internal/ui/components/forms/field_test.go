@@ -1,6 +1,7 @@
 package forms
 
 import (
+	"fmt"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -297,6 +298,145 @@ func TestDropdownFieldNavigation(t *testing.T) {
 	require.NotNil(t, cmd)
 }
 
+func TestDropdownEmptyOptionsShowsPlaceholder(t *testing.T) {
+	field := NewDropdownField("machine_type", "Machine Type").
+		SetRequired(true)
+	field.Focus()
+
+	// Open dropdown with no options — should open but show placeholder
+	field.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	assert.True(t, field.dropdownOpen, "dropdown should open even with no options")
+
+	view := field.View()
+	assert.Contains(t, view, "no options available", "open empty dropdown should show placeholder")
+
+	// Close with Esc
+	field.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	assert.False(t, field.dropdownOpen)
+
+	// Closed state shows "(none)"
+	view = field.View()
+	assert.Contains(t, view, "(none)")
+}
+
+func TestDropdownRenderShowsOptionsWhenOpen(t *testing.T) {
+	field := NewDropdownField("zone", "Zone").
+		SetOptionsFromStrings([]string{"us-central1-a", "us-central1-b"})
+	field.Focus()
+	field.SetValue("us-central1-a")
+
+	// Open dropdown
+	field.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	assert.True(t, field.dropdownOpen)
+
+	view := field.View()
+	assert.Contains(t, view, "us-central1-a")
+	assert.Contains(t, view, "us-central1-b")
+}
+
+func TestDropdownEstimatedHeight(t *testing.T) {
+	field := NewDropdownField("zone", "Zone").
+		SetOptionsFromStrings([]string{"a", "b", "c"})
+
+	// Closed dropdown without help text: label + input + margin = 3
+	assert.Equal(t, 3, field.EstimatedHeight())
+
+	// Open dropdown: 3 base + (3-1) options = 5
+	field.Focus()
+	field.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	assert.Equal(t, 5, field.EstimatedHeight())
+
+	// With help text: adds 1 line
+	field2 := NewDropdownField("region", "Region").
+		SetOptionsFromStrings([]string{"a", "b"}).
+		SetHelpText("Select a region")
+	assert.Equal(t, 4, field2.EstimatedHeight()) // 3 base + 1 help
+}
+
+func TestDropdownScrollableWindow(t *testing.T) {
+	// Create dropdown with more options than dropdownMaxVisible
+	opts := make([]string, 20)
+	for i := range opts {
+		opts[i] = fmt.Sprintf("option-%02d", i)
+	}
+	field := NewDropdownField("big", "Big List").
+		SetOptionsFromStrings(opts)
+	field.Focus()
+	field.SetValue("option-00")
+
+	// Open dropdown
+	field.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	assert.True(t, field.dropdownOpen)
+
+	view := field.View()
+	// Should show first 10 options
+	assert.Contains(t, view, "option-00")
+	assert.Contains(t, view, "option-09")
+	// Should NOT show option-10 (beyond visible window)
+	assert.NotContains(t, view, "option-10")
+	// Should show "more" indicator at bottom
+	assert.Contains(t, view, "↓ 10 more")
+	// Should NOT show "more" indicator at top (at start)
+	assert.NotContains(t, view, "↑")
+
+	// Navigate down past visible window
+	for range 10 {
+		field.Update(tea.KeyMsg{Type: tea.KeyDown})
+	}
+	assert.Equal(t, 10, field.selectedIndex)
+
+	view = field.View()
+	// Now option-10 should be visible, option-00 may not
+	assert.Contains(t, view, "option-10")
+	// Should show top scroll indicator
+	assert.Contains(t, view, "↑")
+}
+
+func TestDropdownSetOptionsShrinkClampsState(t *testing.T) {
+	// Regression: replacing a long options list with a shorter one while
+	// selectedIndex pointed past the new list caused an index-out-of-range panic.
+	opts := make([]string, 50)
+	for i := range opts {
+		opts[i] = fmt.Sprintf("machine-type-%02d", i)
+	}
+	field := NewDropdownField("mt", "Machine Type").
+		SetOptionsFromStrings(opts)
+	field.Focus()
+
+	// Navigate to index 30 (well past any short replacement list)
+	field.selectedIndex = 30
+	field.dropdownScrollOffset = 20
+
+	// Replace with a short list — must not panic
+	field.SetOptionsFromStrings([]string{"e2-micro", "e2-small", "e2-medium"})
+
+	assert.Equal(t, 0, field.selectedIndex, "selectedIndex must be clamped to valid range")
+	assert.Equal(t, 0, field.dropdownScrollOffset, "scroll offset must be reset")
+	assert.False(t, field.dropdownOpen, "dropdown should close on option replacement to empty-ish list")
+
+	// Rendering must not panic
+	view := field.View()
+	assert.Contains(t, view, "e2-micro")
+}
+
+func TestDropdownSetOptionsEmptyCloseDropdown(t *testing.T) {
+	field := NewDropdownField("mt", "Machine Type").
+		SetOptionsFromStrings([]string{"a", "b", "c"})
+	field.Focus()
+	field.selectedIndex = 2
+	field.dropdownOpen = true
+
+	// Replace with empty list
+	field.SetOptions(nil)
+
+	assert.Equal(t, 0, field.selectedIndex)
+	assert.False(t, field.dropdownOpen, "dropdown must close when options become empty")
+
+	// Rendering must not panic
+	view := field.View()
+	assert.NotEmpty(t, view)
+}
+
 func TestMultiSelectFieldNavigation(t *testing.T) {
 	field := NewMultiSelectField("tags", "Tags").
 		SetOptionsFromStrings([]string{"http-server", "https-server", "allow-ssh"})
@@ -393,6 +533,49 @@ func TestTextAreaFieldView(t *testing.T) {
 	view := field.View()
 	assert.Contains(t, view, "Startup Script")
 	assert.Contains(t, view, "Enter your startup script")
+}
+
+func TestHiddenField(t *testing.T) {
+	t.Run("hidden field is not editable", func(t *testing.T) {
+		field := NewTextField("ip", "IP Address").SetHidden(true)
+		assert.False(t, field.IsEditable())
+	})
+
+	t.Run("hidden field renders empty", func(t *testing.T) {
+		field := NewTextField("ip", "IP Address").
+			SetHidden(true).
+			SetValue("10.0.0.1")
+		assert.Equal(t, "", field.View())
+	})
+
+	t.Run("hidden field skips validation", func(t *testing.T) {
+		field := NewTextField("ip", "IP Address").
+			SetRequired(true).
+			SetHidden(true)
+		// Required + hidden + empty value → should still pass
+		err := field.Validate()
+		assert.NoError(t, err)
+		assert.False(t, field.HasError())
+	})
+
+	t.Run("hidden field has zero height", func(t *testing.T) {
+		field := NewTextField("ip", "IP Address").SetHidden(true)
+		assert.Equal(t, 0, field.EstimatedHeight())
+	})
+
+	t.Run("SetHidden toggles visibility", func(t *testing.T) {
+		field := NewTextField("ip", "IP Address")
+		assert.False(t, field.Hidden)
+		assert.True(t, field.IsEditable())
+
+		field.SetHidden(true)
+		assert.True(t, field.Hidden)
+		assert.False(t, field.IsEditable())
+
+		field.SetHidden(false)
+		assert.False(t, field.Hidden)
+		assert.True(t, field.IsEditable())
+	})
 }
 
 func TestFieldIsTextInput(t *testing.T) {

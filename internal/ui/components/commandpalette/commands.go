@@ -223,6 +223,13 @@ func ActionCommands() []Command {
 			Enabled: true,
 		},
 		{
+			ID:      "action:create-instance",
+			Label:   "Compute Engine: Create VM Instance",
+			Icon:    IconVM,
+			Type:    CommandTypeAction,
+			Enabled: true,
+		},
+		{
 			ID:      "action:form-demo",
 			Label:   "Form Demo (dev)",
 			Icon:    IconDemo,

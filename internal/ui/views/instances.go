@@ -37,6 +37,11 @@ type InstancesView struct {
 	actionMenu    *actionmenu.ActionMenu
 	menuOpen      bool
 
+	// Stop confirmation state
+	stopConfirm     *confirm.ConfirmDialog
+	showStopConfirm bool
+	pendingStop     *gcp.Instance // Instance pending stop
+
 	// Delete confirmation state
 	deleteConfirm     *confirm.TypeConfirmDialog
 	showDeleteConfirm bool
@@ -51,6 +56,7 @@ type InstancesView struct {
 // instanceKeyMap defines instance-specific key bindings
 type instanceKeyMap struct {
 	Enter      key.Binding
+	Create     key.Binding
 	Start      key.Binding
 	Stop       key.Binding
 	Reset      key.Binding
@@ -66,6 +72,10 @@ func defaultInstanceKeyMap() instanceKeyMap {
 		Enter: key.NewBinding(
 			key.WithKeys("enter"),
 			key.WithHelp("enter", "details"),
+		),
+		Create: key.NewBinding(
+			key.WithKeys("c"),
+			key.WithHelp("c", "create"),
 		),
 		Start: key.NewBinding(
 			key.WithKeys("s"),
@@ -240,6 +250,8 @@ func (v *InstancesView) Update(msg tea.Msg) tea.Cmd {
 			rows[i] = instanceToRow(inst)
 		}
 		v.table.SetRows(rows)
+		// Default sort by name ascending
+		v.table.SortBy(0, true)
 		return nil
 
 	case instancesErrorMsg:
@@ -285,6 +297,25 @@ func (v *InstancesView) Update(msg tea.Msg) tea.Cmd {
 		v.pendingDetails = msg.details
 		return v.showDeleteConfirmation()
 
+	case confirm.ConfirmMsg:
+		// Stop confirmation accepted
+		v.showStopConfirm = false
+		if v.pendingStop != nil {
+			inst := v.pendingStop
+			v.pendingStop = nil
+			v.actionLoading = true
+			v.actionMsg = fmt.Sprintf("Stopping %s...", inst.Name)
+			v.registerTask("action-"+inst.Name, "Stopping "+inst.Name+"...")
+			return tea.Batch(v.spinner.Tick, v.stopInstance(*inst))
+		}
+		return nil
+
+	case confirm.CancelMsg:
+		// Stop confirmation canceled
+		v.showStopConfirm = false
+		v.pendingStop = nil
+		return nil
+
 	case confirm.TypeConfirmMsg:
 		v.showDeleteConfirm = false
 		if v.pendingDelete != nil && v.pendingDetails != nil {
@@ -325,6 +356,11 @@ func (v *InstancesView) Update(msg tea.Msg) tea.Cmd {
 		return nil
 
 	case tea.KeyMsg:
+		// Route to stop confirmation dialog when shown
+		if v.showStopConfirm && v.stopConfirm != nil {
+			return v.stopConfirm.Update(msg)
+		}
+
 		// Route to delete confirmation dialog when shown
 		if v.showDeleteConfirm && v.deleteConfirm != nil {
 			return v.deleteConfirm.Update(msg)
@@ -366,6 +402,11 @@ func (v *InstancesView) Update(msg tea.Msg) tea.Cmd {
 			}
 			return nil
 
+		case key.Matches(msg, v.keys.Create):
+			return func() tea.Msg {
+				return InstanceCreateRequestMsg{ProjectID: v.projectID}
+			}
+
 		case key.Matches(msg, v.keys.Enter):
 			// Navigate to instance details on Enter
 			if row := v.table.SelectedRow(); row != nil {
@@ -402,10 +443,7 @@ func (v *InstancesView) Update(msg tea.Msg) tea.Cmd {
 			if row := v.table.SelectedRow(); row != nil {
 				inst := v.findInstanceByName(row.ID)
 				if inst != nil && inst.IsRunning() {
-					v.actionLoading = true
-					v.actionMsg = fmt.Sprintf("Stopping %s...", inst.Name)
-					v.registerTask("action-"+inst.Name, "Stopping "+inst.Name+"...")
-					return tea.Batch(v.spinner.Tick, v.stopInstance(*inst))
+					return v.showStopConfirmation(inst)
 				}
 			}
 
@@ -469,6 +507,7 @@ func (v *InstancesView) buildActions(inst gcp.Instance) []actionmenu.Action { //
 	isSuspended := inst.IsSuspended()
 
 	return []actionmenu.Action{
+		{Key: 'c', Label: "Create Instance", Enabled: true},
 		{Key: 's', Label: "Start", Enabled: isStopped},
 		{Key: 'x', Label: "Stop", Enabled: isRunning},
 		{Key: 'z', Label: "Suspend", Enabled: isRunning},
@@ -491,6 +530,10 @@ func (v *InstancesView) executeAction(actionKey rune) tea.Cmd {
 	}
 
 	switch actionKey {
+	case 'c':
+		return func() tea.Msg {
+			return InstanceCreateRequestMsg{ProjectID: v.projectID}
+		}
 	case 's':
 		if inst.IsStopped() {
 			v.actionLoading = true
@@ -499,9 +542,7 @@ func (v *InstancesView) executeAction(actionKey rune) tea.Cmd {
 		}
 	case 'x':
 		if inst.IsRunning() {
-			v.actionLoading = true
-			v.actionMsg = fmt.Sprintf("Stopping %s...", inst.Name)
-			return tea.Batch(v.spinner.Tick, v.stopInstance(*inst))
+			return v.showStopConfirmation(inst)
 		}
 	case 'z':
 		if inst.IsRunning() {
@@ -601,6 +642,21 @@ func (v *InstancesView) fetchDeleteDetails(inst *gcp.Instance) tea.Cmd {
 	}
 }
 
+// showStopConfirmation creates and shows the stop confirmation dialog
+func (v *InstancesView) showStopConfirmation(inst *gcp.Instance) tea.Cmd {
+	v.pendingStop = inst
+	v.stopConfirm = confirm.New(
+		"Stop Instance",
+		fmt.Sprintf("Are you sure you want to stop instance %q?", inst.Name),
+		[]string{
+			fmt.Sprintf("Zone: %s", inst.Zone),
+			fmt.Sprintf("Machine type: %s", inst.MachineType),
+		},
+	)
+	v.showStopConfirm = true
+	return v.stopConfirm.Init()
+}
+
 // showDeleteConfirmation creates and shows the delete confirmation dialog
 func (v *InstancesView) showDeleteConfirmation() tea.Cmd {
 	if v.pendingDelete == nil || v.pendingDetails == nil {
@@ -664,13 +720,18 @@ func (v *InstancesView) View() string {
 
 	// Help text for actions - include '.' for action menu
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
-	help := helpStyle.Render("\n  enter: details • .: actions • s: start • x: stop • z: suspend • Z: resume • S: sort • /: filter • r: refresh")
+	help := helpStyle.Render("\n  enter: details • c: create • .: actions • s: start • x: stop • z: suspend • Z: resume • S: sort • /: filter • r: refresh")
 
 	mainContent := header + v.table.View() + help
 
 	// Overlay action menu if open
 	if v.menuOpen && v.actionMenu != nil {
 		return v.renderWithOverlay(mainContent, v.actionMenu.View())
+	}
+
+	// Overlay stop confirmation if shown
+	if v.showStopConfirm && v.stopConfirm != nil {
+		return v.renderWithOverlay(mainContent, v.stopConfirm.View())
 	}
 
 	// Overlay delete confirmation if shown
@@ -709,9 +770,9 @@ func (v *InstancesView) GetComputeClient() *gcp.ComputeClient {
 	return v.computeClient
 }
 
-// IsMenuOpen returns true if the action menu or delete confirm is open
+// IsMenuOpen returns true if the action menu or a confirmation dialog is open
 func (v *InstancesView) IsMenuOpen() bool {
-	return v.menuOpen || v.showDeleteConfirm
+	return v.menuOpen || v.showStopConfirm || v.showDeleteConfirm
 }
 
 // HasTextInputFocused returns true if the table filter or delete confirm input is active.

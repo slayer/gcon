@@ -25,7 +25,7 @@ func (a *App) renderHeader() string {
 	} else {
 		// Determine category based on current view
 		switch a.currentView {
-		case ViewInstances, ViewInstanceDetails, ViewInstanceEditor, ViewDisks, ViewDiskDetails, ViewSnapshots, ViewSnapshotDetails, ViewImages, ViewImageDetails:
+		case ViewInstances, ViewInstanceDetails, ViewInstanceEditor, ViewInstanceCreate, ViewInstanceConfigEdit, ViewDisks, ViewDiskDetails, ViewSnapshots, ViewSnapshotDetails, ViewImages, ViewImageDetails:
 			category = "Compute Engine"
 		case ViewBuckets, ViewObjects, ViewObjectDetails:
 			category = "Cloud Storage"
@@ -130,6 +130,12 @@ func (a *App) renderHeader() string {
 				resources = append(resources, a.cloudRunServiceDetailsView.GetServiceName())
 			}
 			resources = append(resources, "Edit")
+		}
+	case ViewInstanceCreate:
+		resources = append(resources, "Create Instance")
+	case ViewInstanceConfigEdit:
+		if a.instanceConfigEditView != nil {
+			resources = append(resources, a.instanceConfigEditView.GetInstanceName(), "Edit Configuration")
 		}
 	}
 	a.header.SetResources(resources)
@@ -282,6 +288,14 @@ func (a *App) renderCurrentView() string {
 	case ViewCloudRunServiceEdit:
 		if a.cloudRunServiceEditView != nil {
 			return a.cloudRunServiceEditView.View()
+		}
+	case ViewInstanceCreate:
+		if a.instanceCreateView != nil {
+			return a.instanceCreateView.View()
+		}
+	case ViewInstanceConfigEdit:
+		if a.instanceConfigEditView != nil {
+			return a.instanceConfigEditView.View()
 		}
 	case ViewFormDemo:
 		if a.formDemoView != nil {

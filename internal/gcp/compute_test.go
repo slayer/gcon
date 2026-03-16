@@ -1,10 +1,16 @@
 package gcp
 
 import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/api/compute/v1"
+	"google.golang.org/api/option"
 )
 
 func TestExtractName(t *testing.T) {
@@ -947,6 +953,293 @@ func TestSnapshotMethods(t *testing.T) {
 		assert.False(t, ready.IsFailed())
 		assert.False(t, creating.IsFailed())
 	})
+}
+
+func TestCreateInstance(t *testing.T) {
+	t.Run("builds correct request with all fields", func(t *testing.T) {
+		var capturedBody compute.Instance
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			err := json.NewDecoder(r.Body).Decode(&capturedBody)
+			require.NoError(t, err)
+			w.Header().Set("Content-Type", "application/json")
+			resp, _ := json.Marshal(&compute.Operation{Status: "DONE"}) //nolint:errcheck
+			w.Write(resp)                                               //nolint:errcheck
+		}))
+		defer server.Close()
+
+		svc, err := compute.NewService(context.Background(),
+			option.WithEndpoint(server.URL),
+			option.WithoutAuthentication(),
+		)
+		require.NoError(t, err)
+		client := &ComputeClient{service: svc}
+
+		config := InstanceCreateConfig{
+			Name:         "my-vm",
+			Zone:         "us-central1-a",
+			MachineType:  "e2-medium",
+			ImageProject: "debian-cloud",
+			ImageFamily:  "debian-12",
+			DiskSizeGB:   20,
+			DiskType:     "pd-balanced",
+			Network:      "my-network",
+			Subnetwork:   "my-subnet",
+			ExternalIPType: "ephemeral",
+		}
+
+		err = client.CreateInstance(context.Background(), "test-proj", config)
+		require.NoError(t, err)
+
+		assert.Equal(t, "zones/us-central1-a/machineTypes/e2-medium", capturedBody.MachineType)
+		require.Len(t, capturedBody.Disks, 1)
+		initParams := capturedBody.Disks[0].InitializeParams
+		assert.Equal(t, "projects/debian-cloud/global/images/family/debian-12", initParams.SourceImage)
+		assert.Equal(t, "zones/us-central1-a/diskTypes/pd-balanced", initParams.DiskType)
+		assert.Equal(t, int64(20), initParams.DiskSizeGb)
+
+		require.Len(t, capturedBody.NetworkInterfaces, 1)
+		nic := capturedBody.NetworkInterfaces[0]
+		assert.Equal(t, "projects/test-proj/global/networks/my-network", nic.Network)
+		// Region derived from zone for subnetwork URL
+		assert.Equal(t, "projects/test-proj/regions/us-central1/subnetworks/my-subnet", nic.Subnetwork)
+		require.Len(t, nic.AccessConfigs, 1)
+		assert.Equal(t, "ONE_TO_ONE_NAT", nic.AccessConfigs[0].Type)
+	})
+
+	t.Run("defaults network to 'default' when empty", func(t *testing.T) {
+		var capturedBody compute.Instance
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			err := json.NewDecoder(r.Body).Decode(&capturedBody)
+			require.NoError(t, err)
+			w.Header().Set("Content-Type", "application/json")
+			resp, _ := json.Marshal(&compute.Operation{Status: "DONE"}) //nolint:errcheck
+			w.Write(resp)                                               //nolint:errcheck
+		}))
+		defer server.Close()
+
+		svc, err := compute.NewService(context.Background(),
+			option.WithEndpoint(server.URL),
+			option.WithoutAuthentication(),
+		)
+		require.NoError(t, err)
+		client := &ComputeClient{service: svc}
+
+		config := InstanceCreateConfig{
+			Name:         "minimal-vm",
+			Zone:         "us-east1-b",
+			MachineType:  "e2-micro",
+			ImageProject: "debian-cloud",
+			ImageFamily:  "debian-12",
+			DiskSizeGB:   10,
+			DiskType:     "pd-standard",
+			// Network intentionally empty — should default to "default"
+		}
+
+		err = client.CreateInstance(context.Background(), "test-proj", config)
+		require.NoError(t, err)
+
+		nic := capturedBody.NetworkInterfaces[0]
+		assert.Equal(t, "projects/test-proj/global/networks/default", nic.Network)
+		assert.Empty(t, nic.Subnetwork)
+	})
+
+	t.Run("no AccessConfig when ExternalIP is false", func(t *testing.T) {
+		var capturedBody compute.Instance
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			err := json.NewDecoder(r.Body).Decode(&capturedBody)
+			require.NoError(t, err)
+			w.Header().Set("Content-Type", "application/json")
+			resp, _ := json.Marshal(&compute.Operation{Status: "DONE"}) //nolint:errcheck
+			w.Write(resp)                                               //nolint:errcheck
+		}))
+		defer server.Close()
+
+		svc, err := compute.NewService(context.Background(),
+			option.WithEndpoint(server.URL),
+			option.WithoutAuthentication(),
+		)
+		require.NoError(t, err)
+		client := &ComputeClient{service: svc}
+
+		config := InstanceCreateConfig{
+			Name:         "internal-vm",
+			Zone:         "us-central1-a",
+			MachineType:  "e2-small",
+			ImageProject: "debian-cloud",
+			ImageFamily:  "debian-12",
+			DiskSizeGB:   10,
+			DiskType:     "pd-standard",
+			ExternalIPType: "none",
+		}
+
+		err = client.CreateInstance(context.Background(), "test-proj", config)
+		require.NoError(t, err)
+
+		nic := capturedBody.NetworkInterfaces[0]
+		assert.Empty(t, nic.AccessConfigs, "internal-only VM should have no AccessConfigs")
+	})
+
+	t.Run("rejects non-positive disk size", func(t *testing.T) {
+		client := &ComputeClient{}
+
+		err := client.CreateInstance(context.Background(), "proj", InstanceCreateConfig{
+			Name: "vm", Zone: "us-central1-a", MachineType: "e2-micro",
+			ImageProject: "debian-cloud", ImageFamily: "debian-12",
+			DiskSizeGB: 0, DiskType: "pd-standard",
+		})
+		assert.ErrorContains(t, err, "disk size must be positive")
+
+		err = client.CreateInstance(context.Background(), "proj", InstanceCreateConfig{
+			Name: "vm", Zone: "us-central1-a", MachineType: "e2-micro",
+			ImageProject: "debian-cloud", ImageFamily: "debian-12",
+			DiskSizeGB: -1, DiskType: "pd-standard",
+		})
+		assert.ErrorContains(t, err, "disk size must be positive")
+	})
+}
+
+func TestFormatMachineTypeDescription(t *testing.T) {
+	tests := []struct {
+		name     string
+		cpus     int64
+		memoryMB int64
+		expected string
+	}{
+		{
+			name:     "whole GB memory",
+			cpus:     2,
+			memoryMB: 4096,
+			expected: "2 vCPU, 4 GB RAM",
+		},
+		{
+			name:     "fractional GB memory",
+			cpus:     2,
+			memoryMB: 1024 + 512, // 1.5 GB
+			expected: "2 vCPU, 1.5 GB RAM",
+		},
+		{
+			name:     "e2-micro specs",
+			cpus:     2,
+			memoryMB: 1024,
+			expected: "2 vCPU, 1 GB RAM",
+		},
+		{
+			name:     "large instance",
+			cpus:     96,
+			memoryMB: 393216, // 384 GB
+			expected: "96 vCPU, 384 GB RAM",
+		},
+		{
+			name:     "e2-medium specs (non-power-of-2 memory)",
+			cpus:     2,
+			memoryMB: 3840, // 3.75 GB — actual e2-medium spec
+			expected: "2 vCPU, 3.8 GB RAM",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := FormatMachineTypeDescription(tt.cpus, tt.memoryMB)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestSubnetworkInfoNetworkExtraction(t *testing.T) {
+	tests := []struct {
+		name       string
+		networkURL string
+		expected   string
+	}{
+		{
+			name:       "full network URL",
+			networkURL: "projects/my-project/global/networks/my-vpc",
+			expected:   "my-vpc",
+		},
+		{
+			name:       "self link URL",
+			networkURL: "https://www.googleapis.com/compute/v1/projects/prod-project/global/networks/production",
+			expected:   "production",
+		},
+		{
+			name:       "just a name",
+			networkURL: "default",
+			expected:   "default",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// extractName is used internally by ListSubnetworks to populate Network field
+			result := extractName(tt.networkURL)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestBootDiskImages(t *testing.T) {
+	assert.NotEmpty(t, BootDiskImages, "curated boot images list should not be empty")
+
+	for _, img := range BootDiskImages {
+		t.Run(img.Label, func(t *testing.T) {
+			assert.NotEmpty(t, img.Label, "label is required")
+			assert.NotEmpty(t, img.Project, "project is required")
+			assert.NotEmpty(t, img.Family, "family is required")
+			assert.Greater(t, img.DefaultSizeGB, int64(0), "default disk size must be positive")
+		})
+	}
+}
+
+func TestDiskTypes(t *testing.T) {
+	assert.NotEmpty(t, DiskTypes, "disk types list should not be empty")
+
+	for _, dt := range DiskTypes {
+		t.Run(dt.Value, func(t *testing.T) {
+			assert.NotEmpty(t, dt.Value, "value is required")
+			assert.NotEmpty(t, dt.Label, "label is required")
+			// Value should appear in the label for clarity
+			assert.Contains(t, dt.Label, dt.Value, "label should contain the disk type value")
+		})
+	}
+
+	// pd-balanced should be the first (default) option
+	assert.Equal(t, "pd-balanced", DiskTypes[0].Value, "pd-balanced should be the default (first) option")
+}
+
+func TestRegionFromZone(t *testing.T) {
+	tests := []struct {
+		name     string
+		zone     string
+		expected string
+	}{
+		{
+			name:     "standard zone",
+			zone:     "us-central1-a",
+			expected: "us-central1",
+		},
+		{
+			name:     "zone with letter suffix",
+			zone:     "europe-west1-b",
+			expected: "europe-west1",
+		},
+		{
+			name:     "zone with numeric region",
+			zone:     "asia-east2-c",
+			expected: "asia-east2",
+		},
+		{
+			name:     "no dash",
+			zone:     "invalid",
+			expected: "invalid",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := RegionFromZone(tt.zone)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
 }
 
 func TestSnapshotDetailsFromAPI(t *testing.T) {

@@ -62,6 +62,8 @@ const (
 	ViewCloudRunServices
 	ViewCloudRunServiceDetails
 	ViewCloudRunServiceEdit
+	ViewInstanceCreate     // Creating a new VM instance
+	ViewInstanceConfigEdit // Editing an existing VM instance configuration
 	ViewLogs
 	ViewFormDemo // Demo view for testing form components
 )
@@ -86,57 +88,59 @@ type App struct {
 	layout    *layout.Layout // Tile-based layout manager
 
 	// Current view state
-	currentView               ViewType
-	viewStack                 []ViewType // For back navigation
-	projectView               *views.ProjectsView
-	instancesView             *views.InstancesView
-	instanceDetailsView       *views.InstanceDetailsView
-	metadataView              *views.InstanceMetadataView
-	projectMetadataView       *views.ProjectMetadataView
-	disksView                 *views.DisksView
-	diskDetailsView           *views.DiskDetailsView
-	snapshotsView             *views.SnapshotsView
-	snapshotDetailsView       *views.SnapshotDetailsView
-	imagesView                *views.ImagesView
-	imageDetailsView          *views.ImageDetailsView
-	bucketsView               *views.BucketsView
-	objectsView               *views.ObjectsView
-	objectDetailsView         *views.ObjectDetailsView
-	instanceEditorView        *views.InstanceEditorView
-	bucketCreateView          *views.BucketCreateView
-	snapshotCreateView        *views.SnapshotCreateView
-	imageCreateView           *views.ImageCreateView
-	diskCreateView            *views.DiskCreateView
-	networksView              *views.NetworksView
-	networkDetailsView        *views.NetworkDetailsView
-	firewallsView             *views.FirewallsView
-	firewallDetailsView       *views.FirewallDetailsView
-	sqlInstancesView          *views.SQLInstancesView
-	sqlInstanceDetailsView    *views.SQLInstanceDetailsView
-	serviceAccountsView       *views.ServiceAccountsView
-	serviceAccountDetailsView *views.ServiceAccountDetailsView
-	serviceAccountCreateView  *views.ServiceAccountCreateView
-	iamPolicyView             *views.IAMPolicyView
+	currentView                ViewType
+	viewStack                  []ViewType // For back navigation
+	projectView                *views.ProjectsView
+	instancesView              *views.InstancesView
+	instanceDetailsView        *views.InstanceDetailsView
+	metadataView               *views.InstanceMetadataView
+	projectMetadataView        *views.ProjectMetadataView
+	disksView                  *views.DisksView
+	diskDetailsView            *views.DiskDetailsView
+	snapshotsView              *views.SnapshotsView
+	snapshotDetailsView        *views.SnapshotDetailsView
+	imagesView                 *views.ImagesView
+	imageDetailsView           *views.ImageDetailsView
+	bucketsView                *views.BucketsView
+	objectsView                *views.ObjectsView
+	objectDetailsView          *views.ObjectDetailsView
+	instanceEditorView         *views.InstanceEditorView
+	bucketCreateView           *views.BucketCreateView
+	snapshotCreateView         *views.SnapshotCreateView
+	imageCreateView            *views.ImageCreateView
+	diskCreateView             *views.DiskCreateView
+	networksView               *views.NetworksView
+	networkDetailsView         *views.NetworkDetailsView
+	firewallsView              *views.FirewallsView
+	firewallDetailsView        *views.FirewallDetailsView
+	sqlInstancesView           *views.SQLInstancesView
+	sqlInstanceDetailsView     *views.SQLInstanceDetailsView
+	serviceAccountsView        *views.ServiceAccountsView
+	serviceAccountDetailsView  *views.ServiceAccountDetailsView
+	serviceAccountCreateView   *views.ServiceAccountCreateView
+	iamPolicyView              *views.IAMPolicyView
 	customRolesView            *views.CustomRolesView
-	customRoleDetailsView     *views.CustomRoleDetailsView
+	customRoleDetailsView      *views.CustomRoleDetailsView
 	cloudRunServicesView       *views.CloudRunServicesView
 	cloudRunServiceDetailsView *views.CloudRunServiceDetailsView
 	cloudRunServiceEditView    *views.CloudRunEditView
+	instanceCreateView         *views.InstanceCreateView
+	instanceConfigEditView     *views.InstanceConfigEditView
 	formDemoView               *views.FormDemoView
 
 	// Selected context
-	selectedProject        *gcp.Project
-	selectedInstance       *gcp.Instance
-	selectedDisk           *gcp.Disk
-	selectedSnapshot       *gcp.Snapshot
-	selectedImage          *gcp.Image
-	selectedBucket         *gcp.Bucket
-	selectedObject         *gcp.StorageObject
-	selectedNetwork        *gcp.Network
-	selectedFirewall       *gcp.FirewallRule
-	selectedSQLInstance    *gcp.SQLInstance
-	selectedServiceAccount *gcp.ServiceAccount
-	selectedCustomRole     *gcp.CustomRole
+	selectedProject         *gcp.Project
+	selectedInstance        *gcp.Instance
+	selectedDisk            *gcp.Disk
+	selectedSnapshot        *gcp.Snapshot
+	selectedImage           *gcp.Image
+	selectedBucket          *gcp.Bucket
+	selectedObject          *gcp.StorageObject
+	selectedNetwork         *gcp.Network
+	selectedFirewall        *gcp.FirewallRule
+	selectedSQLInstance     *gcp.SQLInstance
+	selectedServiceAccount  *gcp.ServiceAccount
+	selectedCustomRole      *gcp.CustomRole
 	selectedCloudRunService *gcp.CloudRunService
 
 	// UI state
@@ -390,6 +394,10 @@ func (a *App) getCurrentViewModel() views.View {
 		return a.cloudRunServiceDetailsView
 	case ViewCloudRunServiceEdit:
 		return a.cloudRunServiceEditView
+	case ViewInstanceCreate:
+		return a.instanceCreateView
+	case ViewInstanceConfigEdit:
+		return a.instanceConfigEditView
 	case ViewFormDemo:
 		return a.formDemoView
 	}
@@ -517,6 +525,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					a.selectedServiceAccount = nil
 				case ViewServiceAccountCreate:
 					a.serviceAccountCreateView = nil
+				case ViewInstanceCreate:
+					a.instanceCreateView = nil
+				case ViewInstanceConfigEdit:
+					a.instanceConfigEditView = nil
 				case ViewCustomRoleDetails:
 					a.customRoleDetailsView = nil
 					a.selectedCustomRole = nil
@@ -724,6 +736,38 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case views.InstanceEditCanceledMsg:
 		a.handleInstanceEditCancelled()
+		return a, nil
+
+	case views.InstanceCreateRequestMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleInstanceCreateRequest(msg)
+
+	case views.CreateInstanceMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleCreateInstance(msg)
+
+	case views.InstanceCreateResultMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleInstanceCreateResult(msg)
+
+	case views.InstanceCreateCanceledMsg:
+		a.handleInstanceCreateCanceled()
+		return a, nil
+
+	case views.InstanceConfigEditRequestMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleInstanceConfigEditRequest(msg)
+
+	case views.InstanceConfigEditSubmitMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleInstanceConfigEditSubmit(msg)
+
+	case views.InstanceConfigEditResultMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleInstanceConfigEditResult(msg)
+
+	case views.InstanceConfigEditCanceledMsg:
+		a.handleInstanceConfigEditCanceled()
 		return a, nil
 
 	case views.BucketCreateRequestMsg:
@@ -1149,6 +1193,12 @@ func (a *App) updateViewSizes() {
 	}
 	if a.instanceEditorView != nil {
 		a.instanceEditorView.SetContext(a.ctx)
+	}
+	if a.instanceCreateView != nil {
+		a.instanceCreateView.SetContext(a.ctx)
+	}
+	if a.instanceConfigEditView != nil {
+		a.instanceConfigEditView.SetContext(a.ctx)
 	}
 	if a.bucketCreateView != nil {
 		a.bucketCreateView.SetContext(a.ctx)

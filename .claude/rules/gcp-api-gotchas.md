@@ -148,6 +148,26 @@ if egress != origEgressRaw {
 
 **Rule**: For sub-objects that the API replaces atomically (`vpcAccess`, `containers`), only include them in the update when values actually changed. Compare against the original to detect real changes.
 
+## Compute Engine: Instance state checks — use IsStopped() not == "RUNNING"
+
+GCP Compute instances have multiple states beyond RUNNING and STOPPED: `PROVISIONING`, `STAGING`, `SUSPENDED`, `STOPPING`, `SUSPENDING`, `REPAIRING`. Operations like machine type changes require the instance to be in TERMINATED or STOPPED state specifically.
+
+Checking `status == "RUNNING"` misses SUSPENDED and other non-stopped states, allowing the API call to proceed and fail with a cryptic 400 error.
+
+```go
+// Wrong — only catches RUNNING, misses SUSPENDED/PROVISIONING/etc
+if instance.Status == "RUNNING" {
+    return errors.New("must be stopped")
+}
+
+// Correct — use the IsStopped() helper, catches all non-stopped states
+if !instance.IsStopped() {
+    return fmt.Errorf("must be stopped (current status: %s)", instance.Status)
+}
+```
+
+Both `Instance` and `InstanceDetails` have `IsStopped()` which checks for `TERMINATED || STOPPED`.
+
 ## ForceSendFields required for Create operations too
 
 `ForceSendFields` is needed not just for Patch but also for Create when intentionally setting zero values. Common case: `MinInstanceCount = 0` (scale-to-zero) is omitted from JSON because `int64(0)` is a zero value.
