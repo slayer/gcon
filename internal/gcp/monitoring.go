@@ -241,6 +241,13 @@ func (c *MonitoringClient) GetDiskIO(ctx context.Context, instanceID, zone strin
 	return metrics, nil
 }
 
+// GetLogEntryCount fetches the logging.googleapis.com/log_entry_count metric
+// for sparkline histogram display in the Logs Explorer.
+func (c *MonitoringClient) GetLogEntryCount(ctx context.Context, timeRange time.Duration) ([]DataPoint, error) {
+	filter := `metric.type = "logging.googleapis.com/log_entry_count"`
+	return c.fetchMetricData(ctx, filter, timeRange)
+}
+
 // fetchMetricData is a helper to fetch time series data
 func (c *MonitoringClient) fetchMetricData(ctx context.Context, filter string, duration time.Duration) ([]DataPoint, error) {
 	endTime := time.Now()
