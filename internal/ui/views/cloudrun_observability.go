@@ -437,7 +437,8 @@ func (o *cloudRunObservability) renderLogs(b *strings.Builder, sectionStyle, mut
 	default:
 		filtered := o.filteredLogs()
 		if len(filtered) > 0 {
-			for _, log := range filtered {
+			for i := range filtered {
+				log := &filtered[i]
 				var severityColor string
 				switch log.Severity {
 				case "ERROR", "CRITICAL":
@@ -599,9 +600,9 @@ func (o *cloudRunObservability) filteredLogs() []gcp.LogEntry {
 	}
 
 	var result []gcp.LogEntry
-	for _, entry := range o.logs {
-		if active[entry.Severity] {
-			result = append(result, entry)
+	for i := range o.logs {
+		if active[o.logs[i].Severity] {
+			result = append(result, o.logs[i])
 		}
 	}
 	return result

@@ -291,12 +291,20 @@ On developing or updating a new feature keep in mind the following guidelines:
     - Filterable log viewer (INFO/WARNING/ERROR severity toggles)
     - Time range selection (1h/6h/24h/7d/30d)
     - Auto-refresh capability (30s interval)
+- [x] Cloud Logging Explorer
+  - LQL query input with filter bar
+  - Quick filters (Resources, Log Names, Severities) with lazy-loaded options
+  - Sparkline histogram for log density over time
+  - Expandable log entries with severity color coding
+  - Field-level cursor with filter-by-field (Enter on expanded field)
+  - Infinite scroll pagination
+  - Tail mode (live streaming, 5s polling)
+  - Time range selection (1h/6h/24h/7d/30d)
 
 ## Planned Features
 - [ ] Subnets list and management
 - [ ] Disk image deletion with confirmation
 - [ ] Disk image creation from disks/snapshots
-- [ ] Cloud Logging viewer with filters
 - [ ] SSH to instance (via gcloud)
 - [ ] Resource caching
 - [ ] GKE cluster management

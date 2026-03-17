@@ -312,6 +312,17 @@ func (a *App) handleSidebarNavigation(msg sidebar.NavigateMsg) tea.Cmd {
 				cmd = a.cloudRunServicesView.Init()
 			}
 		}
+
+	case sidebar.ViewLogs:
+		if a.currentView != ViewLogs {
+			if a.logsView != nil {
+				a.logsView.Close()
+			}
+			a.logsView = views.NewLogsView(a.selectedProject.ID, a.gcpClient)
+			a.currentView = ViewLogs
+			a.updateViewSizes()
+			cmd = a.logsView.Init()
+		}
 	}
 
 	a.updateSidebarActiveView()
@@ -355,6 +366,8 @@ func (a *App) updateSidebarActiveView() {
 		a.sidebar.SetActiveView(sidebar.ViewCustomRoles)
 	case ViewCloudRunServices, ViewCloudRunServiceDetails:
 		a.sidebar.SetActiveView(sidebar.ViewCloudRunServices)
+	case ViewLogs:
+		a.sidebar.SetActiveView(sidebar.ViewLogs)
 	}
 }
 
@@ -659,6 +672,10 @@ func (a *App) clearAllViews() {
 	}
 	a.cloudRunServiceDetailsView = nil
 	a.cloudRunServiceEditView = nil
+	if a.logsView != nil {
+		a.logsView.Close()
+	}
+	a.logsView = nil
 	a.formDemoView = nil
 
 	// Clear view stack
@@ -777,6 +794,17 @@ func (a *App) reloadCurrentView(projectID string) tea.Cmd {
 		a.updateSidebarActiveView()
 		a.updateViewSizes()
 		return a.cloudRunServicesView.Init()
+
+	case ViewLogs:
+		// Reload logs view with new project
+		if a.logsView != nil {
+			a.logsView.Close()
+		}
+		a.currentView = ViewLogs
+		a.logsView = views.NewLogsView(projectID, a.gcpClient)
+		a.updateSidebarActiveView()
+		a.updateViewSizes()
+		return a.logsView.Init()
 
 	case ViewProjectMetadata:
 		// Reload metadata view
@@ -2761,6 +2789,18 @@ func (a *App) handleCloudRunEditCanceled() {
 	}
 	a.cloudRunServiceEditView = nil
 	a.updateSidebarActiveView()
+}
+
+// --- Logging handlers ---
+
+// handleLogsRequest opens the Logs Explorer view
+func (a *App) handleLogsRequest() tea.Cmd {
+	a.viewStack = append(a.viewStack, a.currentView)
+	a.currentView = ViewLogs
+	a.logsView = views.NewLogsView(a.selectedProject.ID, a.gcpClient)
+	a.updateSidebarActiveView()
+	a.updateViewSizes()
+	return a.logsView.Init()
 }
 
 // --- Instance Create/Edit handlers ---

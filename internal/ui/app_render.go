@@ -37,6 +37,8 @@ func (a *App) renderHeader() string {
 			category = "IAM & Admin"
 		case ViewCloudRunServices, ViewCloudRunServiceDetails, ViewCloudRunServiceEdit:
 			category = "Cloud Run"
+		case ViewLogs:
+			category = "Logging"
 		}
 	}
 	a.header.SetCategory(category)
@@ -131,6 +133,8 @@ func (a *App) renderHeader() string {
 			}
 			resources = append(resources, "Edit")
 		}
+	case ViewLogs:
+		resources = append(resources, "Logs Explorer")
 	case ViewInstanceCreate:
 		resources = append(resources, "Create Instance")
 	case ViewInstanceConfigEdit:
@@ -296,6 +300,10 @@ func (a *App) renderCurrentView() string {
 	case ViewInstanceConfigEdit:
 		if a.instanceConfigEditView != nil {
 			return a.instanceConfigEditView.View()
+		}
+	case ViewLogs:
+		if a.logsView != nil {
+			return a.logsView.View()
 		}
 	case ViewFormDemo:
 		if a.formDemoView != nil {

@@ -1487,7 +1487,8 @@ func (v *InstanceDetailsView) renderObservabilityTab() string {
 		b.WriteString(errorStyle.Render(fmt.Sprintf("  ✗ Error loading logs: %s", v.logsError.Error())))
 		b.WriteString("\n")
 	case len(v.logs) > 0:
-		for _, log := range v.logs {
+		for i := range v.logs {
+			log := &v.logs[i]
 			var severityColor string
 			switch log.Severity {
 			case "ERROR", "CRITICAL":

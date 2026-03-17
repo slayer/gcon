@@ -39,6 +39,13 @@ type ProgramContext struct {
 	ContentWidth  int
 	ContentHeight int
 
+	// EmojiWidthBudget is the number of extra characters subtracted from
+	// ContentWidth by renderWithSidebar to compensate for wide-emoji
+	// miscounting. Views that produce lines at ContentWidth will have those
+	// lines wrapped by lipgloss MaxWidth(ContentWidth - EmojiWidthBudget).
+	// Views with text that fills the full width should subtract this value.
+	EmojiWidthBudget int
+
 	// Sidebar state
 	SidebarActive bool
 	SidebarWidth  int

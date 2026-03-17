@@ -433,3 +433,31 @@ These keys are active when the **content area** is focused (use `Tab` to switch 
 | `Tab/↓` | Next field |
 | `Shift+Tab/↑` | Previous field |
 | `Esc` | Back (diff → form) / Cancel (form → back) |
+
+## Logs Explorer
+
+| Key | Action |
+|-----|--------|
+| `/` | Focus query input |
+| `Enter` | Run query (input) / Expand entry / Filter by field |
+| `Esc` | Blur input / Collapse entry / Close filter / Go back |
+| `j/k` or `↓/↑` | Navigate log entries |
+| `→` or `Enter` | Expand entry / Enter field navigation |
+| `←` | Collapse entry / Exit field navigation |
+| `E` | Expand all visible entries |
+| `C` | Collapse all entries |
+| `1-5` | Time range (1h/6h/24h/7d/30d) |
+| `f` | Toggle tail mode (5s polling) |
+| `r` | Refresh (re-run query) |
+| `R` | Open resource type filter |
+| `L` | Open log name filter |
+| `V` | Open severity filter |
+
+### Filter Dropdown (overlay)
+
+| Key | Action |
+|-----|--------|
+| `j/k` or `↓/↑` | Navigate options |
+| `Space` | Toggle selection |
+| `Enter` | Apply and close |
+| `Esc` | Cancel |
