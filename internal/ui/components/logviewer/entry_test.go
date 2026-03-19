@@ -1,12 +1,21 @@
 package logviewer
 
 import (
+	"regexp"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/stretchr/testify/assert"
 )
+
+var ansiRegexp = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+func stripANSI(s string) string {
+	return ansiRegexp.ReplaceAllString(s, "")
+}
+
 
 func TestRenderCompactEntry(t *testing.T) {
 	entry := gcp.LogEntry{
@@ -16,7 +25,7 @@ func TestRenderCompactEntry(t *testing.T) {
 		ResourceType: "gce_instance",
 	}
 
-	result := RenderCompactEntry(entry, false, 80)
+	result := RenderCompactEntry(entry, false, 80, "")
 
 	assert.Contains(t, result, "▸")
 	assert.Contains(t, result, "13:04:01")
@@ -32,7 +41,7 @@ func TestRenderCompactEntryExpanded(t *testing.T) {
 		ResourceType: "cloud_run_revision",
 	}
 
-	result := RenderCompactEntry(entry, true, 80)
+	result := RenderCompactEntry(entry, true, 80, "")
 	assert.Contains(t, result, "▾")
 }
 
@@ -44,12 +53,13 @@ func TestRenderExpandedFields(t *testing.T) {
 		InsertID:       "abc",
 	}
 
-	result := RenderExpandedFields(entry, -1, 80)
+	result, lines := RenderExpandedFields(entry, -1, 80)
 
 	assert.Contains(t, result, "resource.type")
 	assert.Contains(t, result, "gce_instance")
 	assert.Contains(t, result, "resource.labels.instance_id")
 	assert.Contains(t, result, "123")
+	assert.Greater(t, lines, 0)
 }
 
 func TestRenderExpandedFieldsWithCursor(t *testing.T) {
@@ -58,15 +68,32 @@ func TestRenderExpandedFieldsWithCursor(t *testing.T) {
 		InsertID:     "abc",
 	}
 
-	result := RenderExpandedFields(entry, 0, 80)
+	result, _ := RenderExpandedFields(entry, 0, 80)
 	// Should contain the filter hint on the cursor line
 	assert.Contains(t, result, "[+f]")
 }
 
 func TestRenderExpandedFieldsEmpty(t *testing.T) {
 	entry := gcp.LogEntry{}
-	result := RenderExpandedFields(entry, -1, 80)
+	result, lines := RenderExpandedFields(entry, -1, 80)
 	assert.Empty(t, result)
+	assert.Equal(t, 0, lines)
+}
+
+func TestRenderExpandedFieldsWrapsLongValues(t *testing.T) {
+	// Value longer than available width should wrap to multiple lines
+	longMsg := strings.Repeat("x", 200)
+	entry := gcp.LogEntry{
+		TextPayload: longMsg,
+	}
+
+	result, lines := RenderExpandedFields(entry, -1, 80)
+	assert.Contains(t, result, "textPayload")
+	assert.Greater(t, lines, 1, "long value should wrap to multiple lines")
+	// All content should be present (no truncation) — join lines to verify
+	plainResult := strings.ReplaceAll(stripANSI(result), "\n", "")
+	plainResult = strings.ReplaceAll(plainResult, " ", "")
+	assert.Contains(t, plainResult, longMsg, "full value should be present, not truncated")
 }
 
 func TestSeverityAbbrev(t *testing.T) {

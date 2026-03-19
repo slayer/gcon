@@ -243,13 +243,20 @@ func (c *MonitoringClient) GetDiskIO(ctx context.Context, instanceID, zone strin
 
 // GetLogEntryCount fetches the logging.googleapis.com/log_entry_count metric
 // for sparkline histogram display in the Logs Explorer.
+// Uses ALIGN_SUM (not ALIGN_MEAN) because log_entry_count is a counter —
+// summing gives total entries per bucket, which is what a density sparkline needs.
 func (c *MonitoringClient) GetLogEntryCount(ctx context.Context, timeRange time.Duration) ([]DataPoint, error) {
 	filter := `metric.type = "logging.googleapis.com/log_entry_count"`
-	return c.fetchMetricData(ctx, filter, timeRange)
+	return c.fetchMetricDataWithAligner(ctx, filter, timeRange, monitoringpb.Aggregation_ALIGN_SUM)
 }
 
-// fetchMetricData is a helper to fetch time series data
+// fetchMetricData is a helper to fetch time series data using ALIGN_MEAN.
 func (c *MonitoringClient) fetchMetricData(ctx context.Context, filter string, duration time.Duration) ([]DataPoint, error) {
+	return c.fetchMetricDataWithAligner(ctx, filter, duration, monitoringpb.Aggregation_ALIGN_MEAN)
+}
+
+// fetchMetricDataWithAligner fetches time series data with a specific per-series aligner.
+func (c *MonitoringClient) fetchMetricDataWithAligner(ctx context.Context, filter string, duration time.Duration, aligner monitoringpb.Aggregation_Aligner) ([]DataPoint, error) {
 	endTime := time.Now()
 	startTime := endTime.Add(-duration)
 
@@ -262,7 +269,7 @@ func (c *MonitoringClient) fetchMetricData(ctx context.Context, filter string, d
 		},
 		Aggregation: &monitoringpb.Aggregation{
 			AlignmentPeriod:  durationpb.New(60 * time.Second), // 1-minute intervals
-			PerSeriesAligner: monitoringpb.Aggregation_ALIGN_MEAN,
+			PerSeriesAligner: aligner,
 		},
 	}
 

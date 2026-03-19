@@ -10,7 +10,6 @@ type LogsViewRequestMsg struct{}
 type logsEntriesLoadedMsg struct {
 	entries   []gcp.LogEntry
 	nextToken string
-	total     int64
 }
 type logsEntriesErrorMsg struct{ err error }
 
@@ -38,4 +37,8 @@ type logsLogNamesErrorMsg struct{ err error }
 type logsTailTickMsg struct{}
 type logsTailEntriesMsg struct {
 	entries []gcp.LogEntry
+}
+
+type logsExportDoneMsg struct {
+	message string // success or error message
 }

@@ -36,8 +36,10 @@ const (
 type logsFocusArea int
 
 const (
-	logsFocusEntries logsFocusArea = iota
-	logsFocusQuery
+	logsFocusEntries   logsFocusArea = iota
+	logsFocusFilters                 // tab-navigable filter pills
+	logsFocusQuery                   // LQL query text input
+	logsFocusTimeRange               // time range selector
 )
 
 // filterDropdownType identifies which filter dropdown is open.
@@ -173,11 +175,19 @@ type LogsView struct {
 	resourcesLoaded    bool
 	logNamesLoaded     bool
 
+	// Filter pill focus (tab-navigable: 0=Resources, 1=LogNames, 2=Severities)
+	filterPillCursor int
+	// Time range cursor (0-4 maps to PredefinedTimeRanges)
+	timeRangeCursor int
+
 	// Filter dropdown overlay state
-	activeFilter   filterDropdownType
-	filterOptions  []string
-	filterSelected map[string]bool
-	filterCursor   int
+	activeFilter      filterDropdownType
+	filterOptions     []string          // all options
+	filterVisible     []string          // options matching filterSearch
+	filterSelected    map[string]bool
+	filterCursor      int
+	filterSearch      string // live search text
+	filterSearching   bool   // true when typing in search
 
 	// Data
 	entries       []gcp.LogEntry
@@ -231,6 +241,8 @@ func NewLogsView(projectID string, gcpClient *gcp.Client) *LogsView {
 }
 
 // Init starts data loading. Must be idempotent — may be called more than once.
+// Resource types and log names are loaded lazily on first dropdown open to reduce
+// API calls (GCP logging read quota is 120 req/min).
 func (v *LogsView) Init() tea.Cmd {
 	v.state = logsStateLoading
 	v.err = nil
@@ -238,8 +250,6 @@ func (v *LogsView) Init() tea.Cmd {
 		v.spinner.Tick,
 		v.executeQuery(),
 		v.loadHistogram(),
-		v.loadResourceTypes(),
-		v.loadLogNames(),
 	)
 }
 
@@ -255,12 +265,12 @@ func (v *LogsView) SetContext(ctx *context.ProgramContext) {
 		v.width = 20
 	}
 	v.height = ctx.ContentHeight
-	v.logViewer.SetSize(v.width, v.height-12) // reserve space for header/sparkline/hints
+	// logViewer size is set in View() where renderWidth accounts for menu overlay
 }
 
-// HasTextInputFocused returns true when the query input or a filter dropdown is active.
+// HasTextInputFocused returns true when the query input or dropdown search is active.
 func (v *LogsView) HasTextInputFocused() bool {
-	return v.queryFocused
+	return v.queryFocused || v.filterSearching
 }
 
 // IsMenuOpen returns true when the action menu is open.
@@ -290,7 +300,7 @@ func (v *LogsView) Update(msg tea.Msg) tea.Cmd {
 		v.err = nil
 		v.entries = msg.entries
 		v.nextPageToken = msg.nextToken
-		v.totalCount = msg.total
+		v.totalCount = int64(len(msg.entries))
 		v.logViewer.SetEntries(msg.entries)
 		v.logViewer.SetHasMore(msg.nextToken != "")
 		return nil
@@ -304,6 +314,7 @@ func (v *LogsView) Update(msg tea.Msg) tea.Cmd {
 		v.loadingMore = false
 		v.entries = append(v.entries, msg.entries...)
 		v.nextPageToken = msg.nextToken
+		v.totalCount += int64(len(msg.entries))
 		v.logViewer.AppendEntries(msg.entries)
 		v.logViewer.SetHasMore(msg.nextToken != "")
 		return nil
@@ -324,6 +335,10 @@ func (v *LogsView) Update(msg tea.Msg) tea.Cmd {
 	case logsResourceTypesLoadedMsg:
 		v.availableResources = msg.types
 		v.resourcesLoaded = true
+		if v.activeFilter == filterDropdownResources {
+			v.filterOptions = msg.types
+			v.updateFilterVisible()
+		}
 		return nil
 
 	case logsResourceTypesErrorMsg:
@@ -333,6 +348,10 @@ func (v *LogsView) Update(msg tea.Msg) tea.Cmd {
 	case logsLogNamesLoadedMsg:
 		v.availableLogNames = msg.names
 		v.logNamesLoaded = true
+		if v.activeFilter == filterDropdownLogNames {
+			v.filterOptions = msg.names
+			v.updateFilterVisible()
+		}
 		return nil
 
 	case logsLogNamesErrorMsg:
@@ -348,11 +367,16 @@ func (v *LogsView) Update(msg tea.Msg) tea.Cmd {
 
 	case logsTailEntriesMsg:
 		if len(msg.entries) > 0 {
-			// Prepend new entries at the top (newest first)
+			// Prepend new entries at the top (newest first),
+			// preserving user's cursor and scroll position
 			v.entries = append(msg.entries, v.entries...)
-			v.logViewer.SetEntries(v.entries)
-			v.logViewer.SetHasMore(v.nextPageToken != "")
+			v.totalCount += int64(len(msg.entries))
+			v.logViewer.PrependEntries(msg.entries)
 		}
+		return nil
+
+	case logsExportDoneMsg:
+		v.exportMsg = msg.message
 		return nil
 
 	// --- Filter field from logviewer ---
@@ -405,6 +429,16 @@ func (v *LogsView) handleKey(msg tea.KeyMsg) tea.Cmd {
 		return v.handleQueryKey(msg)
 	}
 
+	// Filter pills are focused — tab cycles, enter opens dropdown
+	if v.focus == logsFocusFilters {
+		return v.handleFilterPillKey(msg)
+	}
+
+	// Time range selector is focused
+	if v.focus == logsFocusTimeRange {
+		return v.handleTimeRangeKey(msg)
+	}
+
 	// Time range hotkeys (1-5) work in entry focus
 	switch msg.String() {
 	case "1":
@@ -421,6 +455,18 @@ func (v *LogsView) handleKey(msg tea.KeyMsg) tea.Cmd {
 
 	// Entry navigation keys
 	switch {
+	case msg.String() == "tab":
+		// Tab from entries → filters
+		v.focus = logsFocusFilters
+		v.filterPillCursor = 0
+		return nil
+
+	case msg.String() == "shift+tab":
+		// Shift+Tab from entries → time range
+		v.focus = logsFocusTimeRange
+		v.timeRangeCursor = v.currentTimeRangeIndex()
+		return nil
+
 	case key.Matches(msg, v.keys.FocusQuery):
 		v.queryFocused = true
 		v.focus = logsFocusQuery
@@ -481,16 +527,13 @@ func (v *LogsView) handleKey(msg tea.KeyMsg) tea.Cmd {
 		return v.runQuery()
 
 	case key.Matches(msg, v.keys.FilterRes):
-		v.openFilterDropdown(filterDropdownResources)
-		return nil
+		return v.openFilterDropdown(filterDropdownResources)
 
 	case key.Matches(msg, v.keys.FilterLog):
-		v.openFilterDropdown(filterDropdownLogNames)
-		return nil
+		return v.openFilterDropdown(filterDropdownLogNames)
 
 	case key.Matches(msg, v.keys.FilterSev):
-		v.openFilterDropdown(filterDropdownSeverities)
-		return nil
+		return v.openFilterDropdown(filterDropdownSeverities)
 	}
 
 	// Action menu (. key) — check after switch to avoid conflicting with key bindings
@@ -506,6 +549,24 @@ func (v *LogsView) handleKey(msg tea.KeyMsg) tea.Cmd {
 // handleQueryKey handles keys while the query input is focused.
 func (v *LogsView) handleQueryKey(msg tea.KeyMsg) tea.Cmd {
 	switch {
+	case msg.String() == "tab":
+		// Tab from query → time range
+		v.query = v.queryInput.Value()
+		v.queryFocused = false
+		v.focus = logsFocusTimeRange
+		v.timeRangeCursor = v.currentTimeRangeIndex()
+		v.queryInput.Blur()
+		return nil
+
+	case msg.String() == "shift+tab":
+		// Shift+Tab from query → filters
+		v.query = v.queryInput.Value()
+		v.queryFocused = false
+		v.focus = logsFocusFilters
+		v.filterPillCursor = 2 // last pill
+		v.queryInput.Blur()
+		return nil
+
 	case key.Matches(msg, v.keys.Enter):
 		v.query = v.queryInput.Value()
 		v.queryFocused = false
@@ -528,6 +589,80 @@ func (v *LogsView) handleQueryKey(msg tea.KeyMsg) tea.Cmd {
 	return cmd
 }
 
+// filterPillTypes maps pill cursor position to dropdown type.
+var filterPillTypes = [3]filterDropdownType{
+	filterDropdownResources,
+	filterDropdownLogNames,
+	filterDropdownSeverities,
+}
+
+// currentTimeRangeIndex returns the index of the currently active time range.
+func (v *LogsView) currentTimeRangeIndex() int {
+	for i, tr := range components.PredefinedTimeRanges {
+		if tr.Duration == v.timeRange {
+			return i
+		}
+	}
+	return 0
+}
+
+// handleTimeRangeKey handles keys while the time range selector is focused.
+func (v *LogsView) handleTimeRangeKey(msg tea.KeyMsg) tea.Cmd {
+	rangeCount := len(components.PredefinedTimeRanges)
+	switch msg.String() {
+	case "right", "l":
+		v.timeRangeCursor = (v.timeRangeCursor + 1) % rangeCount
+		return nil
+	case "left", "h":
+		v.timeRangeCursor = (v.timeRangeCursor + rangeCount - 1) % rangeCount
+		return nil
+	case "enter", " ":
+		return v.setTimeRange(components.PredefinedTimeRanges[v.timeRangeCursor].Duration)
+	case "tab":
+		// Tab from time range → entries
+		v.focus = logsFocusEntries
+		return nil
+	case "shift+tab":
+		// Shift+Tab from time range → query
+		v.focus = logsFocusQuery
+		v.queryFocused = true
+		v.queryInput.Focus()
+		return v.queryInput.Cursor.BlinkCmd()
+	case "esc":
+		v.focus = logsFocusEntries
+		return nil
+	}
+	return nil
+}
+
+// handleFilterPillKey handles keys while filter pills are focused.
+func (v *LogsView) handleFilterPillKey(msg tea.KeyMsg) tea.Cmd {
+	switch msg.String() {
+	case "right", "l":
+		v.filterPillCursor = (v.filterPillCursor + 1) % 3
+		return nil
+	case "left", "h":
+		v.filterPillCursor = (v.filterPillCursor + 2) % 3 // +2 wraps backward
+		return nil
+	case "tab":
+		// Tab from filters → query
+		v.focus = logsFocusQuery
+		v.queryFocused = true
+		v.queryInput.Focus()
+		return v.queryInput.Cursor.BlinkCmd()
+	case "shift+tab":
+		// Shift+Tab from filters → entries
+		v.focus = logsFocusEntries
+		return nil
+	case "enter", " ":
+		return v.openFilterDropdown(filterPillTypes[v.filterPillCursor])
+	case "esc":
+		v.focus = logsFocusEntries
+		return nil
+	}
+	return nil
+}
+
 // handleEntryEnter handles Enter key on log entries or expanded fields.
 func (v *LogsView) handleEntryEnter() tea.Cmd {
 	// In field navigation, pressing Enter adds field to query
@@ -544,22 +679,33 @@ func (v *LogsView) handleEntryEnter() tea.Cmd {
 // --- Filter dropdown ---
 
 // openFilterDropdown opens a multi-select dropdown for the given filter type.
-func (v *LogsView) openFilterDropdown(ft filterDropdownType) {
+// Triggers lazy loading of options from GCP on first open.
+func (v *LogsView) openFilterDropdown(ft filterDropdownType) tea.Cmd {
 	v.activeFilter = ft
 	v.filterCursor = 0
+	v.filterSearch = ""
+	v.filterSearching = false
 
 	// Build option list and pre-select current selections
 	v.filterSelected = make(map[string]bool)
+	var lazyLoad tea.Cmd
+
 	switch ft {
 	case filterDropdownResources:
 		v.filterOptions = v.availableResources
 		for _, r := range v.selectedResources {
 			v.filterSelected[r] = true
 		}
+		if !v.resourcesLoaded {
+			lazyLoad = v.loadResourceTypes()
+		}
 	case filterDropdownLogNames:
 		v.filterOptions = v.availableLogNames
 		for _, n := range v.selectedLogNames {
 			v.filterSelected[n] = true
+		}
+		if !v.logNamesLoaded {
+			lazyLoad = v.loadLogNames()
 		}
 	case filterDropdownSeverities:
 		v.filterOptions = allSeverities
@@ -569,10 +715,37 @@ func (v *LogsView) openFilterDropdown(ft filterDropdownType) {
 	default:
 		v.activeFilter = filterDropdownNone
 	}
+
+	v.updateFilterVisible()
+	return lazyLoad
+}
+
+// updateFilterVisible rebuilds the visible options list based on the search query.
+func (v *LogsView) updateFilterVisible() {
+	if v.filterSearch == "" {
+		v.filterVisible = v.filterOptions
+		return
+	}
+	needle := strings.ToLower(v.filterSearch)
+	v.filterVisible = nil
+	for _, opt := range v.filterOptions {
+		if strings.Contains(strings.ToLower(opt), needle) {
+			v.filterVisible = append(v.filterVisible, opt)
+		}
+	}
+	// Clamp cursor
+	if v.filterCursor >= len(v.filterVisible) {
+		v.filterCursor = max(0, len(v.filterVisible)-1)
+	}
 }
 
 // handleFilterDropdownKey handles keys while a filter dropdown is open.
 func (v *LogsView) handleFilterDropdownKey(msg tea.KeyMsg) tea.Cmd {
+	// When in search mode, route typing to the search input
+	if v.filterSearching {
+		return v.handleFilterSearchKey(msg)
+	}
+
 	switch msg.String() {
 	case "up", "k":
 		if v.filterCursor > 0 {
@@ -581,26 +754,69 @@ func (v *LogsView) handleFilterDropdownKey(msg tea.KeyMsg) tea.Cmd {
 		return nil
 
 	case "down", "j":
-		if v.filterCursor < len(v.filterOptions)-1 {
+		if v.filterCursor < len(v.filterVisible)-1 {
 			v.filterCursor++
 		}
 		return nil
 
-	case " ", "enter":
-		// Toggle selection on the current option
-		if v.filterCursor < len(v.filterOptions) {
-			opt := v.filterOptions[v.filterCursor]
+	case "pgup":
+		v.filterCursor -= 15
+		if v.filterCursor < 0 {
+			v.filterCursor = 0
+		}
+		return nil
+
+	case "pgdown":
+		v.filterCursor += 15
+		if v.filterCursor >= len(v.filterVisible) {
+			v.filterCursor = max(0, len(v.filterVisible)-1)
+		}
+		return nil
+
+	case " ", "tab", "enter":
+		// Toggle selection on the current visible option
+		if v.filterCursor < len(v.filterVisible) {
+			opt := v.filterVisible[v.filterCursor]
 			v.filterSelected[opt] = !v.filterSelected[opt]
 		}
+		return nil
+
+	case "/":
+		// Activate search mode
+		v.filterSearching = true
 		return nil
 
 	case "esc":
 		// Apply selections and close the dropdown
 		v.applyFilterDropdown()
 		v.activeFilter = filterDropdownNone
+		v.filterSearch = ""
+		v.filterSearching = false
+		v.focus = logsFocusEntries
 		return v.runQuery()
 	}
 
+	return nil
+}
+
+// handleFilterSearchKey handles keys while typing in the dropdown search.
+func (v *LogsView) handleFilterSearchKey(msg tea.KeyMsg) tea.Cmd {
+	switch msg.Type {
+	case tea.KeyEsc, tea.KeyEnter:
+		// Exit search mode, keep the filter text
+		v.filterSearching = false
+		return nil
+	case tea.KeyBackspace:
+		if len(v.filterSearch) > 0 {
+			v.filterSearch = v.filterSearch[:len(v.filterSearch)-1]
+			v.updateFilterVisible()
+		}
+		return nil
+	case tea.KeyRunes:
+		v.filterSearch += string(msg.Runes)
+		v.updateFilterVisible()
+		return nil
+	}
 	return nil
 }
 
@@ -662,18 +878,23 @@ func (v *LogsView) buildEffectiveQuery() string {
 //nolint:gocritic // GCP LQL filter syntax requires double-quoted values, not Go %q
 func buildORClause(field string, values []string) string {
 	if len(values) == 1 {
-		return fmt.Sprintf(`%s = "%s"`, field, values[0])
+		return fmt.Sprintf(`%s = "%s"`, field, escapeLQL(values[0]))
 	}
 	clauses := make([]string, len(values))
 	for i, v := range values {
-		clauses[i] = fmt.Sprintf(`%s = "%s"`, field, v)
+		clauses[i] = fmt.Sprintf(`%s = "%s"`, field, escapeLQL(v))
 	}
 	return "(" + strings.Join(clauses, " OR ") + ")"
 }
 
+// escapeLQL escapes double-quotes in values for safe LQL filter embedding.
+func escapeLQL(s string) string {
+	return strings.ReplaceAll(s, `"`, `\"`)
+}
+
 // appendFilterToQuery adds a key=value clause from a log entry field.
 func (v *LogsView) appendFilterToQuery(fieldKey, value string) {
-	clause := fmt.Sprintf(`%s = "%s"`, fieldKey, value) //nolint:gocritic // GCP LQL filter syntax
+	clause := fmt.Sprintf(`%s = "%s"`, fieldKey, escapeLQL(value)) //nolint:gocritic // GCP LQL filter syntax
 	if v.query != "" {
 		v.query += "\n" + clause
 	} else {
@@ -685,11 +906,12 @@ func (v *LogsView) appendFilterToQuery(fieldKey, value string) {
 // --- Data loading ---
 
 // runQuery resets state and executes the current query.
+// Histogram is not re-fetched here — it only changes with time range.
 func (v *LogsView) runQuery() tea.Cmd {
 	v.state = logsStateLoading
 	v.err = nil
 	v.nextPageToken = ""
-	return tea.Batch(v.executeQuery(), v.loadHistogram())
+	return v.executeQuery()
 }
 
 // executeQuery fetches the first page of log entries.
@@ -711,7 +933,7 @@ func (v *LogsView) executeQuery() tea.Cmd {
 		ctx, cancel := gocontext.WithTimeout(gocontext.Background(), 30*time.Second)
 		defer cancel()
 
-		entries, nextToken, err := logClient.ListLogEntries(ctx, filter, 100, "")
+		entries, nextToken, err := logClient.ListLogEntries(ctx, filter, 200, "")
 		if err != nil {
 			return logsEntriesErrorMsg{err: err}
 		}
@@ -719,7 +941,6 @@ func (v *LogsView) executeQuery() tea.Cmd {
 		return logsEntriesLoadedMsg{
 			entries:   entries,
 			nextToken: nextToken,
-			total:     int64(len(entries)), // approximate; histogram gives better count
 		}
 	}
 }
@@ -749,7 +970,7 @@ func (v *LogsView) loadMore() tea.Cmd {
 		ctx, cancel := gocontext.WithTimeout(gocontext.Background(), 30*time.Second)
 		defer cancel()
 
-		entries, nextToken, err := logClient.ListLogEntries(ctx, filter, 100, token)
+		entries, nextToken, err := logClient.ListLogEntries(ctx, filter, 200, token)
 		if err != nil {
 			return logsAppendErrorMsg{err: err}
 		}
@@ -852,7 +1073,11 @@ func (v *LogsView) setTimeRange(d time.Duration) tea.Cmd {
 	v.timeRange = d
 	// Disable tail when time range changes
 	v.stopTailMode()
-	return v.runQuery()
+	// Time range change affects both query and histogram
+	v.state = logsStateLoading
+	v.err = nil
+	v.nextPageToken = ""
+	return tea.Batch(v.executeQuery(), v.loadHistogram())
 }
 
 // --- Tail mode ---
@@ -978,9 +1203,9 @@ func (v *LogsView) View() string {
 	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
 	errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#EA4335")).Bold(true)
 
-	// Time range selector
+	// Time range selector — logs-specific rendering without misleading auto-refresh/last-updated
 	b.WriteString("  ")
-	b.WriteString(components.RenderTimeRangeSelector(v.timeRange, v.tailMode, time.Time{}))
+	b.WriteString(v.renderTimeRangeBar())
 	b.WriteString("\n")
 
 	// Filter pills (resource, log name, severity)
@@ -1025,10 +1250,6 @@ func (v *LogsView) View() string {
 	// Status line
 	b.WriteString("\n")
 	statusParts := []string{}
-	if v.tailMode {
-		tailStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#34A853")).Bold(true)
-		statusParts = append(statusParts, tailStyle.Render("TAIL"))
-	}
 	if v.logViewer.WrapEnabled() {
 		wrapStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#8AB4F8")).Bold(true)
 		statusParts = append(statusParts, wrapStyle.Render("WRAP"))
@@ -1051,7 +1272,7 @@ func (v *LogsView) View() string {
 	b.WriteString("\n")
 
 	// Key hints
-	b.WriteString(mutedStyle.Render("  /: query  .: actions  1-5: time  f: tail  w: wrap  R/L/V: filters  E/C: expand  r: refresh"))
+	b.WriteString(mutedStyle.Render("  /: query  .: actions  tab: filters  1-5: time  f: tail  w: wrap  E/C: expand  r: refresh"))
 	b.WriteString("\n")
 
 	mainContent := b.String()
@@ -1069,48 +1290,93 @@ func (v *LogsView) View() string {
 	return mainContent
 }
 
+// renderTimeRangeBar renders the time range selector with optional tail indicator.
+func (v *LogsView) renderTimeRangeBar() string {
+	activeStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#4285F4"))
+	inactiveStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#5F6368"))
+	focusedStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#E8EAED")).Background(lipgloss.Color("#3C4043"))
+	tailStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#34A853")).Bold(true)
+	focused := v.focus == logsFocusTimeRange
+
+	var parts []string
+	for i, tr := range components.PredefinedTimeRanges {
+		display := fmt.Sprintf("[%s]", tr.Label)
+		switch {
+		case focused && v.timeRangeCursor == i:
+			parts = append(parts, focusedStyle.Render(display))
+		case tr.Duration == v.timeRange:
+			parts = append(parts, activeStyle.Render(display))
+		default:
+			parts = append(parts, inactiveStyle.Render(display))
+		}
+	}
+	result := strings.Join(parts, " ")
+
+	if v.tailMode {
+		result += "  " + tailStyle.Render("TAIL (5s)")
+	}
+	return result
+}
+
 // renderFilterPills renders compact buttons for each active filter.
+// When filter pills are focused, the active pill gets a highlight.
 func (v *LogsView) renderFilterPills() string {
 	activeStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#4285F4"))
 	inactiveStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#5F6368"))
+	focusedStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#E8EAED")).Background(lipgloss.Color("#3C4043"))
+	focused := v.focus == logsFocusFilters
+
+	renderPill := func(idx int, label string) string {
+		if focused && v.filterPillCursor == idx {
+			return focusedStyle.Render(label)
+		}
+		return inactiveStyle.Render(label)
+	}
+
+	renderActivePill := func(idx int, label string) string {
+		if focused && v.filterPillCursor == idx {
+			return focusedStyle.Render(label)
+		}
+		return activeStyle.Render(label)
+	}
 
 	var pills []string
 
 	// Resources
 	if len(v.selectedResources) > 0 {
-		pills = append(pills, activeStyle.Render(fmt.Sprintf("[R:%d]", len(v.selectedResources))))
+		pills = append(pills, renderActivePill(0, fmt.Sprintf("[Resource Types: %d]", len(v.selectedResources))))
 	} else {
-		pills = append(pills, inactiveStyle.Render("[R:all]"))
+		pills = append(pills, renderPill(0, "[Resource Types: all]"))
 	}
 
 	// Log names
 	if len(v.selectedLogNames) > 0 {
-		pills = append(pills, activeStyle.Render(fmt.Sprintf("[L:%d]", len(v.selectedLogNames))))
+		pills = append(pills, renderActivePill(1, fmt.Sprintf("[Log Names: %d]", len(v.selectedLogNames))))
 	} else {
-		pills = append(pills, inactiveStyle.Render("[L:all]"))
+		pills = append(pills, renderPill(1, "[Log Names: all]"))
 	}
 
 	// Severities
 	if len(v.selectedSeverities) > 0 {
-		pills = append(pills, activeStyle.Render(fmt.Sprintf("[V:%d]", len(v.selectedSeverities))))
+		pills = append(pills, renderActivePill(2, fmt.Sprintf("[Severities: %d]", len(v.selectedSeverities))))
 	} else {
-		pills = append(pills, inactiveStyle.Render("[V:all]"))
+		pills = append(pills, renderPill(2, "[Severities: all]"))
 	}
 
 	return strings.Join(pills, " ")
 }
 
-// renderWithFilterDropdown overlays the filter dropdown onto the main view.
+// renderWithFilterDropdown renders the filter dropdown as a centered overlay.
 func (v *LogsView) renderWithFilterDropdown(base string) string {
-	var b strings.Builder
-	b.WriteString(base)
-
 	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#4285F4"))
 	selectedStyle := lipgloss.NewStyle().Background(lipgloss.Color("#3C4043"))
 	checkStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#34A853"))
 	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
+	borderStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#5F6368")).
+		Padding(0, 1)
 
-	// Dropdown header
 	var title string
 	switch v.activeFilter {
 	case filterDropdownResources:
@@ -1121,37 +1387,61 @@ func (v *LogsView) renderWithFilterDropdown(base string) string {
 		title = "Severities"
 	}
 
-	b.WriteString("\n")
-	b.WriteString("  " + headerStyle.Render(title))
+	searchStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#E8EAED"))
+	searchActiveStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#E8EAED")).Background(lipgloss.Color("#3C4043"))
+
+	var b strings.Builder
+	b.WriteString(headerStyle.Render(title))
 	b.WriteString("\n")
 
-	if len(v.filterOptions) == 0 {
-		b.WriteString("  " + mutedStyle.Render("(no options available)"))
+	// Search bar
+	switch {
+	case v.filterSearching:
+		b.WriteString(searchActiveStyle.Render("/ " + v.filterSearch + "▏"))
+	case v.filterSearch != "":
+		b.WriteString(searchStyle.Render("/ " + v.filterSearch))
+	default:
+		b.WriteString(mutedStyle.Render("/ search"))
+	}
+	b.WriteString("\n")
+
+	loading := (v.activeFilter == filterDropdownResources && !v.resourcesLoaded) ||
+		(v.activeFilter == filterDropdownLogNames && !v.logNamesLoaded)
+
+	switch {
+	case len(v.filterOptions) == 0 && loading:
+		b.WriteString(v.spinner.View() + " Loading...")
 		b.WriteString("\n")
-	} else {
-		// Show up to 15 visible options with scroll
+	case len(v.filterOptions) == 0:
+		b.WriteString(mutedStyle.Render("(no options available)"))
+		b.WriteString("\n")
+	case len(v.filterVisible) == 0:
+		b.WriteString(mutedStyle.Render("(no matches)"))
+		b.WriteString("\n")
+	default:
 		maxVisible := 15
 		start := 0
 		if v.filterCursor >= maxVisible {
 			start = v.filterCursor - maxVisible + 1
 		}
 		end := start + maxVisible
-		if end > len(v.filterOptions) {
-			end = len(v.filterOptions)
+		if end > len(v.filterVisible) {
+			end = len(v.filterVisible)
 		}
 
 		if start > 0 {
-			b.WriteString(fmt.Sprintf("  %s\n", mutedStyle.Render(fmt.Sprintf("↑ %d more", start))))
+			b.WriteString(mutedStyle.Render(fmt.Sprintf("↑ %d more", start)))
+			b.WriteString("\n")
 		}
 
 		for i := start; i < end; i++ {
-			opt := v.filterOptions[i]
+			opt := v.filterVisible[i]
 			check := "  "
 			if v.filterSelected[opt] {
 				check = checkStyle.Render("✓ ")
 			}
 
-			line := fmt.Sprintf("  %s%s", check, opt)
+			line := fmt.Sprintf("%s%s", check, opt)
 			if i == v.filterCursor {
 				line = selectedStyle.Render(line)
 			}
@@ -1159,15 +1449,17 @@ func (v *LogsView) renderWithFilterDropdown(base string) string {
 			b.WriteString("\n")
 		}
 
-		if end < len(v.filterOptions) {
-			b.WriteString(fmt.Sprintf("  %s\n", mutedStyle.Render(fmt.Sprintf("↓ %d more", len(v.filterOptions)-end))))
+		if end < len(v.filterVisible) {
+			b.WriteString(mutedStyle.Render(fmt.Sprintf("↓ %d more", len(v.filterVisible)-end)))
+			b.WriteString("\n")
 		}
 	}
 
-	b.WriteString("  " + mutedStyle.Render("space: toggle  esc: apply & close"))
-	b.WriteString("\n")
+	b.WriteString(mutedStyle.Render("/: search  enter: toggle  esc: apply & close"))
 
-	return b.String()
+	dropdownContent := borderStyle.Render(b.String())
+	contentHeight := lipgloss.Height(base)
+	return overlay.Center(base, dropdownContent, v.width, contentHeight)
 }
 
 // --- Action menu and export ---
@@ -1199,59 +1491,63 @@ func (v *LogsView) exportFilename(ext string) string {
 
 func (v *LogsView) exportTXT() tea.Cmd {
 	filename := v.exportFilename("txt")
-	var b strings.Builder
-	for i := range v.entries {
-		e := &v.entries[i]
-		b.WriteString(fmt.Sprintf("%s  %s  %s  %s\n",
-			e.Timestamp.Format("2006-01-02 15:04:05.000"),
-			e.Severity,
-			e.ResourceType,
-			strings.ReplaceAll(e.Message, "\n", " "),
-		))
+	// Snapshot entries for the goroutine
+	entries := make([]gcp.LogEntry, len(v.entries))
+	copy(entries, v.entries)
+
+	return func() tea.Msg {
+		var b strings.Builder
+		for i := range entries {
+			e := &entries[i]
+			b.WriteString(fmt.Sprintf("%s  %s  %s  %s\n",
+				e.Timestamp.Format("2006-01-02 15:04:05.000"),
+				e.Severity,
+				e.ResourceType,
+				strings.ReplaceAll(e.Message, "\n", " "),
+			))
+		}
+		if err := os.WriteFile(filename, []byte(b.String()), 0o644); err != nil {
+			return logsExportDoneMsg{message: fmt.Sprintf("Export error: %s", err)}
+		}
+		return logsExportDoneMsg{message: fmt.Sprintf("Exported %d entries to %s", len(entries), filename)}
 	}
-	if err := os.WriteFile(filename, []byte(b.String()), 0o644); err != nil {
-		v.exportMsg = fmt.Sprintf("Export error: %s", err)
-		return nil
-	}
-	v.exportMsg = fmt.Sprintf("Exported %d entries to %s", len(v.entries), filename)
-	return nil
 }
 
 func (v *LogsView) exportCSV() tea.Cmd {
 	filename := v.exportFilename("csv")
-	f, err := os.Create(filename)
-	if err != nil {
-		v.exportMsg = fmt.Sprintf("Export error: %s", err)
-		return nil
-	}
-	defer f.Close()
+	entries := make([]gcp.LogEntry, len(v.entries))
+	copy(entries, v.entries)
 
-	w := csv.NewWriter(f)
-	if err := w.Write([]string{"timestamp", "severity", "resource_type", "log_name", "insert_id", "message"}); err != nil {
-		v.exportMsg = fmt.Sprintf("Export error: %s", err)
-		return nil
-	}
-	for i := range v.entries {
-		e := &v.entries[i]
-		if err := w.Write([]string{
-			e.Timestamp.Format(time.RFC3339Nano),
-			e.Severity,
-			e.ResourceType,
-			e.LogName,
-			e.InsertID,
-			e.Message,
-		}); err != nil {
-			v.exportMsg = fmt.Sprintf("Export error: %s", err)
-			return nil
+	return func() tea.Msg {
+		f, err := os.Create(filename)
+		if err != nil {
+			return logsExportDoneMsg{message: fmt.Sprintf("Export error: %s", err)}
 		}
+		defer f.Close()
+
+		w := csv.NewWriter(f)
+		if err := w.Write([]string{"timestamp", "severity", "resource_type", "log_name", "insert_id", "message"}); err != nil {
+			return logsExportDoneMsg{message: fmt.Sprintf("Export error: %s", err)}
+		}
+		for i := range entries {
+			e := &entries[i]
+			if err := w.Write([]string{
+				e.Timestamp.Format(time.RFC3339Nano),
+				e.Severity,
+				e.ResourceType,
+				e.LogName,
+				e.InsertID,
+				e.Message,
+			}); err != nil {
+				return logsExportDoneMsg{message: fmt.Sprintf("Export error: %s", err)}
+			}
+		}
+		w.Flush()
+		if err := w.Error(); err != nil {
+			return logsExportDoneMsg{message: fmt.Sprintf("Export error: %s", err)}
+		}
+		return logsExportDoneMsg{message: fmt.Sprintf("Exported %d entries to %s", len(entries), filename)}
 	}
-	w.Flush()
-	if err := w.Error(); err != nil {
-		v.exportMsg = fmt.Sprintf("Export error: %s", err)
-		return nil
-	}
-	v.exportMsg = fmt.Sprintf("Exported %d entries to %s", len(v.entries), filename)
-	return nil
 }
 
 // jsonlEntry is the JSON structure for JSONL export.
@@ -1272,37 +1568,39 @@ type jsonlEntry struct {
 
 func (v *LogsView) exportJSONL() tea.Cmd {
 	filename := v.exportFilename("jsonl")
-	f, err := os.Create(filename)
-	if err != nil {
-		v.exportMsg = fmt.Sprintf("Export error: %s", err)
-		return nil
-	}
-	defer f.Close()
+	entries := make([]gcp.LogEntry, len(v.entries))
+	copy(entries, v.entries)
 
-	enc := json.NewEncoder(f)
-	for i := range v.entries {
-		e := &v.entries[i]
-		je := jsonlEntry{
-			Timestamp:      e.Timestamp.Format(time.RFC3339Nano),
-			Severity:       e.Severity,
-			Message:        e.Message,
-			LogName:        e.LogName,
-			ResourceType:   e.ResourceType,
-			ResourceLabels: e.ResourceLabels,
-			Labels:         e.Labels,
-			JSONPayload:    e.JSONPayload,
-			TextPayload:    e.TextPayload,
-			InsertID:       e.InsertID,
-			TraceID:        e.TraceID,
-			SpanID:         e.SpanID,
+	return func() tea.Msg {
+		f, err := os.Create(filename)
+		if err != nil {
+			return logsExportDoneMsg{message: fmt.Sprintf("Export error: %s", err)}
 		}
-		if err := enc.Encode(je); err != nil {
-			v.exportMsg = fmt.Sprintf("Export error: %s", err)
-			return nil
+		defer f.Close()
+
+		enc := json.NewEncoder(f)
+		for i := range entries {
+			e := &entries[i]
+			je := jsonlEntry{
+				Timestamp:      e.Timestamp.Format(time.RFC3339Nano),
+				Severity:       e.Severity,
+				Message:        e.Message,
+				LogName:        e.LogName,
+				ResourceType:   e.ResourceType,
+				ResourceLabels: e.ResourceLabels,
+				Labels:         e.Labels,
+				JSONPayload:    e.JSONPayload,
+				TextPayload:    e.TextPayload,
+				InsertID:       e.InsertID,
+				TraceID:        e.TraceID,
+				SpanID:         e.SpanID,
+			}
+			if err := enc.Encode(je); err != nil {
+				return logsExportDoneMsg{message: fmt.Sprintf("Export error: %s", err)}
+			}
 		}
+		return logsExportDoneMsg{message: fmt.Sprintf("Exported %d entries to %s", len(entries), filename)}
 	}
-	v.exportMsg = fmt.Sprintf("Exported %d entries to %s", len(v.entries), filename)
-	return nil
 }
 
 // renderWithOverlay centers an overlay dialog on top of the content.

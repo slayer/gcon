@@ -102,6 +102,23 @@ func flattenMap(prefix string, m map[string]any, out *[]FlattenedField) {
 		switch v := m[k].(type) {
 		case map[string]any:
 			flattenMap(fullKey, v, out)
+		case []any:
+			flattenSlice(fullKey, v, out)
+		default:
+			*out = append(*out, FlattenedField{Key: fullKey, Value: fmt.Sprintf("%v", v)})
+		}
+	}
+}
+
+// flattenSlice recursively flattens a JSON array into indexed dot-notated key-value pairs.
+func flattenSlice(prefix string, arr []any, out *[]FlattenedField) {
+	for i, item := range arr {
+		fullKey := fmt.Sprintf("%s.%d", prefix, i)
+		switch v := item.(type) {
+		case map[string]any:
+			flattenMap(fullKey, v, out)
+		case []any:
+			flattenSlice(fullKey, v, out)
 		default:
 			*out = append(*out, FlattenedField{Key: fullKey, Value: fmt.Sprintf("%v", v)})
 		}
@@ -255,20 +272,7 @@ func (c *LoggingClient) GetRecentLogs(
 			return nil, fmt.Errorf("failed to fetch log entries: %w", err)
 		}
 
-		logEntry := LogEntry{
-			Timestamp: entry.Timestamp,
-			Severity:  normalizeSeverity(entry.Severity.String()),
-			Message:   fmt.Sprintf("%v", entry.Payload),
-		}
-
-		// Extract source location if available
-		if entry.SourceLocation != nil {
-			logEntry.SourceLocation = fmt.Sprintf("%s:%d",
-				entry.SourceLocation.File,
-				entry.SourceLocation.Line)
-		}
-
-		entries = append(entries, logEntry)
+		entries = append(entries, convertLogEntry(entry))
 		count++
 	}
 
@@ -317,19 +321,7 @@ func (c *LoggingClient) GetCloudRunLogs(
 			return nil, fmt.Errorf("failed to fetch Cloud Run log entries: %w", err)
 		}
 
-		logEntry := LogEntry{
-			Timestamp: entry.Timestamp,
-			Severity:  normalizeSeverity(entry.Severity.String()),
-			Message:   fmt.Sprintf("%v", entry.Payload),
-		}
-
-		if entry.SourceLocation != nil {
-			logEntry.SourceLocation = fmt.Sprintf("%s:%d",
-				entry.SourceLocation.File,
-				entry.SourceLocation.Line)
-		}
-
-		entries = append(entries, logEntry)
+		entries = append(entries, convertLogEntry(entry))
 		count++
 	}
 

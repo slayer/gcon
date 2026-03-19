@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/context"
 	"github.com/stretchr/testify/assert"
@@ -201,6 +202,70 @@ func TestLogsViewFilterDropdown(t *testing.T) {
 	})
 }
 
+func TestLogsViewFilterDropdownFullFlow(t *testing.T) {
+	v := NewLogsView("test-project", nil)
+	// Simulate resource types already loaded
+	v.availableResources = []string{"gce_instance", "cloud_run_revision", "gcs_bucket"}
+	v.resourcesLoaded = true
+
+	// Open resource dropdown
+	v.openFilterDropdown(filterDropdownResources)
+	assert.Equal(t, filterDropdownResources, v.activeFilter)
+	assert.Equal(t, 3, len(v.filterOptions))
+
+	// Navigate to cloud_run_revision (index 1) and toggle with Enter
+	v.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	assert.Equal(t, 1, v.filterCursor)
+	v.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	assert.True(t, v.filterSelected["cloud_run_revision"], "should be selected after enter")
+
+	// Close with Esc (applies + closes)
+	v.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	assert.Equal(t, filterDropdownNone, v.activeFilter, "dropdown should be closed")
+	require.Len(t, v.selectedResources, 1)
+	assert.Equal(t, "cloud_run_revision", v.selectedResources[0])
+
+	// Verify the query includes the resource filter
+	query := v.buildEffectiveQuery()
+	assert.Contains(t, query, `resource.type = "cloud_run_revision"`)
+}
+
+func TestLogsViewFilterDropdownLazyLoad(t *testing.T) {
+	v := NewLogsView("test-project", nil)
+	// Resources NOT loaded yet
+	assert.False(t, v.resourcesLoaded)
+
+	// Open resource dropdown — triggers lazy load, options are empty
+	v.openFilterDropdown(filterDropdownResources)
+	assert.Equal(t, filterDropdownResources, v.activeFilter)
+	assert.Empty(t, v.filterOptions, "options should be empty before async load")
+
+	// Simulate async response arriving while dropdown is open
+	v.Update(logsResourceTypesLoadedMsg{types: []string{"gce_instance", "cloud_run_revision"}})
+	assert.Equal(t, 2, len(v.filterOptions), "options should update from async load")
+	assert.True(t, v.resourcesLoaded)
+
+	// Navigate to cloud_run_revision and toggle
+	v.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	assert.Equal(t, 1, v.filterCursor)
+	v.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(" ")})
+	assert.True(t, v.filterSelected["cloud_run_revision"])
+
+	// Close dropdown with Esc
+	v.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	assert.Equal(t, filterDropdownNone, v.activeFilter)
+	require.Len(t, v.selectedResources, 1)
+	assert.Equal(t, "cloud_run_revision", v.selectedResources[0])
+
+	// Query should include the filter
+	query := v.buildEffectiveQuery()
+	assert.Contains(t, query, `resource.type = "cloud_run_revision"`)
+
+	// Pill should show count
+	pills := v.renderFilterPills()
+	assert.Contains(t, pills, "Resource Types: 1")
+}
+
 func TestLogsViewSetContext(t *testing.T) {
 	v := NewLogsView("test-project", nil)
 	ctx := context.New()
@@ -233,6 +298,13 @@ func TestLogsViewAppendFilterToQuery(t *testing.T) {
 		assert.Contains(t, v.query, `severity = "ERROR"`)
 		assert.Contains(t, v.query, `resource.type = "gce_instance"`)
 	})
+
+	t.Run("value with double quotes is escaped", func(t *testing.T) {
+		v := NewLogsView("test-project", nil)
+		v.appendFilterToQuery("textPayload", `error: "not found"`)
+
+		assert.Equal(t, `textPayload = "error: \"not found\""`, v.query)
+	})
 }
 
 func TestLogsViewEntriesLoaded(t *testing.T) {
@@ -247,14 +319,13 @@ func TestLogsViewEntriesLoaded(t *testing.T) {
 	v.Update(logsEntriesLoadedMsg{
 		entries:   entries,
 		nextToken: "next-page",
-		total:     42,
 	})
 
 	assert.Equal(t, logsStateIdle, v.state)
 	assert.Nil(t, v.err)
 	assert.Len(t, v.entries, 2)
 	assert.Equal(t, "next-page", v.nextPageToken)
-	assert.Equal(t, int64(42), v.totalCount)
+	assert.Equal(t, int64(2), v.totalCount)
 	assert.Equal(t, 2, v.logViewer.EntryCount())
 }
 
@@ -289,16 +360,16 @@ func TestLogsViewRenderFilterPills(t *testing.T) {
 
 	// Default: all filters show "all"
 	pills := v.renderFilterPills()
-	assert.Contains(t, pills, "R:all")
-	assert.Contains(t, pills, "L:all")
-	assert.Contains(t, pills, "V:all")
+	assert.Contains(t, pills, "Resource Types: all")
+	assert.Contains(t, pills, "Log Names: all")
+	assert.Contains(t, pills, "Severities: all")
 
 	// With selections: shows count
 	v.selectedResources = []string{"gce_instance", "gcs_bucket"}
 	v.selectedSeverities = []string{"ERROR"}
 
 	pills = v.renderFilterPills()
-	assert.Contains(t, pills, "R:2")
-	assert.Contains(t, pills, "V:1")
-	assert.Contains(t, pills, "L:all")
+	assert.Contains(t, pills, "Resource Types: 2")
+	assert.Contains(t, pills, "Severities: 1")
+	assert.Contains(t, pills, "Log Names: all")
 }

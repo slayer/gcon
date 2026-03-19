@@ -52,9 +52,30 @@ func (m *Model) SetEntries(entries []gcp.LogEntry) {
 	m.offset = 0
 }
 
-// AppendEntries adds entries to the end (for infinite scroll / tail mode).
+// AppendEntries adds entries to the end (for infinite scroll).
 func (m *Model) AppendEntries(entries []gcp.LogEntry) {
 	m.entries = append(m.entries, entries...)
+}
+
+// PrependEntries adds entries at the beginning (for tail mode).
+// Adjusts cursor and scroll offset so the user's position is preserved.
+func (m *Model) PrependEntries(entries []gcp.LogEntry) {
+	count := len(entries)
+	if count == 0 {
+		return
+	}
+	m.entries = append(entries, m.entries...)
+
+	// Shift cursor and offset down so user stays on the same entry
+	m.cursor += count
+	m.offset += count
+
+	// Shift expanded entries map
+	newExpanded := make(map[int]bool, len(m.expanded))
+	for idx, v := range m.expanded {
+		newExpanded[idx+count] = v
+	}
+	m.expanded = newExpanded
 }
 
 // SetHasMore sets whether there are more pages available.
@@ -227,13 +248,14 @@ func (m *Model) NeedsMore() bool {
 
 // entryLines returns how many visual lines an entry occupies.
 func (m *Model) entryLines(idx int) int {
-	lines := 1 // compact line (1 when not wrapping)
-	if m.wrapLines {
-		// Count wrapped lines for the message
-		_, lines = RenderWrappedEntry(m.entries[idx], m.expanded[idx], m.width)
+	lines := 1 // header line
+	if m.wrapLines && !m.expanded[idx] {
+		_, lines = RenderWrappedEntry(m.entries[idx], false, m.width, "")
 	}
 	if m.expanded[idx] {
-		lines += len(m.entries[idx].FlattenFields())
+		// Expanded: 1 header line + wrapped field lines
+		_, fieldLines := RenderExpandedFields(m.entries[idx], -1, m.width)
+		lines += fieldLines
 	}
 	return lines
 }
@@ -264,42 +286,44 @@ func (m *Model) View() string {
 	}
 
 	var b strings.Builder
-	selectedStyle := lipgloss.NewStyle().Background(lipgloss.Color("#3C4043"))
 	linesRendered := 0
+	const selectedBg = "#3C4043"
 
 	for i := m.offset; i < len(m.entries) && linesRendered < m.height; i++ {
 		entry := m.entries[i]
-		isSelected := i == m.cursor
+		isSelected := i == m.cursor && m.fieldCur < 0
 		isExpanded := m.expanded[i]
 
-		// Render entry line(s) — wrapped or truncated
-		if m.wrapLines {
-			line, lineCount := RenderWrappedEntry(entry, isExpanded, m.width)
-			if isSelected && m.fieldCur < 0 {
-				line = selectedStyle.Render(line)
-			}
+		// Pass background color into renderers so inner ANSI styles don't
+		// punch holes in the highlight bar.
+		bg := ""
+		if isSelected {
+			bg = selectedBg
+		}
+
+		// Render header line:
+		// - expanded entries show only indicator+severity+timestamp+resource (no message)
+		// - collapsed entries use wrapped or compact based on global wrapLines toggle
+		if m.wrapLines && !isExpanded {
+			line, lineCount := RenderWrappedEntry(entry, false, m.width, bg)
 			b.WriteString(line)
 			b.WriteString("\n")
 			linesRendered += lineCount
 		} else {
-			line := RenderCompactEntry(entry, isExpanded, m.width)
-			if isSelected && m.fieldCur < 0 {
-				line = selectedStyle.Render(line)
-			}
+			line := RenderCompactEntry(entry, isExpanded, m.width, bg)
 			b.WriteString(line)
 			b.WriteString("\n")
 			linesRendered++
 		}
 
-		// Render expanded fields
+		// Render expanded fields with full unwrapped values
 		if isExpanded && linesRendered < m.height {
 			fieldCurIdx := -1
 			if isSelected {
 				fieldCurIdx = m.fieldCur
 			}
-			fieldLines := RenderExpandedFields(entry, fieldCurIdx, m.width)
-			fieldCount := strings.Count(fieldLines, "\n")
-			b.WriteString(fieldLines)
+			fieldContent, fieldCount := RenderExpandedFields(entry, fieldCurIdx, m.width)
+			b.WriteString(fieldContent)
 			linesRendered += fieldCount
 		}
 	}

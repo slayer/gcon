@@ -181,6 +181,42 @@ func TestLogViewerAppendEntries(t *testing.T) {
 	assert.Equal(t, 8, m.EntryCount())
 }
 
+func TestLogViewerPrependEntries(t *testing.T) {
+	m := New()
+	m.SetSize(80, 24)
+	m.SetEntries(makeTestEntries(5))
+
+	// Move cursor to entry 2 and expand it
+	m.MoveDown()
+	m.MoveDown()
+	assert.Equal(t, 2, m.Cursor())
+	m.ToggleExpand(2)
+	assert.True(t, m.IsExpanded(2))
+
+	// Prepend 3 new entries
+	m.PrependEntries(makeTestEntries(3))
+
+	assert.Equal(t, 8, m.EntryCount())
+	// Cursor should shift by 3 to stay on the same logical entry
+	assert.Equal(t, 5, m.Cursor())
+	// Expanded map should shift: old index 2 → new index 5
+	assert.False(t, m.IsExpanded(2), "old index should no longer be expanded")
+	assert.True(t, m.IsExpanded(5), "shifted index should be expanded")
+}
+
+func TestLogViewerPrependEntriesEmpty(t *testing.T) {
+	m := New()
+	m.SetSize(80, 24)
+	m.SetEntries(makeTestEntries(3))
+	m.MoveDown()
+	assert.Equal(t, 1, m.Cursor())
+
+	// Prepending zero entries should be a no-op
+	m.PrependEntries(nil)
+	assert.Equal(t, 3, m.EntryCount())
+	assert.Equal(t, 1, m.Cursor())
+}
+
 func TestLogViewerSetEntriesResetsState(t *testing.T) {
 	m := New()
 	m.SetSize(80, 24)

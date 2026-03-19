@@ -119,6 +119,31 @@ func TestLogEntryFlattenFieldsEmpty(t *testing.T) {
 	assert.Empty(t, fields, "empty entry should produce no flattened fields")
 }
 
+func TestLogEntryFlattenFieldsWithArrays(t *testing.T) {
+	entry := LogEntry{
+		JSONPayload: map[string]any{
+			"tags": []any{"web", "prod"},
+			"nested": []any{
+				map[string]any{"id": 1},
+				map[string]any{"id": 2},
+			},
+		},
+	}
+
+	fields := entry.FlattenFields()
+	require.NotEmpty(t, fields)
+
+	lookup := make(map[string]string, len(fields))
+	for _, f := range fields {
+		lookup[f.Key] = f.Value
+	}
+
+	assert.Equal(t, "web", lookup["jsonPayload.tags.0"])
+	assert.Equal(t, "prod", lookup["jsonPayload.tags.1"])
+	assert.Equal(t, "1", lookup["jsonPayload.nested.0.id"])
+	assert.Equal(t, "2", lookup["jsonPayload.nested.1.id"])
+}
+
 func TestNormalizeSeverity(t *testing.T) {
 	tests := []struct {
 		input    string
