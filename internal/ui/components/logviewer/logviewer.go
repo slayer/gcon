@@ -18,15 +18,16 @@ type FilterFieldMsg struct {
 
 // Model is the log entry viewer component.
 type Model struct {
-	entries   []gcp.LogEntry
-	expanded  map[int]bool // entry index -> expanded
-	cursor    int          // selected entry index
-	fieldCur  int          // selected field within expanded entry (-1 = none)
-	hasMore   bool         // more pages available
-	wrapLines bool         // show full message wrapped vs truncated
-	width     int
-	height    int
-	offset    int // scroll offset for virtual scrolling
+	entries    []gcp.LogEntry
+	expanded   map[int]bool // entry index -> expanded
+	cursor     int          // selected entry index
+	fieldCur   int          // selected field within expanded entry (-1 = none)
+	hasMore    bool         // more pages available
+	wrapLines  bool         // show full message wrapped vs truncated
+	colorize   bool         // colorize logfmt key=value pairs
+	width      int
+	height     int
+	offset     int // scroll offset for virtual scrolling
 }
 
 // New creates a new LogViewer model.
@@ -34,6 +35,7 @@ func New() *Model {
 	return &Model{
 		expanded: make(map[int]bool),
 		fieldCur: -1,
+		colorize: true, // on by default
 	}
 }
 
@@ -92,6 +94,16 @@ func (m *Model) ToggleWrap() {
 // WrapEnabled returns true when line wrapping is on.
 func (m *Model) WrapEnabled() bool {
 	return m.wrapLines
+}
+
+// ToggleColorize toggles logfmt syntax colorization.
+func (m *Model) ToggleColorize() {
+	m.colorize = !m.colorize
+}
+
+// ColorizeEnabled returns true when logfmt colorization is on.
+func (m *Model) ColorizeEnabled() bool {
+	return m.colorize
 }
 
 // EntryCount returns the number of entries.
@@ -250,7 +262,7 @@ func (m *Model) NeedsMore() bool {
 func (m *Model) entryLines(idx int) int {
 	lines := 1 // header line
 	if m.wrapLines && !m.expanded[idx] {
-		_, lines = RenderWrappedEntry(m.entries[idx], false, m.width, "")
+		_, lines = RenderWrappedEntry(m.entries[idx], false, m.width, "", m.colorize)
 	}
 	if m.expanded[idx] {
 		// Expanded: 1 header line + wrapped field lines
@@ -305,12 +317,12 @@ func (m *Model) View() string {
 		// - expanded entries show only indicator+severity+timestamp+resource (no message)
 		// - collapsed entries use wrapped or compact based on global wrapLines toggle
 		if m.wrapLines && !isExpanded {
-			line, lineCount := RenderWrappedEntry(entry, false, m.width, bg)
+			line, lineCount := RenderWrappedEntry(entry, false, m.width, bg, m.colorize)
 			b.WriteString(line)
 			b.WriteString("\n")
 			linesRendered += lineCount
 		} else {
-			line := RenderCompactEntry(entry, isExpanded, m.width, bg)
+			line := RenderCompactEntry(entry, isExpanded, m.width, bg, m.colorize)
 			b.WriteString(line)
 			b.WriteString("\n")
 			linesRendered++

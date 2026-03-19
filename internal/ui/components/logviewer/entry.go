@@ -57,7 +57,8 @@ func severityStyle(severity string) lipgloss.Style {
 // RenderCompactEntry renders a single log entry in compact (one-line) format.
 // The output is guaranteed to fit within width visual characters.
 // bg is an optional background color applied to the entire line (empty string = no background).
-func RenderCompactEntry(entry gcp.LogEntry, expanded bool, width int, bg string) string {
+// colorize enables logfmt syntax highlighting in the message.
+func RenderCompactEntry(entry gcp.LogEntry, expanded bool, width int, bg string, colorize bool) string {
 	indicator := "▸"
 	if expanded {
 		indicator = "▾"
@@ -117,7 +118,13 @@ func RenderCompactEntry(entry gcp.LogEntry, expanded bool, width int, bg string)
 	}
 	message := truncateEntry(entry.Message, msgWidth)
 
-	line := header + plainStyle.Render(message)
+	var styledMsg string
+	if colorize {
+		styledMsg = colorizeMessage(message, bg)
+	} else {
+		styledMsg = plainStyle.Render(message)
+	}
+	line := header + styledMsg
 
 	// Pad to full width so the background spans the entire terminal line
 	if bg != "" {
@@ -133,8 +140,9 @@ func RenderCompactEntry(entry gcp.LogEntry, expanded bool, width int, bg string)
 
 // RenderWrappedEntry renders a log entry with the full message soft-wrapped to width.
 // bg is an optional background color (empty string = no background).
+// colorize enables logfmt syntax highlighting.
 // Returns the rendered string and the number of visual lines it occupies.
-func RenderWrappedEntry(entry gcp.LogEntry, expanded bool, width int, bg string) (rendered string, lineCount int) {
+func RenderWrappedEntry(entry gcp.LogEntry, expanded bool, width int, bg string, colorize bool) (rendered string, lineCount int) {
 	indicator := "▸"
 	if expanded {
 		indicator = "▾"
@@ -177,32 +185,54 @@ func RenderWrappedEntry(entry gcp.LogEntry, expanded bool, width int, bg string)
 		msgWidth = 10
 	}
 
-	// Wrap message into lines of msgWidth runes each
-	msgRunes := []rune(message)
-	if len(msgRunes) <= msgWidth {
+	// Use visual width for the fits-on-one-line check (ANSI codes are zero-width)
+	visWidth := lipgloss.Width(message)
+	if visWidth <= msgWidth {
 		// Fits on one line
+		if colorize {
+			return prefix + colorizeMessage(message, bg), 1
+		}
 		return prefix + plainStyle.Render(message), 1
 	}
 
+	// Multi-line wrap: use ANSI-aware chunking if message has escape codes
+	hasANSI := strings.Contains(message, "\x1b[")
 	var b strings.Builder
 	indent := strings.Repeat(" ", prefixWidth)
 	lineCount = 0
 
-	for start := 0; start < len(msgRunes); start += msgWidth {
-		end := start + msgWidth
-		if end > len(msgRunes) {
-			end = len(msgRunes)
+	if hasANSI {
+		// ANSI-aware wrapping: chunk by visible width
+		chunks := wrapANSI(message, msgWidth)
+		for ci, chunk := range chunks {
+			if ci == 0 {
+				b.WriteString(prefix + chunk)
+			} else {
+				b.WriteString(indent + chunk)
+			}
+			lineCount++
+			if ci < len(chunks)-1 {
+				b.WriteString("\n")
+			}
 		}
-		chunk := string(msgRunes[start:end])
+	} else {
+		msgRunes := []rune(message)
+		for start := 0; start < len(msgRunes); start += msgWidth {
+			end := start + msgWidth
+			if end > len(msgRunes) {
+				end = len(msgRunes)
+			}
+			chunk := string(msgRunes[start:end])
 
-		if start == 0 {
-			b.WriteString(prefix + chunk)
-		} else {
-			b.WriteString(indent + chunk)
-		}
-		lineCount++
-		if end < len(msgRunes) {
-			b.WriteString("\n")
+			if start == 0 {
+				b.WriteString(prefix + chunk)
+			} else {
+				b.WriteString(indent + chunk)
+			}
+			lineCount++
+			if end < len(msgRunes) {
+				b.WriteString("\n")
+			}
 		}
 	}
 
@@ -285,15 +315,279 @@ func RenderExpandedFields(entry gcp.LogEntry, cursorIdx int, width int) (rendere
 	return b.String(), totalLines
 }
 
-// truncateEntry truncates a string for compact display, replacing newlines with spaces.
-func truncateEntry(s string, maxLen int) string {
-	s = strings.ReplaceAll(s, "\n", " ")
-	runes := []rune(s)
-	if len(runes) <= maxLen {
+// logStyles holds pre-built styles for log message colorization.
+type logStyles struct {
+	key     lipgloss.Style
+	str     lipgloss.Style
+	num     lipgloss.Style
+	bool    lipgloss.Style
+	bracket lipgloss.Style
+	plain   lipgloss.Style
+}
+
+func newLogStyles(bg string) logStyles {
+	make := func(fg string) lipgloss.Style {
+		s := lipgloss.NewStyle().Foreground(lipgloss.Color(fg))
+		if bg != "" {
+			s = s.Background(lipgloss.Color(bg))
+		}
 		return s
 	}
-	if maxLen <= 3 {
-		return string(runes[:maxLen])
+	return logStyles{
+		key:     make("#8AB4F8"), // blue — keys
+		str:     make("#34A853"), // green — quoted strings
+		num:     make("#8AB4F8"), // blue — numbers
+		bool:    make("#FBBC04"), // yellow — true/false/null
+		bracket: make("#9AA0A6"), // muted gray — [bracketed]
+		plain:   make("#E8EAED"), // light gray — default
 	}
-	return string(runes[:maxLen-3]) + "..."
+}
+
+// colorizeMessage applies syntax highlighting to logfmt-style key=value pairs.
+// Highlights: keys (blue), quoted strings (green), numbers (blue),
+// booleans (yellow), [brackets] (muted gray).
+// If the message already contains ANSI escape sequences, they are preserved as-is.
+func colorizeMessage(s string, bg string) string {
+	if len(s) == 0 {
+		return s
+	}
+
+	// If message already has ANSI colors, pass through — don't double-style
+	if strings.Contains(s, "\x1b[") {
+		return s
+	}
+
+	st := newLogStyles(bg)
+	var b strings.Builder
+	runes := []rune(s)
+	i := 0
+
+	for i < len(runes) {
+		// Try to match key=value
+		if newPos := writeKeyValue(&b, runes, i, st); newPos > i {
+			i = newPos
+		} else if runes[i] == '[' {
+			// [bracketed text]
+			i = writeBracket(&b, runes, i, st)
+		} else {
+			// Plain text until next space
+			start := i
+			for i < len(runes) && (i == start || runes[i] != ' ') {
+				i++
+			}
+			b.WriteString(st.plain.Render(string(runes[start:i])))
+		}
+		// Spaces between tokens
+		for i < len(runes) && runes[i] == ' ' {
+			b.WriteString(st.plain.Render(" "))
+			i++
+		}
+	}
+
+	return b.String()
+}
+
+// writeKeyValue tries to parse key=value at runes[pos]. Returns new position if matched, or pos if not.
+func writeKeyValue(b *strings.Builder, runes []rune, pos int, st logStyles) int {
+	i := pos
+	for i < len(runes) && isKeyRune(runes[i]) {
+		i++
+	}
+	if i == pos || i >= len(runes) || runes[i] != '=' {
+		return pos // not a key=value
+	}
+
+	// Write key=
+	b.WriteString(st.key.Render(string(runes[pos:i])))
+	b.WriteString(st.plain.Render("="))
+	i++ // skip '='
+
+	// Parse value
+	if i < len(runes) && runes[i] == '"' {
+		i = writeQuotedString(b, runes, i, st)
+	} else {
+		valStart := i
+		for i < len(runes) && runes[i] != ' ' {
+			i++
+		}
+		val := string(runes[valStart:i])
+		b.WriteString(colorizeValue(val, st.num, st.bool, st.plain))
+	}
+	return i
+}
+
+// writeQuotedString parses a "quoted string" starting at runes[pos] and writes it styled.
+func writeQuotedString(b *strings.Builder, runes []rune, pos int, st logStyles) int {
+	i := pos + 1 // skip opening "
+	for i < len(runes) && runes[i] != '"' {
+		if runes[i] == '\\' && i+1 < len(runes) {
+			i++ // skip escaped char
+		}
+		i++
+	}
+	if i < len(runes) {
+		i++ // skip closing "
+	}
+	b.WriteString(st.str.Render(string(runes[pos:i])))
+	return i
+}
+
+// writeBracket parses [bracketed text] starting at runes[pos] and writes it styled.
+func writeBracket(b *strings.Builder, runes []rune, pos int, st logStyles) int {
+	i := pos + 1 // skip '['
+	for i < len(runes) && runes[i] != ']' {
+		i++
+	}
+	if i < len(runes) {
+		i++ // skip ']'
+	}
+	b.WriteString(st.bracket.Render(string(runes[pos:i])))
+	return i
+}
+
+// wrapANSI splits a string with ANSI codes into chunks of maxVisible visible characters.
+func wrapANSI(s string, maxVisible int) []string {
+	var chunks []string
+	var chunk strings.Builder
+	runes := []rune(s)
+	visible := 0
+	i := 0
+
+	for i < len(runes) {
+		if runes[i] == '\x1b' && i+1 < len(runes) && runes[i+1] == '[' {
+			// Copy entire ANSI escape sequence without counting
+			start := i
+			i += 2
+			for i < len(runes) && runes[i] < 0x40 {
+				i++
+			}
+			if i < len(runes) {
+				i++
+			}
+			chunk.WriteString(string(runes[start:i]))
+		} else {
+			if visible >= maxVisible {
+				// End current chunk with reset, start new one
+				chunk.WriteString("\x1b[0m")
+				chunks = append(chunks, chunk.String())
+				chunk.Reset()
+				visible = 0
+			}
+			chunk.WriteRune(runes[i])
+			visible++
+			i++
+		}
+	}
+
+	if chunk.Len() > 0 {
+		chunks = append(chunks, chunk.String())
+	}
+
+	return chunks
+}
+
+func isKeyRune(r rune) bool {
+	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
+		(r >= '0' && r <= '9') || r == '_' || r == '.' || r == '-'
+}
+
+func colorizeValue(val string, numStyle, boolStyle, defStyle lipgloss.Style) string {
+	// Boolean / null
+	switch val {
+	case "true", "false", "null", "nil":
+		return boolStyle.Render(val)
+	}
+
+	// Number: integer or float (possibly negative)
+	if isNumeric(val) {
+		return numStyle.Render(val)
+	}
+
+	return defStyle.Render(val)
+}
+
+func isNumeric(s string) bool {
+	if len(s) == 0 {
+		return false
+	}
+	start := 0
+	if s[0] == '-' || s[0] == '+' {
+		start = 1
+	}
+	if start >= len(s) {
+		return false
+	}
+	hasDot := false
+	for i := start; i < len(s); i++ {
+		if s[i] == '.' {
+			if hasDot {
+				return false
+			}
+			hasDot = true
+		} else if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// truncateEntry truncates a string for compact display, replacing newlines with spaces.
+// ANSI-aware: uses visual width so escape sequences don't count toward the limit.
+func truncateEntry(s string, maxLen int) string {
+	s = strings.ReplaceAll(s, "\n", " ")
+	visWidth := lipgloss.Width(s)
+	if visWidth <= maxLen {
+		return s
+	}
+
+	// No ANSI — fast path using rune slicing
+	if !strings.Contains(s, "\x1b[") {
+		runes := []rune(s)
+		if maxLen <= 3 {
+			return string(runes[:maxLen])
+		}
+		return string(runes[:maxLen-3]) + "..."
+	}
+
+	// ANSI-aware truncation: walk runes, skip escape sequences,
+	// count only visible characters toward the limit.
+	if maxLen <= 3 {
+		return truncateANSI(s, maxLen)
+	}
+	return truncateANSI(s, maxLen-3) + "..."
+}
+
+// truncateANSI truncates a string with ANSI codes to maxVisible visible characters.
+// ANSI escape sequences are passed through without counting toward the limit.
+func truncateANSI(s string, maxVisible int) string {
+	var b strings.Builder
+	runes := []rune(s)
+	visible := 0
+	i := 0
+
+	for i < len(runes) && visible < maxVisible {
+		if runes[i] == '\x1b' && i+1 < len(runes) && runes[i+1] == '[' {
+			// Copy entire ANSI escape sequence: ESC [ ... final_byte
+			start := i
+			i += 2 // skip ESC [
+			for i < len(runes) && runes[i] < 0x40 {
+				i++ // skip parameter and intermediate bytes
+			}
+			if i < len(runes) {
+				i++ // skip final byte
+			}
+			b.WriteString(string(runes[start:i]))
+		} else {
+			b.WriteRune(runes[i])
+			visible++
+			i++
+		}
+	}
+
+	// Append any trailing reset sequence so colors don't bleed
+	if strings.Contains(s, "\x1b[") {
+		b.WriteString("\x1b[0m")
+	}
+
+	return b.String()
 }

@@ -25,7 +25,7 @@ func TestRenderCompactEntry(t *testing.T) {
 		ResourceType: "gce_instance",
 	}
 
-	result := RenderCompactEntry(entry, false, 80, "")
+	result := RenderCompactEntry(entry, false, 80, "", true)
 
 	assert.Contains(t, result, "▸")
 	assert.Contains(t, result, "13:04:01")
@@ -41,7 +41,7 @@ func TestRenderCompactEntryExpanded(t *testing.T) {
 		ResourceType: "cloud_run_revision",
 	}
 
-	result := RenderCompactEntry(entry, true, 80, "")
+	result := RenderCompactEntry(entry, true, 80, "", true)
 	assert.Contains(t, result, "▾")
 }
 
@@ -123,4 +123,99 @@ func TestTruncateEntry(t *testing.T) {
 	assert.Equal(t, "hello", truncateEntry("hello", 10))
 	assert.Equal(t, "hel...", truncateEntry("hello world", 6))
 	assert.Equal(t, "hello world", truncateEntry("hello\nworld", 20))
+}
+
+func TestColorizeMessage(t *testing.T) {
+	t.Run("logfmt key=value pairs", func(t *testing.T) {
+		msg := `level=info msg="GetRepoObjs stats" count=42 ratio=3.14`
+		result := colorizeMessage(msg, "")
+		plain := stripANSI(result)
+		assert.Equal(t, msg, plain, "colorized output should preserve all text")
+	})
+
+	t.Run("boolean and null values", func(t *testing.T) {
+		msg := `enabled=true deleted=false value=null`
+		result := colorizeMessage(msg, "")
+		plain := stripANSI(result)
+		assert.Equal(t, msg, plain)
+	})
+
+	t.Run("plain text without logfmt", func(t *testing.T) {
+		msg := "just a regular log message"
+		result := colorizeMessage(msg, "")
+		plain := stripANSI(result)
+		assert.Equal(t, msg, plain)
+	})
+
+	t.Run("with background color", func(t *testing.T) {
+		msg := `level=error code=500`
+		result := colorizeMessage(msg, "#3C4043")
+		plain := stripANSI(result)
+		assert.Equal(t, msg, plain)
+	})
+
+	t.Run("empty string", func(t *testing.T) {
+		assert.Equal(t, "", colorizeMessage("", ""))
+	})
+
+	t.Run("negative numbers", func(t *testing.T) {
+		msg := `offset=-10 temp=-3.5`
+		result := colorizeMessage(msg, "")
+		plain := stripANSI(result)
+		assert.Equal(t, msg, plain)
+	})
+
+	t.Run("bracketed text", func(t *testing.T) {
+		msg := `[GIN] 2026/03/19 - 13:04:05 [Recovery] panic recovered`
+		result := colorizeMessage(msg, "")
+		plain := stripANSI(result)
+		assert.Equal(t, msg, plain)
+	})
+
+	t.Run("mixed brackets and logfmt", func(t *testing.T) {
+		msg := `[INFO] level=info msg="hello" [tag] count=5`
+		result := colorizeMessage(msg, "")
+		plain := stripANSI(result)
+		assert.Equal(t, msg, plain)
+	})
+
+	t.Run("preserves existing ANSI colors", func(t *testing.T) {
+		msg := "\x1b[32mINFO\x1b[0m some message level=info"
+		result := colorizeMessage(msg, "")
+		// Should pass through unchanged — no double-styling
+		assert.Equal(t, msg, result)
+	})
+}
+
+func TestTruncateEntryWithANSI(t *testing.T) {
+	// ANSI codes should not count toward visible width
+	msg := "\x1b[32mgreen text\x1b[0m and more"
+	result := truncateEntry(msg, 20)
+	plain := stripANSI(result)
+	// "green text and more" is 19 visible chars — fits in 20
+	assert.Equal(t, "green text and more", plain)
+	assert.Contains(t, result, "\x1b[32m", "should preserve ANSI codes")
+
+	// Truncation should happen based on visible width
+	result2 := truncateEntry(msg, 12)
+	plain2 := stripANSI(result2)
+	assert.Equal(t, 12, len([]rune(plain2)), "should truncate to 12 visible chars including ...")
+	assert.Contains(t, plain2, "...")
+}
+
+func TestTruncateEntryPlainUnchanged(t *testing.T) {
+	// Plain text should still work as before
+	assert.Equal(t, "hello", truncateEntry("hello", 10))
+	assert.Equal(t, "hel...", truncateEntry("hello world", 6))
+}
+
+func TestIsNumeric(t *testing.T) {
+	assert.True(t, isNumeric("42"))
+	assert.True(t, isNumeric("3.14"))
+	assert.True(t, isNumeric("-10"))
+	assert.True(t, isNumeric("+5"))
+	assert.False(t, isNumeric(""))
+	assert.False(t, isNumeric("abc"))
+	assert.False(t, isNumeric("1.2.3"))
+	assert.False(t, isNumeric("-"))
 }

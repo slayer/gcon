@@ -71,8 +71,9 @@ type logsKeyMap struct {
 	FocusQuery key.Binding
 	Refresh    key.Binding
 	TailMode   key.Binding
-	ToggleWrap key.Binding
-	FilterRes  key.Binding
+	ToggleWrap  key.Binding
+	ToggleColor key.Binding
+	FilterRes   key.Binding
 	FilterLog  key.Binding
 	FilterSev  key.Binding
 	Escape     key.Binding
@@ -131,6 +132,10 @@ func defaultLogsKeyMap() logsKeyMap {
 		ToggleWrap: key.NewBinding(
 			key.WithKeys("w"),
 			key.WithHelp("w", "wrap"),
+		),
+		ToggleColor: key.NewBinding(
+			key.WithKeys("c"),
+			key.WithHelp("c", "colors"),
 		),
 		FilterRes: key.NewBinding(
 			key.WithKeys("R"),
@@ -518,6 +523,10 @@ func (v *LogsView) handleKey(msg tea.KeyMsg) tea.Cmd {
 
 	case key.Matches(msg, v.keys.ToggleWrap):
 		v.logViewer.ToggleWrap()
+		return nil
+
+	case key.Matches(msg, v.keys.ToggleColor):
+		v.logViewer.ToggleColorize()
 		return nil
 
 	case key.Matches(msg, v.keys.TailMode):
@@ -1254,6 +1263,10 @@ func (v *LogsView) View() string {
 		wrapStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#8AB4F8")).Bold(true)
 		statusParts = append(statusParts, wrapStyle.Render("WRAP"))
 	}
+	if v.logViewer.ColorizeEnabled() {
+		colorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#34A853")).Bold(true)
+		statusParts = append(statusParts, colorStyle.Render("COLOR"))
+	}
 	if v.loadingMore {
 		statusParts = append(statusParts, mutedStyle.Render(fmt.Sprintf("%s loading...", v.spinner.View())))
 	}
@@ -1272,7 +1285,7 @@ func (v *LogsView) View() string {
 	b.WriteString("\n")
 
 	// Key hints
-	b.WriteString(mutedStyle.Render("  /: query  .: actions  tab: filters  1-5: time  f: tail  w: wrap  E/C: expand  r: refresh"))
+	b.WriteString(mutedStyle.Render("  /: query  .: actions  tab: filters  1-5: time  f: tail  w: wrap  c: colors  E/C: expand  r: refresh"))
 	b.WriteString("\n")
 
 	mainContent := b.String()
