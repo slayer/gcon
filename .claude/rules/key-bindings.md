@@ -441,11 +441,16 @@ These keys are active when the **content area** is focused (use `Tab` to switch 
 | `/` | Focus query input |
 | `Enter` | Run query (input) / Expand entry / Filter by field |
 | `Esc` | Blur input / Collapse entry / Close filter / Go back |
+| `Tab` | Cycle focus (entries → filters → time range) |
+| `Shift+Tab` | Cycle focus backwards |
 | `j/k` or `↓/↑` | Navigate log entries |
 | `→` or `Enter` | Expand entry / Enter field navigation |
 | `←` | Collapse entry / Exit field navigation |
+| `PgUp/PgDn` | Page up/down through entries |
 | `E` | Expand all visible entries |
 | `C` | Collapse all entries |
+| `w` | Toggle line wrapping |
+| `c` | Toggle logfmt colorization |
 | `1-5` | Time range (1h/6h/24h/7d/30d) |
 | `f` | Toggle tail mode (5s polling) |
 | `r` | Refresh (re-run query) |
@@ -458,6 +463,7 @@ These keys are active when the **content area** is focused (use `Tab` to switch 
 | Key | Action |
 |-----|--------|
 | `j/k` or `↓/↑` | Navigate options |
-| `Space` | Toggle selection |
-| `Enter` | Apply and close |
-| `Esc` | Cancel |
+| `PgUp/PgDn` | Page up/down through options |
+| `Space`/`Tab`/`Enter` | Toggle selection |
+| `/` | Search within filter options |
+| `Esc` | Apply selection and close |

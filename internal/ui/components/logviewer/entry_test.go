@@ -209,6 +209,48 @@ func TestTruncateEntryPlainUnchanged(t *testing.T) {
 	assert.Equal(t, "hel...", truncateEntry("hello world", 6))
 }
 
+func TestRenderWrappedEntryMultiLineContent(t *testing.T) {
+	// Long message that wraps to multiple lines should preserve full content
+	// through the styling pipeline (plainStyle.Render or colorizeMessage).
+	longMsg := strings.Repeat("x", 200)
+	entry := gcp.LogEntry{
+		Timestamp:    time.Date(2026, 3, 16, 13, 4, 1, 0, time.UTC),
+		Severity:     "INFO",
+		Message:      longMsg,
+		ResourceType: "gce_instance",
+	}
+
+	t.Run("plain style preserves content on all lines", func(t *testing.T) {
+		rendered, lineCount := RenderWrappedEntry(entry, false, 80, "", false)
+		assert.Greater(t, lineCount, 1, "should wrap to multiple lines")
+		// Full message content should be present across all wrapped lines
+		plain := stripANSI(rendered)
+		plain = strings.ReplaceAll(plain, "\n", "")
+		plain = strings.ReplaceAll(plain, " ", "")
+		assert.Contains(t, plain, longMsg, "all chunks should be rendered")
+	})
+
+	t.Run("colorize path produces content on all lines", func(t *testing.T) {
+		msgEntry := gcp.LogEntry{
+			Timestamp:    time.Date(2026, 3, 16, 13, 4, 1, 0, time.UTC),
+			Severity:     "INFO",
+			Message:      strings.Repeat("level=info ", 20),
+			ResourceType: "gce_instance",
+		}
+		rendered, lineCount := RenderWrappedEntry(msgEntry, false, 80, "", true)
+		assert.Greater(t, lineCount, 1, "should wrap to multiple lines")
+		// All continuation lines should have content (not empty/whitespace-only)
+		lines := strings.Split(rendered, "\n")
+		for i, line := range lines {
+			if line == "" {
+				continue
+			}
+			trimmed := strings.TrimSpace(stripANSI(line))
+			assert.NotEmpty(t, trimmed, "line %d should have visible content", i)
+		}
+	})
+}
+
 func TestIsNumeric(t *testing.T) {
 	assert.True(t, isNumeric("42"))
 	assert.True(t, isNumeric("3.14"))

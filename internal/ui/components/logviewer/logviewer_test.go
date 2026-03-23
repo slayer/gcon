@@ -337,3 +337,25 @@ func TestLogViewerNeedsMoreEmptyEntries(t *testing.T) {
 	// No entries, should not need more even if hasMore is true
 	assert.False(t, m.NeedsMore())
 }
+
+func TestLogViewerFieldCursorVisibleDuringFieldNav(t *testing.T) {
+	// When in field navigation mode (fieldCur >= 0), the field cursor
+	// indicator [+f] must be visible in the rendered output.
+	m := New()
+	m.SetSize(120, 40)
+	entries := []gcp.LogEntry{{
+		Timestamp:    makeTestEntries(1)[0].Timestamp,
+		Severity:     "ERROR",
+		Message:      "test error",
+		ResourceType: "gce_instance",
+		InsertID:     "abc-123",
+	}}
+	m.SetEntries(entries)
+
+	m.ToggleExpand(0)
+	m.EnterFieldNav()
+	assert.GreaterOrEqual(t, m.FieldCursor(), 0, "should be in field nav mode")
+
+	view := m.View()
+	assert.Contains(t, view, "[+f]", "field cursor hint should be visible during field navigation")
+}

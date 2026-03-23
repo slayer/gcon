@@ -141,18 +141,22 @@ The effective query is rebuilt whenever filters change or the user submits the q
 | `Enter` | Run query (input focused) / Expand entry (list focused) |
 | `Shift+Enter` | Newline in query input |
 | `Esc` | Blur input / Collapse entry / Clear filter / Go back |
+| `Tab` | Cycle focus (entries → filters → time range) |
+| `Shift+Tab` | Cycle focus backwards |
 | `j/k` or `↓/↑` | Navigate log entries |
-| `→` or `Enter` | Expand selected entry |
-| `←` or `Enter` | Collapse expanded entry |
+| `→` or `Enter` | Expand selected entry / Enter field navigation |
+| `←` | Collapse expanded entry / Exit field navigation |
+| `PgUp/PgDn` | Page up/down through entries |
 | `E` | Expand all visible entries |
 | `C` | Collapse all visible entries |
+| `w` | Toggle line wrapping |
+| `c` | Toggle logfmt colorization |
 | `1-5` | Time range (1h/6h/24h/7d/30d) |
 | `f` | Toggle tail mode |
 | `r` | Manual refresh (re-run query) |
 | `R` | Open resource filter dropdown |
 | `L` | Open log name filter dropdown |
 | `V` | Open severity filter dropdown |
-| `S` | Open sort menu |
 | `.` | Action menu |
 
 ### Expanded Entry (cursor on field line)
@@ -166,10 +170,10 @@ The effective query is rebuilt whenever filters change or the user submits the q
 | Key | Action |
 |-----|--------|
 | `j/k` or `↓/↑` | Navigate options |
-| `Space` | Toggle selection |
-| `Enter` | Apply and close |
-| `/` | Search within options |
-| `Esc` | Cancel |
+| `PgUp/PgDn` | Page up/down through options |
+| `Space`/`Tab`/`Enter` | Toggle selection |
+| `/` | Search within filter options |
+| `Esc` | Apply selection and close |
 
 ## Component Architecture
 

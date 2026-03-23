@@ -216,6 +216,8 @@ func RenderWrappedEntry(entry gcp.LogEntry, expanded bool, width int, bg string,
 			}
 		}
 	} else {
+		// Style plain-text chunks the same way single-line messages are styled,
+		// so foreground color and selection background apply to wrapped lines too.
 		msgRunes := []rune(message)
 		for start := 0; start < len(msgRunes); start += msgWidth {
 			end := start + msgWidth
@@ -224,10 +226,17 @@ func RenderWrappedEntry(entry gcp.LogEntry, expanded bool, width int, bg string,
 			}
 			chunk := string(msgRunes[start:end])
 
-			if start == 0 {
-				b.WriteString(prefix + chunk)
+			var styledChunk string
+			if colorize {
+				styledChunk = colorizeMessage(chunk, bg)
 			} else {
-				b.WriteString(indent + chunk)
+				styledChunk = plainStyle.Render(chunk)
+			}
+
+			if start == 0 {
+				b.WriteString(prefix + styledChunk)
+			} else {
+				b.WriteString(indent + styledChunk)
 			}
 			lineCount++
 			if end < len(msgRunes) {

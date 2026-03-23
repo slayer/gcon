@@ -303,13 +303,14 @@ func (m *Model) View() string {
 
 	for i := m.offset; i < len(m.entries) && linesRendered < m.height; i++ {
 		entry := m.entries[i]
-		isSelected := i == m.cursor && m.fieldCur < 0
+		isCursorEntry := i == m.cursor
 		isExpanded := m.expanded[i]
 
-		// Pass background color into renderers so inner ANSI styles don't
-		// punch holes in the highlight bar.
+		// Highlight the header when the cursor is on this entry and NOT
+		// navigating fields — field nav highlights individual fields instead.
+		highlightHeader := isCursorEntry && m.fieldCur < 0
 		bg := ""
-		if isSelected {
+		if highlightHeader {
 			bg = selectedBg
 		}
 
@@ -328,10 +329,12 @@ func (m *Model) View() string {
 			linesRendered++
 		}
 
-		// Render expanded fields with full unwrapped values
+		// Render expanded fields — pass fieldCur for the cursor entry
+		// regardless of whether the header is highlighted, so field-level
+		// navigation cursor is always visible.
 		if isExpanded && linesRendered < m.height {
 			fieldCurIdx := -1
-			if isSelected {
+			if isCursorEntry {
 				fieldCurIdx = m.fieldCur
 			}
 			fieldContent, fieldCount := RenderExpandedFields(entry, fieldCurIdx, m.width)

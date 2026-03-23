@@ -200,6 +200,29 @@ func TestConvertLogEntryJSON(t *testing.T) {
 	assert.NotNil(t, result.JSONPayload)
 	assert.Equal(t, "GET", result.JSONPayload["method"])
 	assert.Empty(t, result.TextPayload)
+
+	// Message should be deterministic JSON (keys sorted alphabetically)
+	assert.Equal(t, `{"method":"GET","status":200}`, result.Message)
+}
+
+func TestConvertLogEntryJSONPrefersMessageKey(t *testing.T) {
+	// When the JSON payload has a "message" key, prefer it over the full JSON
+	entry := &logging.Entry{
+		Timestamp: time.Date(2026, 3, 16, 13, 4, 1, 0, time.UTC),
+		Severity:  logging.Error,
+		Payload: map[string]any{
+			"message":  "disk full",
+			"code":     float64(500),
+			"severity": "ERROR",
+		},
+		InsertID: "ins-3",
+	}
+
+	result := convertLogEntry(entry)
+
+	assert.Equal(t, "disk full", result.Message)
+	assert.NotNil(t, result.JSONPayload)
+	assert.Equal(t, float64(500), result.JSONPayload["code"])
 }
 
 func TestConvertLogEntryWithResource(t *testing.T) {

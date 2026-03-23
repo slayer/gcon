@@ -2,6 +2,7 @@ package gcp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -172,7 +173,18 @@ func convertLogEntry(entry *logging.Entry) LogEntry {
 		logEntry.Message = p
 	case map[string]any:
 		logEntry.JSONPayload = p
-		logEntry.Message = fmt.Sprintf("%v", p)
+		// Prefer "message" key if present (common GCP structured log convention)
+		if msg, ok := p["message"]; ok {
+			logEntry.Message = fmt.Sprintf("%v", msg)
+		} else {
+			// Use json.Marshal for deterministic, readable output instead of
+			// fmt.Sprintf("%v") which iterates maps in random order.
+			if b, err := json.Marshal(p); err == nil {
+				logEntry.Message = string(b)
+			} else {
+				logEntry.Message = fmt.Sprintf("%v", p)
+			}
+		}
 	default:
 		logEntry.Message = fmt.Sprintf("%v", p)
 	}
