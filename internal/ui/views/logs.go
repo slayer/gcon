@@ -210,7 +210,7 @@ type LogsView struct {
 	// Time range
 	timeRange time.Duration
 
-	// Tail mode: polls for new entries every 5s
+	// Tail mode: polls for new entries every 15s
 	tailMode   bool
 	tailTicker *time.Ticker
 	tailDone   chan struct{}
@@ -1554,20 +1554,24 @@ func (v *LogsView) openInPager() tea.Cmd {
 	tmpFile.Close()
 	tmpName := tmpFile.Name()
 
-	// Determine pager command
-	pager := os.Getenv("PAGER")
-	if pager == "" {
-		pager = "less"
+	// Determine pager command; split on whitespace to support
+	// PAGER="less -FRSX" style values with embedded arguments.
+	pagerEnv := os.Getenv("PAGER")
+	if pagerEnv == "" {
+		pagerEnv = "less"
 	}
+	pagerParts := strings.Fields(pagerEnv)
+	pagerCmd := pagerParts[0]
+	pagerArgs := pagerParts[1:]
 
 	// Build command with -R flag for ANSI color support
-	args := []string{tmpName}
-	if pager == "less" && colorize {
-		args = []string{"-R", tmpName}
+	if pagerCmd == "less" && colorize {
+		pagerArgs = append(pagerArgs, "-R")
 	}
+	pagerArgs = append(pagerArgs, tmpName)
 
 	//nolint:gosec // pager command is user-configured via $PAGER
-	c := exec.Command(pager, args...)
+	c := exec.Command(pagerCmd, pagerArgs...)
 	return tea.ExecProcess(c, func(_ error) tea.Msg {
 		_ = os.Remove(tmpName) //nolint:errcheck // best-effort cleanup
 		return nil

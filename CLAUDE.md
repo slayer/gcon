@@ -298,7 +298,7 @@ On developing or updating a new feature keep in mind the following guidelines:
   - Expandable log entries with severity color coding
   - Field-level cursor with filter-by-field (Enter on expanded field)
   - Infinite scroll pagination
-  - Tail mode (live streaming, 5s polling)
+  - Tail mode (live streaming, 15s polling)
   - Time range selection (1h/6h/24h/7d/30d)
 
 ## Planned Features

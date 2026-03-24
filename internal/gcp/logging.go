@@ -218,11 +218,12 @@ func (c *LoggingClient) ListLogEntries(
 
 	// Apply cursor-based pagination by narrowing the timestamp window
 	// and skipping the last entry from the previous page via insertID.
+	// Wrap existing filter in parens to preserve OR-clause precedence.
 	skipInsertID := ""
 	if pageToken != "" {
 		parts := strings.SplitN(pageToken, "|", 2)
 		if len(parts) == 2 {
-			effectiveFilter += fmt.Sprintf(` AND timestamp <= %q`, parts[0])
+			effectiveFilter = "(" + effectiveFilter + ")" + fmt.Sprintf(` AND timestamp <= %q`, parts[0])
 			skipInsertID = parts[1]
 		}
 	}

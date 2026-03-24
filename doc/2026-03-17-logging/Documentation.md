@@ -56,9 +56,9 @@ ListResourceTypes(ctx, projectID) ([]string, error)
 // ListLogNames returns log names present in the project.
 ListLogNames(ctx, projectID) ([]string, error)
 
-// GetLogHistogram fetches log entry counts bucketed over a time range (for sparkline).
-// Uses Cloud Monitoring API: logging.googleapis.com/log_entry_count metric.
-GetLogHistogram(ctx, projectID, query, timeRange, bucketCount) ([]DataPoint, error)
+// GetLogEntryCount fetches the global logging.googleapis.com/log_entry_count metric
+// for sparkline histogram display. Uses Cloud Monitoring API (not LQL-filtered).
+MonitoringClient.GetLogEntryCount(ctx, timeRange) ([]DataPoint, error)
 ```
 
 ### LogEntry Model (Expanded)
@@ -255,8 +255,8 @@ type LogsView struct {
 ## Tail Mode
 
 - Toggle with `f` hotkey.
-- Polls `ListLogEntries` every 5 seconds with `timestamp > lastEntryTimestamp`.
-- New entries appended to the bottom, view auto-scrolls.
+- Polls `ListLogEntries` every 15 seconds with `timestamp > lastEntryTimestamp`.
+- New entries prepended at the top, cursor position preserved.
 - Status bar shows `TAIL` badge when active.
 - Auto-disables when user scrolls up or changes query.
 - Uses `time.Ticker` + `done` channel pattern (consistent with existing observability tabs).
@@ -265,7 +265,7 @@ type LogsView struct {
 
 - **Initial load**: First page (100 entries) + histogram data fetched in parallel.
 - **Infinite scroll**: Next page fetched when user scrolls within 10 entries of bottom.
-- **Tail mode**: Incremental fetch every 5s, append only.
+- **Tail mode**: Incremental fetch every 15s, prepend new entries at top.
 - **Filter/query change**: Clear all entries, reset page token, fetch fresh.
 
 ## App Integration Checklist

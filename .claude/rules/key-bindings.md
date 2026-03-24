@@ -452,7 +452,7 @@ These keys are active when the **content area** is focused (use `Tab` to switch 
 | `w` | Toggle line wrapping |
 | `c` | Toggle logfmt colorization |
 | `1-5` | Time range (1h/6h/24h/7d/30d) |
-| `f` | Toggle tail mode (5s polling) |
+| `f` | Toggle tail mode (15s polling) |
 | `r` | Refresh (re-run query) |
 | `R` | Open resource type filter |
 | `L` | Open log name filter |
