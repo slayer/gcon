@@ -266,7 +266,7 @@ func (m *Model) entryLines(idx int) int {
 	}
 	if m.expanded[idx] {
 		// Expanded: 1 header line + wrapped field lines
-		_, fieldLines := RenderExpandedFields(m.entries[idx], -1, m.width)
+		_, fieldLines := RenderExpandedFields(m.entries[idx], -1, m.width, m.colorize)
 		lines += fieldLines
 	}
 	return lines
@@ -337,7 +337,7 @@ func (m *Model) View() string {
 			if isCursorEntry {
 				fieldCurIdx = m.fieldCur
 			}
-			fieldContent, fieldCount := RenderExpandedFields(entry, fieldCurIdx, m.width)
+			fieldContent, fieldCount := RenderExpandedFields(entry, fieldCurIdx, m.width, m.colorize)
 			b.WriteString(fieldContent)
 			linesRendered += fieldCount
 		}

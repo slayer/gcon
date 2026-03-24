@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	monitoredres "google.golang.org/genproto/googleapis/api/monitoredres"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 func TestSeverityORClauses(t *testing.T) {
@@ -223,6 +224,38 @@ func TestConvertLogEntryJSONPrefersMessageKey(t *testing.T) {
 	assert.Equal(t, "disk full", result.Message)
 	assert.NotNil(t, result.JSONPayload)
 	assert.Equal(t, float64(500), result.JSONPayload["code"])
+}
+
+func TestConvertLogEntryStructpbPayload(t *testing.T) {
+	// logadmin SDK returns JSON payloads as *structpb.Struct, not map[string]any
+	s, err := structpb.NewStruct(map[string]any{
+		"message": "Ignoring same-zone topology hint",
+		"code":    float64(200),
+	})
+	require.NoError(t, err)
+
+	entry := &logging.Entry{
+		Timestamp: time.Date(2026, 3, 24, 20, 22, 54, 0, time.UTC),
+		Severity:  logging.Info,
+		Payload:   s,
+		InsertID:  "ins-struct",
+	}
+
+	result := convertLogEntry(entry)
+
+	assert.Equal(t, "Ignoring same-zone topology hint", result.Message)
+	assert.NotNil(t, result.JSONPayload, "JSONPayload should be populated from structpb")
+	assert.Equal(t, "Ignoring same-zone topology hint", result.JSONPayload["message"])
+	assert.Equal(t, float64(200), result.JSONPayload["code"])
+
+	// Expanded fields should include jsonPayload keys
+	fields := result.FlattenFields()
+	lookup := make(map[string]string, len(fields))
+	for _, f := range fields {
+		lookup[f.Key] = f.Value
+	}
+	assert.Equal(t, "200", lookup["jsonPayload.code"])
+	assert.Equal(t, "Ignoring same-zone topology hint", lookup["jsonPayload.message"])
 }
 
 func TestConvertLogEntryWithResource(t *testing.T) {

@@ -12,6 +12,7 @@ import (
 	"cloud.google.com/go/logging"
 	"cloud.google.com/go/logging/logadmin"
 	"google.golang.org/api/iterator"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 // LoggingClient provides access to Cloud Logging
@@ -48,6 +49,12 @@ type LogEntry struct {
 func (e *LogEntry) FlattenFields() []FlattenedField {
 	var fields []FlattenedField
 
+	if !e.Timestamp.IsZero() {
+		fields = append(fields, FlattenedField{Key: "timestamp", Value: e.Timestamp.Format(time.RFC3339Nano)})
+	}
+	if e.Severity != "" {
+		fields = append(fields, FlattenedField{Key: "severity", Value: e.Severity})
+	}
 	if e.ResourceType != "" {
 		fields = append(fields, FlattenedField{Key: "resource.type", Value: e.ResourceType})
 	}
@@ -166,30 +173,37 @@ func convertLogEntry(entry *logging.Entry) LogEntry {
 		logEntry.SourceLocation = fmt.Sprintf("%s:%d", entry.SourceLocation.File, entry.SourceLocation.Line)
 	}
 
-	// Extract message from payload, preserving structured data when available
+	// Extract message from payload, preserving structured data when available.
+	// The logadmin SDK returns JSON payloads as *structpb.Struct (protobuf),
+	// not map[string]any — convert via AsMap() for field expansion.
 	switch p := entry.Payload.(type) {
 	case string:
 		logEntry.TextPayload = p
 		logEntry.Message = p
+	case *structpb.Struct:
+		logEntry.JSONPayload = p.AsMap()
+		logEntry.Message = extractJSONMessage(logEntry.JSONPayload)
 	case map[string]any:
 		logEntry.JSONPayload = p
-		// Prefer "message" key if present (common GCP structured log convention)
-		if msg, ok := p["message"]; ok {
-			logEntry.Message = fmt.Sprintf("%v", msg)
-		} else {
-			// Use json.Marshal for deterministic, readable output instead of
-			// fmt.Sprintf("%v") which iterates maps in random order.
-			if b, err := json.Marshal(p); err == nil {
-				logEntry.Message = string(b)
-			} else {
-				logEntry.Message = fmt.Sprintf("%v", p)
-			}
-		}
+		logEntry.Message = extractJSONMessage(p)
 	default:
 		logEntry.Message = fmt.Sprintf("%v", p)
 	}
 
 	return logEntry
+}
+
+// extractJSONMessage returns a human-readable message from a JSON payload.
+// Prefers the "message" key (common GCP structured log convention),
+// otherwise uses json.Marshal for deterministic output.
+func extractJSONMessage(m map[string]any) string {
+	if msg, ok := m["message"]; ok {
+		return fmt.Sprintf("%v", msg)
+	}
+	if b, err := json.Marshal(m); err == nil {
+		return string(b)
+	}
+	return fmt.Sprintf("%v", m)
 }
 
 // ListLogEntries executes an LQL query and returns paginated results.

@@ -65,35 +65,21 @@ func RenderCompactEntry(entry gcp.LogEntry, expanded bool, width int, bg string,
 	}
 
 	sevStyle := severityStyle(entry.Severity)
-	resourceStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#8AB4F8"))
-	// plainStyle covers indicator, timestamp, spaces — everything without a foreground color
 	plainStyle := lipgloss.NewStyle()
 
-	// When a background is set, propagate it to ALL styles so ANSI
-	// resets don't punch holes in the highlight bar.
 	if bg != "" {
 		bgColor := lipgloss.Color(bg)
 		sevStyle = sevStyle.Background(bgColor)
-		resourceStyle = resourceStyle.Background(bgColor)
 		plainStyle = plainStyle.Background(bgColor)
 	}
 
 	abbrev := SeverityAbbrev(entry.Severity)
 	timestamp := entry.Timestamp.Format("2006-01-02 15:04:05")
 
-	resource := entry.ResourceType
-	if resource == "" {
-		resource = "unknown"
-	}
-	if len(resource) > 20 {
-		resource = resource[:17] + "..."
-	}
-
-	// Build header: indicator + severity + timestamp + resource
+	// Header: indicator + severity + timestamp
 	header := plainStyle.Render("  "+indicator+" ") +
 		sevStyle.Render(abbrev) +
-		plainStyle.Render("  "+timestamp+"  ") +
-		resourceStyle.Render(resource)
+		plainStyle.Render("  "+timestamp+"  ")
 
 	// When expanded, header is the full line — message is shown in expanded fields
 	if expanded {
@@ -149,32 +135,20 @@ func RenderWrappedEntry(entry gcp.LogEntry, expanded bool, width int, bg string,
 	}
 
 	sevStyle := severityStyle(entry.Severity)
-	resourceStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#8AB4F8"))
 	plainStyle := lipgloss.NewStyle()
 
 	if bg != "" {
 		bgColor := lipgloss.Color(bg)
 		sevStyle = sevStyle.Background(bgColor)
-		resourceStyle = resourceStyle.Background(bgColor)
 		plainStyle = plainStyle.Background(bgColor)
 	}
 
 	abbrev := SeverityAbbrev(entry.Severity)
 	timestamp := entry.Timestamp.Format("2006-01-02 15:04:05")
 
-	resource := entry.ResourceType
-	if resource == "" {
-		resource = "unknown"
-	}
-	if len(resource) > 20 {
-		resource = resource[:17] + "..."
-	}
-
 	prefix := plainStyle.Render("  "+indicator+" ") +
 		sevStyle.Render(abbrev) +
-		plainStyle.Render("  "+timestamp+"  ") +
-		resourceStyle.Render(resource) +
-		plainStyle.Render("  ")
+		plainStyle.Render("  "+timestamp+"  ")
 	prefixWidth := lipgloss.Width(prefix)
 
 	// Replace newlines in message with spaces for consistent wrapping
@@ -252,7 +226,7 @@ func RenderWrappedEntry(entry gcp.LogEntry, expanded bool, width int, bg string,
 // Long values are soft-wrapped to fit within width.
 // cursorIdx is the 0-based index of the field the cursor is on (-1 for no cursor).
 // Returns the rendered string and the number of visual lines it occupies.
-func RenderExpandedFields(entry gcp.LogEntry, cursorIdx int, width int) (rendered string, lineCount int) {
+func RenderExpandedFields(entry gcp.LogEntry, cursorIdx int, width int, colorize bool) (rendered string, lineCount int) {
 	fields := entry.FlattenFields()
 	if len(fields) == 0 {
 		return "", 0
@@ -282,39 +256,44 @@ func RenderExpandedFields(entry gcp.LogEntry, cursorIdx int, width int) (rendere
 
 		// Clean newlines for consistent wrapping
 		cleanVal := strings.ReplaceAll(field.Value, "\n", " ")
-		valRunes := []rune(cleanVal)
 
-		// First line: "      key: value..."
-		firstChunkEnd := maxValWidth
-		if firstChunkEnd > len(valRunes) {
-			firstChunkEnd = len(valRunes)
-		}
-		firstChunk := string(valRunes[:firstChunkEnd])
-		firstLine := fmt.Sprintf("%s: %s", keyRendered, valStyle.Render(firstChunk))
-
-		if i == cursorIdx {
-			hint := hintStyle.Render(" [+f]")
-			b.WriteString(prefix + cursorStyle.Render(firstLine) + hint)
+		// Colorize the full value before chunking so tokens aren't split
+		var styledVal string
+		if colorize {
+			styledVal = colorizeMessage(cleanVal, "")
 		} else {
-			b.WriteString(prefix + firstLine)
+			styledVal = valStyle.Render(cleanVal)
 		}
-		b.WriteString("\n")
-		totalLines++
 
-		// Continuation lines: indented to align under value
-		if firstChunkEnd < len(valRunes) {
-			contIndent := strings.Repeat(" ", len(prefix)+keyWidth+2) // align under value
-			contWidth := width - len(prefix) - keyWidth - 2
-			if contWidth < 10 {
-				contWidth = 10
+		// Check if value fits on one line
+		valVisWidth := lipgloss.Width(styledVal)
+		if valVisWidth <= maxValWidth {
+			firstLine := fmt.Sprintf("%s: %s", keyRendered, styledVal)
+			if i == cursorIdx {
+				hint := hintStyle.Render(" [+f]")
+				b.WriteString(prefix + cursorStyle.Render(firstLine) + hint)
+			} else {
+				b.WriteString(prefix + firstLine)
 			}
-			for start := firstChunkEnd; start < len(valRunes); start += contWidth {
-				end := start + contWidth
-				if end > len(valRunes) {
-					end = len(valRunes)
+			b.WriteString("\n")
+			totalLines++
+		} else {
+			// Wrap the styled value using ANSI-aware chunking
+			contIndent := strings.Repeat(" ", len(prefix)+keyWidth+2)
+			chunks := wrapANSI(styledVal, maxValWidth)
+
+			for ci, chunk := range chunks {
+				if ci == 0 {
+					firstLine := fmt.Sprintf("%s: %s", keyRendered, chunk)
+					if i == cursorIdx {
+						hint := hintStyle.Render(" [+f]")
+						b.WriteString(prefix + cursorStyle.Render(firstLine) + hint)
+					} else {
+						b.WriteString(prefix + firstLine)
+					}
+				} else {
+					b.WriteString(contIndent + chunk)
 				}
-				chunk := string(valRunes[start:end])
-				b.WriteString(contIndent + valStyle.Render(chunk))
 				b.WriteString("\n")
 				totalLines++
 			}
@@ -396,20 +375,30 @@ func colorizeMessage(s string, bg string) string {
 	return b.String()
 }
 
-// writeKeyValue tries to parse key=value at runes[pos]. Returns new position if matched, or pos if not.
+// writeKeyValue tries to parse key=value or key:"value" at runes[pos].
+// Returns new position if matched, or pos if not.
 func writeKeyValue(b *strings.Builder, runes []rune, pos int, st logStyles) int {
 	i := pos
 	for i < len(runes) && isKeyRune(runes[i]) {
 		i++
 	}
-	if i == pos || i >= len(runes) || runes[i] != '=' {
-		return pos // not a key=value
+	if i == pos || i >= len(runes) {
+		return pos
 	}
 
-	// Write key=
-	b.WriteString(st.key.Render(string(runes[pos:i])))
-	b.WriteString(st.plain.Render("="))
-	i++ // skip '='
+	// Match key=value (logfmt) or key:"value" (protobuf text format)
+	switch {
+	case runes[i] == '=':
+		b.WriteString(st.key.Render(string(runes[pos:i])))
+		b.WriteString(st.plain.Render("="))
+		i++ // skip '='
+	case runes[i] == ':' && i+1 < len(runes) && runes[i+1] == '"':
+		b.WriteString(st.key.Render(string(runes[pos:i])))
+		b.WriteString(st.plain.Render(":"))
+		i++ // skip ':', next char is '"' which writeQuotedString handles
+	default:
+		return pos // not a key=value or key:"value"
+	}
 
 	// Parse value
 	if i < len(runes) && runes[i] == '"' {

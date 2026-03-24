@@ -29,7 +29,6 @@ func TestRenderCompactEntry(t *testing.T) {
 
 	assert.Contains(t, result, "▸")
 	assert.Contains(t, result, "13:04:01")
-	assert.Contains(t, result, "gce_instance")
 	assert.Contains(t, result, "connection refused")
 }
 
@@ -53,7 +52,7 @@ func TestRenderExpandedFields(t *testing.T) {
 		InsertID:       "abc",
 	}
 
-	result, lines := RenderExpandedFields(entry, -1, 80)
+	result, lines := RenderExpandedFields(entry, -1, 80, true)
 
 	assert.Contains(t, result, "resource.type")
 	assert.Contains(t, result, "gce_instance")
@@ -68,14 +67,14 @@ func TestRenderExpandedFieldsWithCursor(t *testing.T) {
 		InsertID:     "abc",
 	}
 
-	result, _ := RenderExpandedFields(entry, 0, 80)
+	result, _ := RenderExpandedFields(entry, 0, 80, true)
 	// Should contain the filter hint on the cursor line
 	assert.Contains(t, result, "[+f]")
 }
 
 func TestRenderExpandedFieldsEmpty(t *testing.T) {
 	entry := gcp.LogEntry{}
-	result, lines := RenderExpandedFields(entry, -1, 80)
+	result, lines := RenderExpandedFields(entry, -1, 80, true)
 	assert.Empty(t, result)
 	assert.Equal(t, 0, lines)
 }
@@ -87,7 +86,7 @@ func TestRenderExpandedFieldsWrapsLongValues(t *testing.T) {
 		TextPayload: longMsg,
 	}
 
-	result, lines := RenderExpandedFields(entry, -1, 80)
+	result, lines := RenderExpandedFields(entry, -1, 80, true)
 	assert.Contains(t, result, "textPayload")
 	assert.Greater(t, lines, 1, "long value should wrap to multiple lines")
 	// All content should be present (no truncation) — join lines to verify
@@ -174,6 +173,20 @@ func TestColorizeMessage(t *testing.T) {
 
 	t.Run("mixed brackets and logfmt", func(t *testing.T) {
 		msg := `[INFO] level=info msg="hello" [tag] count=5`
+		result := colorizeMessage(msg, "")
+		plain := stripANSI(result)
+		assert.Equal(t, msg, plain)
+	})
+
+	t.Run("protobuf key:value pairs", func(t *testing.T) {
+		msg := `service_name:"k8s.io"  method_name:"sh.keda.v1alpha1.scaledobjects.status.patch"`
+		result := colorizeMessage(msg, "")
+		plain := stripANSI(result)
+		assert.Equal(t, msg, plain)
+	})
+
+	t.Run("mixed logfmt and protobuf", func(t *testing.T) {
+		msg := `level=info service_name:"k8s.io" count=42`
 		result := colorizeMessage(msg, "")
 		plain := stripANSI(result)
 		assert.Equal(t, msg, plain)
