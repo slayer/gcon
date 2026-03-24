@@ -2,7 +2,7 @@
 
 ## Overview
 
-A terminal-based GCP Logs Explorer, accessible as a top-level "Logging" sidebar item. Provides LQL query input, quick filters, a sparkline histogram, and an expandable log entry list with infinite scroll and tail mode.
+A terminal-based GCP Logs Explorer, accessible as a top-level "Logging" sidebar item. Provides LQL query input, quick filters with in-dropdown search, a sparkline histogram, expandable log entries with logfmt/protobuf colorization, infinite scroll, tail mode, $PAGER integration, and export to TXT/CSV/JSONL.
 
 ## Layout
 
@@ -150,14 +150,15 @@ The effective query is rebuilt whenever filters change or the user submits the q
 | `E` | Expand all visible entries |
 | `C` | Collapse all visible entries |
 | `w` | Toggle line wrapping |
-| `c` | Toggle logfmt colorization |
+| `c` | Toggle logfmt/protobuf key:value colorization |
 | `1-5` | Time range (1h/6h/24h/7d/30d) |
-| `f` | Toggle tail mode |
+| `f` | Toggle tail mode (15s polling) |
+| `p` | Open entries in $PAGER (respects color toggle) |
+| `.` | Action menu (export TXT/CSV/JSONL) |
 | `r` | Manual refresh (re-run query) |
 | `R` | Open resource filter dropdown |
 | `L` | Open log name filter dropdown |
 | `V` | Open severity filter dropdown |
-| `.` | Action menu |
 
 ### Expanded Entry (cursor on field line)
 
@@ -263,7 +264,7 @@ type LogsView struct {
 
 ## Loading Strategy
 
-- **Initial load**: First page (100 entries) + histogram data fetched in parallel.
+- **Initial load**: First page (200 entries) + histogram data fetched in parallel.
 - **Infinite scroll**: Next page fetched when user scrolls within 10 entries of bottom.
 - **Tail mode**: Incremental fetch every 15s, prepend new entries at top.
 - **Filter/query change**: Clear all entries, reset page token, fetch fresh.
@@ -284,6 +285,18 @@ Per `adding-new-views.md`:
 10. Command palette — Add "Logging: Logs Explorer" navigation command.
 11. Sidebar — Add "Logging" section with "Logs Explorer" item.
 
+## Implemented Beyond Original Design
+
+These features were added during implementation, beyond the original design doc scope:
+
+- **Logfmt/protobuf colorization** (`c` toggle): Parses `key=value` and `key:"value"` patterns in log messages and applies syntax highlighting (keys in cyan, strings in green, numbers in yellow, booleans in magenta). Works with both compact and wrapped display modes. ANSI-aware so existing log colors are preserved.
+- **$PAGER integration** (`p` key): Writes all loaded entries to a temp file and opens in `$PAGER` (defaults to `less`). Respects the colorize toggle -- when colors are on, ANSI codes are included and `less -R` is used automatically. Supports `PAGER` env var with arguments (e.g., `PAGER="less -FRSX"`).
+- **Export to TXT/CSV/JSONL** (via `.` action menu): Exports all loaded entries to files in the current directory. TXT format mirrors the compact display, CSV includes timestamp/severity/message/resource/logname columns, JSONL includes full structured data.
+- **ANSI-aware truncation and wrapping**: Log messages that already contain ANSI escape sequences (e.g., colored output from applications) are truncated and wrapped correctly, preserving color codes across line boundaries without counting them toward visible width.
+- **Filter dropdown search** (`/` in dropdown): Type to search/filter within resource type, log name, and severity dropdowns. Useful for projects with many resource types or log names.
+- **Tab focus cycling**: `Tab`/`Shift+Tab` cycles between entries, filter pills, query input, and time range selector, allowing full keyboard-only navigation without mouse.
+- **PgUp/PgDn**: Page-level scrolling in both the entry list and filter dropdowns.
+
 ## Future TODOs
 
 1. Custom time range picker (hotkey `T`, start/end datetime input dialog)
@@ -291,7 +304,6 @@ Per `adding-new-views.md`:
 3. Show similar entries (filter to matching resource type + log name)
 4. Pin/bookmark entries for reference while scrolling
 5. Saved queries (store frequently used LQL queries)
-6. Export visible log entries to file (JSON/CSV)
-7. Trace correlation (click trace ID to view related spans)
-8. Log-based metrics (view/create from queries)
-9. Reuse logviewer component in Cloud Run and Compute observability tabs
+6. Trace correlation (click trace ID to view related spans)
+7. Log-based metrics (view/create from queries)
+8. Reuse logviewer component in Cloud Run and Compute observability tabs

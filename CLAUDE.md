@@ -293,13 +293,19 @@ On developing or updating a new feature keep in mind the following guidelines:
     - Auto-refresh capability (30s interval)
 - [x] Cloud Logging Explorer
   - LQL query input with filter bar
-  - Quick filters (Resources, Log Names, Severities) with lazy-loaded options
+  - Quick filters (Resources, Log Names, Severities) with lazy-loaded options and search
+  - Tab cycling between entries, filters, query input, and time range
   - Sparkline histogram for log density over time
   - Expandable log entries with severity color coding
+  - Logfmt and protobuf key:value syntax colorization (toggle with `c`)
   - Field-level cursor with filter-by-field (Enter on expanded field)
-  - Infinite scroll pagination
+  - Infinite scroll pagination (200 entries per page)
   - Tail mode (live streaming, 15s polling)
   - Time range selection (1h/6h/24h/7d/30d)
+  - Line wrapping toggle (`w` key)
+  - Open in $PAGER with `p` key (respects color toggle)
+  - Export to TXT/CSV/JSONL via action menu
+  - ANSI-aware truncation and wrapping (preserves existing log colors)
 
 ## Planned Features
 - [ ] Subnets list and management

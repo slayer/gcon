@@ -441,7 +441,7 @@ These keys are active when the **content area** is focused (use `Tab` to switch 
 | `/` | Focus query input |
 | `Enter` | Run query (input) / Expand entry / Filter by field |
 | `Esc` | Blur input / Collapse entry / Close filter / Go back |
-| `Tab` | Cycle focus (entries → filters → time range) |
+| `Tab` | Cycle focus (entries / filters / query input / time range) |
 | `Shift+Tab` | Cycle focus backwards |
 | `j/k` or `↓/↑` | Navigate log entries |
 | `→` or `Enter` | Expand entry / Enter field navigation |
@@ -450,9 +450,11 @@ These keys are active when the **content area** is focused (use `Tab` to switch 
 | `E` | Expand all visible entries |
 | `C` | Collapse all entries |
 | `w` | Toggle line wrapping |
-| `c` | Toggle logfmt colorization |
+| `c` | Toggle logfmt/protobuf colorization |
 | `1-5` | Time range (1h/6h/24h/7d/30d) |
 | `f` | Toggle tail mode (15s polling) |
+| `p` | Open entries in $PAGER (respects color toggle) |
+| `.` | Open action menu (export TXT/CSV/JSONL) |
 | `r` | Refresh (re-run query) |
 | `R` | Open resource type filter |
 | `L` | Open log name filter |

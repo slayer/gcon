@@ -122,6 +122,54 @@
   - Delete rules with type-to-confirm dialogs
   - Navigate to associated VPC networks from rule details
 
+#### IAM & Admin
+- 🔐 **Service Account Management**
+  - List service accounts with status indicators (active/disabled)
+  - View details with keys tab
+  - Create, delete, enable/disable service accounts
+  - Key management (create/delete) with JSON download on creation
+
+- 📜 **IAM Policy Bindings**
+  - View bindings by member or by role with tab navigation
+  - Add/remove members to/from role bindings
+  - Detail overlay for viewing member's roles or role's members
+  - Safe etag-based read-modify-write with conflict retry
+
+- 🎭 **Custom Roles** (read-only)
+  - List custom roles with details and permissions tabs
+
+#### Cloud Run
+- 🚀 **Service Management**
+  - List services across all regions with status, URL, latest revision
+  - Service details with 4 tabs (Details/Revisions/YAML/Observability)
+  - Traffic split editing (validates percentages sum to 100)
+  - Edit existing service configuration with diff preview before deploy
+  - Create new services with full form (container, scaling, networking, security)
+  - Delete services with type-to-confirm
+
+- 📈 **Cloud Run Observability**
+  - Request count, latency (p50/p95/p99), error rate (4xx/5xx) charts
+  - CPU utilization, billable instance time, instance count charts
+  - Filterable log viewer (INFO/WARNING/ERROR severity toggles)
+  - Time range selection and auto-refresh
+
+#### Cloud Logging
+- 📋 **Logs Explorer**
+  - LQL query input with filter bar
+  - Quick filters (Resources, Log Names, Severities) with lazy-loaded options and search
+  - Tab cycling between entries, filters, query input, and time range
+  - Sparkline histogram for log density over time
+  - Expandable log entries with severity color coding
+  - Logfmt and protobuf key:value syntax colorization (toggle with `c`)
+  - Field-level cursor with filter-by-field (Enter on expanded field)
+  - Infinite scroll pagination (200 entries per page)
+  - Tail mode (live streaming, 15s polling)
+  - Time range selection (1h/6h/24h/7d/30d)
+  - Line wrapping toggle (`w` key)
+  - Open in `$PAGER` with `p` key (respects color toggle)
+  - Export to TXT/CSV/JSONL via action menu
+  - ANSI-aware truncation and wrapping (preserves existing log colors)
+
 #### User Interface & Navigation
 - 🎯 **Command Palette** - Quick access to all actions with fuzzy search (`:` or `Ctrl+K`)
 - 📂 **Sidebar Navigation** - Collapsible sidebar with auto-hide mode and resource categories
@@ -137,21 +185,12 @@
 
 The following features are planned for future releases:
 
-- [ ] **Cloud Logging** - Integrated log viewer with advanced filters and search
 - [ ] **SSH Integration** - Direct SSH access to instances via gcloud
 - [ ] **Resource Caching** - Local caching layer for faster repeated queries
 - [ ] **Google Kubernetes Engine (GKE)**
   - Cluster listing and details
   - Node pool management
   - Workload viewing
-- [ ] **Cloud Run**
-  - Service management
-  - Revision history
-  - Traffic splitting
-- [ ] **IAM Management**
-  - View IAM policies
-  - Manage service accounts
-  - Role assignments
 - [ ] **Cloud Functions** - Function deployment and monitoring
 - [ ] **Subnets** - Standalone subnet list and management
 - [ ] **Load Balancers** - Load balancer configuration and health
@@ -427,6 +466,54 @@ Once launched, gcon presents an intuitive interface with:
 | `d` | Remove | Remove selected item (with confirmation) |
 | `Esc` | Close | Close overlay |
 
+#### Cloud Run Services
+
+| Key | Action | Description |
+|-----|--------|-------------|
+| `Enter` | View Details | Show service details |
+| `.` | Action Menu | Open context-sensitive action menu |
+| `c` | Create | Create a new service |
+| `D` | Delete | Delete service (with type-to-confirm) |
+| `e` | Edit | Edit service configuration |
+| `/` | Filter | Filter services |
+| `r` | Refresh | Reload service list |
+
+#### Logs Explorer
+
+| Key | Action | Description |
+|-----|--------|-------------|
+| `/` | Focus Query | Focus the LQL query input |
+| `Enter` | Run/Expand | Run query (input) / Expand entry / Filter by field |
+| `Esc` | Blur/Collapse | Blur input / Collapse entry / Close filter / Go back |
+| `Tab` | Cycle Focus | Cycle focus (entries / filters / query / time range) |
+| `Shift+Tab` | Cycle Back | Cycle focus backwards |
+| `j/k` or `↓/↑` | Navigate | Navigate log entries |
+| `→` or `Enter` | Expand | Expand entry / Enter field navigation |
+| `←` | Collapse | Collapse entry / Exit field navigation |
+| `PgUp/PgDn` | Page | Page up/down through entries |
+| `E` | Expand All | Expand all visible entries |
+| `C` | Collapse All | Collapse all entries |
+| `w` | Toggle Wrap | Toggle line wrapping |
+| `c` | Toggle Colors | Toggle logfmt/protobuf colorization |
+| `1-5` | Time Range | Set time range (1h/6h/24h/7d/30d) |
+| `f` | Tail Mode | Toggle tail mode (15s polling) |
+| `r` | Refresh | Re-run query |
+| `R` | Resources | Open resource type filter |
+| `L` | Log Names | Open log name filter |
+| `V` | Severities | Open severity filter |
+| `p` | Pager | Open entries in `$PAGER` |
+| `.` | Action Menu | Export to TXT/CSV/JSONL |
+
+#### Logs Explorer - Filter Dropdown
+
+| Key | Action | Description |
+|-----|--------|-------------|
+| `j/k` or `↓/↑` | Navigate | Navigate filter options |
+| `PgUp/PgDn` | Page | Page up/down through options |
+| `Space/Tab/Enter` | Toggle | Toggle option selection |
+| `/` | Search | Search within filter options |
+| `Esc` | Apply/Close | Apply selection and close |
+
 #### Label & Metadata Editors
 
 | Key | Action | Description |
@@ -509,11 +596,13 @@ gcon/
 │   │   ├── compute.go     # Compute Engine operations
 │   │   ├── storage.go     # Cloud Storage operations
 │   │   ├── monitoring.go  # Cloud Monitoring (metrics)
-│   │   ├── logging.go     # Cloud Logging
+│   │   ├── logging.go     # Cloud Logging (entries, filters, histogram)
 │   │   ├── metadata.go    # Metadata and labels
 │   │   ├── networks.go    # VPC Networks and subnets
 │   │   ├── firewalls.go   # Firewall rules
-│   │   └── sql.go         # Cloud SQL instances
+│   │   ├── sql.go         # Cloud SQL instances
+│   │   ├── iam.go         # IAM policies, service accounts
+│   │   └── cloudrun.go    # Cloud Run services
 │   └── ui/
 │       ├── app.go         # Main application controller
 │       ├── keys.go        # Global key bindings
@@ -522,7 +611,8 @@ gcon/
 │       │   ├── spinner.go
 │       │   ├── statusbar.go
 │       │   ├── sidebar.go
-│       │   └── table.go
+│       │   ├── table.go
+│       │   └── logviewer/ # Log entry list with expand/collapse
 │       └── views/         # Feature-specific views
 │           ├── projects.go
 │           ├── instances.go
@@ -536,7 +626,9 @@ gcon/
 │           ├── firewalls.go
 │           ├── firewall_details.go
 │           ├── sql_instances.go
-│           └── sql_instance_details.go
+│           ├── sql_instance_details.go
+│           ├── cloudrun_services.go
+│           └── logs.go    # Cloud Logging Explorer
 ├── doc/                   # Feature documentation
 ├── Makefile
 └── README.md
