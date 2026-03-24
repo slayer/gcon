@@ -178,6 +178,62 @@ return f.textInput.View()
 
 Update these styles in `Focus()` and `Blur()` methods to change appearance based on focus state.
 
+## EmojiWidthBudget Pattern: Views Behind renderWithSidebar
+
+**Problem**: `renderWithSidebar` applies `MaxWidth(ContentWidth - totalMaxEmojis)` to prevent wide-emoji overflow. Views don't know about this reduction, so they measure their own width as `ContentWidth` and build content that's too wide.
+
+**Root cause**: `lipgloss.Width()` undercounts certain Unicode symbols (▸, ▾, ▶, ●, ◆, etc.) by 1. Terminals render them 2-wide but lipgloss sees them as 1-wide. When a view uses ▸ as a row indicator, every row is effectively 1 char wider than measured.
+
+**Solution**: Pre-compute the sidebar's emoji count and store it in `ProgramContext.EmojiWidthBudget`. Views subtract it in `SetContext()`:
+
+```go
+// app.go — syncContext() computes sidebar emoji budget
+if a.sidebarActive() {
+    a.ctx.EmojiWidthBudget = maxLineEmojiCount(a.sidebar.View())
+} else {
+    a.ctx.EmojiWidthBudget = 0
+}
+
+// views/logs.go — view subtracts budget + its own wide emoji
+func (v *LogsView) SetContext(ctx *context.ProgramContext) {
+    emojiCorrection := ctx.EmojiWidthBudget + 1 // +1 for own ▸ indicator
+    v.width = ctx.ContentWidth - emojiCorrection
+}
+```
+
+**Rule**: Any view that uses a wide-emoji character (▸, ▾, ▶, ●, etc.) as a row indicator or cursor must:
+1. Add `+1` per wide emoji to `emojiCorrection` in `SetContext()`
+2. Pass the corrected width to child components (logviewer, table, etc.)
+
+**Why it stays in context**: The sidebar is stable and computed once per layout change. Counting emojis in the view would require passing sidebar state down — the context field is cleaner.
+
+## Overlay + Wide Emoji Interaction
+
+**Problem**: Opening an action menu (`.` key) causes line wrapping to break for a view that already accounts for wide emojis. Lines that were fitting cleanly start wrapping.
+
+**Root cause**: The `overlay` package stitches the dialog over each line of the background view. When a dialog uses ▶ as a cursor indicator, the stitched line has TWO wide emojis (one from the view's row indicator + one from the dialog cursor). `renderWithSidebar` recounts emojis per line and finds 2, reducing `mainWidth` by 2 for ALL lines — 1 more than the view expected.
+
+**Solution**: In the view's `View()` method, shrink the render width by 1 when the overlay is active:
+
+```go
+func (v *LogsView) View() string {
+    renderWidth := v.width
+    if v.menuOpen {
+        // ▶ cursor in menu stitches onto lines with ▸, giving 2 wide emojis.
+        // renderWithSidebar recounts and reduces mainWidth by 1 more than expected.
+        renderWidth = v.width - 1
+    }
+    v.logViewer.SetSize(renderWidth, v.height-12)
+    // ... render
+}
+```
+
+**Rule**: If a view has both:
+- Its own wide-emoji row indicator (▸, ●, etc.)
+- An action menu overlay that uses a wide-emoji cursor (▶)
+
+Then the view must subtract 1 from render width when the menu is open.
+
 ## Overlay Z-Order: Dialogs Must Render Above Parent Overlays
 
 **Critical**: When a view has nested overlays (e.g., a detail overlay that spawns input/confirm dialogs via 'a'/'d' keys), the `View()` method must check higher-priority dialogs **before** the parent overlay. Otherwise the parent overlay renders first and returns early, hiding the dialog underneath.

@@ -304,11 +304,42 @@ case tabs.TabChangedMsg:
 
 **Symptom**: Tab shows blank content for a single frame before loading spinner appears.
 
+### 15. Views with Action Menus — Implement MenuOpener Interface
+
+**If a view has an action menu (`.` key)**, it must implement the `MenuOpener` interface so the app routes `Esc` to close the menu instead of navigating back:
+
+```go
+// Wrong — Esc quits the app or navigates back while menu is open
+type LogsView struct {
+    menuOpen bool
+    // ... other fields
+}
+
+// Correct — implement MenuOpener
+func (v *LogsView) IsMenuOpen() bool {
+    return v.menuOpen
+}
+```
+
+The app checks `MenuOpener` before routing `Esc` to navigation:
+
+```go
+// app.go Update() — Esc handling
+if opener, ok := a.getCurrentViewModel().(MenuOpener); ok && opener.IsMenuOpen() {
+    // Route to view to close menu
+    return a, a.getCurrentViewModel().Update(msg)
+}
+// Otherwise: navigate back
+```
+
+**Symptom**: Pressing `Esc` while the action menu is open quits the app or navigates back to the previous view.
+
 ## Common Symptoms
 
 - **"View not implemented"** when navigating → forgot `renderCurrentView()` in `app_render.go`
 - **"View not implemented"** after sidebar nav + Esc → sidebar guard missing nested view (step 13)
 - **App quits when typing 'q'** in text field → forgot `HasTextInputFocused()` implementation
+- **Esc quits app with action menu open** → forgot `IsMenuOpen()` / `MenuOpener` interface (step 15)
 - **View not in command palette** → forgot step 10 (command palette navigation commands)
 - **Stale data after refresh** → `Init()` not idempotent (step 11)
 - **Dead handler code** → message has no producer (step 12)

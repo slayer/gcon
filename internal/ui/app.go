@@ -126,6 +126,7 @@ type App struct {
 	cloudRunServiceEditView    *views.CloudRunEditView
 	instanceCreateView         *views.InstanceCreateView
 	instanceConfigEditView     *views.InstanceConfigEditView
+	logsView                   *views.LogsView
 	formDemoView               *views.FormDemoView
 
 	// Selected context
@@ -398,6 +399,8 @@ func (a *App) getCurrentViewModel() views.View {
 		return a.instanceCreateView
 	case ViewInstanceConfigEdit:
 		return a.instanceConfigEditView
+	case ViewLogs:
+		return a.logsView
 	case ViewFormDemo:
 		return a.formDemoView
 	}
@@ -538,6 +541,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					a.cloudRunServiceDetailsView = nil
 					a.selectedCloudRunService = nil
+				case ViewLogs:
+					if a.logsView != nil {
+						a.logsView.Close()
+					}
+					a.logsView = nil
 				}
 
 				a.updateSidebarActiveView()
@@ -561,7 +569,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// If not handled, fall through to quit
 				fallthrough
 
-			case ViewInstances, ViewDisks, ViewSnapshots, ViewImages, ViewBuckets, ViewNetworks, ViewFirewall, ViewSQLInstances, ViewServiceAccounts, ViewIAMPolicy, ViewCustomRoles, ViewCloudRunServices, ViewProjects:
+			case ViewInstances, ViewDisks, ViewSnapshots, ViewImages, ViewBuckets, ViewNetworks, ViewFirewall, ViewSQLInstances, ViewServiceAccounts, ViewIAMPolicy, ViewCustomRoles, ViewCloudRunServices, ViewLogs, ViewProjects:
 				// Quit from top-level views or if stack is empty
 				a.cleanup()
 				return a, tea.Quit
@@ -1011,6 +1019,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.handleCloudRunEditCanceled()
 		return a, nil
 
+	// Logging
+	case views.LogsViewRequestMsg:
+		cmd := a.handleLogsRequest()
+		return a, cmd
+
 	case components.FooterProjectClickedMsg:
 		// Project section in footer was clicked, show project selector
 		currentProjectID := ""
@@ -1108,6 +1121,12 @@ func (a *App) syncContext() {
 	a.ctx.SidebarActive = a.sidebarActive()
 	if a.sidebarActive() {
 		a.ctx.SidebarWidth = a.sidebar.Width()
+		// Pre-compute sidebar emoji budget. renderWithSidebar subtracts
+		// max(sidebarEmojis + contentEmojis) from ContentWidth for MaxWidth.
+		// The sidebar part is stable; content part is view-specific.
+		a.ctx.EmojiWidthBudget = maxLineEmojiCount(a.sidebar.View())
+	} else {
+		a.ctx.EmojiWidthBudget = 0
 	}
 	if a.selectedProject != nil {
 		a.ctx.ProjectID = a.selectedProject.ID
@@ -1256,6 +1275,9 @@ func (a *App) updateViewSizes() {
 	}
 	if a.cloudRunServiceEditView != nil {
 		a.cloudRunServiceEditView.SetContext(a.ctx)
+	}
+	if a.logsView != nil {
+		a.logsView.SetContext(a.ctx)
 	}
 }
 

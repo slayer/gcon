@@ -433,3 +433,39 @@ These keys are active when the **content area** is focused (use `Tab` to switch 
 | `Tab/↓` | Next field |
 | `Shift+Tab/↑` | Previous field |
 | `Esc` | Back (diff → form) / Cancel (form → back) |
+
+## Logs Explorer
+
+| Key | Action |
+|-----|--------|
+| `/` | Focus query input |
+| `Enter` | Run query (input) / Expand entry / Filter by field |
+| `Esc` | Blur input / Collapse entry / Close filter / Go back |
+| `Tab` | Cycle focus (entries / filters / query input / time range) |
+| `Shift+Tab` | Cycle focus backwards |
+| `j/k` or `↓/↑` | Navigate log entries |
+| `→` or `Enter` | Expand entry / Enter field navigation |
+| `←` | Collapse entry / Exit field navigation |
+| `PgUp/PgDn` | Page up/down through entries |
+| `E` | Expand all visible entries |
+| `C` | Collapse all entries |
+| `w` | Toggle line wrapping |
+| `c` | Toggle logfmt/protobuf colorization |
+| `1-5` | Time range (1h/6h/24h/7d/30d) |
+| `f` | Toggle tail mode (15s polling) |
+| `p` | Open entries in $PAGER (respects color toggle) |
+| `.` | Open action menu (export TXT/CSV/JSONL) |
+| `r` | Refresh (re-run query) |
+| `R` | Open resource type filter |
+| `L` | Open log name filter |
+| `V` | Open severity filter |
+
+### Filter Dropdown (overlay)
+
+| Key | Action |
+|-----|--------|
+| `j/k` or `↓/↑` | Navigate options |
+| `PgUp/PgDn` | Page up/down through options |
+| `Space`/`Tab`/`Enter` | Toggle selection |
+| `/` | Search within filter options |
+| `Esc` | Apply selection and close |
