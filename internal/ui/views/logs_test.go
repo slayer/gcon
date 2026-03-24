@@ -344,7 +344,7 @@ func TestLogsViewClose(t *testing.T) {
 
 	// Start tail mode
 	v.tailMode = true
-	v.tailTicker = time.NewTicker(5 * time.Second)
+	v.tailTicker = time.NewTicker(15 * time.Second)
 	v.tailDone = make(chan struct{})
 
 	// Close should clean up

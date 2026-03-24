@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -76,6 +77,7 @@ type logsKeyMap struct {
 	FilterRes   key.Binding
 	FilterLog  key.Binding
 	FilterSev  key.Binding
+	OpenPager  key.Binding
 	Escape     key.Binding
 }
 
@@ -148,6 +150,10 @@ func defaultLogsKeyMap() logsKeyMap {
 		FilterSev: key.NewBinding(
 			key.WithKeys("V"),
 			key.WithHelp("V", "severities"),
+		),
+		OpenPager: key.NewBinding(
+			key.WithKeys("p"),
+			key.WithHelp("p", "pager"),
 		),
 		Escape: key.NewBinding(
 			key.WithKeys("esc"),
@@ -529,6 +535,9 @@ func (v *LogsView) handleKey(msg tea.KeyMsg) tea.Cmd {
 		v.logViewer.ToggleColorize()
 		return nil
 
+	case key.Matches(msg, v.keys.OpenPager):
+		return v.openInPager()
+
 	case key.Matches(msg, v.keys.TailMode):
 		return v.toggleTailMode()
 
@@ -797,12 +806,15 @@ func (v *LogsView) handleFilterDropdownKey(msg tea.KeyMsg) tea.Cmd {
 
 	case "esc":
 		// Apply selections and close the dropdown
-		v.applyFilterDropdown()
+		changed := v.applyFilterDropdown()
 		v.activeFilter = filterDropdownNone
 		v.filterSearch = ""
 		v.filterSearching = false
 		v.focus = logsFocusEntries
-		return v.runQuery()
+		if changed {
+			return v.runQuery()
+		}
+		return nil
 	}
 
 	return nil
@@ -830,7 +842,8 @@ func (v *LogsView) handleFilterSearchKey(msg tea.KeyMsg) tea.Cmd {
 }
 
 // applyFilterDropdown saves the dropdown selections to the corresponding filter slice.
-func (v *LogsView) applyFilterDropdown() {
+// Returns true if selections changed (query needs re-run).
+func (v *LogsView) applyFilterDropdown() bool {
 	var selected []string
 	for _, opt := range v.filterOptions {
 		if v.filterSelected[opt] {
@@ -838,14 +851,36 @@ func (v *LogsView) applyFilterDropdown() {
 		}
 	}
 
+	var prev *[]string
 	switch v.activeFilter {
 	case filterDropdownResources:
-		v.selectedResources = selected
+		prev = &v.selectedResources
 	case filterDropdownLogNames:
-		v.selectedLogNames = selected
+		prev = &v.selectedLogNames
 	case filterDropdownSeverities:
-		v.selectedSeverities = selected
+		prev = &v.selectedSeverities
+	default:
+		return false
 	}
+
+	// Check if selections actually changed
+	if slicesEqual(*prev, selected) {
+		return false
+	}
+	*prev = selected
+	return true
+}
+
+func slicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // --- Query building ---
@@ -1102,7 +1137,7 @@ func (v *LogsView) toggleTailMode() tea.Cmd {
 func (v *LogsView) startTailMode() tea.Cmd {
 	v.stopTailMode() // clean up any previous ticker
 	v.tailMode = true
-	v.tailTicker = time.NewTicker(5 * time.Second)
+	v.tailTicker = time.NewTicker(15 * time.Second)
 	v.tailDone = make(chan struct{})
 	return v.tickTailMode()
 }
@@ -1285,7 +1320,7 @@ func (v *LogsView) View() string {
 	b.WriteString("\n")
 
 	// Key hints
-	b.WriteString(mutedStyle.Render("  /: query  .: actions  tab: filters  1-5: time  f: tail  w: wrap  c: colors  E/C: expand  r: refresh"))
+	b.WriteString(mutedStyle.Render("  /: query  .: actions  tab: filters  1-5: time  f: tail  w: wrap  c: colors  p: pager  r: refresh"))
 	b.WriteString("\n")
 
 	mainContent := b.String()
@@ -1326,7 +1361,7 @@ func (v *LogsView) renderTimeRangeBar() string {
 	result := strings.Join(parts, " ")
 
 	if v.tailMode {
-		result += "  " + tailStyle.Render("TAIL (5s)")
+		result += "  " + tailStyle.Render("TAIL (15s)")
 	}
 	return result
 }
@@ -1473,6 +1508,70 @@ func (v *LogsView) renderWithFilterDropdown(base string) string {
 	dropdownContent := borderStyle.Render(b.String())
 	contentHeight := lipgloss.Height(base)
 	return overlay.Center(base, dropdownContent, v.width, contentHeight)
+}
+
+// --- Pager ---
+
+// openInPager writes all loaded entries to a temp file and opens $PAGER.
+// Respects the colorize toggle — includes ANSI codes when colors are on.
+func (v *LogsView) openInPager() tea.Cmd {
+	if len(v.entries) == 0 {
+		return nil
+	}
+
+	colorize := v.logViewer.ColorizeEnabled()
+
+	// Build content
+	var b strings.Builder
+	for i := range v.entries {
+		e := &v.entries[i]
+		ts := e.Timestamp.Format("2006-01-02 15:04:05.000")
+		sev := e.Severity
+		msg := strings.ReplaceAll(e.Message, "\n", " ")
+
+		if colorize {
+			sevStyle := logviewer.SeverityStyle(e.Severity)
+			line := fmt.Sprintf("%s  %s  %s", ts, sevStyle.Render(sev), logviewer.ColorizeMessage(msg, ""))
+			b.WriteString(line)
+		} else {
+			b.WriteString(fmt.Sprintf("%s  %-8s  %s", ts, sev, msg))
+		}
+		b.WriteString("\n")
+	}
+
+	// Write to temp file
+	tmpFile, err := os.CreateTemp("", "gcon-logs-*.txt")
+	if err != nil {
+		v.exportMsg = fmt.Sprintf("Pager error: %s", err)
+		return nil
+	}
+	if _, err := tmpFile.WriteString(b.String()); err != nil {
+		tmpFile.Close()
+		_ = os.Remove(tmpFile.Name()) //nolint:errcheck // best-effort cleanup
+		v.exportMsg = fmt.Sprintf("Pager error: %s", err)
+		return nil
+	}
+	tmpFile.Close()
+	tmpName := tmpFile.Name()
+
+	// Determine pager command
+	pager := os.Getenv("PAGER")
+	if pager == "" {
+		pager = "less"
+	}
+
+	// Build command with -R flag for ANSI color support
+	args := []string{tmpName}
+	if pager == "less" && colorize {
+		args = []string{"-R", tmpName}
+	}
+
+	//nolint:gosec // pager command is user-configured via $PAGER
+	c := exec.Command(pager, args...)
+	return tea.ExecProcess(c, func(_ error) tea.Msg {
+		_ = os.Remove(tmpName) //nolint:errcheck // best-effort cleanup
+		return nil
+	})
 }
 
 // --- Action menu and export ---

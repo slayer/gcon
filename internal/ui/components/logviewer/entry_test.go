@@ -127,74 +127,74 @@ func TestTruncateEntry(t *testing.T) {
 func TestColorizeMessage(t *testing.T) {
 	t.Run("logfmt key=value pairs", func(t *testing.T) {
 		msg := `level=info msg="GetRepoObjs stats" count=42 ratio=3.14`
-		result := colorizeMessage(msg, "")
+		result := ColorizeMessage(msg, "")
 		plain := stripANSI(result)
 		assert.Equal(t, msg, plain, "colorized output should preserve all text")
 	})
 
 	t.Run("boolean and null values", func(t *testing.T) {
 		msg := `enabled=true deleted=false value=null`
-		result := colorizeMessage(msg, "")
+		result := ColorizeMessage(msg, "")
 		plain := stripANSI(result)
 		assert.Equal(t, msg, plain)
 	})
 
 	t.Run("plain text without logfmt", func(t *testing.T) {
 		msg := "just a regular log message"
-		result := colorizeMessage(msg, "")
+		result := ColorizeMessage(msg, "")
 		plain := stripANSI(result)
 		assert.Equal(t, msg, plain)
 	})
 
 	t.Run("with background color", func(t *testing.T) {
 		msg := `level=error code=500`
-		result := colorizeMessage(msg, "#3C4043")
+		result := ColorizeMessage(msg, "#3C4043")
 		plain := stripANSI(result)
 		assert.Equal(t, msg, plain)
 	})
 
 	t.Run("empty string", func(t *testing.T) {
-		assert.Equal(t, "", colorizeMessage("", ""))
+		assert.Equal(t, "", ColorizeMessage("", ""))
 	})
 
 	t.Run("negative numbers", func(t *testing.T) {
 		msg := `offset=-10 temp=-3.5`
-		result := colorizeMessage(msg, "")
+		result := ColorizeMessage(msg, "")
 		plain := stripANSI(result)
 		assert.Equal(t, msg, plain)
 	})
 
 	t.Run("bracketed text", func(t *testing.T) {
 		msg := `[GIN] 2026/03/19 - 13:04:05 [Recovery] panic recovered`
-		result := colorizeMessage(msg, "")
+		result := ColorizeMessage(msg, "")
 		plain := stripANSI(result)
 		assert.Equal(t, msg, plain)
 	})
 
 	t.Run("mixed brackets and logfmt", func(t *testing.T) {
 		msg := `[INFO] level=info msg="hello" [tag] count=5`
-		result := colorizeMessage(msg, "")
+		result := ColorizeMessage(msg, "")
 		plain := stripANSI(result)
 		assert.Equal(t, msg, plain)
 	})
 
 	t.Run("protobuf key:value pairs", func(t *testing.T) {
 		msg := `service_name:"k8s.io"  method_name:"sh.keda.v1alpha1.scaledobjects.status.patch"`
-		result := colorizeMessage(msg, "")
+		result := ColorizeMessage(msg, "")
 		plain := stripANSI(result)
 		assert.Equal(t, msg, plain)
 	})
 
 	t.Run("mixed logfmt and protobuf", func(t *testing.T) {
 		msg := `level=info service_name:"k8s.io" count=42`
-		result := colorizeMessage(msg, "")
+		result := ColorizeMessage(msg, "")
 		plain := stripANSI(result)
 		assert.Equal(t, msg, plain)
 	})
 
 	t.Run("preserves existing ANSI colors", func(t *testing.T) {
 		msg := "\x1b[32mINFO\x1b[0m some message level=info"
-		result := colorizeMessage(msg, "")
+		result := ColorizeMessage(msg, "")
 		// Should pass through unchanged — no double-styling
 		assert.Equal(t, msg, result)
 	})

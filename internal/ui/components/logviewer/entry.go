@@ -45,8 +45,8 @@ func SeverityAbbrev(severity string) string {
 	}
 }
 
-// severityStyle returns a lipgloss style for the given severity.
-func severityStyle(severity string) lipgloss.Style {
+// SeverityStyle returns a lipgloss style for the given severity.
+func SeverityStyle(severity string) lipgloss.Style {
 	color, ok := severityColors[severity]
 	if !ok {
 		color = "#9AA0A6"
@@ -64,7 +64,7 @@ func RenderCompactEntry(entry gcp.LogEntry, expanded bool, width int, bg string,
 		indicator = "▾"
 	}
 
-	sevStyle := severityStyle(entry.Severity)
+	sevStyle := SeverityStyle(entry.Severity)
 	plainStyle := lipgloss.NewStyle()
 
 	if bg != "" {
@@ -106,7 +106,7 @@ func RenderCompactEntry(entry gcp.LogEntry, expanded bool, width int, bg string,
 
 	var styledMsg string
 	if colorize {
-		styledMsg = colorizeMessage(message, bg)
+		styledMsg = ColorizeMessage(message, bg)
 	} else {
 		styledMsg = plainStyle.Render(message)
 	}
@@ -134,7 +134,7 @@ func RenderWrappedEntry(entry gcp.LogEntry, expanded bool, width int, bg string,
 		indicator = "▾"
 	}
 
-	sevStyle := severityStyle(entry.Severity)
+	sevStyle := SeverityStyle(entry.Severity)
 	plainStyle := lipgloss.NewStyle()
 
 	if bg != "" {
@@ -164,7 +164,7 @@ func RenderWrappedEntry(entry gcp.LogEntry, expanded bool, width int, bg string,
 	if visWidth <= msgWidth {
 		// Fits on one line
 		if colorize {
-			return prefix + colorizeMessage(message, bg), 1
+			return prefix + ColorizeMessage(message, bg), 1
 		}
 		return prefix + plainStyle.Render(message), 1
 	}
@@ -202,7 +202,7 @@ func RenderWrappedEntry(entry gcp.LogEntry, expanded bool, width int, bg string,
 
 			var styledChunk string
 			if colorize {
-				styledChunk = colorizeMessage(chunk, bg)
+				styledChunk = ColorizeMessage(chunk, bg)
 			} else {
 				styledChunk = plainStyle.Render(chunk)
 			}
@@ -260,7 +260,7 @@ func RenderExpandedFields(entry gcp.LogEntry, cursorIdx int, width int, colorize
 		// Colorize the full value before chunking so tokens aren't split
 		var styledVal string
 		if colorize {
-			styledVal = colorizeMessage(cleanVal, "")
+			styledVal = ColorizeMessage(cleanVal, "")
 		} else {
 			styledVal = valStyle.Render(cleanVal)
 		}
@@ -331,11 +331,11 @@ func newLogStyles(bg string) logStyles {
 	}
 }
 
-// colorizeMessage applies syntax highlighting to logfmt-style key=value pairs.
+// ColorizeMessage applies syntax highlighting to logfmt-style key=value pairs.
 // Highlights: keys (blue), quoted strings (green), numbers (blue),
 // booleans (yellow), [brackets] (muted gray).
 // If the message already contains ANSI escape sequences, they are preserved as-is.
-func colorizeMessage(s string, bg string) string {
+func ColorizeMessage(s string, bg string) string {
 	if len(s) == 0 {
 		return s
 	}
