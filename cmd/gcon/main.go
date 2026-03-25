@@ -13,12 +13,20 @@ import (
 	"github.com/slayer/gcon/internal/ui/symbols"
 )
 
+// Set by goreleaser ldflags at build time.
+var (
+	version = "dev"
+	commit  = ""
+	date    = ""
+)
+
 var (
 	projectFlag  string
 	noEmojisFlag bool
 	asciiFlag    bool
 	noMouseFlag  bool
 	debugFlag    bool
+	versionFlag  bool
 )
 
 func init() {
@@ -29,15 +37,34 @@ func init() {
 	flag.BoolVar(&asciiFlag, "ascii", false, "Use ASCII-only characters (no Unicode or emojis)")
 	flag.BoolVar(&noMouseFlag, "no-mouse", false, "Disable mouse support (for accessibility or unsupported terminals)")
 	flag.BoolVar(&debugFlag, "debug", false, "Enable debug logging to ./gcon-debug.log (slow!)")
+	flag.BoolVar(&versionFlag, "version", false, "Print version and exit")
+	flag.BoolVar(&versionFlag, "v", false, "Print version and exit (shorthand)")
 }
 
 func main() {
 	flag.Parse()
 
+	if versionFlag {
+		printVersion()
+		return
+	}
+
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func printVersion() {
+	info := "gcon " + version
+	if commit != "" {
+		info += " (commit: " + commit
+		if date != "" {
+			info += ", built: " + date
+		}
+		info += ")"
+	}
+	fmt.Println(info)
 }
 
 func run() error {

@@ -1,0 +1,64 @@
+version: 2
+
+project_name: gcon
+
+builds:
+  - main: ./cmd/gcon
+    binary: gcon
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.ShortCommit}}
+      - -X main.date={{.Date}}
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+
+archives:
+  - formats: ["tar.gz"]
+    format_overrides:
+      - goos: windows
+        formats: ["zip"]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+nfpms:
+  - package_name: gcon
+    homepage: https://github.com/slayer/gcon
+    maintainer: Vlad <slayer@users.noreply.github.com>
+    description: Terminal UI for Google Cloud Platform
+    license: MIT
+    formats:
+      - deb
+      - rpm
+    bindir: /usr/bin
+
+homebrew_casks:
+  - name: gcon
+    binaries:
+      - gcon
+    repository:
+      owner: slayer
+      name: homebrew-gcon
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    homepage: https://github.com/slayer/gcon
+    description: Terminal UI for Google Cloud Platform
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
