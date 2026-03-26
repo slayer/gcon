@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/go-1.22+-blue" alt="Go Version">
+  <img src="https://img.shields.io/badge/go-1.24+-blue" alt="Go Version">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="License"></a>
   <img src="https://img.shields.io/badge/platform-linux%20%7C%20macOS%20%7C%20windows-lightgrey" alt="Platform">
 </p>
@@ -197,6 +197,36 @@ The following features are planned for future releases:
 - [ ] **Cost Explorer** - Resource cost analysis and budgets
 
 ## Installation
+
+### Homebrew (macOS & Linux)
+
+```bash
+brew install slayer/gcon/gcon
+```
+
+### Install Script (macOS & Linux)
+
+```bash
+curl -sSL https://raw.githubusercontent.com/slayer/gcon/master/install.sh | sh
+```
+
+Or a specific version:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/slayer/gcon/master/install.sh | sh -s -- v0.7.0
+```
+
+### Deb / RPM (Linux)
+
+Download `.deb` or `.rpm` packages from the [latest release](https://github.com/slayer/gcon/releases/latest):
+
+```bash
+# Debian/Ubuntu
+sudo dpkg -i gcon_*.deb
+
+# RHEL/Fedora
+sudo rpm -i gcon_*.rpm
+```
 
 ### From Source
 
@@ -554,9 +584,6 @@ make run
 
 # Run with race detector (for development)
 make dev
-
-# Build for all platforms (linux, macOS, windows)
-make build-all
 ```
 
 ### Running Tests
