@@ -29,6 +29,72 @@ func TestLogsViewNew(t *testing.T) {
 	assert.Equal(t, filterDropdownNone, v.activeFilter)
 }
 
+func TestLogsViewWithFilters(t *testing.T) {
+	v := NewLogsView("test-project", nil)
+
+	query := `resource.type="cloud_run_revision"` + "\n" + `resource.labels.service_name="my-svc"`
+	severities := []string{"WARNING", "ERROR"}
+	v.WithFilters(query, severities, 6*time.Hour)
+
+	assert.Equal(t, query, v.query)
+	// textinput is single-line, so newlines become spaces in the input display
+	assert.Contains(t, v.queryInput.Value(), `resource.type="cloud_run_revision"`)
+	assert.Equal(t, severities, v.selectedSeverities)
+	assert.Equal(t, 6*time.Hour, v.timeRange)
+}
+
+func TestLogsViewWithFilters_NormalizeSeverityOrder(t *testing.T) {
+	// Severities provided in reverse / non-deterministic order (e.g., from a map)
+	// must be stored in the canonical allSeverities order so that slicesEqual()
+	// comparisons in applyFilterDropdown() remain deterministic and don't
+	// trigger spurious re-queries.
+	tests := []struct {
+		name     string
+		input    []string
+		expected []string
+	}{
+		{
+			name:     "reverse order normalized",
+			input:    []string{"ERROR", "WARNING"},
+			expected: []string{"WARNING", "ERROR"},
+		},
+		{
+			name:     "duplicates removed and ordered",
+			input:    []string{"ERROR", "WARNING", "ERROR"},
+			expected: []string{"WARNING", "ERROR"},
+		},
+		{
+			name:     "already ordered is unchanged",
+			input:    []string{"WARNING", "ERROR"},
+			expected: []string{"WARNING", "ERROR"},
+		},
+		{
+			name:     "all severities kept in canonical order",
+			input:    []string{"EMERGENCY", "DEBUG", "CRITICAL", "INFO"},
+			expected: []string{"DEBUG", "INFO", "CRITICAL", "EMERGENCY"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			v := NewLogsView("test-project", nil)
+			v.WithFilters("", tc.input, 0)
+			assert.Equal(t, tc.expected, v.selectedSeverities)
+		})
+	}
+}
+
+func TestLogsViewWithFilters_Defaults(t *testing.T) {
+	v := NewLogsView("test-project", nil)
+
+	// Empty values should not override defaults
+	v.WithFilters("", nil, 0)
+
+	assert.Empty(t, v.query)
+	assert.Empty(t, v.selectedSeverities)
+	assert.Equal(t, time.Hour, v.timeRange)
+}
+
 func TestLogsViewHasTextInputFocused(t *testing.T) {
 	v := NewLogsView("test-project", nil)
 

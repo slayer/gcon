@@ -1,9 +1,21 @@
 package views
 
-import "github.com/slayer/gcon/internal/gcp"
+import (
+	"time"
+
+	"github.com/slayer/gcon/internal/gcp"
+)
 
 // LogsViewRequestMsg requests navigation to the Logs Explorer view.
-type LogsViewRequestMsg struct{}
+// Optional fields allow pre-populating filters (e.g., from Cloud Run observability).
+type LogsViewRequestMsg struct {
+	// Query is an LQL filter string pre-filled in the query input.
+	Query string
+	// Severities pre-selects severity filters (e.g., []string{"ERROR", "WARNING"}).
+	Severities []string
+	// TimeRange pre-sets the time window. Zero means use default (1h).
+	TimeRange time.Duration
+}
 
 // --- Internal messages for log data loading ---
 

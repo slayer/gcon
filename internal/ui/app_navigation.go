@@ -2793,11 +2793,13 @@ func (a *App) handleCloudRunEditCanceled() {
 
 // --- Logging handlers ---
 
-// handleLogsRequest opens the Logs Explorer view
-func (a *App) handleLogsRequest() tea.Cmd {
+// handleLogsRequest opens the Logs Explorer view, optionally pre-filtered.
+func (a *App) handleLogsRequest(msg views.LogsViewRequestMsg) tea.Cmd {
 	a.viewStack = append(a.viewStack, a.currentView)
 	a.currentView = ViewLogs
 	a.logsView = views.NewLogsView(a.selectedProject.ID, a.gcpClient)
+	// Apply pre-set filters if provided (e.g., from Cloud Run observability)
+	a.logsView.WithFilters(msg.Query, msg.Severities, msg.TimeRange)
 	a.updateSidebarActiveView()
 	a.updateViewSizes()
 	return a.logsView.Init()

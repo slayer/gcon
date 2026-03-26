@@ -422,6 +422,7 @@ These keys are active when the **content area** is focused (use `Tab` to switch 
 | `I` | Toggle INFO log filter |
 | `W` | Toggle WARNING log filter |
 | `E` | Toggle ERROR/CRITICAL log filter |
+| `L` | Open Logs Explorer (pre-filtered for this service) |
 | `r` | Manual refresh |
 
 ## Cloud Run Edit/Create View

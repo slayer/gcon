@@ -251,6 +251,34 @@ func NewLogsView(projectID string, gcpClient *gcp.Client) *LogsView {
 	}
 }
 
+// WithFilters pre-populates the Logs Explorer with filters from another view
+// (e.g., Cloud Run observability). Call before Init().
+func (v *LogsView) WithFilters(query string, severities []string, timeRange time.Duration) {
+	if query != "" {
+		v.query = query
+		v.queryInput.SetValue(query)
+	}
+	if len(severities) > 0 {
+		// Normalize to allSeverities order and de-dup so that slicesEqual
+		// comparisons in applyFilterDropdown() are deterministic regardless
+		// of the order in which the caller built the slice (e.g. from a map).
+		sevSet := make(map[string]bool, len(severities))
+		for _, s := range severities {
+			sevSet[s] = true
+		}
+		normalized := make([]string, 0, len(severities))
+		for _, s := range allSeverities {
+			if sevSet[s] {
+				normalized = append(normalized, s)
+			}
+		}
+		v.selectedSeverities = normalized
+	}
+	if timeRange > 0 {
+		v.timeRange = timeRange
+	}
+}
+
 // Init starts data loading. Must be idempotent — may be called more than once.
 // Resource types and log names are loaded lazily on first dropdown open to reduce
 // API calls (GCP logging read quota is 120 req/min).

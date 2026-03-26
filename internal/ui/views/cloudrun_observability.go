@@ -209,9 +209,37 @@ func (o *cloudRunObservability) handleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 	case "E":
 		o.toggleSeverity("ERROR")
 		return nil, true
+
+	// Open full Logs Explorer pre-filtered for this service
+	case "L":
+		return o.openLogsExplorer(), true
 	}
 
 	return nil, false
+}
+
+// openLogsExplorer emits a LogsViewRequestMsg pre-filtered for this Cloud Run service,
+// carrying the current time range and severity filters.
+func (o *cloudRunObservability) openLogsExplorer() tea.Cmd {
+	// Build LQL query scoped to this Cloud Run service.
+	// Uses explicit double quotes per GCP LQL syntax (not Go %q escaping).
+	query := "resource.type=\"cloud_run_revision\"\nresource.labels.service_name=\"" + o.serviceName + "\"" //nolint:gocritic // GCP LQL filter syntax requires double quotes
+
+	// Collect enabled severities
+	var severities []string
+	for sev, enabled := range o.severityEnabled {
+		if enabled {
+			severities = append(severities, sev)
+		}
+	}
+
+	return func() tea.Msg {
+		return LogsViewRequestMsg{
+			Query:      query,
+			Severities: severities,
+			TimeRange:  o.timeRange,
+		}
+	}
 }
 
 // setTimeRange updates the time range and reloads metrics+logs.
@@ -285,7 +313,7 @@ func (o *cloudRunObservability) View() string {
 
 	// Key hints
 	b.WriteString("\n")
-	b.WriteString(mutedStyle.Render("  1-5: time range  a: auto-refresh  I/W/E: toggle severity  r: refresh"))
+	b.WriteString(mutedStyle.Render("  1-5: time range  a: auto-refresh  I/W/E: toggle severity  L: logs  r: refresh"))
 	b.WriteString("\n")
 
 	return b.String()
