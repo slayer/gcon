@@ -170,11 +170,17 @@ func (v *SubnetCreateView) handleSubmit() tea.Cmd {
 
 	data := v.Form.GetData()
 
+	// Safe — form validation above ensures required fields are populated
+	name, _ := data["name"].(string)            //nolint:errcheck // validated by form
+	network, _ := data["network"].(string)      //nolint:errcheck // validated by form
+	region, _ := data["region"].(string)        //nolint:errcheck // validated by form
+	cidrRange, _ := data["cidr_range"].(string) //nolint:errcheck // validated by form
+
 	config := gcp.SubnetCreateConfig{
-		Name:      strings.TrimSpace(data["name"].(string)),
-		Network:   data["network"].(string),
-		Region:    data["region"].(string),
-		CIDRRange: strings.TrimSpace(data["cidr_range"].(string)),
+		Name:      strings.TrimSpace(name),
+		Network:   network,
+		Region:    region,
+		CIDRRange: strings.TrimSpace(cidrRange),
 	}
 
 	if desc, ok := data["description"].(string); ok {

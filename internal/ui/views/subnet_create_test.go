@@ -2,11 +2,14 @@ package views
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+var errSubnetCreateFailed = errors.New("subnet create failed")
 
 func TestNewSubnetCreateView(t *testing.T) {
 	view := NewSubnetCreateView("my-project", nil)
@@ -44,7 +47,7 @@ func TestSubnetCreateView_SetErrorResetsState(t *testing.T) {
 	view := NewSubnetCreateView("my-project", nil)
 	view.State = createViewStateSaving
 
-	errFailed := errors.New("subnet create failed")
+	errFailed := fmt.Errorf("test: %w", errSubnetCreateFailed)
 	view.SetError(errFailed)
 
 	assert.Equal(t, createViewStateForm, view.State)

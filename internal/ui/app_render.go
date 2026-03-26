@@ -29,7 +29,7 @@ func (a *App) renderHeader() string {
 			category = "Compute Engine"
 		case ViewBuckets, ViewObjects, ViewObjectDetails:
 			category = "Cloud Storage"
-		case ViewNetworks, ViewNetworkDetails, ViewFirewall, ViewFirewallDetails:
+		case ViewNetworks, ViewNetworkDetails, ViewFirewall, ViewFirewallDetails, ViewSubnets, ViewSubnetDetails, ViewSubnetCreate:
 			category = "VPC Network"
 		case ViewSQLInstances, ViewSQLInstanceDetails:
 			category = "Databases"
@@ -106,6 +106,12 @@ func (a *App) renderHeader() string {
 		if a.selectedFirewall != nil {
 			resources = append(resources, a.selectedFirewall.Name)
 		}
+	case ViewSubnetDetails:
+		if a.subnetDetailsView != nil {
+			resources = append(resources, a.subnetDetailsView.GetSubnetName())
+		}
+	case ViewSubnetCreate:
+		resources = append(resources, "Create")
 	case ViewSQLInstanceDetails:
 		if a.selectedSQLInstance != nil {
 			resources = append(resources, a.selectedSQLInstance.Name)
@@ -248,6 +254,18 @@ func (a *App) renderCurrentView() string {
 	case ViewFirewallDetails:
 		if a.firewallDetailsView != nil {
 			return a.firewallDetailsView.View()
+		}
+	case ViewSubnets:
+		if a.subnetsView != nil {
+			return a.subnetsView.View()
+		}
+	case ViewSubnetDetails:
+		if a.subnetDetailsView != nil {
+			return a.subnetDetailsView.View()
+		}
+	case ViewSubnetCreate:
+		if a.subnetCreateView != nil {
+			return a.subnetCreateView.View()
 		}
 	case ViewSQLInstances:
 		if a.sqlInstancesView != nil {

@@ -248,7 +248,17 @@ func (v *NetworkDetailsView) Update(msg tea.Msg) tea.Cmd {
 		return nil
 
 	case links.LinkSelectedMsg:
-		// No-op for now — future subnet details navigation
+		// Navigate to subnet details when a subnet link is selected
+		if msg.Link.Type == "subnet" {
+			if subnet, ok := msg.Link.Data.(gcp.Subnet); ok {
+				return func() tea.Msg {
+					return SubnetSelectedMsg{
+						SubnetName: subnet.Name,
+						Region:     subnet.Region,
+					}
+				}
+			}
+		}
 		return nil
 
 	case focus.FocusChangedMsg:
