@@ -43,6 +43,47 @@ func TestLogsViewWithFilters(t *testing.T) {
 	assert.Equal(t, 6*time.Hour, v.timeRange)
 }
 
+func TestLogsViewWithFilters_NormalizeSeverityOrder(t *testing.T) {
+	// Severities provided in reverse / non-deterministic order (e.g., from a map)
+	// must be stored in the canonical allSeverities order so that slicesEqual()
+	// comparisons in applyFilterDropdown() remain deterministic and don't
+	// trigger spurious re-queries.
+	tests := []struct {
+		name     string
+		input    []string
+		expected []string
+	}{
+		{
+			name:     "reverse order normalized",
+			input:    []string{"ERROR", "WARNING"},
+			expected: []string{"WARNING", "ERROR"},
+		},
+		{
+			name:     "duplicates removed and ordered",
+			input:    []string{"ERROR", "WARNING", "ERROR"},
+			expected: []string{"WARNING", "ERROR"},
+		},
+		{
+			name:     "already ordered is unchanged",
+			input:    []string{"WARNING", "ERROR"},
+			expected: []string{"WARNING", "ERROR"},
+		},
+		{
+			name:     "all severities kept in canonical order",
+			input:    []string{"EMERGENCY", "DEBUG", "CRITICAL", "INFO"},
+			expected: []string{"DEBUG", "INFO", "CRITICAL", "EMERGENCY"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			v := NewLogsView("test-project", nil)
+			v.WithFilters("", tc.input, 0)
+			assert.Equal(t, tc.expected, v.selectedSeverities)
+		})
+	}
+}
+
 func TestLogsViewWithFilters_Defaults(t *testing.T) {
 	v := NewLogsView("test-project", nil)
 
