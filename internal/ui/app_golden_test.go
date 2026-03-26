@@ -17,8 +17,10 @@ func init() {
 }
 
 // setupAppWithSize creates a test app and sends WindowSizeMsg to trigger layout.
+// Pins CLOUDSDK_ACTIVE_CONFIG_NAME so the config-profile badge is deterministic.
 func setupAppWithSize(t *testing.T, width, height int) *App {
 	t.Helper()
+	t.Setenv("CLOUDSDK_ACTIVE_CONFIG_NAME", "test-profile")
 	app := createTestApp()
 	model, _ := app.Update(tea.WindowSizeMsg{Width: width, Height: height})
 	result, ok := model.(*App)
