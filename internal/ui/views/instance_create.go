@@ -49,11 +49,11 @@ type InstanceCreateView struct {
 	pendingConfig *gcp.InstanceCreateConfig
 
 	// Cached async data to avoid redundant fetches
-	machineTypeCache     map[string][]gcp.MachineType
-	loadingMachineZone   string // zone currently being fetched (empty = idle)
-	networksLoaded       bool
-	lastLoadedSubnets    []gcp.SubnetworkInfo   // cached subnets for filtering by network
-	lastLoadedAddresses  []gcp.StaticAddress     // cached addresses for resolving static IP names
+	machineTypeCache    map[string][]gcp.MachineType
+	loadingMachineZone  string // zone currently being fetched (empty = idle)
+	networksLoaded      bool
+	lastLoadedSubnets   []gcp.SubnetworkInfo // cached subnets for filtering by network
+	lastLoadedAddresses []gcp.StaticAddress  // cached addresses for resolving static IP names
 
 	// Track current zone/region to detect changes and drop stale async responses
 	lastZone   string

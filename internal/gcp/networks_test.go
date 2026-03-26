@@ -216,13 +216,13 @@ func TestSubnetFromAPI_NilLogConfig(t *testing.T) {
 
 func TestSubnetDetailsFromAPI(t *testing.T) {
 	s := &compute.Subnetwork{
-		Id:          98765,
-		Name:        "prod-subnet",
-		Description: "Production subnet with flow logs",
-		State:       "READY",
-		Region:      "https://www.googleapis.com/compute/v1/projects/my-project/regions/us-central1",
-		Network:     "https://www.googleapis.com/compute/v1/projects/my-project/global/networks/prod-vpc",
-		IpCidrRange: "10.10.0.0/20",
+		Id:                    98765,
+		Name:                  "prod-subnet",
+		Description:           "Production subnet with flow logs",
+		State:                 "READY",
+		Region:                "https://www.googleapis.com/compute/v1/projects/my-project/regions/us-central1",
+		Network:               "https://www.googleapis.com/compute/v1/projects/my-project/global/networks/prod-vpc",
+		IpCidrRange:           "10.10.0.0/20",
 		GatewayAddress:        "10.10.0.1",
 		Purpose:               "PRIVATE",
 		StackType:             "IPV4_IPV6",

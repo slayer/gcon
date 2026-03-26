@@ -882,6 +882,8 @@ func (a *App) handleNetworkSelected(msg views.NetworkSelectedMsg) tea.Cmd {
 		computeClient = a.networksView.GetComputeClient()
 	} else if a.firewallDetailsView != nil {
 		computeClient = a.firewallDetailsView.GetComputeClient()
+	} else if a.subnetDetailsView != nil {
+		computeClient = a.subnetDetailsView.GetComputeClient()
 	}
 	a.networkDetailsView = views.NewNetworkDetailsView(
 		a.selectedProject.ID,

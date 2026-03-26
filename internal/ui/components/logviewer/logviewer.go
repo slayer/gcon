@@ -18,16 +18,16 @@ type FilterFieldMsg struct {
 
 // Model is the log entry viewer component.
 type Model struct {
-	entries    []gcp.LogEntry
-	expanded   map[int]bool // entry index -> expanded
-	cursor     int          // selected entry index
-	fieldCur   int          // selected field within expanded entry (-1 = none)
-	hasMore    bool         // more pages available
-	wrapLines  bool         // show full message wrapped vs truncated
-	colorize   bool         // colorize logfmt key=value pairs
-	width      int
-	height     int
-	offset     int // scroll offset for virtual scrolling
+	entries   []gcp.LogEntry
+	expanded  map[int]bool // entry index -> expanded
+	cursor    int          // selected entry index
+	fieldCur  int          // selected field within expanded entry (-1 = none)
+	hasMore   bool         // more pages available
+	wrapLines bool         // show full message wrapped vs truncated
+	colorize  bool         // colorize logfmt key=value pairs
+	width     int
+	height    int
+	offset    int // scroll offset for virtual scrolling
 }
 
 // New creates a new LogViewer model.

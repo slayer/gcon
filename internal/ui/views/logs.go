@@ -60,25 +60,25 @@ var allSeverities = []string{
 
 // logsKeyMap defines key bindings for the Logs Explorer.
 type logsKeyMap struct {
-	Up         key.Binding
-	Down       key.Binding
-	PageUp     key.Binding
-	PageDown   key.Binding
-	Enter      key.Binding
-	Left       key.Binding
-	Right      key.Binding
-	ExpandAll  key.Binding
-	CollapseAl key.Binding
-	FocusQuery key.Binding
-	Refresh    key.Binding
-	TailMode   key.Binding
+	Up          key.Binding
+	Down        key.Binding
+	PageUp      key.Binding
+	PageDown    key.Binding
+	Enter       key.Binding
+	Left        key.Binding
+	Right       key.Binding
+	ExpandAll   key.Binding
+	CollapseAl  key.Binding
+	FocusQuery  key.Binding
+	Refresh     key.Binding
+	TailMode    key.Binding
 	ToggleWrap  key.Binding
 	ToggleColor key.Binding
 	FilterRes   key.Binding
-	FilterLog  key.Binding
-	FilterSev  key.Binding
-	OpenPager  key.Binding
-	Escape     key.Binding
+	FilterLog   key.Binding
+	FilterSev   key.Binding
+	OpenPager   key.Binding
+	Escape      key.Binding
 }
 
 func defaultLogsKeyMap() logsKeyMap {
@@ -192,13 +192,13 @@ type LogsView struct {
 	timeRangeCursor int
 
 	// Filter dropdown overlay state
-	activeFilter      filterDropdownType
-	filterOptions     []string          // all options
-	filterVisible     []string          // options matching filterSearch
-	filterSelected    map[string]bool
-	filterCursor      int
-	filterSearch      string // live search text
-	filterSearching   bool   // true when typing in search
+	activeFilter    filterDropdownType
+	filterOptions   []string // all options
+	filterVisible   []string // options matching filterSearch
+	filterSelected  map[string]bool
+	filterCursor    int
+	filterSearch    string // live search text
+	filterSearching bool   // true when typing in search
 
 	// Data
 	entries       []gcp.LogEntry

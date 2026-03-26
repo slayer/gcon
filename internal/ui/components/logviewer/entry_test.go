@@ -16,7 +16,6 @@ func stripANSI(s string) string {
 	return ansiRegexp.ReplaceAllString(s, "")
 }
 
-
 func TestRenderCompactEntry(t *testing.T) {
 	entry := gcp.LogEntry{
 		Timestamp:    time.Date(2026, 3, 16, 13, 4, 1, 0, time.UTC),

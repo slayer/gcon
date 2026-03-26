@@ -12,7 +12,10 @@ import (
 // Internal message types for subnet creation workflow.
 type subnetCreateSuccessMsg struct{}
 type subnetCreateErrorMsg struct{ err error }
-type networksForSubnetLoadedMsg struct{ networks []gcp.Network }
+type networksForSubnetLoadedMsg struct {
+	networks []gcp.Network
+	err      error
+}
 
 // SubnetCreateView provides a form-based UI for creating new subnets.
 type SubnetCreateView struct {
@@ -116,7 +119,7 @@ func (v *SubnetCreateView) loadNetworks() tea.Cmd {
 		}
 		networks, err := v.computeClient.ListNetworks(gocontext.Background(), v.projectID)
 		if err != nil {
-			return networksForSubnetLoadedMsg{networks: nil}
+			return networksForSubnetLoadedMsg{err: err}
 		}
 		return networksForSubnetLoadedMsg{networks: networks}
 	}
@@ -132,7 +135,11 @@ func (v *SubnetCreateView) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case networksForSubnetLoadedMsg:
 		if field := v.Form.GetField("network"); field != nil {
-			if msg.networks != nil {
+			if msg.err != nil {
+				// Surface the error so user knows networks failed to load
+				field.SetPlaceholder("Failed to load networks")
+				v.SetError(msg.err)
+			} else if msg.networks != nil {
 				opts := make([]forms.Option, len(msg.networks))
 				for i, n := range msg.networks {
 					opts[i] = forms.Option{Value: n.Name, Label: n.Name}

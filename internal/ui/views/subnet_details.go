@@ -440,7 +440,8 @@ func (v *SubnetDetailsView) renderContent() string {
 	// Header
 	b.WriteString(titleStyle.Render(fmt.Sprintf("Subnet: %s", d.Name)))
 	b.WriteString("\n")
-	b.WriteString(strings.Repeat("─", min(v.width-4, 60)))
+	repeatWidth := max(0, min(v.width-4, 60))
+	b.WriteString(strings.Repeat("─", repeatWidth))
 	b.WriteString("\n\n")
 
 	// Basic Information
@@ -448,12 +449,14 @@ func (v *SubnetDetailsView) renderContent() string {
 	b.WriteString("\n")
 	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Name", d.Name))
 	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "ID", strconv.FormatUint(d.ID, 10)))
-	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Status", d.Status))
+	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Status", defaultIfEmpty(d.Status, "READY")))
 	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Region", d.Region))
 
 	// Network as navigable link
 	if v.networkLink != nil && v.networkLink.HasItems() {
-		b.WriteString(v.networkLink.RenderRow(0, labelStyle.Render("Network:")+" "+d.Network))
+		label := labelStyle.Render("Network:")
+		linkRendered := v.networkLink.RenderRow(0, d.Network)
+		b.WriteString(label + " " + linkRendered + "\n")
 	} else {
 		b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Network", d.Network))
 	}
