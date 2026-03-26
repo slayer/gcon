@@ -1,4 +1,4 @@
-.PHONY: build run test lint clean deps tidy install-lint
+.PHONY: build run test lint clean deps tidy install-lint test-golden test-golden-update
 
 # golangci-lint version (update in .github/workflows/ci.yml when changing)
 GOLANGCI_LINT_VERSION := v2.6
@@ -52,6 +52,14 @@ test-coverage:
 	$(GOTEST) -v -coverprofile=coverage.out ./...
 	$(GOCMD) tool cover -html=coverage.out -o coverage.html
 
+# Run golden snapshot tests
+test-golden:
+	$(GOTEST) -v ./internal/ui/... -run Golden
+
+# Regenerate golden files after intentional rendering changes
+test-golden-update:
+	$(GOTEST) ./internal/ui/... -run Golden -update
+
 # Install golangci-lint
 install-lint:
 	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
@@ -93,4 +101,6 @@ help:
 	@echo "  clean        - Clean build artifacts"
 	@echo "  deps         - Download dependencies"
 	@echo "  tidy         - Tidy go.mod"
+	@echo "  test-golden  - Run golden snapshot tests"
+	@echo "  test-golden-update - Regenerate golden files"
 	@echo "  dev          - Run with race detector"
