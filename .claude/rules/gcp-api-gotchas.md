@@ -148,6 +148,18 @@ if egress != origEgressRaw {
 
 **Rule**: For sub-objects that the API replaces atomically (`vpcAccess`, `containers`), only include them in the update when values actually changed. Compare against the original to detect real changes.
 
+## Compute Engine: Subnet `State` field can be empty
+
+GCP's `Subnetwork.State` field is not always populated. Active subnets in `READY` state may return an empty string instead of `"READY"`. Always provide a fallback when displaying:
+
+```go
+// Wrong — shows blank "Status:" for active subnets
+b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Status", d.Status))
+
+// Correct — default to READY when empty
+b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Status", defaultIfEmpty(d.Status, "READY")))
+```
+
 ## Compute Engine: Instance state checks — use IsStopped() not == "RUNNING"
 
 GCP Compute instances have multiple states beyond RUNNING and STOPPED: `PROVISIONING`, `STAGING`, `SUSPENDED`, `STOPPING`, `SUSPENDING`, `REPAIRING`. Operations like machine type changes require the instance to be in TERMINATED or STOPPED state specifically.

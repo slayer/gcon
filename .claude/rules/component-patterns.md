@@ -363,3 +363,19 @@ func (v *MyView) HasTextInputFocused() bool {
 1. Does the view implement `HasTextInputFocused() bool`?
 2. Does it return `true` when the text input is active?
 3. Test by typing 'q' in the input field - it should NOT quit the app
+
+## Links Component: RenderRow() Does Not Append Newline
+
+`links.RenderRow()` returns styled text **without** a trailing `\n`, unlike `renderRow()` from `helpers.go` which always appends one. Additionally, `RenderRow()` prepends a 2-space cursor prefix — so labels should be rendered **outside** the call, not inside it.
+
+```go
+// Wrong — label gets cursor prefix ("  Network: main"), no newline
+b.WriteString(v.networkLink.RenderRow(0, labelStyle.Render("Network:")+" "+d.Network))
+
+// Correct — label separate, only value inside RenderRow, explicit newline
+label := labelStyle.Render("Network:")
+linkRendered := v.networkLink.RenderRow(0, d.Network)
+b.WriteString(label + " " + linkRendered + "\n")
+```
+
+See: `snapshot_details.go` (correct pattern), `firewall_details.go` (has the prefix issue)

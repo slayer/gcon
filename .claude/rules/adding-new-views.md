@@ -334,6 +334,32 @@ if opener, ok := a.getCurrentViewModel().(MenuOpener); ok && opener.IsMenuOpen()
 
 **Symptom**: Pressing `Esc` while the action menu is open quits the app or navigates back to the previous view.
 
+### 16. Cross-View Navigation Must Resolve Client From All Source Views
+
+When a view emits a navigation message (e.g., `NetworkSelectedMsg`), the app handler must resolve the GCP client from **every** view that can emit that message. Adding a new view that emits an existing navigation message without updating the handler leaves `computeClient` nil.
+
+```go
+// Wrong — only checks two source views, misses subnetDetailsView
+if a.networksView != nil {
+    computeClient = a.networksView.GetComputeClient()
+} else if a.firewallDetailsView != nil {
+    computeClient = a.firewallDetailsView.GetComputeClient()
+}
+
+// Correct — check all views that can emit NetworkSelectedMsg
+if a.networksView != nil {
+    computeClient = a.networksView.GetComputeClient()
+} else if a.firewallDetailsView != nil {
+    computeClient = a.firewallDetailsView.GetComputeClient()
+} else if a.subnetDetailsView != nil {
+    computeClient = a.subnetDetailsView.GetComputeClient()
+}
+```
+
+**Symptom**: "compute client not initialized" error when navigating to a resource from a newly added view.
+
+**Rule**: When adding a view that emits an existing cross-view message (e.g., `NetworkSelectedMsg`, `DiskSelectedMsg`), search for the handler and add the new view to the client resolution chain.
+
 ## Common Symptoms
 
 - **"View not implemented"** when navigating → forgot `renderCurrentView()` in `app_render.go`
@@ -344,3 +370,4 @@ if opener, ok := a.getCurrentViewModel().(MenuOpener); ok && opener.IsMenuOpen()
 - **Stale data after refresh** → `Init()` not idempotent (step 11)
 - **Dead handler code** → message has no producer (step 12)
 - **Empty frame on first tab visit** → lazy sub-view created after `updateViewportContent()` (step 14)
+- **"compute client not initialized"** on cross-view nav → handler missing source view in client chain (step 16)
