@@ -1021,7 +1021,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// Logging
 	case views.LogsViewRequestMsg:
-		cmd := a.handleLogsRequest()
+		cmd := a.handleLogsRequest(msg)
 		return a, cmd
 
 	case components.FooterProjectClickedMsg:

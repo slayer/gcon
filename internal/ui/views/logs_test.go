@@ -29,6 +29,31 @@ func TestLogsViewNew(t *testing.T) {
 	assert.Equal(t, filterDropdownNone, v.activeFilter)
 }
 
+func TestLogsViewWithFilters(t *testing.T) {
+	v := NewLogsView("test-project", nil)
+
+	query := `resource.type="cloud_run_revision"` + "\n" + `resource.labels.service_name="my-svc"`
+	severities := []string{"WARNING", "ERROR"}
+	v.WithFilters(query, severities, 6*time.Hour)
+
+	assert.Equal(t, query, v.query)
+	// textinput is single-line, so newlines become spaces in the input display
+	assert.Contains(t, v.queryInput.Value(), `resource.type="cloud_run_revision"`)
+	assert.Equal(t, severities, v.selectedSeverities)
+	assert.Equal(t, 6*time.Hour, v.timeRange)
+}
+
+func TestLogsViewWithFilters_Defaults(t *testing.T) {
+	v := NewLogsView("test-project", nil)
+
+	// Empty values should not override defaults
+	v.WithFilters("", nil, 0)
+
+	assert.Empty(t, v.query)
+	assert.Empty(t, v.selectedSeverities)
+	assert.Equal(t, time.Hour, v.timeRange)
+}
+
 func TestLogsViewHasTextInputFocused(t *testing.T) {
 	v := NewLogsView("test-project", nil)
 

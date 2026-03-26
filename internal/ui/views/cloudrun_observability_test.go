@@ -203,6 +203,37 @@ func TestCloudRunObservability_TimeRangeKeys(t *testing.T) {
 	assert.Nil(t, cmd, "same time range should be no-op")
 }
 
+func TestCloudRunObservability_OpenLogsExplorer(t *testing.T) {
+	obs := newCloudRunObservability("my-project", "my-service", nil)
+	obs.timeRange = 6 * time.Hour
+	obs.severityEnabled = map[string]bool{
+		"INFO":    false,
+		"WARNING": true,
+		"ERROR":   true,
+	}
+
+	// Press 'L' — should emit LogsViewRequestMsg
+	cmd, handled := obs.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'L'}})
+	assert.True(t, handled)
+	assert.NotNil(t, cmd)
+
+	msg := cmd()
+	logsMsg, ok := msg.(LogsViewRequestMsg)
+	assert.True(t, ok, "should emit LogsViewRequestMsg")
+
+	// Query should scope to this Cloud Run service
+	assert.Contains(t, logsMsg.Query, `resource.type="cloud_run_revision"`)
+	assert.Contains(t, logsMsg.Query, `resource.labels.service_name="my-service"`)
+
+	// Time range should be inherited
+	assert.Equal(t, 6*time.Hour, logsMsg.TimeRange)
+
+	// Only enabled severities should be carried over
+	assert.Contains(t, logsMsg.Severities, "WARNING")
+	assert.Contains(t, logsMsg.Severities, "ERROR")
+	assert.NotContains(t, logsMsg.Severities, "INFO")
+}
+
 func TestCloudRunObservability_SeverityKeys(t *testing.T) {
 	obs := newCloudRunObservability("p", "s", nil)
 	assert.True(t, obs.severityEnabled["INFO"])
