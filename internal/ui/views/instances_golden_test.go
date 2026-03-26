@@ -1,7 +1,7 @@
 package views
 
 import (
-	"fmt"
+	"errors"
 	"testing"
 
 	"github.com/charmbracelet/x/exp/golden"
@@ -30,7 +30,7 @@ func TestGolden_InstancesView_Error(t *testing.T) {
 	view := NewInstancesView("test-project")
 	ctx := goldenContext()
 	view.SetContext(ctx)
-	view.Update(instancesErrorMsg{err: fmt.Errorf("compute.instances.list: permission denied")})
+	view.Update(instancesErrorMsg{err: errors.New("compute.instances.list: permission denied")}) //nolint:err113 // test fixture
 
 	golden.RequireEqual(t, []byte(view.View()))
 }

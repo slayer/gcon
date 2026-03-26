@@ -1,7 +1,7 @@
 package views
 
 import (
-	"fmt"
+	"errors"
 	"testing"
 
 	"github.com/charmbracelet/x/exp/golden"
@@ -29,7 +29,7 @@ func TestGolden_ProjectsView_Error(t *testing.T) {
 	view := NewProjectsView(nil)
 	ctx := goldenContext()
 	view.SetContext(ctx)
-	view.Update(projectsErrorMsg{err: fmt.Errorf("permission denied: caller does not have resourcemanager.projects.list")})
+	view.Update(projectsErrorMsg{err: errors.New("permission denied: caller does not have resourcemanager.projects.list")}) //nolint:err113 // test fixture
 
 	golden.RequireEqual(t, []byte(view.View()))
 }
