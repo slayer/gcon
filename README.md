@@ -35,6 +35,20 @@
 - 🔍 **Fuzzy Search** - Quickly find projects, instances, and resources with built-in filtering
 - 📊 **Resource Monitoring** - Real-time metrics, logs, and observability for your instances
 
+## Quick Start
+
+1. **Install gcon** (see [Installation](#installation) below)
+2. **Authenticate with GCP**:
+   ```bash
+   gcloud auth application-default login
+   ```
+3. **Launch gcon**:
+   ```bash
+   gcon
+   ```
+4. **Select a project** - On first launch, you'll see the project selector
+5. **Navigate resources** - Use arrow keys or vim bindings to navigate
+
 ## Installation
 
 ### Homebrew (macOS & Linux)
@@ -311,20 +325,6 @@ gcon respects standard GCP SDK environment variables:
 | `HTTP_PROXY` / `HTTPS_PROXY` | Proxy settings |
 
 If gcloud CLI is installed, gcon also reads defaults from `~/.config/gcloud/`.
-
-## Quick Start
-
-1. **Install gcon** (see [Installation](#installation) above)
-2. **Authenticate with GCP**:
-   ```bash
-   gcloud auth application-default login
-   ```
-3. **Launch gcon**:
-   ```bash
-   gcon
-   ```
-4. **Select a project** - On first launch, you'll see the project selector
-5. **Navigate resources** - Use arrow keys or vim bindings to navigate
 
 ## Usage
 
