@@ -46,6 +46,7 @@ type NetworkPeering struct {
 // Subnet represents a VPC subnetwork
 type Subnet struct {
 	Name                  string
+	Network               string // Network name, extracted from network URL
 	Region                string // Extracted from self-link URL
 	IPCidrRange           string
 	GatewayAddress        string
@@ -120,6 +121,36 @@ func (c *ComputeClient) ListSubnetsByNetwork(ctx context.Context, projectID, net
 	return subnets, nil
 }
 
+// ListAllSubnets retrieves all subnets across all regions and networks.
+func (c *ComputeClient) ListAllSubnets(ctx context.Context, projectID string) ([]Subnet, error) {
+	var subnets []Subnet
+
+	req := c.service.Subnetworks.AggregatedList(projectID)
+	err := req.Pages(ctx, func(page *compute.SubnetworkAggregatedList) error {
+		for _, scopedList := range page.Items {
+			if scopedList.Subnetworks == nil {
+				continue
+			}
+			for _, s := range scopedList.Subnetworks {
+				subnets = append(subnets, subnetFromAPI(s))
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, WrapListError(err, "subnets", projectID)
+	}
+
+	sort.Slice(subnets, func(i, j int) bool {
+		if subnets[i].Region != subnets[j].Region {
+			return subnets[i].Region < subnets[j].Region
+		}
+		return subnets[i].Name < subnets[j].Name
+	})
+
+	return subnets, nil
+}
+
 // networkFromAPI converts a Compute Engine Network to our simplified struct
 func networkFromAPI(n *compute.Network) Network {
 	routingMode := ""
@@ -180,6 +211,7 @@ func subnetFromAPI(s *compute.Subnetwork) Subnet {
 
 	return Subnet{
 		Name:                  s.Name,
+		Network:               extractNameFromURL(s.Network),
 		Region:                extractRegionFromURL(s.Region),
 		IPCidrRange:           s.IpCidrRange,
 		GatewayAddress:        s.GatewayAddress,

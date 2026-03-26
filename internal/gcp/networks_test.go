@@ -138,6 +138,7 @@ func TestNetworkDetailsFromAPI_NilRoutingConfig(t *testing.T) {
 func TestSubnetFromAPI(t *testing.T) {
 	s := &compute.Subnetwork{
 		Name:                  "my-subnet",
+		Network:               "https://www.googleapis.com/compute/v1/projects/test-project/global/networks/my-vpc",
 		Region:                "https://www.googleapis.com/compute/v1/projects/test-project/regions/us-central1",
 		IpCidrRange:           "10.0.0.0/24",
 		GatewayAddress:        "10.0.0.1",
@@ -152,12 +153,52 @@ func TestSubnetFromAPI(t *testing.T) {
 	subnet := subnetFromAPI(s)
 
 	assert.Equal(t, "my-subnet", subnet.Name)
+	assert.Equal(t, "my-vpc", subnet.Network)
 	assert.Equal(t, "us-central1", subnet.Region)
 	assert.Equal(t, "10.0.0.0/24", subnet.IPCidrRange)
 	assert.Equal(t, "10.0.0.1", subnet.GatewayAddress)
 	assert.Equal(t, "PRIVATE", subnet.Purpose)
 	assert.True(t, subnet.PrivateIPGoogleAccess)
 	assert.True(t, subnet.EnableFlowLogs)
+}
+
+func TestSubnetFromAPI_IncludesNetwork(t *testing.T) {
+	tests := []struct {
+		name        string
+		networkURL  string
+		expectedNet string
+	}{
+		{
+			name:        "full network URL",
+			networkURL:  "https://www.googleapis.com/compute/v1/projects/my-project/global/networks/production-vpc",
+			expectedNet: "production-vpc",
+		},
+		{
+			name:        "short network name",
+			networkURL:  "default",
+			expectedNet: "default",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &compute.Subnetwork{
+				Name:    "test-subnet",
+				Network: tt.networkURL,
+			}
+			subnet := subnetFromAPI(s)
+			assert.Equal(t, tt.expectedNet, subnet.Network)
+		})
+	}
+}
+
+func TestSubnetFromAPI_EmptyNetwork(t *testing.T) {
+	s := &compute.Subnetwork{
+		Name:    "orphan-subnet",
+		Network: "",
+	}
+	subnet := subnetFromAPI(s)
+	assert.Equal(t, "", subnet.Network)
 }
 
 func TestSubnetFromAPI_NilLogConfig(t *testing.T) {
