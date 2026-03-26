@@ -184,7 +184,9 @@ func TestSubnetsView_HelpText(t *testing.T) {
 	rows := []table.Row{subnetToRow(v.subnets[0])}
 	v.table.SetRows(rows)
 
-	ctx := &context.ProgramContext{ContentWidth: 120, ContentHeight: 40}
+	ctx := context.New()
+	ctx.ContentWidth = 120
+	ctx.ContentHeight = 40
 	v.SetContext(ctx)
 
 	output := v.View()

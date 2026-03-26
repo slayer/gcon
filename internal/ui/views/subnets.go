@@ -454,7 +454,7 @@ func (v *SubnetsView) selectSubnet() tea.Cmd {
 
 // Task registration helpers for status bar integration
 func (v *SubnetsView) registerTask(id, description string) {
-	if v.ctx != nil {
+	if v.ctx != nil && v.ctx.Tasks != nil {
 		v.ctx.Tasks[id] = context.Task{
 			ID:          id,
 			Description: description,
@@ -465,14 +465,14 @@ func (v *SubnetsView) registerTask(id, description string) {
 }
 
 func (v *SubnetsView) clearTask(id string) {
-	if v.ctx != nil {
+	if v.ctx != nil && v.ctx.Tasks != nil {
 		delete(v.ctx.Tasks, id)
 	}
 }
 
 // failTask marks a task as failed and returns a command to clear it after a delay
 func (v *SubnetsView) failTask(id string, err error) tea.Cmd {
-	if v.ctx != nil {
+	if v.ctx != nil && v.ctx.Tasks != nil {
 		v.ctx.Tasks[id] = context.Task{
 			ID:          id,
 			Description: err.Error(),

@@ -440,7 +440,8 @@ func (v *SubnetDetailsView) renderContent() string {
 	// Header
 	b.WriteString(titleStyle.Render(fmt.Sprintf("Subnet: %s", d.Name)))
 	b.WriteString("\n")
-	b.WriteString(strings.Repeat("─", min(v.width-4, 60)))
+	repeatWidth := max(0, min(v.width-4, 60))
+	b.WriteString(strings.Repeat("─", repeatWidth))
 	b.WriteString("\n\n")
 
 	// Basic Information
