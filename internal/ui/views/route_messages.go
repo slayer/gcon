@@ -35,3 +35,8 @@ type RouteDeleteResultMsg struct {
 	Error error
 	Name  string
 }
+
+// CreateRouteMsg is emitted by the create form for the app handler to execute
+type CreateRouteMsg struct {
+	Config gcp.RouteConfig
+}
