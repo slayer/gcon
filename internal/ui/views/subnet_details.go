@@ -453,7 +453,7 @@ func (v *SubnetDetailsView) renderContent() string {
 
 	// Network as navigable link
 	if v.networkLink != nil && v.networkLink.HasItems() {
-		b.WriteString(v.networkLink.RenderRow(0, labelStyle.Render("Network:")+" "+d.Network))
+		b.WriteString(v.networkLink.RenderRow(0, labelStyle.Render("Network:")+" "+d.Network) + "\n")
 	} else {
 		b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Network", d.Network))
 	}
