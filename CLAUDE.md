@@ -240,6 +240,13 @@ On developing or updating a new feature keep in mind the following guidelines:
   - Reloads all views when switching projects
 - [x] VPC Networks list view
 - [x] VPC Network details view with tabs (Details/Subnets)
+- [x] Subnets list and management
+  - List all subnets across networks and regions with table view
+  - Subnet details view with secondary IP ranges and flow log config
+  - Create subnet with network/region/CIDR/purpose/stack type selection
+  - Delete subnet with type-to-confirm
+  - Navigate from Network Details subnets tab to subnet details
+  - Sidebar entry under Networking, command palette integration
 - [x] Firewall rules list and details view
   - List firewall rules with direction, priority, action, protocols, status
   - View rule details with allowed/denied entries, source/destination ranges
@@ -308,9 +315,9 @@ On developing or updating a new feature keep in mind the following guidelines:
   - ANSI-aware truncation and wrapping (preserves existing log colors)
 
 ## Planned Features
-- [ ] Subnets list and management
-- [ ] Disk image deletion with confirmation
-- [ ] Disk image creation from disks/snapshots
+- [x] Subnets list and management
+- [x] Disk image deletion with confirmation
+- [x] Disk image creation from disks/snapshots
 - [ ] SSH to instance (via gcloud)
 - [ ] Resource caching
 - [ ] GKE cluster management

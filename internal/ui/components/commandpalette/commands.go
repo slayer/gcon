@@ -25,6 +25,7 @@ const (
 	ViewBuckets
 	ViewNetworks
 	ViewFirewall
+	ViewSubnets
 	ViewSQLInstances
 	ViewServiceAccounts
 	ViewIAMPolicy
@@ -42,6 +43,7 @@ const (
 	IconBucket         = "▪"
 	IconVPC            = "◆"
 	IconFirewall       = "▲"
+	IconSubnet         = "▫"
 	IconSQLInstance    = "⬢"
 	IconServiceAccount = "▲"
 	IconIAMPolicy      = "▽"
@@ -149,6 +151,14 @@ func NavigationCommands() []Command {
 			Icon:     IconFirewall,
 			Type:     CommandTypeNavigation,
 			ViewType: ViewFirewall,
+			Enabled:  true,
+		},
+		{
+			ID:       "nav:subnets",
+			Label:    "VPC Network: Subnets",
+			Icon:     IconSubnet,
+			Type:     CommandTypeNavigation,
+			ViewType: ViewSubnets,
 			Enabled:  true,
 		},
 		{

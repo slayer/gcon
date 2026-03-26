@@ -51,6 +51,9 @@ const (
 	ViewNetworkDetails
 	ViewFirewall
 	ViewFirewallDetails
+	ViewSubnets
+	ViewSubnetDetails
+	ViewSubnetCreate
 	ViewSQLInstances
 	ViewSQLInstanceDetails
 	ViewServiceAccounts
@@ -113,6 +116,9 @@ type App struct {
 	networkDetailsView         *views.NetworkDetailsView
 	firewallsView              *views.FirewallsView
 	firewallDetailsView        *views.FirewallDetailsView
+	subnetsView                *views.SubnetsView
+	subnetDetailsView          *views.SubnetDetailsView
+	subnetCreateView           *views.SubnetCreateView
 	sqlInstancesView           *views.SQLInstancesView
 	sqlInstanceDetailsView     *views.SQLInstanceDetailsView
 	serviceAccountsView        *views.ServiceAccountsView
@@ -373,6 +379,12 @@ func (a *App) getCurrentViewModel() views.View {
 		return a.firewallsView
 	case ViewFirewallDetails:
 		return a.firewallDetailsView
+	case ViewSubnets:
+		return a.subnetsView
+	case ViewSubnetDetails:
+		return a.subnetDetailsView
+	case ViewSubnetCreate:
+		return a.subnetCreateView
 	case ViewSQLInstances:
 		return a.sqlInstancesView
 	case ViewSQLInstanceDetails:
@@ -520,6 +532,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case ViewFirewallDetails:
 					a.firewallDetailsView = nil
 					a.selectedFirewall = nil
+				case ViewSubnetDetails:
+					a.subnetDetailsView = nil
+				case ViewSubnetCreate:
+					a.subnetCreateView = nil
 				case ViewSQLInstanceDetails:
 					a.sqlInstanceDetailsView = nil
 					a.selectedSQLInstance = nil
@@ -569,7 +585,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// If not handled, fall through to quit
 				fallthrough
 
-			case ViewInstances, ViewDisks, ViewSnapshots, ViewImages, ViewBuckets, ViewNetworks, ViewFirewall, ViewSQLInstances, ViewServiceAccounts, ViewIAMPolicy, ViewCustomRoles, ViewCloudRunServices, ViewLogs, ViewProjects:
+			case ViewInstances, ViewDisks, ViewSnapshots, ViewImages, ViewBuckets, ViewNetworks, ViewFirewall, ViewSubnets, ViewSQLInstances, ViewServiceAccounts, ViewIAMPolicy, ViewCustomRoles, ViewCloudRunServices, ViewLogs, ViewProjects:
 				// Quit from top-level views or if stack is empty
 				a.cleanup()
 				return a, tea.Quit
@@ -889,6 +905,30 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case views.FirewallActionResultMsg:
 		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
 		return a, a.handleFirewallActionResult(msg)
+
+	case views.SubnetSelectedMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleSubnetSelected(msg)
+
+	case views.SubnetCreateRequestMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleSubnetCreateRequest()
+
+	case views.SubnetCreateCanceledMsg:
+		a.handleSubnetCreateCanceled()
+		return a, nil
+
+	case views.CreateSubnetMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleCreateSubnet(msg)
+
+	case views.DeleteSubnetConfirmedMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleDeleteSubnetConfirmed(msg)
+
+	case views.SubnetActionResultMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleSubnetActionResult(msg)
 
 	case views.SQLInstanceSelectedMsg:
 		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
@@ -1242,6 +1282,15 @@ func (a *App) updateViewSizes() {
 	}
 	if a.firewallDetailsView != nil {
 		a.firewallDetailsView.SetContext(a.ctx)
+	}
+	if a.subnetsView != nil {
+		a.subnetsView.SetContext(a.ctx)
+	}
+	if a.subnetDetailsView != nil {
+		a.subnetDetailsView.SetContext(a.ctx)
+	}
+	if a.subnetCreateView != nil {
+		a.subnetCreateView.SetContext(a.ctx)
 	}
 	if a.sqlInstancesView != nil {
 		a.sqlInstancesView.SetContext(a.ctx)

@@ -236,6 +236,40 @@ description: Keyboard shortcuts reference for all views
 | `j/k` or `↓/↑` | Navigate subnet links or scroll content |
 | `Esc` | Go back |
 
+## Subnets View
+
+| Key | Action |
+|-----|--------|
+| `Enter` | View subnet details |
+| `.` | Open action menu |
+| `S` | Open sort menu |
+| `c` | Create new subnet |
+| `D` | Delete subnet (with type-to-confirm) |
+| `/` | Filter subnets |
+| `r` | Refresh list |
+| `Esc` | Go back |
+
+## Subnet Details View
+
+| Key | Action |
+|-----|--------|
+| `.` | Open action menu |
+| `D` | Delete subnet (with type-to-confirm) |
+| `r` | Refresh details |
+| `↑/↓` | Scroll content |
+| `Tab` | Switch focus (network link/content) |
+| `Enter` | Navigate to VPC network (when link focused) |
+| `Esc` | Go back |
+
+## Subnet Create View
+
+| Key | Action |
+|-----|--------|
+| `Ctrl+S` | Submit form |
+| `Tab/↓` | Next field |
+| `Shift+Tab/↑` | Previous field |
+| `Esc` | Cancel |
+
 ## Firewalls View
 
 | Key | Action |

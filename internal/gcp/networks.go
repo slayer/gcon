@@ -2,6 +2,7 @@ package gcp
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strings"
 
@@ -46,6 +47,7 @@ type NetworkPeering struct {
 // Subnet represents a VPC subnetwork
 type Subnet struct {
 	Name                  string
+	Network               string // Network name, extracted from network URL
 	Region                string // Extracted from self-link URL
 	IPCidrRange           string
 	GatewayAddress        string
@@ -53,6 +55,55 @@ type Subnet struct {
 	PrivateIPGoogleAccess bool
 	EnableFlowLogs        bool
 	CreatedAt             string
+}
+
+// SubnetDetails holds comprehensive subnet information for the details view
+type SubnetDetails struct {
+	ID                    uint64
+	Name                  string
+	Description           string
+	Status                string // READY, etc.
+	Region                string
+	Network               string // Network name extracted from URL
+	IPCidrRange           string
+	GatewayAddress        string
+	Purpose               string
+	StackType             string // IPV4_ONLY, IPV4_IPV6
+	IPv6AccessType        string
+	IPv6CidrRange         string
+	PrivateIPGoogleAccess bool
+	EnableFlowLogs        bool
+	FlowLogConfig         FlowLogConfig
+	SecondaryIPRanges     []SecondaryRange
+	CreatedAt             string
+	SelfLink              string
+}
+
+// FlowLogConfig holds VPC flow log configuration details
+type FlowLogConfig struct {
+	AggregationInterval string
+	FlowSampling        float64
+	Metadata            string
+	FilterExpr          string
+}
+
+// SecondaryRange represents a secondary IP range in a subnet
+type SecondaryRange struct {
+	Name      string
+	CidrRange string
+}
+
+// SubnetCreateConfig holds configuration for creating a new subnet
+type SubnetCreateConfig struct {
+	Name                string
+	Description         string
+	Network             string // Network name
+	Region              string
+	CIDRRange           string
+	Purpose             string // PRIVATE, REGIONAL_MANAGED_PROXY, INTERNAL_HTTPS_LOAD_BALANCER
+	StackType           string // IPV4_ONLY, IPV4_IPV6
+	PrivateGoogleAccess bool
+	EnableFlowLogs      bool
 }
 
 // ListNetworks retrieves all VPC networks in a project
@@ -120,6 +171,79 @@ func (c *ComputeClient) ListSubnetsByNetwork(ctx context.Context, projectID, net
 	return subnets, nil
 }
 
+// ListAllSubnets retrieves all subnets across all regions and networks.
+func (c *ComputeClient) ListAllSubnets(ctx context.Context, projectID string) ([]Subnet, error) {
+	var subnets []Subnet
+
+	req := c.service.Subnetworks.AggregatedList(projectID)
+	err := req.Pages(ctx, func(page *compute.SubnetworkAggregatedList) error {
+		for _, scopedList := range page.Items {
+			if scopedList.Subnetworks == nil {
+				continue
+			}
+			for _, s := range scopedList.Subnetworks {
+				subnets = append(subnets, subnetFromAPI(s))
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, WrapListError(err, "subnets", projectID)
+	}
+
+	sort.Slice(subnets, func(i, j int) bool {
+		if subnets[i].Region != subnets[j].Region {
+			return subnets[i].Region < subnets[j].Region
+		}
+		return subnets[i].Name < subnets[j].Name
+	})
+
+	return subnets, nil
+}
+
+// GetSubnetDetails fetches detailed information for a single subnet
+func (c *ComputeClient) GetSubnetDetails(ctx context.Context, projectID, region, subnetName string) (*SubnetDetails, error) {
+	s, err := c.service.Subnetworks.Get(projectID, region, subnetName).Context(ctx).Do()
+	if err != nil {
+		return nil, WrapGetError(err, "subnet", subnetName)
+	}
+	return subnetDetailsFromAPI(s), nil
+}
+
+// CreateSubnet creates a new subnet in the specified region
+func (c *ComputeClient) CreateSubnet(ctx context.Context, projectID string, config SubnetCreateConfig) error {
+	subnet := &compute.Subnetwork{
+		Name:                  config.Name,
+		Description:           config.Description,
+		Network:               fmt.Sprintf("projects/%s/global/networks/%s", projectID, config.Network),
+		IpCidrRange:           config.CIDRRange,
+		Purpose:               config.Purpose,
+		StackType:             config.StackType,
+		PrivateIpGoogleAccess: config.PrivateGoogleAccess,
+	}
+
+	if config.EnableFlowLogs {
+		subnet.LogConfig = &compute.SubnetworkLogConfig{
+			Enable: true,
+		}
+	}
+
+	_, err := c.service.Subnetworks.Insert(projectID, config.Region, subnet).Context(ctx).Do()
+	if err != nil {
+		return WrapActionError(err, "create subnet", config.Name)
+	}
+	return nil
+}
+
+// DeleteSubnet deletes a subnet in the specified region
+func (c *ComputeClient) DeleteSubnet(ctx context.Context, projectID, region, subnetName string) error {
+	_, err := c.service.Subnetworks.Delete(projectID, region, subnetName).Context(ctx).Do()
+	if err != nil {
+		return WrapActionError(err, "delete subnet", subnetName)
+	}
+	return nil
+}
+
 // networkFromAPI converts a Compute Engine Network to our simplified struct
 func networkFromAPI(n *compute.Network) Network {
 	routingMode := ""
@@ -180,6 +304,7 @@ func subnetFromAPI(s *compute.Subnetwork) Subnet {
 
 	return Subnet{
 		Name:                  s.Name,
+		Network:               extractNameFromURL(s.Network),
 		Region:                extractRegionFromURL(s.Region),
 		IPCidrRange:           s.IpCidrRange,
 		GatewayAddress:        s.GatewayAddress,
@@ -187,6 +312,50 @@ func subnetFromAPI(s *compute.Subnetwork) Subnet {
 		PrivateIPGoogleAccess: s.PrivateIpGoogleAccess,
 		EnableFlowLogs:        enableFlowLogs,
 		CreatedAt:             s.CreationTimestamp,
+	}
+}
+
+// subnetDetailsFromAPI converts a Compute Engine Subnetwork to our SubnetDetails struct
+func subnetDetailsFromAPI(s *compute.Subnetwork) *SubnetDetails {
+	enableFlowLogs := false
+	var flowLogCfg FlowLogConfig
+	if s.LogConfig != nil {
+		enableFlowLogs = s.LogConfig.Enable
+		flowLogCfg = FlowLogConfig{
+			AggregationInterval: s.LogConfig.AggregationInterval,
+			FlowSampling:        s.LogConfig.FlowSampling,
+			Metadata:            s.LogConfig.Metadata,
+			FilterExpr:          s.LogConfig.FilterExpr,
+		}
+	}
+
+	var secondaryRanges []SecondaryRange
+	for _, r := range s.SecondaryIpRanges {
+		secondaryRanges = append(secondaryRanges, SecondaryRange{
+			Name:      r.RangeName,
+			CidrRange: r.IpCidrRange,
+		})
+	}
+
+	return &SubnetDetails{
+		ID:                    s.Id,
+		Name:                  s.Name,
+		Description:           s.Description,
+		Status:                s.State,
+		Region:                extractRegionFromURL(s.Region),
+		Network:               extractNameFromURL(s.Network),
+		IPCidrRange:           s.IpCidrRange,
+		GatewayAddress:        s.GatewayAddress,
+		Purpose:               s.Purpose,
+		StackType:             s.StackType,
+		IPv6AccessType:        s.Ipv6AccessType,
+		IPv6CidrRange:         s.Ipv6CidrRange,
+		PrivateIPGoogleAccess: s.PrivateIpGoogleAccess,
+		EnableFlowLogs:        enableFlowLogs,
+		FlowLogConfig:         flowLogCfg,
+		SecondaryIPRanges:     secondaryRanges,
+		CreatedAt:             s.CreationTimestamp,
+		SelfLink:              s.SelfLink,
 	}
 }
 

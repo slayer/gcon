@@ -21,6 +21,7 @@ const (
 	ViewBuckets
 	ViewNetworks
 	ViewFirewall
+	ViewSubnets
 	ViewSQLInstances
 	ViewServiceAccounts
 	ViewIAMPolicy
@@ -45,6 +46,7 @@ const (
 	IconBucket   = "▪" // Buckets
 	IconVPC      = "◆" // VPC networks
 	IconFirewall = "▲" // Firewall
+	IconSubnet   = "▫" // Subnets
 
 	// Databases category
 	IconDatabase    = "⬡" // Databases category (hollow hexagon)
@@ -122,6 +124,7 @@ func DefaultMenu() []MenuItem {
 			Type:   MenuItemCategory,
 			Children: []MenuItem{
 				{ID: "networks", Label: "VPC networks", Icon: IconVPC, Hotkey: 'n', Type: MenuItemLeaf, ViewType: ViewNetworks},
+				{ID: "subnets", Label: "Subnets", Icon: IconSubnet, Hotkey: 'u', Type: MenuItemLeaf, ViewType: ViewSubnets},
 				{ID: "firewall", Label: "Firewall", Icon: IconFirewall, Hotkey: 'f', Type: MenuItemLeaf, ViewType: ViewFirewall},
 			},
 		},

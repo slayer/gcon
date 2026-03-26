@@ -253,6 +253,17 @@ func (a *App) handleSidebarNavigation(msg sidebar.NavigateMsg) tea.Cmd {
 				cmd = a.firewallsView.Init()
 			}
 		}
+	case sidebar.ViewSubnets:
+		if a.currentView != ViewSubnets && a.currentView != ViewSubnetDetails && a.currentView != ViewSubnetCreate {
+			a.currentView = ViewSubnets
+			a.subnetDetailsView = nil
+			a.subnetCreateView = nil
+			if a.subnetsView == nil {
+				a.subnetsView = views.NewSubnetsView(a.selectedProject.ID)
+				a.updateViewSizes()
+				cmd = a.subnetsView.Init()
+			}
+		}
 	case sidebar.ViewSQLInstances:
 		if a.currentView != ViewSQLInstances && a.currentView != ViewSQLInstanceDetails {
 			a.currentView = ViewSQLInstances
@@ -356,6 +367,8 @@ func (a *App) updateSidebarActiveView() {
 		a.sidebar.SetActiveView(sidebar.ViewNetworks)
 	case ViewFirewall, ViewFirewallDetails:
 		a.sidebar.SetActiveView(sidebar.ViewFirewall)
+	case ViewSubnets, ViewSubnetDetails, ViewSubnetCreate:
+		a.sidebar.SetActiveView(sidebar.ViewSubnets)
 	case ViewSQLInstances, ViewSQLInstanceDetails:
 		a.sidebar.SetActiveView(sidebar.ViewSQLInstances)
 	case ViewServiceAccounts, ViewServiceAccountDetails, ViewServiceAccountCreate:
@@ -658,6 +671,9 @@ func (a *App) clearAllViews() {
 	a.networkDetailsView = nil
 	a.firewallsView = nil
 	a.firewallDetailsView = nil
+	a.subnetsView = nil
+	a.subnetDetailsView = nil
+	a.subnetCreateView = nil
 	a.sqlInstancesView = nil
 	a.sqlInstanceDetailsView = nil
 	a.serviceAccountsView = nil
@@ -757,6 +773,16 @@ func (a *App) reloadCurrentView(projectID string) tea.Cmd {
 		a.updateSidebarActiveView()
 		a.updateViewSizes()
 		return a.firewallsView.Init()
+
+	case ViewSubnets, ViewSubnetDetails, ViewSubnetCreate:
+		// Return to subnets list on project switch
+		a.currentView = ViewSubnets
+		a.subnetCreateView = nil
+		a.subnetDetailsView = nil
+		a.subnetsView = views.NewSubnetsView(projectID)
+		a.updateSidebarActiveView()
+		a.updateViewSizes()
+		return a.subnetsView.Init()
 
 	case ViewSQLInstances, ViewSQLInstanceDetails:
 		// Return to SQL instances list on project switch
@@ -1796,6 +1822,173 @@ func (a *App) handleFirewallActionResult(msg views.FirewallActionResultMsg) tea.
 		}
 	}
 
+	return nil
+}
+
+// handleSubnetSelected processes subnet selection and navigates to details view
+func (a *App) handleSubnetSelected(msg views.SubnetSelectedMsg) tea.Cmd {
+	a.viewStack = append(a.viewStack, a.currentView)
+	a.currentView = ViewSubnetDetails
+
+	// Get compute client from the originating view
+	var computeClient *gcp.ComputeClient
+	if a.subnetsView != nil {
+		computeClient = a.subnetsView.GetComputeClient()
+	} else if a.networkDetailsView != nil {
+		computeClient = a.networkDetailsView.GetComputeClient()
+	}
+
+	a.subnetDetailsView = views.NewSubnetDetailsView(
+		a.selectedProject.ID,
+		msg.Region,
+		msg.SubnetName,
+		computeClient,
+	)
+	a.updateSidebarActiveView()
+	a.updateViewSizes()
+	return a.subnetDetailsView.Init()
+}
+
+// handleSubnetCreateRequest opens the subnet creation form
+func (a *App) handleSubnetCreateRequest() tea.Cmd {
+	a.viewStack = append(a.viewStack, a.currentView)
+	a.currentView = ViewSubnetCreate
+
+	var computeClient *gcp.ComputeClient
+	if a.subnetsView != nil {
+		computeClient = a.subnetsView.GetComputeClient()
+	}
+
+	a.subnetCreateView = views.NewSubnetCreateView(a.selectedProject.ID, computeClient)
+	a.updateSidebarActiveView()
+	a.updateViewSizes()
+	return a.subnetCreateView.Init()
+}
+
+// handleSubnetCreateCanceled returns to previous view when subnet creation is canceled
+func (a *App) handleSubnetCreateCanceled() {
+	a.subnetCreateView = nil
+	if len(a.viewStack) > 0 {
+		a.currentView = a.viewStack[len(a.viewStack)-1]
+		a.viewStack = a.viewStack[:len(a.viewStack)-1]
+	}
+	a.updateSidebarActiveView()
+}
+
+// handleCreateSubnet executes the async subnet creation API call
+func (a *App) handleCreateSubnet(msg views.CreateSubnetMsg) tea.Cmd {
+	var computeClient *gcp.ComputeClient
+	if a.subnetCreateView != nil {
+		computeClient = a.subnetCreateView.GetComputeClient()
+	}
+	if computeClient == nil || a.selectedProject == nil {
+		return nil
+	}
+
+	a.registerRunningTask("subnet-create", "Creating subnet...")
+	config := msg.Config
+	projectID := a.selectedProject.ID
+
+	return func() tea.Msg {
+		err := computeClient.CreateSubnet(gocontext.Background(), projectID, config)
+		return views.SubnetActionResultMsg{
+			Action:  "create",
+			Success: err == nil,
+			Error:   err,
+		}
+	}
+}
+
+// handleDeleteSubnetConfirmed executes the async subnet deletion API call
+func (a *App) handleDeleteSubnetConfirmed(msg views.DeleteSubnetConfirmedMsg) tea.Cmd {
+	var computeClient *gcp.ComputeClient
+	if a.subnetsView != nil {
+		computeClient = a.subnetsView.GetComputeClient()
+	} else if a.subnetDetailsView != nil {
+		computeClient = a.subnetDetailsView.GetComputeClient()
+	}
+	if computeClient == nil || a.selectedProject == nil {
+		return nil
+	}
+
+	a.registerRunningTask("subnet-delete", "Deleting subnet...")
+	projectID := a.selectedProject.ID
+	region := msg.Region
+	name := msg.SubnetName
+
+	return func() tea.Msg {
+		err := computeClient.DeleteSubnet(gocontext.Background(), projectID, region, name)
+		return views.SubnetActionResultMsg{
+			Action:  "delete",
+			Success: err == nil,
+			Error:   err,
+		}
+	}
+}
+
+// handleSubnetActionResult processes the result of a subnet async operation
+func (a *App) handleSubnetActionResult(msg views.SubnetActionResultMsg) tea.Cmd {
+	var cmds []tea.Cmd
+
+	// Finish the running task
+	taskID := ""
+	switch msg.Action {
+	case "create":
+		taskID = "subnet-create"
+	case "delete":
+		taskID = "subnet-delete"
+	}
+	if taskID != "" {
+		if cmd := a.finishTask(taskID, msg.Error); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
+
+	if msg.Error != nil {
+		a.err = msg.Error
+		// Propagate error to active creation view so it exits saving state
+		if msg.Action == "create" && a.currentView == ViewSubnetCreate && a.subnetCreateView != nil {
+			a.subnetCreateView.SetError(msg.Error)
+		}
+		if len(cmds) > 0 {
+			return tea.Batch(cmds...)
+		}
+		return nil
+	}
+
+	// On successful delete, navigate back and refresh list
+	if msg.Action == "delete" {
+		if a.currentView == ViewSubnetDetails {
+			if len(a.viewStack) > 0 {
+				a.currentView = a.viewStack[len(a.viewStack)-1]
+				a.viewStack = a.viewStack[:len(a.viewStack)-1]
+			}
+			a.subnetDetailsView = nil
+			a.updateSidebarActiveView()
+		}
+		if a.subnetsView != nil {
+			cmds = append(cmds, a.subnetsView.Init())
+		}
+	}
+
+	// On successful create, navigate back and refresh list
+	if msg.Action == "create" {
+		if a.currentView == ViewSubnetCreate {
+			a.subnetCreateView = nil
+			if len(a.viewStack) > 0 {
+				a.currentView = a.viewStack[len(a.viewStack)-1]
+				a.viewStack = a.viewStack[:len(a.viewStack)-1]
+			}
+			a.updateSidebarActiveView()
+		}
+		if a.subnetsView != nil {
+			cmds = append(cmds, a.subnetsView.Init())
+		}
+	}
+
+	if len(cmds) > 0 {
+		return tea.Batch(cmds...)
+	}
 	return nil
 }
 
