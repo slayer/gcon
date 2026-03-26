@@ -259,7 +259,20 @@ func (v *LogsView) WithFilters(query string, severities []string, timeRange time
 		v.queryInput.SetValue(query)
 	}
 	if len(severities) > 0 {
-		v.selectedSeverities = severities
+		// Normalize to allSeverities order and de-dup so that slicesEqual
+		// comparisons in applyFilterDropdown() are deterministic regardless
+		// of the order in which the caller built the slice (e.g. from a map).
+		sevSet := make(map[string]bool, len(severities))
+		for _, s := range severities {
+			sevSet[s] = true
+		}
+		normalized := make([]string, 0, len(severities))
+		for _, s := range allSeverities {
+			if sevSet[s] {
+				normalized = append(normalized, s)
+			}
+		}
+		v.selectedSeverities = normalized
 	}
 	if timeRange > 0 {
 		v.timeRange = timeRange
