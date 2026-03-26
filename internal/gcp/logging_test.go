@@ -91,7 +91,7 @@ func TestLogEntryFlattenFieldsSorted(t *testing.T) {
 		SpanID:       "span-1",
 		InsertID:     "insert-1",
 		Labels: map[string]string{
-			"beta": "b",
+			"beta":  "b",
 			"alpha": "a",
 		},
 		ResourceLabels: map[string]string{

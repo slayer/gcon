@@ -975,15 +975,15 @@ func TestCreateInstance(t *testing.T) {
 		client := &ComputeClient{service: svc}
 
 		config := InstanceCreateConfig{
-			Name:         "my-vm",
-			Zone:         "us-central1-a",
-			MachineType:  "e2-medium",
-			ImageProject: "debian-cloud",
-			ImageFamily:  "debian-12",
-			DiskSizeGB:   20,
-			DiskType:     "pd-balanced",
-			Network:      "my-network",
-			Subnetwork:   "my-subnet",
+			Name:           "my-vm",
+			Zone:           "us-central1-a",
+			MachineType:    "e2-medium",
+			ImageProject:   "debian-cloud",
+			ImageFamily:    "debian-12",
+			DiskSizeGB:     20,
+			DiskType:       "pd-balanced",
+			Network:        "my-network",
+			Subnetwork:     "my-subnet",
 			ExternalIPType: "ephemeral",
 		}
 
@@ -1062,13 +1062,13 @@ func TestCreateInstance(t *testing.T) {
 		client := &ComputeClient{service: svc}
 
 		config := InstanceCreateConfig{
-			Name:         "internal-vm",
-			Zone:         "us-central1-a",
-			MachineType:  "e2-small",
-			ImageProject: "debian-cloud",
-			ImageFamily:  "debian-12",
-			DiskSizeGB:   10,
-			DiskType:     "pd-standard",
+			Name:           "internal-vm",
+			Zone:           "us-central1-a",
+			MachineType:    "e2-small",
+			ImageProject:   "debian-cloud",
+			ImageFamily:    "debian-12",
+			DiskSizeGB:     10,
+			DiskType:       "pd-standard",
 			ExternalIPType: "none",
 		}
 
