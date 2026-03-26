@@ -832,3 +832,8 @@ func (v *InstancesView) failTask(id string, err error) tea.Cmd {
 		return context.TaskClearMsg{TaskID: id}
 	})
 }
+
+// InstancesLoadedMsgForTest creates an instancesLoadedMsg for cross-package testing.
+func InstancesLoadedMsgForTest(instances []gcp.Instance) instancesLoadedMsg {
+	return instancesLoadedMsg{instances: instances}
+}
