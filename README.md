@@ -25,177 +25,6 @@
 - 🔍 **Fuzzy Search** - Quickly find projects, instances, and resources with built-in filtering
 - 📊 **Resource Monitoring** - Real-time metrics, logs, and observability for your instances
 
-## Features
-
-### ✅ Currently Implemented
-
-#### Project Management
-- 🔄 **Project Selector** - Browse all accessible GCP projects with fuzzy search and filtering
-- 🔀 **Quick Project Switching** - Switch between projects via command palette without losing context
-- 📋 **Project Metadata** - View and edit project metadata and labels
-- 🎯 **Default Project** - Automatic detection from gcloud config or environment variables
-
-#### Compute Engine
-- 📦 **VM Instance Management**
-  - List all instances with status indicators (running, stopped, transitioning)
-  - View detailed instance information (machine type, zones, IPs, tags, labels)
-  - Start, stop, reset, suspend, and resume instances
-  - Delete instances with confirmation dialogs
-  - Create new instances with guided forms
-  - Real-time status updates with visual indicators
-
-- 📈 **Instance Observability**
-  - CPU utilization with sparkline trends
-  - Memory usage monitoring (requires Ops Agent)
-  - Network traffic statistics (ingress/egress)
-  - Disk I/O metrics
-  - Instance health and uptime tracking
-  - Automated performance recommendations
-  - Recent error and warning logs
-  - Multiple time ranges (1h, 6h, 24h, 7d, 30d)
-  - Auto-refresh capability
-
-- 💾 **Persistent Disk Management**
-  - List all disks with details (size, type, status, attachments)
-  - View disk details and usage information
-  - Create new disks from scratch or from snapshots
-  - Delete disks with safety confirmations
-  - Link navigation to attached instances
-
-- 📸 **Snapshot Management**
-  - List all disk snapshots
-  - View snapshot details and source disks
-  - Create snapshots from existing disks
-  - Navigate to source disks from snapshots
-
-- 🖼️ **Image Management**
-  - List all disk images (custom and public)
-  - View image details and properties
-  - Create images from disks or snapshots
-  - Support for various image families
-
-- 🏷️ **Metadata & Labels**
-  - View and edit instance metadata
-  - Manage labels on instances and disks
-  - Bulk label operations
-
-#### Cloud Storage
-- 🪣 **Bucket Management**
-  - List all Cloud Storage buckets
-  - View bucket details (location, storage class, access control)
-  - Create new buckets with comprehensive options:
-    - Location type selection (region/dual-region/multi-region)
-    - Storage class selection (STANDARD/NEARLINE/COLDLINE/ARCHIVE)
-    - Access control settings (uniform/fine-grained)
-    - Data protection (versioning, retention, soft delete)
-    - Labels and CMEK encryption support
-
-- 📁 **Object Browser**
-  - Navigate bucket contents with folder structure
-  - Upload files and folders
-  - Download individual files or entire folders
-  - Delete objects with confirmation
-  - View object details and metadata
-  - Pagination for large buckets
-
-#### Cloud SQL
-- 🗄️ **SQL Instance Management**
-  - List all Cloud SQL instances with version, state, region, tier, and IP
-  - View instance details with 3 tabs (Details/Databases/Backups)
-  - Lifecycle actions: start, stop, restart, delete (with type-to-confirm)
-  - State display reconciling activationPolicy with instance state
-  - List databases per instance
-  - List backup runs and create on-demand backups
-
-#### VPC Networking
-- 🌐 **VPC Network Management**
-  - List all VPC networks with subnet counts and routing mode
-  - View network details (MTU, routing mode, subnet mode, peerings)
-  - IPv6 configuration and ULA range information
-  - Browse subnets within each network with IP ranges and regions
-  - Navigate between related network resources
-
-- 🔥 **Firewall Rules**
-  - List all firewall rules with direction, priority, action, protocols, and status
-  - View detailed rule information (allowed/denied entries, source/destination ranges, tags)
-  - Enable and disable firewall rules
-  - Delete rules with type-to-confirm dialogs
-  - Navigate to associated VPC networks from rule details
-
-#### IAM & Admin
-- 🔐 **Service Account Management**
-  - List service accounts with status indicators (active/disabled)
-  - View details with keys tab
-  - Create, delete, enable/disable service accounts
-  - Key management (create/delete) with JSON download on creation
-
-- 📜 **IAM Policy Bindings**
-  - View bindings by member or by role with tab navigation
-  - Add/remove members to/from role bindings
-  - Detail overlay for viewing member's roles or role's members
-  - Safe etag-based read-modify-write with conflict retry
-
-- 🎭 **Custom Roles** (read-only)
-  - List custom roles with details and permissions tabs
-
-#### Cloud Run
-- 🚀 **Service Management**
-  - List services across all regions with status, URL, latest revision
-  - Service details with 4 tabs (Details/Revisions/YAML/Observability)
-  - Traffic split editing (validates percentages sum to 100)
-  - Edit existing service configuration with diff preview before deploy
-  - Create new services with full form (container, scaling, networking, security)
-  - Delete services with type-to-confirm
-
-- 📈 **Cloud Run Observability**
-  - Request count, latency (p50/p95/p99), error rate (4xx/5xx) charts
-  - CPU utilization, billable instance time, instance count charts
-  - Filterable log viewer (INFO/WARNING/ERROR severity toggles)
-  - Time range selection and auto-refresh
-
-#### Cloud Logging
-- 📋 **Logs Explorer**
-  - LQL query input with filter bar
-  - Quick filters (Resources, Log Names, Severities) with lazy-loaded options and search
-  - Tab cycling between entries, filters, query input, and time range
-  - Sparkline histogram for log density over time
-  - Expandable log entries with severity color coding
-  - Logfmt and protobuf key:value syntax colorization (toggle with `c`)
-  - Field-level cursor with filter-by-field (Enter on expanded field)
-  - Infinite scroll pagination (200 entries per page)
-  - Tail mode (live streaming, 15s polling)
-  - Time range selection (1h/6h/24h/7d/30d)
-  - Line wrapping toggle (`w` key)
-  - Open in `$PAGER` with `p` key (respects color toggle)
-  - Export to TXT/CSV/JSONL via action menu
-  - ANSI-aware truncation and wrapping (preserves existing log colors)
-
-#### User Interface & Navigation
-- 🎯 **Command Palette** - Quick access to all actions with fuzzy search (`:` or `Ctrl+K`)
-- 📂 **Sidebar Navigation** - Collapsible sidebar with auto-hide mode and resource categories
-- 🍞 **Breadcrumb Navigation** - Always know where you are in the resource hierarchy
-- 📜 **Recent Items** - Quick access to recently viewed resources
-- ⌨️ **Keyboard Shortcuts** - Vim-style navigation throughout the interface
-- 🔄 **Context Menus** - Action menus for resource-specific operations
-- ⚡ **Loading States** - Spinners and progress indicators for all async operations
-- ❌ **Error Handling** - Inline error display with retry options
-- 📊 **Status Bar** - Real-time status updates and operation feedback
-
-### 🚧 Planned Features
-
-The following features are planned for future releases:
-
-- [ ] **SSH Integration** - Direct SSH access to instances via gcloud
-- [ ] **Resource Caching** - Local caching layer for faster repeated queries
-- [ ] **Google Kubernetes Engine (GKE)**
-  - Cluster listing and details
-  - Node pool management
-  - Workload viewing
-- [ ] **Cloud Functions** - Function deployment and monitoring
-- [ ] **Subnets** - Standalone subnet list and management
-- [ ] **Load Balancers** - Load balancer configuration and health
-- [ ] **Cost Explorer** - Resource cost analysis and budgets
-
 ## Installation
 
 ### Homebrew (macOS & Linux)
@@ -238,6 +67,204 @@ go install github.com/slayer/gcon/cmd/gcon@latest
 
 Download the latest binary from [Releases](https://github.com/slayer/gcon/releases).
 
+## Features
+
+### ✅ Currently Implemented
+
+<details>
+<summary><strong>Project Management</strong></summary>
+
+- 🔄 **Project Selector** - Browse all accessible GCP projects with fuzzy search and filtering
+- 🔀 **Quick Project Switching** - Switch between projects via command palette without losing context
+- 📋 **Project Metadata** - View and edit project metadata and labels
+- 🎯 **Default Project** - Automatic detection from gcloud config or environment variables
+</details>
+
+<details>
+<summary><strong>Compute Engine</strong></summary>
+
+- 📦 **VM Instance Management**
+  - List all instances with status indicators (running, stopped, transitioning)
+  - View detailed instance information (machine type, zones, IPs, tags, labels)
+  - Start, stop, reset, suspend, and resume instances
+  - Delete instances with confirmation dialogs
+  - Create new instances with guided forms
+  - Real-time status updates with visual indicators
+
+- 📈 **Instance Observability**
+  - CPU utilization with sparkline trends
+  - Memory usage monitoring (requires Ops Agent)
+  - Network traffic statistics (ingress/egress)
+  - Disk I/O metrics
+  - Instance health and uptime tracking
+  - Automated performance recommendations
+  - Recent error and warning logs
+  - Multiple time ranges (1h, 6h, 24h, 7d, 30d)
+  - Auto-refresh capability
+
+- 💾 **Persistent Disk Management**
+  - List all disks with details (size, type, status, attachments)
+  - View disk details and usage information
+  - Create new disks from scratch or from snapshots
+  - Delete disks with safety confirmations
+  - Link navigation to attached instances
+
+- 📸 **Snapshot Management**
+  - List all disk snapshots
+  - View snapshot details and source disks
+  - Create snapshots from existing disks
+  - Navigate to source disks from snapshots
+
+- 🖼️ **Image Management**
+  - List all disk images (custom and public)
+  - View image details and properties
+  - Create images from disks or snapshots
+  - Support for various image families
+
+- 🏷️ **Metadata & Labels**
+  - View and edit instance metadata
+  - Manage labels on instances and disks
+  - Bulk label operations
+</details>
+
+<details>
+<summary><strong>Cloud Storage</strong></summary>
+
+- 🪣 **Bucket Management**
+  - List all Cloud Storage buckets
+  - View bucket details (location, storage class, access control)
+  - Create new buckets with comprehensive options:
+    - Location type selection (region/dual-region/multi-region)
+    - Storage class selection (STANDARD/NEARLINE/COLDLINE/ARCHIVE)
+    - Access control settings (uniform/fine-grained)
+    - Data protection (versioning, retention, soft delete)
+    - Labels and CMEK encryption support
+
+- 📁 **Object Browser**
+  - Navigate bucket contents with folder structure
+  - Upload files and folders
+  - Download individual files or entire folders
+  - Delete objects with confirmation
+  - View object details and metadata
+  - Pagination for large buckets
+</details>
+
+<details>
+<summary><strong>Cloud SQL</strong></summary>
+
+- 🗄️ **SQL Instance Management**
+  - List all Cloud SQL instances with version, state, region, tier, and IP
+  - View instance details with 3 tabs (Details/Databases/Backups)
+  - Lifecycle actions: start, stop, restart, delete (with type-to-confirm)
+  - State display reconciling activationPolicy with instance state
+  - List databases per instance
+  - List backup runs and create on-demand backups
+</details>
+
+<details>
+<summary><strong>VPC Networking</strong></summary>
+
+- 🌐 **VPC Network Management**
+  - List all VPC networks with subnet counts and routing mode
+  - View network details (MTU, routing mode, subnet mode, peerings)
+  - IPv6 configuration and ULA range information
+  - Browse subnets within each network with IP ranges and regions
+  - Navigate between related network resources
+
+- 🔥 **Firewall Rules**
+  - List all firewall rules with direction, priority, action, protocols, and status
+  - View detailed rule information (allowed/denied entries, source/destination ranges, tags)
+  - Enable and disable firewall rules
+  - Delete rules with type-to-confirm dialogs
+  - Navigate to associated VPC networks from rule details
+</details>
+
+<details>
+<summary><strong>IAM & Admin</strong></summary>
+
+- 🔐 **Service Account Management**
+  - List service accounts with status indicators (active/disabled)
+  - View details with keys tab
+  - Create, delete, enable/disable service accounts
+  - Key management (create/delete) with JSON download on creation
+
+- 📜 **IAM Policy Bindings**
+  - View bindings by member or by role with tab navigation
+  - Add/remove members to/from role bindings
+  - Detail overlay for viewing member's roles or role's members
+  - Safe etag-based read-modify-write with conflict retry
+
+- 🎭 **Custom Roles** (read-only)
+  - List custom roles with details and permissions tabs
+</details>
+
+<details>
+<summary><strong>Cloud Run</strong></summary>
+
+- 🚀 **Service Management**
+  - List services across all regions with status, URL, latest revision
+  - Service details with 4 tabs (Details/Revisions/YAML/Observability)
+  - Traffic split editing (validates percentages sum to 100)
+  - Edit existing service configuration with diff preview before deploy
+  - Create new services with full form (container, scaling, networking, security)
+  - Delete services with type-to-confirm
+
+- 📈 **Cloud Run Observability**
+  - Request count, latency (p50/p95/p99), error rate (4xx/5xx) charts
+  - CPU utilization, billable instance time, instance count charts
+  - Filterable log viewer (INFO/WARNING/ERROR severity toggles)
+  - Time range selection and auto-refresh
+</details>
+
+<details>
+<summary><strong>Cloud Logging</strong></summary>
+
+- 📋 **Logs Explorer**
+  - LQL query input with filter bar
+  - Quick filters (Resources, Log Names, Severities) with lazy-loaded options and search
+  - Tab cycling between entries, filters, query input, and time range
+  - Sparkline histogram for log density over time
+  - Expandable log entries with severity color coding
+  - Logfmt and protobuf key:value syntax colorization (toggle with `c`)
+  - Field-level cursor with filter-by-field (Enter on expanded field)
+  - Infinite scroll pagination (200 entries per page)
+  - Tail mode (live streaming, 15s polling)
+  - Time range selection (1h/6h/24h/7d/30d)
+  - Line wrapping toggle (`w` key)
+  - Open in `$PAGER` with `p` key (respects color toggle)
+  - Export to TXT/CSV/JSONL via action menu
+  - ANSI-aware truncation and wrapping (preserves existing log colors)
+</details>
+
+<details>
+<summary><strong>User Interface & Navigation</strong></summary>
+
+- 🎯 **Command Palette** - Quick access to all actions with fuzzy search (`:` or `Ctrl+K`)
+- 📂 **Sidebar Navigation** - Collapsible sidebar with auto-hide mode and resource categories
+- 🍞 **Breadcrumb Navigation** - Always know where you are in the resource hierarchy
+- 📜 **Recent Items** - Quick access to recently viewed resources
+- ⌨️ **Keyboard Shortcuts** - Vim-style navigation throughout the interface
+- 🔄 **Context Menus** - Action menus for resource-specific operations
+- ⚡ **Loading States** - Spinners and progress indicators for all async operations
+- ❌ **Error Handling** - Inline error display with retry options
+- 📊 **Status Bar** - Real-time status updates and operation feedback
+</details>
+
+### 🚧 Planned Features
+
+The following features are planned for future releases:
+
+- [ ] **SSH Integration** - Direct SSH access to instances via gcloud
+- [ ] **Resource Caching** - Local caching layer for faster repeated queries
+- [ ] **Google Kubernetes Engine (GKE)**
+  - Cluster listing and details
+  - Node pool management
+  - Workload viewing
+- [ ] **Cloud Functions** - Function deployment and monitoring
+- [ ] **Subnets** - Standalone subnet list and management
+- [ ] **Load Balancers** - Load balancer configuration and health
+- [ ] **Cost Explorer** - Resource cost analysis and budgets
+
 ## Authentication
 
 gcon uses Google Cloud's Application Default Credentials (ADC). Choose one of these methods:
@@ -277,7 +304,7 @@ If gcloud CLI is installed, gcon also reads defaults from `~/.config/gcloud/`.
 
 ## Quick Start
 
-1. **Install gcon** (see [Installation](#installation) section below)
+1. **Install gcon** (see [Installation](#installation) above)
 2. **Authenticate with GCP**:
    ```bash
    gcloud auth application-default login
