@@ -195,8 +195,8 @@ func (v *RoutesView) Update(msg tea.Msg) tea.Cmd {
 		v.clearTask("load-routes")
 
 		rows := make([]table.Row, len(msg.routes))
-		for i, r := range msg.routes {
-			rows[i] = routeToRow(r)
+		for i := range msg.routes {
+			rows[i] = routeToRow(msg.routes[i])
 		}
 		v.table.SetRows(rows)
 		return nil
@@ -447,9 +447,9 @@ func (v *RoutesView) SetContext(ctx *context.ProgramContext) {
 
 // findRouteByName finds a route by name in the loaded slice
 func (v *RoutesView) findRouteByName(name string) (gcp.Route, bool) {
-	for _, r := range v.routes {
-		if r.Name == name {
-			return r, true
+	for i := range v.routes {
+		if v.routes[i].Name == name {
+			return v.routes[i], true
 		}
 	}
 	return gcp.Route{}, false

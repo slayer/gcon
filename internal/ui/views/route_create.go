@@ -233,7 +233,7 @@ func (v *RouteCreateView) handleSubmit() tea.Cmd {
 
 	// Validate that non-gateway types have a value
 	if nextHopType != "gateway" && config.NextHopValue == "" {
-		v.SetError(fmt.Errorf("next hop value is required for %s type", nextHopType))
+		v.SetError(fmt.Errorf("next hop value is required for %s type", nextHopType)) //nolint:err113 // user-facing validation error
 		return nil
 	}
 

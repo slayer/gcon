@@ -598,12 +598,12 @@ func (v *NetworkDetailsView) populateRouteLinks() {
 	}
 
 	items := make([]links.Link, len(v.routes))
-	for i, route := range v.routes {
+	for i := range v.routes {
 		items[i] = links.Link{
-			ID:    route.Name,
-			Label: route.Name,
+			ID:    v.routes[i].Name,
+			Label: v.routes[i].Name,
 			Type:  "route",
-			Data:  route,
+			Data:  v.routes[i],
 		}
 	}
 	v.routeLinks.SetItems(items)
@@ -791,13 +791,13 @@ func (v *NetworkDetailsView) renderRoutesTab() string {
 	b.WriteString(v.routeLinks.RenderDivider(90))
 	b.WriteString("\n")
 
-	for i, route := range v.routes {
+	for i := range v.routes {
 		row := fmt.Sprintf("%-25s %-18s %-10d %-25s %-10s",
-			truncate(route.Name, 25),
-			truncate(route.DestRange, 18),
-			route.Priority,
-			truncate(route.NextHop, 25),
-			route.RouteType)
+			truncate(v.routes[i].Name, 25),
+			truncate(v.routes[i].DestRange, 18),
+			v.routes[i].Priority,
+			truncate(v.routes[i].NextHop, 25),
+			v.routes[i].RouteType)
 		b.WriteString(v.routeLinks.RenderRow(i, row))
 		b.WriteString("\n")
 	}

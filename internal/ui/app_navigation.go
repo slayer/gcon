@@ -264,6 +264,17 @@ func (a *App) handleSidebarNavigation(msg sidebar.NavigateMsg) tea.Cmd {
 				cmd = a.subnetsView.Init()
 			}
 		}
+	case sidebar.ViewRoutes:
+		if a.currentView != ViewRoutes && a.currentView != ViewRouteDetails && a.currentView != ViewRouteCreate {
+			a.currentView = ViewRoutes
+			a.routeDetailsView = nil
+			a.routeCreateView = nil
+			if a.routesView == nil {
+				a.routesView = views.NewRoutesView(a.selectedProject.ID)
+				a.updateViewSizes()
+				cmd = a.routesView.Init()
+			}
+		}
 	case sidebar.ViewSQLInstances:
 		if a.currentView != ViewSQLInstances && a.currentView != ViewSQLInstanceDetails {
 			a.currentView = ViewSQLInstances
@@ -369,6 +380,8 @@ func (a *App) updateSidebarActiveView() {
 		a.sidebar.SetActiveView(sidebar.ViewFirewall)
 	case ViewSubnets, ViewSubnetDetails, ViewSubnetCreate:
 		a.sidebar.SetActiveView(sidebar.ViewSubnets)
+	case ViewRoutes, ViewRouteDetails, ViewRouteCreate:
+		a.sidebar.SetActiveView(sidebar.ViewRoutes)
 	case ViewSQLInstances, ViewSQLInstanceDetails:
 		a.sidebar.SetActiveView(sidebar.ViewSQLInstances)
 	case ViewServiceAccounts, ViewServiceAccountDetails, ViewServiceAccountCreate:
@@ -674,6 +687,9 @@ func (a *App) clearAllViews() {
 	a.subnetsView = nil
 	a.subnetDetailsView = nil
 	a.subnetCreateView = nil
+	a.routesView = nil
+	a.routeDetailsView = nil
+	a.routeCreateView = nil
 	a.sqlInstancesView = nil
 	a.sqlInstanceDetailsView = nil
 	a.serviceAccountsView = nil
@@ -784,6 +800,16 @@ func (a *App) reloadCurrentView(projectID string) tea.Cmd {
 		a.updateViewSizes()
 		return a.subnetsView.Init()
 
+	case ViewRoutes, ViewRouteDetails, ViewRouteCreate:
+		// Return to routes list on project switch
+		a.currentView = ViewRoutes
+		a.routeCreateView = nil
+		a.routeDetailsView = nil
+		a.routesView = views.NewRoutesView(projectID)
+		a.updateSidebarActiveView()
+		a.updateViewSizes()
+		return a.routesView.Init()
+
 	case ViewSQLInstances, ViewSQLInstanceDetails:
 		// Return to SQL instances list on project switch
 		a.currentView = ViewSQLInstances
@@ -884,6 +910,8 @@ func (a *App) handleNetworkSelected(msg views.NetworkSelectedMsg) tea.Cmd {
 		computeClient = a.firewallDetailsView.GetComputeClient()
 	} else if a.subnetDetailsView != nil {
 		computeClient = a.subnetDetailsView.GetComputeClient()
+	} else if a.routeDetailsView != nil {
+		computeClient = a.routeDetailsView.GetComputeClient()
 	}
 	a.networkDetailsView = views.NewNetworkDetailsView(
 		a.selectedProject.ID,
@@ -1986,6 +2014,187 @@ func (a *App) handleSubnetActionResult(msg views.SubnetActionResultMsg) tea.Cmd 
 		if a.subnetsView != nil {
 			cmds = append(cmds, a.subnetsView.Init())
 		}
+	}
+
+	if len(cmds) > 0 {
+		return tea.Batch(cmds...)
+	}
+	return nil
+}
+
+// handleRoutesRequest navigates to the routes list view
+func (a *App) handleRoutesRequest() tea.Cmd {
+	a.viewStack = append(a.viewStack, a.currentView)
+	a.currentView = ViewRoutes
+	a.routesView = views.NewRoutesView(a.selectedProject.ID)
+	a.updateViewSizes()
+	a.updateSidebarActiveView()
+	return a.routesView.Init()
+}
+
+// handleRouteSelected navigates to route details view
+//
+//nolint:gocritic // hugeParam: message struct passed by value
+func (a *App) handleRouteSelected(msg views.RouteSelectedMsg) tea.Cmd {
+	// Resolve compute client from the view that emitted this
+	var computeClient *gcp.ComputeClient
+	if a.routesView != nil {
+		computeClient = a.routesView.GetComputeClient()
+	} else if a.networkDetailsView != nil {
+		computeClient = a.networkDetailsView.GetComputeClient()
+	}
+
+	a.viewStack = append(a.viewStack, a.currentView)
+	a.currentView = ViewRouteDetails
+	a.routeDetailsView = views.NewRouteDetailsView(a.selectedProject.ID, msg.Route.Name, computeClient)
+	a.updateViewSizes()
+	a.updateSidebarActiveView()
+	return a.routeDetailsView.Init()
+}
+
+// handleRouteCreateRequest opens the route creation form
+func (a *App) handleRouteCreateRequest(msg views.RouteCreateRequestMsg) tea.Cmd {
+	// Resolve compute client
+	var computeClient *gcp.ComputeClient
+	if a.routesView != nil {
+		computeClient = a.routesView.GetComputeClient()
+	} else if a.networkDetailsView != nil {
+		computeClient = a.networkDetailsView.GetComputeClient()
+	}
+
+	a.viewStack = append(a.viewStack, a.currentView)
+	a.currentView = ViewRouteCreate
+	a.routeCreateView = views.NewRouteCreateView(a.selectedProject.ID, computeClient, msg.Network)
+	a.updateViewSizes()
+	a.updateSidebarActiveView()
+	return a.routeCreateView.Init()
+}
+
+// handleCreateRoute executes the async route creation API call
+func (a *App) handleCreateRoute(msg views.CreateRouteMsg) tea.Cmd {
+	var computeClient *gcp.ComputeClient
+	if a.routeCreateView != nil {
+		computeClient = a.routeCreateView.GetComputeClient()
+	}
+	if computeClient == nil || a.selectedProject == nil {
+		return nil
+	}
+
+	a.registerRunningTask("route-create", "Creating route...")
+	config := msg.Config
+	projectID := a.selectedProject.ID
+
+	return func() tea.Msg {
+		err := computeClient.CreateRoute(gocontext.Background(), projectID, config)
+		return views.RouteCreateResultMsg{
+			Error: err,
+			Name:  config.Name,
+		}
+	}
+}
+
+// handleRouteCreateResult processes the result of a route creation
+func (a *App) handleRouteCreateResult(msg views.RouteCreateResultMsg) tea.Cmd {
+	var cmds []tea.Cmd
+
+	if cmd := a.finishTask("route-create", msg.Error); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+
+	if msg.Error != nil {
+		a.err = msg.Error
+		// Propagate error to active creation view so it exits saving state
+		if a.currentView == ViewRouteCreate && a.routeCreateView != nil {
+			a.routeCreateView.SetError(msg.Error)
+		}
+		if len(cmds) > 0 {
+			return tea.Batch(cmds...)
+		}
+		return nil
+	}
+
+	// On successful create, navigate back and refresh list
+	if a.currentView == ViewRouteCreate {
+		a.routeCreateView = nil
+		if len(a.viewStack) > 0 {
+			a.currentView = a.viewStack[len(a.viewStack)-1]
+			a.viewStack = a.viewStack[:len(a.viewStack)-1]
+		}
+		a.updateSidebarActiveView()
+	}
+	if a.routesView != nil {
+		cmds = append(cmds, a.routesView.Init())
+	}
+
+	if len(cmds) > 0 {
+		return tea.Batch(cmds...)
+	}
+	return nil
+}
+
+// handleRouteCreateCanceled returns to previous view when route creation is canceled
+func (a *App) handleRouteCreateCanceled() {
+	a.routeCreateView = nil
+	if len(a.viewStack) > 0 {
+		a.currentView = a.viewStack[len(a.viewStack)-1]
+		a.viewStack = a.viewStack[:len(a.viewStack)-1]
+	}
+	a.updateSidebarActiveView()
+}
+
+// handleRouteDeleteRequest executes the async route deletion API call
+func (a *App) handleRouteDeleteRequest(msg views.RouteDeleteRequestMsg) tea.Cmd {
+	var computeClient *gcp.ComputeClient
+	if a.routeDetailsView != nil {
+		computeClient = a.routeDetailsView.GetComputeClient()
+	} else if a.routesView != nil {
+		computeClient = a.routesView.GetComputeClient()
+	}
+	if computeClient == nil || a.selectedProject == nil {
+		return nil
+	}
+
+	a.registerRunningTask("route-delete", fmt.Sprintf("Deleting route %s...", msg.Name))
+	projectID := a.selectedProject.ID
+	name := msg.Name
+
+	return func() tea.Msg {
+		err := computeClient.DeleteRoute(gocontext.Background(), projectID, name)
+		return views.RouteDeleteResultMsg{
+			Error: err,
+			Name:  name,
+		}
+	}
+}
+
+// handleRouteDeleteResult processes the result of a route deletion
+func (a *App) handleRouteDeleteResult(msg views.RouteDeleteResultMsg) tea.Cmd {
+	var cmds []tea.Cmd
+
+	if cmd := a.finishTask("route-delete", msg.Error); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+
+	if msg.Error != nil {
+		a.err = msg.Error
+		if len(cmds) > 0 {
+			return tea.Batch(cmds...)
+		}
+		return nil
+	}
+
+	// On successful delete, navigate back if on details view
+	if a.currentView == ViewRouteDetails {
+		if len(a.viewStack) > 0 {
+			a.currentView = a.viewStack[len(a.viewStack)-1]
+			a.viewStack = a.viewStack[:len(a.viewStack)-1]
+		}
+		a.routeDetailsView = nil
+		a.updateSidebarActiveView()
+	}
+	// Refresh routes list if visible
+	if a.routesView != nil {
+		cmds = append(cmds, a.routesView.Init())
 	}
 
 	if len(cmds) > 0 {

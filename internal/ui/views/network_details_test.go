@@ -1,7 +1,6 @@
 package views
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/slayer/gcon/internal/gcp"
@@ -123,11 +122,10 @@ func TestNetworkDetailsView_RoutesLoadedMsg(t *testing.T) {
 func TestNetworkDetailsView_RoutesErrorMsg(t *testing.T) {
 	v := NewNetworkDetailsView("test-project", "test-network", nil)
 
-	testErr := fmt.Errorf("failed to load routes")
-	v.Update(networkRoutesErrorMsg{err: testErr})
+	v.Update(networkRoutesErrorMsg{err: assert.AnError})
 
 	assert.False(t, v.routesLoading, "Routes loading should be false after error")
-	assert.Equal(t, testErr, v.routesErr, "Error should be set")
+	assert.Equal(t, assert.AnError, v.routesErr, "Error should be set")
 	assert.Nil(t, v.routes, "Routes should be nil on error")
 }
 
@@ -174,10 +172,10 @@ func TestNetworkDetailsView_RenderRoutesTabError(t *testing.T) {
 	v.width = 120
 	v.details = &gcp.NetworkDetails{Name: "test-network"}
 	v.routesLoading = false
-	v.routesErr = fmt.Errorf("permission denied")
+	v.routesErr = assert.AnError
 
 	output := v.renderRoutesTab()
-	assert.Contains(t, output, "Error loading routes: permission denied")
+	assert.Contains(t, output, "Error loading routes:")
 	assert.Contains(t, output, "Press 'r' to retry")
 }
 
