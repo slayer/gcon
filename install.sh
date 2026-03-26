@@ -43,17 +43,20 @@ if [ -z "$VERSION" ]; then
   fi
 fi
 
-# Normalize — strip leading 'v' for archive name
-VERSION_NUM="${VERSION#v}"
+# Normalize — ensure leading 'v' for tag, strip for archive name
+case "$VERSION" in
+  v*) VERSION_NUM="${VERSION#v}" ;;
+  *)  VERSION_NUM="$VERSION"; VERSION="v${VERSION}" ;;
+esac
 
 ARCHIVE="gcon_${VERSION_NUM}_${OS}_${ARCH}.tar.gz"
-URL="https://github.com/${REPO}/releases/download/v${VERSION_NUM}/${ARCHIVE}"
-CHECKSUM_URL="https://github.com/${REPO}/releases/download/v${VERSION_NUM}/checksums.txt"
+URL="https://github.com/${REPO}/releases/download/${VERSION}/${ARCHIVE}"
+CHECKSUM_URL="https://github.com/${REPO}/releases/download/${VERSION}/checksums.txt"
 
 TMPDIR="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR"' EXIT
 
-echo "Downloading gcon v${VERSION_NUM} for ${OS}/${ARCH}..."
+echo "Downloading gcon ${VERSION} for ${OS}/${ARCH}..."
 curl -sSfL -o "${TMPDIR}/${ARCHIVE}" "$URL"
 curl -sSfL -o "${TMPDIR}/checksums.txt" "$CHECKSUM_URL"
 
@@ -69,9 +72,11 @@ if command -v sha256sum >/dev/null 2>&1; then
   ACTUAL="$(sha256sum "${TMPDIR}/${ARCHIVE}" | awk '{print $1}')"
 elif command -v shasum >/dev/null 2>&1; then
   ACTUAL="$(shasum -a 256 "${TMPDIR}/${ARCHIVE}" | awk '{print $1}')"
+elif command -v openssl >/dev/null 2>&1; then
+  ACTUAL="$(openssl dgst -sha256 "${TMPDIR}/${ARCHIVE}" | awk '{print $2}')"
 else
-  echo "Warning: no sha256 tool found, skipping checksum verification" >&2
-  ACTUAL="$EXPECTED"
+  echo "Error: no SHA-256 checksum tool found (sha256sum, shasum, or openssl)" >&2
+  exit 1
 fi
 
 if [ "$ACTUAL" != "$EXPECTED" ]; then
@@ -81,18 +86,34 @@ if [ "$ACTUAL" != "$EXPECTED" ]; then
   exit 1
 fi
 
-# Extract
+# Extract and locate binary (handles both flat and wrapped archives)
 tar -xzf "${TMPDIR}/${ARCHIVE}" -C "$TMPDIR"
+
+GCON_BIN="${TMPDIR}/gcon"
+if [ ! -f "$GCON_BIN" ]; then
+  for d in "${TMPDIR}"/gcon_*; do
+    [ -d "$d" ] || continue
+    if [ -f "$d/gcon" ]; then
+      GCON_BIN="$d/gcon"
+      break
+    fi
+  done
+fi
+
+if [ ! -f "$GCON_BIN" ]; then
+  echo "Error: could not find extracted gcon binary in ${TMPDIR}" >&2
+  exit 1
+fi
 
 # Install — fall back to ~/.local/bin if no write access to /usr/local/bin
 if [ -w "$INSTALL_DIR" ] || [ -w "$(dirname "$INSTALL_DIR")" ]; then
   mkdir -p "$INSTALL_DIR"
-  mv "${TMPDIR}/gcon" "${INSTALL_DIR}/gcon"
+  mv "$GCON_BIN" "${INSTALL_DIR}/gcon"
   echo "Installed gcon to ${INSTALL_DIR}/gcon"
 else
   INSTALL_DIR="${HOME}/.local/bin"
   mkdir -p "$INSTALL_DIR"
-  mv "${TMPDIR}/gcon" "${INSTALL_DIR}/gcon"
+  mv "$GCON_BIN" "${INSTALL_DIR}/gcon"
   echo "Installed gcon to ${INSTALL_DIR}/gcon"
   case ":$PATH:" in
     *":${INSTALL_DIR}:"*) ;;

@@ -41,16 +41,18 @@ nfpms:
       - rpm
     bindir: /usr/bin
 
-homebrew_casks:
-  - name: gcon
-    binaries:
-      - gcon
-    repository:
+brews:
+  - repository:
       owner: slayer
       name: homebrew-gcon
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     homepage: https://github.com/slayer/gcon
     description: Terminal UI for Google Cloud Platform
+    license: MIT
+    install: |
+      bin.install "gcon"
+    test: |
+      system bin/"gcon", "--version"
 
 checksum:
   name_template: "checksums.txt"

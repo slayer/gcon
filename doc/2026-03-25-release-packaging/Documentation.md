@@ -41,10 +41,10 @@ sudo rpm -i gcon_0.6.0_amd64.rpm
 - Detects OS/arch, fetches latest release, verifies checksum, installs binary
 - Falls back to `~/.local/bin` without sudo
 
-```bash
-curl -sSL https://raw.githubusercontent.com/slayer/gcon/master/install.sh | bash
+```sh
+curl -sSL https://raw.githubusercontent.com/slayer/gcon/master/install.sh | sh
 # or specific version:
-curl -sSL https://raw.githubusercontent.com/slayer/gcon/master/install.sh | bash -s -- v0.6.0
+curl -sSL https://raw.githubusercontent.com/slayer/gcon/master/install.sh | sh -s -- v0.6.0
 ```
 
 ## GoReleaser Configuration
@@ -104,7 +104,7 @@ var (
 Add `--version` / `-v` flag:
 
 ```
-gcon version dev (commit: abc1234, built: 2026-03-25)
+gcon dev (commit: abc1234, built: 2026-03-25)
 ```
 
 ### Makefile
