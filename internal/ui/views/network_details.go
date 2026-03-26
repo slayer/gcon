@@ -28,13 +28,15 @@ import (
 const (
 	networkTabIDDetails = "details"
 	networkTabIDSubnets = "subnets"
+	networkTabIDRoutes  = "routes"
 )
 
 // Focus region IDs for network details view
 const (
-	networkRegionIDTabs     = "tabs"
-	networkRegionIDLinks    = "links"
-	networkRegionIDViewport = "viewport"
+	networkRegionIDTabs       = "tabs"
+	networkRegionIDLinks      = "links"
+	networkRegionIDRouteLinks = "route-links"
+	networkRegionIDViewport   = "viewport"
 )
 
 // Lines reserved for tab bar + separator + help text
@@ -57,6 +59,14 @@ type networkSubnetsErrorMsg struct {
 	err error
 }
 
+type networkRoutesLoadedMsg struct {
+	routes []gcp.Route
+}
+
+type networkRoutesErrorMsg struct {
+	err error
+}
+
 // NetworkDetailsView displays comprehensive network information with tabs
 type NetworkDetailsView struct {
 	computeClient *gcp.ComputeClient
@@ -67,13 +77,16 @@ type NetworkDetailsView struct {
 	// Data
 	details *gcp.NetworkDetails
 	subnets []gcp.Subnet
+	routes  []gcp.Route
 
 	// UI state
 	spinner        spinner.Model
 	loading        bool
 	subnetsLoading bool
+	routesLoading  bool
 	err            error
 	subnetsErr     error
+	routesErr      error
 	width          int
 	height         int
 	ready          bool
@@ -84,6 +97,9 @@ type NetworkDetailsView struct {
 
 	// Navigable subnet links in Subnets tab
 	subnetLinks *links.Links
+
+	// Navigable route links in Routes tab
+	routeLinks *links.Links
 
 	// Focus management
 	focusMgr  *focus.Manager
@@ -131,13 +147,15 @@ func NewNetworkDetailsView(projectID, networkName string, computeClient *gcp.Com
 	tabsComponent := tabs.New([]tabs.Tab{
 		{ID: networkTabIDDetails, Label: "Details"},
 		{ID: networkTabIDSubnets, Label: "Subnets"},
+		{ID: networkTabIDRoutes, Label: "Routes"},
 	})
 
-	// Links region starts disabled until subnets load
+	// Links regions start disabled until data loads
 	fm := focus.NewManager()
 	fm.SetRegions([]focus.Region{
 		focus.NewRegion(networkRegionIDTabs, focus.RegionTabs, "Tabs"),
 		focus.NewDisabledRegion(networkRegionIDLinks, focus.RegionLinks, "Subnets"),
+		focus.NewDisabledRegion(networkRegionIDRouteLinks, focus.RegionLinks, "Routes"),
 		focus.NewRegion(networkRegionIDViewport, focus.RegionViewport, "Content"),
 	})
 
@@ -148,21 +166,24 @@ func NewNetworkDetailsView(projectID, networkName string, computeClient *gcp.Com
 		spinner:        s,
 		loading:        true,
 		subnetsLoading: true,
+		routesLoading:  true,
 		keys:           defaultNetworkDetailsKeyMap(),
 		tabs:           tabsComponent,
-		tabViewports:   make([]viewport.Model, 2),
+		tabViewports:   make([]viewport.Model, 3),
 		subnetLinks:    links.New(),
+		routeLinks:     links.New(),
 		focusMgr:       fm,
 		regionMgr:      mouse.NewRegionManager(),
 	}
 }
 
-// Init starts loading network details and subnets in parallel
+// Init starts loading network details, subnets, and routes in parallel
 func (v *NetworkDetailsView) Init() tea.Cmd {
 	return tea.Batch(
 		v.spinner.Tick,
 		v.loadDetails(),
 		v.loadSubnets(),
+		v.loadRoutes(),
 	)
 }
 
@@ -189,6 +210,19 @@ func (v *NetworkDetailsView) loadSubnets() tea.Cmd {
 			return networkSubnetsErrorMsg{err: err}
 		}
 		return networkSubnetsLoadedMsg{subnets: subnets}
+	}
+}
+
+func (v *NetworkDetailsView) loadRoutes() tea.Cmd {
+	return func() tea.Msg {
+		if v.computeClient == nil {
+			return networkRoutesErrorMsg{err: uierrors.ErrClientNotInitialized}
+		}
+		routes, err := v.computeClient.ListRoutesByNetwork(gocontext.Background(), v.projectID, v.networkName)
+		if err != nil {
+			return networkRoutesErrorMsg{err: err}
+		}
+		return networkRoutesLoadedMsg{routes: routes}
 	}
 }
 
@@ -221,8 +255,21 @@ func (v *NetworkDetailsView) Update(msg tea.Msg) tea.Cmd {
 		v.updateViewportContent()
 		return nil
 
+	case networkRoutesLoadedMsg:
+		v.routesLoading = false
+		v.routes = msg.routes
+		v.populateRouteLinks()
+		v.updateViewportContent()
+		return nil
+
+	case networkRoutesErrorMsg:
+		v.routesLoading = false
+		v.routesErr = msg.err
+		v.updateViewportContent()
+		return nil
+
 	case spinner.TickMsg:
-		if v.loading || v.subnetsLoading {
+		if v.loading || v.subnetsLoading || v.routesLoading {
 			var cmd tea.Cmd
 			v.spinner, cmd = v.spinner.Update(msg)
 			return cmd
@@ -239,11 +286,21 @@ func (v *NetworkDetailsView) Update(msg tea.Msg) tea.Cmd {
 
 	case tabs.TabChangedMsg:
 		v.updateViewportContent()
-		// Toggle links region based on active tab
-		if v.tabs.ActiveTab().ID == networkTabIDSubnets && len(v.subnets) > 0 {
-			v.focusMgr.EnableRegion(networkRegionIDLinks)
-		} else {
+		// Toggle links regions based on active tab
+		switch v.tabs.ActiveTab().ID {
+		case networkTabIDSubnets:
+			if len(v.subnets) > 0 {
+				v.focusMgr.EnableRegion(networkRegionIDLinks)
+			}
+			v.focusMgr.DisableRegion(networkRegionIDRouteLinks)
+		case networkTabIDRoutes:
 			v.focusMgr.DisableRegion(networkRegionIDLinks)
+			if len(v.routes) > 0 {
+				v.focusMgr.EnableRegion(networkRegionIDRouteLinks)
+			}
+		default:
+			v.focusMgr.DisableRegion(networkRegionIDLinks)
+			v.focusMgr.DisableRegion(networkRegionIDRouteLinks)
 		}
 		return nil
 
@@ -256,6 +313,14 @@ func (v *NetworkDetailsView) Update(msg tea.Msg) tea.Cmd {
 						SubnetName: subnet.Name,
 						Region:     subnet.Region,
 					}
+				}
+			}
+		}
+		// Navigate to route details when a route link is selected
+		if msg.Link.Type == "route" {
+			if route, ok := msg.Link.Data.(gcp.Route); ok {
+				return func() tea.Msg {
+					return RouteSelectedMsg{Route: route}
 				}
 			}
 		}
@@ -285,7 +350,15 @@ func (v *NetworkDetailsView) Update(msg tea.Msg) tea.Cmd {
 			}
 
 		case focus.RegionLinks:
-			// Subnet links only in Subnets tab
+			// Route links in Routes tab
+			if v.tabs.ActiveTab().ID == networkTabIDRoutes && v.routeLinks.HasItems() {
+				if links.HandleKey(msg) {
+					cmd := v.routeLinks.Update(msg)
+					v.updateViewportContent()
+					return cmd
+				}
+			}
+			// Subnet links in Subnets tab
 			if v.tabs.ActiveTab().ID == networkTabIDSubnets && v.subnetLinks.HasItems() {
 				if links.HandleKey(msg) {
 					cmd := v.subnetLinks.Update(msg)
@@ -305,6 +378,15 @@ func (v *NetworkDetailsView) Update(msg tea.Msg) tea.Cmd {
 
 		// View-specific action keys (work regardless of focus)
 		switch {
+		case key.Matches(msg, key.NewBinding(key.WithKeys("c"))):
+			// Create route from Routes tab
+			if v.tabs.ActiveTab().ID == networkTabIDRoutes {
+				return func() tea.Msg {
+					return RouteCreateRequestMsg{Network: v.networkName}
+				}
+			}
+			return nil
+
 		case key.Matches(msg, v.keys.ActionMenu):
 			if v.details != nil {
 				v.actionMenu = actionmenu.New("Network Actions", v.buildActions())
@@ -315,9 +397,11 @@ func (v *NetworkDetailsView) Update(msg tea.Msg) tea.Cmd {
 		case key.Matches(msg, v.keys.Refresh):
 			v.loading = true
 			v.subnetsLoading = true
+			v.routesLoading = true
 			v.err = nil
 			v.subnetsErr = nil
-			return tea.Batch(v.spinner.Tick, v.loadDetails(), v.loadSubnets())
+			v.routesErr = nil
+			return tea.Batch(v.spinner.Tick, v.loadDetails(), v.loadSubnets(), v.loadRoutes())
 		}
 	}
 
@@ -334,9 +418,11 @@ func (v *NetworkDetailsView) executeAction(actionKey rune) tea.Cmd {
 	if actionKey == 'r' {
 		v.loading = true
 		v.subnetsLoading = true
+		v.routesLoading = true
 		v.err = nil
 		v.subnetsErr = nil
-		return tea.Batch(v.spinner.Tick, v.loadDetails(), v.loadSubnets())
+		v.routesErr = nil
+		return tea.Batch(v.spinner.Tick, v.loadDetails(), v.loadSubnets(), v.loadRoutes())
 	}
 	return nil
 }
@@ -459,14 +545,20 @@ func (v *NetworkDetailsView) updateViewportContent() {
 
 	// Update links focus state
 	v.subnetLinks.SetRegionFocused(v.focusMgr.IsActive(networkRegionIDLinks))
+	v.routeLinks.SetRegionFocused(v.focusMgr.IsActive(networkRegionIDRouteLinks))
 
 	var content string
 	switch v.tabs.ActiveTab().ID {
 	case networkTabIDDetails:
 		v.focusMgr.DisableRegion(networkRegionIDLinks)
+		v.focusMgr.DisableRegion(networkRegionIDRouteLinks)
 		content = v.renderDetailsTab()
 	case networkTabIDSubnets:
+		v.focusMgr.DisableRegion(networkRegionIDRouteLinks)
 		content = v.renderSubnetsTab()
+	case networkTabIDRoutes:
+		v.focusMgr.DisableRegion(networkRegionIDLinks)
+		content = v.renderRoutesTab()
 	default:
 		content = v.renderDetailsTab()
 	}
@@ -495,6 +587,30 @@ func (v *NetworkDetailsView) populateSubnetLinks() {
 	// Enable links region when on Subnets tab
 	if v.tabs.ActiveTab().ID == networkTabIDSubnets {
 		v.focusMgr.EnableRegion(networkRegionIDLinks)
+	}
+}
+
+func (v *NetworkDetailsView) populateRouteLinks() {
+	if len(v.routes) == 0 {
+		v.routeLinks.SetItems(nil)
+		v.focusMgr.DisableRegion(networkRegionIDRouteLinks)
+		return
+	}
+
+	items := make([]links.Link, len(v.routes))
+	for i, route := range v.routes {
+		items[i] = links.Link{
+			ID:    route.Name,
+			Label: route.Name,
+			Type:  "route",
+			Data:  route,
+		}
+	}
+	v.routeLinks.SetItems(items)
+
+	// Enable links region when on Routes tab
+	if v.tabs.ActiveTab().ID == networkTabIDRoutes {
+		v.focusMgr.EnableRegion(networkRegionIDRouteLinks)
 	}
 }
 
@@ -632,6 +748,63 @@ func (v *NetworkDetailsView) renderSubnetsTab() string {
 	return b.String()
 }
 
+// renderRoutesTab generates the Routes tab content
+func (v *NetworkDetailsView) renderRoutesTab() string {
+	var b strings.Builder
+
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#4285F4"))
+	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
+	errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#EA4335"))
+
+	// Header
+	if v.details != nil {
+		b.WriteString(titleStyle.Render(fmt.Sprintf("Network: %s", v.details.Name)))
+		b.WriteString("\n")
+		b.WriteString(strings.Repeat("─", min(v.width-4, 60)))
+		b.WriteString("\n\n")
+	}
+
+	if v.routesLoading {
+		b.WriteString(fmt.Sprintf("  %s Loading routes...\n", v.spinner.View()))
+		return b.String()
+	}
+
+	if v.routesErr != nil {
+		b.WriteString(errorStyle.Render(fmt.Sprintf("  Error loading routes: %s", v.routesErr.Error())))
+		b.WriteString("\n\n")
+		b.WriteString(mutedStyle.Render("  Press 'r' to retry"))
+		b.WriteString("\n")
+		return b.String()
+	}
+
+	if len(v.routes) == 0 {
+		b.WriteString(mutedStyle.Render("  No routes found"))
+		b.WriteString("\n")
+		return b.String()
+	}
+
+	// Route table header
+	header := fmt.Sprintf("%-25s %-18s %-10s %-25s %-10s",
+		"Name", "Dest Range", "Priority", "Next Hop", "Type")
+	b.WriteString(v.routeLinks.RenderHeader(header))
+	b.WriteString("\n")
+	b.WriteString(v.routeLinks.RenderDivider(90))
+	b.WriteString("\n")
+
+	for i, route := range v.routes {
+		row := fmt.Sprintf("%-25s %-18s %-10d %-25s %-10s",
+			truncate(route.Name, 25),
+			truncate(route.DestRange, 18),
+			route.Priority,
+			truncate(route.NextHop, 25),
+			route.RouteType)
+		b.WriteString(v.routeLinks.RenderRow(i, row))
+		b.WriteString("\n")
+	}
+
+	return b.String()
+}
+
 // buildHelpText generates context-sensitive help text
 func (v *NetworkDetailsView) buildHelpText() string {
 	bindings := focus.HelpForRegion(v.focusMgr.ActiveType(), v.getRegionLabel())
@@ -645,6 +818,9 @@ func (v *NetworkDetailsView) buildHelpText() string {
 
 func (v *NetworkDetailsView) getRegionLabel() string {
 	if v.focusMgr.ActiveType() == focus.RegionLinks {
+		if v.tabs.ActiveTab().ID == networkTabIDRoutes {
+			return "route"
+		}
 		return "subnet"
 	}
 	return ""
@@ -674,6 +850,18 @@ func (v *NetworkDetailsView) UpdateRegions(offsetX, offsetY int) {
 	if v.tabs.ActiveTab().ID == networkTabIDSubnets && v.subnetLinks != nil && v.subnetLinks.Count() > 0 {
 		linksHeight := v.subnetLinks.Count()
 		v.regionMgr.Add(networkRegionIDLinks, mouse.Rect{
+			X:      offsetX,
+			Y:      y,
+			Width:  v.width,
+			Height: linksHeight,
+		}, nil)
+		y += linksHeight
+	}
+
+	// Route links region (only in Routes tab, if routes exist)
+	if v.tabs.ActiveTab().ID == networkTabIDRoutes && v.routeLinks != nil && v.routeLinks.Count() > 0 {
+		linksHeight := v.routeLinks.Count()
+		v.regionMgr.Add(networkRegionIDRouteLinks, mouse.Rect{
 			X:      offsetX,
 			Y:      y,
 			Width:  v.width,

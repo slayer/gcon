@@ -1,8 +1,10 @@
 package views
 
 import (
+	"fmt"
 	"testing"
 
+	"github.com/slayer/gcon/internal/gcp"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -14,6 +16,9 @@ func TestNetworkDetailsView_NewNetworkDetailsView(t *testing.T) {
 	assert.Equal(t, "test-network", v.networkName)
 	assert.True(t, v.loading, "View should start in loading state")
 	assert.True(t, v.subnetsLoading, "Subnets should start loading")
+	assert.True(t, v.routesLoading, "Routes should start loading")
+	assert.NotNil(t, v.routeLinks, "Route links should be initialized")
+	assert.Len(t, v.tabViewports, 3, "Should have 3 tab viewports (details, subnets, routes)")
 }
 
 func TestNetworkDetailsView_RenderLoading(t *testing.T) {
@@ -96,6 +101,112 @@ func TestFormatSubnetPurpose(t *testing.T) {
 func TestFormatYesNo(t *testing.T) {
 	assert.Equal(t, "Yes", formatYesNo(true))
 	assert.Equal(t, "No", formatYesNo(false))
+}
+
+func TestNetworkDetailsView_RoutesLoadedMsg(t *testing.T) {
+	v := NewNetworkDetailsView("test-project", "test-network", nil)
+
+	// Simulate routes loaded
+	routes := []gcp.Route{
+		{Name: "default-route", DestRange: "0.0.0.0/0", Priority: 1000, NextHop: "default-internet-gateway", RouteType: "Static"},
+		{Name: "subnet-route", DestRange: "10.0.0.0/24", Priority: 0, NextHop: "test-network", RouteType: "Subnet"},
+	}
+	v.Update(networkRoutesLoadedMsg{routes: routes})
+
+	assert.False(t, v.routesLoading, "Routes loading should be false after load")
+	assert.Nil(t, v.routesErr, "No error expected")
+	assert.Len(t, v.routes, 2, "Should have 2 routes")
+	assert.True(t, v.routeLinks.HasItems(), "Route links should be populated")
+	assert.Equal(t, 2, v.routeLinks.Count(), "Should have 2 route links")
+}
+
+func TestNetworkDetailsView_RoutesErrorMsg(t *testing.T) {
+	v := NewNetworkDetailsView("test-project", "test-network", nil)
+
+	testErr := fmt.Errorf("failed to load routes")
+	v.Update(networkRoutesErrorMsg{err: testErr})
+
+	assert.False(t, v.routesLoading, "Routes loading should be false after error")
+	assert.Equal(t, testErr, v.routesErr, "Error should be set")
+	assert.Nil(t, v.routes, "Routes should be nil on error")
+}
+
+func TestNetworkDetailsView_RenderRoutesTab(t *testing.T) {
+	v := NewNetworkDetailsView("test-project", "test-network", nil)
+	v.width = 120
+	v.details = &gcp.NetworkDetails{Name: "test-network"}
+	v.routesLoading = false
+	v.routes = []gcp.Route{
+		{Name: "default-route", DestRange: "0.0.0.0/0", Priority: 1000, NextHop: "default-gw", RouteType: "Static"},
+	}
+	v.populateRouteLinks()
+
+	output := v.renderRoutesTab()
+	assert.Contains(t, output, "test-network")
+	assert.Contains(t, output, "default-route")
+	assert.Contains(t, output, "0.0.0.0/0")
+	assert.Contains(t, output, "Static")
+}
+
+func TestNetworkDetailsView_RenderRoutesTabEmpty(t *testing.T) {
+	v := NewNetworkDetailsView("test-project", "test-network", nil)
+	v.width = 120
+	v.details = &gcp.NetworkDetails{Name: "test-network"}
+	v.routesLoading = false
+	v.routes = nil
+
+	output := v.renderRoutesTab()
+	assert.Contains(t, output, "No routes found")
+}
+
+func TestNetworkDetailsView_RenderRoutesTabLoading(t *testing.T) {
+	v := NewNetworkDetailsView("test-project", "test-network", nil)
+	v.width = 120
+	v.details = &gcp.NetworkDetails{Name: "test-network"}
+	v.routesLoading = true
+
+	output := v.renderRoutesTab()
+	assert.Contains(t, output, "Loading routes...")
+}
+
+func TestNetworkDetailsView_RenderRoutesTabError(t *testing.T) {
+	v := NewNetworkDetailsView("test-project", "test-network", nil)
+	v.width = 120
+	v.details = &gcp.NetworkDetails{Name: "test-network"}
+	v.routesLoading = false
+	v.routesErr = fmt.Errorf("permission denied")
+
+	output := v.renderRoutesTab()
+	assert.Contains(t, output, "Error loading routes: permission denied")
+	assert.Contains(t, output, "Press 'r' to retry")
+}
+
+func TestNetworkDetailsView_GetRegionLabelRoute(t *testing.T) {
+	v := NewNetworkDetailsView("test-project", "test-network", nil)
+
+	// Switch to Routes tab
+	v.tabs.SetActiveByID(networkTabIDRoutes)
+
+	// Enable route links region (normally done when routes load) and set focus
+	v.focusMgr.EnableRegion(networkRegionIDRouteLinks)
+	v.focusMgr.SetActive(networkRegionIDRouteLinks)
+
+	label := v.getRegionLabel()
+	assert.Equal(t, "route", label)
+}
+
+func TestNetworkDetailsView_GetRegionLabelSubnet(t *testing.T) {
+	v := NewNetworkDetailsView("test-project", "test-network", nil)
+
+	// Stay on Subnets tab (default is Details, switch to Subnets)
+	v.tabs.SetActiveByID(networkTabIDSubnets)
+
+	// Enable subnet links region and set focus
+	v.focusMgr.EnableRegion(networkRegionIDLinks)
+	v.focusMgr.SetActive(networkRegionIDLinks)
+
+	label := v.getRegionLabel()
+	assert.Equal(t, "subnet", label)
 }
 
 func TestNetworkDetailsView_IsMenuOpen(t *testing.T) {
