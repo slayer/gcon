@@ -448,12 +448,14 @@ func (v *SubnetDetailsView) renderContent() string {
 	b.WriteString("\n")
 	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Name", d.Name))
 	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "ID", strconv.FormatUint(d.ID, 10)))
-	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Status", d.Status))
+	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Status", defaultIfEmpty(d.Status, "READY")))
 	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Region", d.Region))
 
 	// Network as navigable link
 	if v.networkLink != nil && v.networkLink.HasItems() {
-		b.WriteString(v.networkLink.RenderRow(0, labelStyle.Render("Network:")+" "+d.Network) + "\n")
+		label := labelStyle.Render("Network:")
+		linkRendered := v.networkLink.RenderRow(0, d.Network)
+		b.WriteString(label + " " + linkRendered + "\n")
 	} else {
 		b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Network", d.Network))
 	}
