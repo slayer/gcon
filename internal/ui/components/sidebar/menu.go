@@ -127,8 +127,8 @@ func DefaultMenu() []MenuItem {
 			Children: []MenuItem{
 				{ID: "networks", Label: "VPC networks", Icon: IconVPC, Hotkey: 'n', Type: MenuItemLeaf, ViewType: ViewNetworks},
 				{ID: "subnets", Label: "Subnets", Icon: IconSubnet, Hotkey: 'u', Type: MenuItemLeaf, ViewType: ViewSubnets},
-				{ID: "routes", Label: "Routes", Icon: IconRoute, Hotkey: 'r', Type: MenuItemLeaf, ViewType: ViewRoutes},
-			{ID: "firewall", Label: "Firewall", Icon: IconFirewall, Hotkey: 'f', Type: MenuItemLeaf, ViewType: ViewFirewall},
+				{ID: "firewall", Label: "Firewall", Icon: IconFirewall, Hotkey: 'f', Type: MenuItemLeaf, ViewType: ViewFirewall},
+				{ID: "routes", Label: "Routes", Icon: IconRoute, Hotkey: 'o', Type: MenuItemLeaf, ViewType: ViewRoutes},
 			},
 		},
 		{
