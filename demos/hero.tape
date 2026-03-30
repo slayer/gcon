@@ -1,5 +1,5 @@
 # Hero GIF — Main showcase of gcon
-# Shows: project selection, sidebar, instance details, command palette
+# Shows: project selection, sidebar navigation, instance details, command palette
 Output output/hero.gif
 
 Set Theme "Catppuccin Mocha"
@@ -45,6 +45,30 @@ Sleep 1s
 
 # Go back to list
 Escape
+Sleep 1s
+
+# Focus sidebar
+Type "["
+Sleep 1s
+
+# Navigate sidebar — browse resource categories
+Down
+Sleep 500ms
+Down
+Sleep 500ms
+Down
+Sleep 500ms
+Down
+Sleep 500ms
+Down
+Sleep 500ms
+
+# Select a sidebar item (e.g., Cloud Storage)
+Enter
+Sleep 2s
+
+# Return focus to content
+Type "]"
 Sleep 1s
 
 # Open command palette

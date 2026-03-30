@@ -22,10 +22,6 @@
   <a href="#contributing">Contributing</a>
 </p>
 
-<p align="center">
-  <img src="https://github.com/slayer/gcon/releases/download/v0.0.0-demos/hero.gif" alt="gcon demo" width="800">
-</p>
-
 ## Overview
 
 **gcon** is a powerful, keyboard-driven terminal user interface (TUI) for managing Google Cloud Platform resources. Built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) and Go, it provides a fast, intuitive alternative to the GCP Console and `gcloud` CLI for common cloud operations.
@@ -95,6 +91,40 @@ go install github.com/slayer/gcon/cmd/gcon@latest
 
 Download the latest binary from [Releases](https://github.com/slayer/gcon/releases).
 
+## Demo
+
+### Navigation & Resource Browsing
+
+Browse projects, instances, and resources with keyboard-driven navigation and sidebar.
+
+<p align="center">
+  <img src="https://github.com/slayer/gcon/releases/download/v0.0.0-demos/hero.gif" alt="Navigation demo" width="800">
+</p>
+
+### Instance Observability
+
+Real-time CPU, memory, and network metrics with braille charts and configurable time ranges.
+
+<p align="center">
+  <img src="https://github.com/slayer/gcon/releases/download/v0.0.0-demos/observability.gif" alt="Observability demo" width="800">
+</p>
+
+### Logs Explorer
+
+Query, filter, and explore Cloud Logging entries with severity filtering and syntax colorization.
+
+<p align="center">
+  <img src="https://github.com/slayer/gcon/releases/download/v0.0.0-demos/logs.gif" alt="Logs Explorer demo" width="800">
+</p>
+
+### Command Palette
+
+Fuzzy search to quickly navigate between any resource view.
+
+<p align="center">
+  <img src="https://github.com/slayer/gcon/releases/download/v0.0.0-demos/command-palette.gif" alt="Command Palette demo" width="800">
+</p>
+
 ## Features
 
 ### ✅ Currently Implemented
@@ -129,8 +159,6 @@ Download the latest binary from [Releases](https://github.com/slayer/gcon/releas
   - Recent error and warning logs
   - Multiple time ranges (1h, 6h, 24h, 7d, 30d)
   - Auto-refresh capability
-
-  <img src="https://github.com/slayer/gcon/releases/download/v0.0.0-demos/observability.gif" alt="Observability demo" width="700">
 
 - 💾 **Persistent Disk Management**
   - List all disks with details (size, type, status, attachments)
@@ -264,8 +292,6 @@ Download the latest binary from [Releases](https://github.com/slayer/gcon/releas
   - Open in `$PAGER` with `p` key (respects color toggle)
   - Export to TXT/CSV/JSONL via action menu
   - ANSI-aware truncation and wrapping (preserves existing log colors)
-
-  <img src="https://github.com/slayer/gcon/releases/download/v0.0.0-demos/logs.gif" alt="Logs Explorer demo" width="700">
 </details>
 
 <details>
@@ -280,8 +306,6 @@ Download the latest binary from [Releases](https://github.com/slayer/gcon/releas
 - ⚡ **Loading States** - Spinners and progress indicators for all async operations
 - ❌ **Error Handling** - Inline error display with retry options
 - 📊 **Status Bar** - Real-time status updates and operation feedback
-
-<img src="https://github.com/slayer/gcon/releases/download/v0.0.0-demos/command-palette.gif" alt="Command Palette demo" width="700">
 </details>
 
 ### 🚧 Planned Features
