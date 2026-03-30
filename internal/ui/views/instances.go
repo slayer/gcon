@@ -115,11 +115,11 @@ func defaultInstanceKeyMap() instanceKeyMap {
 // Table column definitions
 func instanceColumns() []table.Column {
 	return []table.Column{
-		{Title: "Name", Width: 30, Grow: true, Sortable: true},
-		{Title: "Zone", Width: 20, Sortable: true},
+		{Title: "Name", Width: 24, Grow: true, Sortable: true},
+		{Title: "Zone", Width: 18, Sortable: true},
 		{Title: "Internal IP", Width: 15},
 		{Title: "External IP", Width: 15},
-		{Title: "Machine Type", Width: 15, Sortable: true},
+		{Title: "Machine Type", Width: 14, Sortable: true},
 	}
 }
 
