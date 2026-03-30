@@ -99,9 +99,6 @@ type routesClientReadyMsg struct{ client *gcp.ComputeClient }
 type routesLoadedMsg struct{ routes []gcp.Route }
 type routesErrorMsg struct{ err error }
 
-// Muted style for non-static route types (Subnet, Peering, System)
-var routeTypeMutedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#6B6B6B"))
-
 // NewRoutesView creates a new routes view with table display
 func NewRoutesView(projectID string) *RoutesView {
 	title := fmt.Sprintf("Routes - %s", projectID)
@@ -156,13 +153,7 @@ func (v *RoutesView) loadRoutes() tea.Cmd {
 }
 
 // routeToRow converts a GCP route to a table row.
-// Type column is color-coded: Static = default, others = muted gray.
 func routeToRow(r gcp.Route) table.Row { //nolint:gocritic // Copying route is acceptable
-	typeDisplay := r.RouteType
-	if r.RouteType != "Static" {
-		typeDisplay = routeTypeMutedStyle.Render(r.RouteType)
-	}
-
 	return table.Row{
 		Data: []string{
 			r.Name,
@@ -170,7 +161,7 @@ func routeToRow(r gcp.Route) table.Row { //nolint:gocritic // Copying route is a
 			r.DestRange,
 			strconv.FormatInt(r.Priority, 10),
 			r.NextHop,
-			typeDisplay,
+			r.RouteType,
 			timeutil.FormatTimestamp(r.CreatedAt),
 		},
 		FilterValue: r.Name + " " +
