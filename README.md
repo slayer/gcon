@@ -39,6 +39,40 @@
 - 🔍 **Fuzzy Search** - Quickly find projects, instances, and resources with built-in filtering
 - 📊 **Resource Monitoring** - Real-time metrics, logs, and observability for your instances
 
+## Demo
+
+### Navigation & Resource Browsing
+
+Browse projects, instances, and resources with keyboard-driven navigation and sidebar.
+
+<p align="center">
+  <img src="https://github.com/slayer/gcon/releases/download/v0.0.0-demos/hero.gif" alt="Navigation demo" width="800">
+</p>
+
+### Instance Observability
+
+Real-time CPU, memory, and network metrics with braille charts and configurable time ranges.
+
+<p align="center">
+  <img src="https://github.com/slayer/gcon/releases/download/v0.0.0-demos/observability.gif" alt="Observability demo" width="800">
+</p>
+
+### Logs Explorer
+
+Query, filter, and explore Cloud Logging entries with severity filtering and syntax colorization.
+
+<p align="center">
+  <img src="https://github.com/slayer/gcon/releases/download/v0.0.0-demos/logs.gif" alt="Logs Explorer demo" width="800">
+</p>
+
+### Command Palette
+
+Fuzzy search to quickly navigate between any resource view.
+
+<p align="center">
+  <img src="https://github.com/slayer/gcon/releases/download/v0.0.0-demos/command-palette.gif" alt="Command Palette demo" width="800">
+</p>
+
 ## Quick Start
 
 1. **Install gcon** (see [Installation](#installation) below)
@@ -94,40 +128,6 @@ go install github.com/slayer/gcon/cmd/gcon@latest
 ### From Releases
 
 Download the latest binary from [Releases](https://github.com/slayer/gcon/releases).
-
-## Demo
-
-### Navigation & Resource Browsing
-
-Browse projects, instances, and resources with keyboard-driven navigation and sidebar.
-
-<p align="center">
-  <img src="https://github.com/slayer/gcon/releases/download/v0.0.0-demos/hero.gif" alt="Navigation demo" width="800">
-</p>
-
-### Instance Observability
-
-Real-time CPU, memory, and network metrics with braille charts and configurable time ranges.
-
-<p align="center">
-  <img src="https://github.com/slayer/gcon/releases/download/v0.0.0-demos/observability.gif" alt="Observability demo" width="800">
-</p>
-
-### Logs Explorer
-
-Query, filter, and explore Cloud Logging entries with severity filtering and syntax colorization.
-
-<p align="center">
-  <img src="https://github.com/slayer/gcon/releases/download/v0.0.0-demos/logs.gif" alt="Logs Explorer demo" width="800">
-</p>
-
-### Command Palette
-
-Fuzzy search to quickly navigate between any resource view.
-
-<p align="center">
-  <img src="https://github.com/slayer/gcon/releases/download/v0.0.0-demos/command-palette.gif" alt="Command Palette demo" width="800">
-</p>
 
 ## Features
 
