@@ -81,12 +81,12 @@ func defaultCloudRunServicesKeyMap() cloudRunServicesKeyMap {
 
 func cloudRunServiceColumns() []table.Column {
 	return []table.Column{
-		{Title: "Name", Width: 16, Grow: true, Sortable: true},
-		{Title: "Region", Width: 12, Sortable: true},
-		{Title: "Status", Width: 8, Sortable: true},
-		{Title: "URL", Width: 14, Grow: true, Sortable: true},
-		{Title: "Revision", Width: 14, Sortable: true},
-		{Title: "Updated", Width: 14, Sortable: true},
+		{Title: "Name", Width: 24, Grow: true, Sortable: true},
+		{Title: "Region", Width: 16, Sortable: true},
+		{Title: "Status", Width: 10, Sortable: true},
+		{Title: "URL", Width: 30, Grow: true, Sortable: true},
+		{Title: "Revision", Width: 20, Sortable: true},
+		{Title: "Updated", Width: 18, Sortable: true},
 	}
 }
 

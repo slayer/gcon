@@ -4,7 +4,7 @@ Output output/hero.gif
 
 Set Theme "Catppuccin Mocha"
 Set FontSize 14
-Set Width 1200
+Set Width 1400
 Set Height 700
 Set Padding 20
 # Set up auth (hidden — gcon takes over the screen immediately)
