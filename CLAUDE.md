@@ -253,6 +253,13 @@ On developing or updating a new feature keep in mind the following guidelines:
   - Enable/disable firewall rules
   - Delete firewall rules with confirmation
   - Navigate to associated VPC network
+- [x] VPC Routes management
+  - List all routes with network, destination, priority, next hop, type (Static/Subnet/Peering/System)
+  - Route details view with routing info, network link, and warnings
+  - Create route with next hop type selection (Gateway/Instance/IP/VPN Tunnel/Interconnect/ILB)
+  - Delete static routes with type-to-confirm (system/subnet/peering routes are read-only)
+  - Routes tab in Network Details view
+  - Sidebar entry under Networking, command palette integration
 - [x] Cloud SQL instance management
   - List SQL instances with version, state, region, tier, IP
   - Instance details view with 3 tabs (Details/Databases/Backups)

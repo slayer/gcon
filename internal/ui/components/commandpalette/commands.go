@@ -26,6 +26,7 @@ const (
 	ViewNetworks
 	ViewFirewall
 	ViewSubnets
+	ViewRoutes
 	ViewSQLInstances
 	ViewServiceAccounts
 	ViewIAMPolicy
@@ -48,6 +49,7 @@ const (
 	IconServiceAccount = "▲"
 	IconIAMPolicy      = "▽"
 	IconCustomRole     = "▼"
+	IconRoute          = "→"
 	IconCloudRun       = "▶"
 	IconLogs           = "◆"
 	IconRefresh        = "↻"
@@ -159,6 +161,14 @@ func NavigationCommands() []Command {
 			Icon:     IconSubnet,
 			Type:     CommandTypeNavigation,
 			ViewType: ViewSubnets,
+			Enabled:  true,
+		},
+		{
+			ID:       "nav:routes",
+			Label:    "VPC Network: Routes",
+			Icon:     IconRoute,
+			Type:     CommandTypeNavigation,
+			ViewType: ViewRoutes,
 			Enabled:  true,
 		},
 		{

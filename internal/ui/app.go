@@ -54,6 +54,9 @@ const (
 	ViewSubnets
 	ViewSubnetDetails
 	ViewSubnetCreate
+	ViewRoutes
+	ViewRouteDetails
+	ViewRouteCreate
 	ViewSQLInstances
 	ViewSQLInstanceDetails
 	ViewServiceAccounts
@@ -119,6 +122,9 @@ type App struct {
 	subnetsView                *views.SubnetsView
 	subnetDetailsView          *views.SubnetDetailsView
 	subnetCreateView           *views.SubnetCreateView
+	routesView                 *views.RoutesView
+	routeDetailsView           *views.RouteDetailsView
+	routeCreateView            *views.RouteCreateView
 	sqlInstancesView           *views.SQLInstancesView
 	sqlInstanceDetailsView     *views.SQLInstanceDetailsView
 	serviceAccountsView        *views.ServiceAccountsView
@@ -385,6 +391,12 @@ func (a *App) getCurrentViewModel() views.View {
 		return a.subnetDetailsView
 	case ViewSubnetCreate:
 		return a.subnetCreateView
+	case ViewRoutes:
+		return a.routesView
+	case ViewRouteDetails:
+		return a.routeDetailsView
+	case ViewRouteCreate:
+		return a.routeCreateView
 	case ViewSQLInstances:
 		return a.sqlInstancesView
 	case ViewSQLInstanceDetails:
@@ -536,6 +548,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					a.subnetDetailsView = nil
 				case ViewSubnetCreate:
 					a.subnetCreateView = nil
+				case ViewRouteDetails:
+					a.routeDetailsView = nil
+				case ViewRouteCreate:
+					a.routeCreateView = nil
 				case ViewSQLInstanceDetails:
 					a.sqlInstanceDetailsView = nil
 					a.selectedSQLInstance = nil
@@ -585,7 +601,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// If not handled, fall through to quit
 				fallthrough
 
-			case ViewInstances, ViewDisks, ViewSnapshots, ViewImages, ViewBuckets, ViewNetworks, ViewFirewall, ViewSubnets, ViewSQLInstances, ViewServiceAccounts, ViewIAMPolicy, ViewCustomRoles, ViewCloudRunServices, ViewLogs, ViewProjects:
+			case ViewInstances, ViewDisks, ViewSnapshots, ViewImages, ViewBuckets, ViewNetworks, ViewFirewall, ViewSubnets, ViewRoutes, ViewSQLInstances, ViewServiceAccounts, ViewIAMPolicy, ViewCustomRoles, ViewCloudRunServices, ViewLogs, ViewProjects:
 				// Quit from top-level views or if stack is empty
 				a.cleanup()
 				return a, tea.Quit
@@ -929,6 +945,38 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case views.SubnetActionResultMsg:
 		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
 		return a, a.handleSubnetActionResult(msg)
+
+	case views.RoutesRequestMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleRoutesRequest()
+
+	case views.RouteSelectedMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleRouteSelected(msg)
+
+	case views.RouteCreateRequestMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleRouteCreateRequest(msg)
+
+	case views.CreateRouteMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleCreateRoute(msg)
+
+	case views.RouteCreateResultMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleRouteCreateResult(msg)
+
+	case views.RouteCreateCanceledMsg:
+		a.handleRouteCreateCanceled()
+		return a, nil
+
+	case views.RouteDeleteRequestMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleRouteDeleteRequest(msg)
+
+	case views.RouteDeleteResultMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleRouteDeleteResult(msg)
 
 	case views.SQLInstanceSelectedMsg:
 		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
@@ -1291,6 +1339,15 @@ func (a *App) updateViewSizes() {
 	}
 	if a.subnetCreateView != nil {
 		a.subnetCreateView.SetContext(a.ctx)
+	}
+	if a.routesView != nil {
+		a.routesView.SetContext(a.ctx)
+	}
+	if a.routeDetailsView != nil {
+		a.routeDetailsView.SetContext(a.ctx)
+	}
+	if a.routeCreateView != nil {
+		a.routeCreateView.SetContext(a.ctx)
 	}
 	if a.sqlInstancesView != nil {
 		a.sqlInstancesView.SetContext(a.ctx)
