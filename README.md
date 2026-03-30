@@ -1,4 +1,6 @@
-# gcon
+<p align="center">
+  <img src="assets/logo.png" alt="GCon logo" width="400">
+</p>
 
 <p align="center">
   <strong>A modern terminal UI for managing Google Cloud Platform resources</strong>
