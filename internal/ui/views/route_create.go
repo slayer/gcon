@@ -12,8 +12,6 @@ import (
 )
 
 // Internal message types for route creation workflow.
-type routeCreateSuccessMsg struct{}
-type routeCreateErrorMsg struct{ err error }
 type networksForRouteLoadedMsg struct {
 	networks []gcp.Network
 	err      error
@@ -155,15 +153,6 @@ func (v *RouteCreateView) Update(msg tea.Msg) tea.Cmd {
 				}
 			}
 		}
-		return nil
-
-	case routeCreateSuccessMsg:
-		return func() tea.Msg {
-			return RouteCreateResultMsg{Name: v.Form.GetData()["name"].(string)} //nolint:errcheck // name is validated
-		}
-
-	case routeCreateErrorMsg:
-		v.SetError(msg.err)
 		return nil
 
 	case forms.FormSubmitMsg:

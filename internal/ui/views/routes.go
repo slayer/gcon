@@ -173,7 +173,13 @@ func routeToRow(r gcp.Route) table.Row { //nolint:gocritic // Copying route is a
 			typeDisplay,
 			timeutil.FormatTimestamp(r.CreatedAt),
 		},
-		FilterValue: r.Name + " " + r.Network + " " + r.DestRange + " " + r.RouteType,
+		FilterValue: r.Name + " " +
+			r.Network + " " +
+			r.DestRange + " " +
+			strconv.FormatInt(r.Priority, 10) + " " +
+			r.NextHop + " " +
+			r.RouteType + " " +
+			timeutil.FormatTimestamp(r.CreatedAt),
 		// Routes are globally unique by name
 		ID: r.Name,
 	}
