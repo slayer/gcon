@@ -1,0 +1,17 @@
+# Copy to .envrc and fill in your values
+# Usage: cp .envrc.example .envrc && direnv allow
+
+export DEMO_PROJECT="your-gcp-project-id"
+export DEMO_REGION="us-central1"
+export DEMO_ZONE="us-central1-a"
+export DEMO_SA_NAME="gcon-demo-sa"
+export DEMO_BUCKET="gcon-demo-bucket-${DEMO_PROJECT}"
+export DEMO_SQL_INSTANCE="gcon-demo-sql"
+export DEMO_VM="gcon-demo-vm"
+export DEMO_CLOUDRUN_SVC="gcon-demo-svc"
+export DEMO_FIREWALL="gcon-demo-allow-http"
+export DEMO_ROUTE="gcon-demo-route"
+export DEMO_CUSTOM_ROLE="gcon.demo.viewer"
+
+# Service account key for gcon auth during recording
+export GOOGLE_APPLICATION_CREDENTIALS="${PWD}/gcon-sa.json"
