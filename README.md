@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://github.com/slayer/gcon/releases/download/v0.0.0-demos/logo.png" alt="GCon logo" width="100">
+  <img src="https://github.com/slayer/gcon/releases/download/v0.0.0-demos/logo.png" alt="GCon logo" width="290">
 </p>
 
 <p align="center">
