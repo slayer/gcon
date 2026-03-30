@@ -89,21 +89,29 @@ func (c *ComputeClient) ListRoutes(ctx context.Context, projectID string) ([]Rou
 	return routes, nil
 }
 
-// ListRoutesByNetwork retrieves routes filtered to a specific network
+// ListRoutesByNetwork retrieves routes filtered to a specific network using server-side filtering
 func (c *ComputeClient) ListRoutesByNetwork(ctx context.Context, projectID, networkName string) ([]Route, error) {
-	all, err := c.ListRoutes(ctx, projectID)
-	if err != nil {
-		return nil, err
-	}
+	var routes []Route
 
-	var filtered []Route
-	for i := range all {
-		if all[i].Network == networkName {
-			filtered = append(filtered, all[i])
+	// Server-side filter: network field is a full URL ending with /networks/{name}
+	filterExpr := fmt.Sprintf("network eq .*networks/%s$", networkName)
+
+	req := c.service.Routes.List(projectID).Filter(filterExpr)
+	err := req.Pages(ctx, func(page *compute.RouteList) error {
+		for _, r := range page.Items {
+			routes = append(routes, routeFromAPI(r))
 		}
+		return nil
+	})
+	if err != nil {
+		return nil, WrapListError(err, "routes", projectID)
 	}
 
-	return filtered, nil
+	sort.Slice(routes, func(i, j int) bool {
+		return routes[i].Priority < routes[j].Priority
+	})
+
+	return routes, nil
 }
 
 // GetRouteDetails fetches detailed info for a single route

@@ -113,10 +113,11 @@ type NetworkDetailsView struct {
 }
 
 type networkDetailsKeyMap struct {
-	Up         key.Binding
-	Down       key.Binding
-	Refresh    key.Binding
-	ActionMenu key.Binding
+	Up          key.Binding
+	Down        key.Binding
+	Refresh     key.Binding
+	ActionMenu  key.Binding
+	CreateRoute key.Binding
 }
 
 func defaultNetworkDetailsKeyMap() networkDetailsKeyMap {
@@ -136,6 +137,10 @@ func defaultNetworkDetailsKeyMap() networkDetailsKeyMap {
 		ActionMenu: key.NewBinding(
 			key.WithKeys("."),
 			key.WithHelp(".", "actions"),
+		),
+		CreateRoute: key.NewBinding(
+			key.WithKeys("c"),
+			key.WithHelp("c", "create route"),
 		),
 	}
 }
@@ -378,7 +383,7 @@ func (v *NetworkDetailsView) Update(msg tea.Msg) tea.Cmd {
 
 		// View-specific action keys (work regardless of focus)
 		switch {
-		case key.Matches(msg, key.NewBinding(key.WithKeys("c"))):
+		case key.Matches(msg, v.keys.CreateRoute):
 			// Create route from Routes tab
 			if v.tabs.ActiveTab().ID == networkTabIDRoutes {
 				return func() tea.Msg {
@@ -633,7 +638,7 @@ func (v *NetworkDetailsView) renderDetailsTab() string {
 	// Header
 	b.WriteString(titleStyle.Render(fmt.Sprintf("Network: %s", d.Name)))
 	b.WriteString("\n")
-	b.WriteString(strings.Repeat("─", min(v.width-4, 60)))
+	b.WriteString(strings.Repeat("─", max(0, min(v.width-4, 60))))
 	b.WriteString("\n\n")
 
 	// Basic Information
@@ -694,7 +699,7 @@ func (v *NetworkDetailsView) renderSubnetsTab() string {
 	if v.details != nil {
 		b.WriteString(titleStyle.Render(fmt.Sprintf("Network: %s", v.details.Name)))
 		b.WriteString("\n")
-		b.WriteString(strings.Repeat("─", min(v.width-4, 60)))
+		b.WriteString(strings.Repeat("─", max(0, min(v.width-4, 60))))
 		b.WriteString("\n\n")
 	}
 
@@ -760,7 +765,7 @@ func (v *NetworkDetailsView) renderRoutesTab() string {
 	if v.details != nil {
 		b.WriteString(titleStyle.Render(fmt.Sprintf("Network: %s", v.details.Name)))
 		b.WriteString("\n")
-		b.WriteString(strings.Repeat("─", min(v.width-4, 60)))
+		b.WriteString(strings.Repeat("─", max(0, min(v.width-4, 60))))
 		b.WriteString("\n\n")
 	}
 

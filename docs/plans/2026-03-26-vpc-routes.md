@@ -99,7 +99,7 @@ RouteConfig struct {
 ### Network Details — Routes Tab
 
 - Third tab: Details / Subnets / **Routes**
-- Lazy-loaded on first visit (create before `updateViewportContent()` per rule #14)
+- Eager-loaded in parallel with details and subnets on Init()
 - Uses `links.Links` for navigable route entries
 - Columns in link rows: Name, Dest Range, Priority, Next Hop, Type
 - `c` → Route Create with network pre-filled
