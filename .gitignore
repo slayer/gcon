@@ -8,3 +8,8 @@
 .claude/settings.local.json
 
 *.log
+
+# Demo recordings
+demos/output/
+demos/.envrc
+demos/gcon-sa.json

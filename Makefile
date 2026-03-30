@@ -1,4 +1,4 @@
-.PHONY: build run test lint clean deps tidy install-lint test-golden test-golden-update
+.PHONY: build run test lint clean deps tidy install-lint test-golden test-golden-update demo-setup demo-teardown demos demos-upload
 
 # golangci-lint version (update in .github/workflows/ci.yml when changing)
 GOLANGCI_LINT_VERSION := v2.6
@@ -89,6 +89,19 @@ install: build
 dev:
 	$(GORUN) -race ./cmd/gcon
 
+# Demo recordings: create/destroy GCP resources and record GIFs with VHS
+demo-setup:
+	@bash -c 'cd demos && source .envrc && ./resources.sh setup'
+
+demo-teardown:
+	@bash -c 'cd demos && source .envrc && ./resources.sh teardown'
+
+demos: build
+	@bash -c 'cd demos && source .envrc && export PATH="$$PWD/../bin:$$PATH" && for f in *.tape; do vhs "$$f"; done'
+
+demos-upload:
+	gh release upload v0.0.0-demos demos/output/*.gif --clobber
+
 # Help
 help:
 	@echo "Available targets:"
@@ -104,3 +117,7 @@ help:
 	@echo "  test-golden  - Run golden snapshot tests"
 	@echo "  test-golden-update - Regenerate golden files"
 	@echo "  dev          - Run with race detector"
+	@echo "  demo-setup   - Create demo GCP resources"
+	@echo "  demo-teardown- Destroy demo GCP resources"
+	@echo "  demos        - Record demo GIFs with VHS"
+	@echo "  demos-upload - Upload demo GIFs to GitHub release"
