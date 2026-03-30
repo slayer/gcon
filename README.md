@@ -22,6 +22,10 @@
   <a href="#contributing">Contributing</a>
 </p>
 
+<p align="center">
+  <img src="https://github.com/slayer/gcon/releases/download/v0.0.0-demos/hero.gif" alt="gcon demo" width="800">
+</p>
+
 ## Overview
 
 **gcon** is a powerful, keyboard-driven terminal user interface (TUI) for managing Google Cloud Platform resources. Built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) and Go, it provides a fast, intuitive alternative to the GCP Console and `gcloud` CLI for common cloud operations.
