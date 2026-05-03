@@ -24,6 +24,36 @@ var (
 	colorBgActive = lipgloss.Color("#2D3142")
 )
 
+// Styles defined once at package level to avoid re-allocation on every render.
+var (
+	stylePrefixBar = lipgloss.NewStyle().
+			Foreground(colorPrimary).
+			Background(colorBgActive).
+			Bold(true)
+
+	styleBar = lipgloss.NewStyle().
+			Background(colorBgActive).
+			Padding(0, 1)
+
+	styleStatusIdle = lipgloss.NewStyle().
+			Foreground(colorMuted).
+			Background(colorBgActive)
+
+	styleStatusNoMatch = lipgloss.NewStyle().
+				Foreground(colorError).
+				Background(colorBgActive)
+
+	styleStatusCount = lipgloss.NewStyle().
+				Foreground(colorSuccess).
+				Background(colorBgActive)
+
+	styleStatusNav = lipgloss.NewStyle().
+			Foreground(colorMuted).
+			Background(colorBgActive)
+
+	styleInput = lipgloss.NewStyle().Background(colorBg)
+)
+
 // keyMap defines key bindings for the search bar.
 type keyMap struct {
 	Next   key.Binding
@@ -222,47 +252,25 @@ func (m *Model) View() string {
 		return ""
 	}
 
-	prefixStyle := lipgloss.NewStyle().
-		Foreground(colorPrimary).
-		Background(colorBgActive).
-		Bold(true)
-
-	barStyle := lipgloss.NewStyle().
-		Background(colorBgActive).
-		Padding(0, 1)
-
 	query := m.input.Value()
 
 	var statusStr string
 	switch {
 	case query == "":
-		statusStr = lipgloss.NewStyle().
-			Foreground(colorMuted).
-			Background(colorBgActive).
-			Render("  type to search")
+		statusStr = styleStatusIdle.Render("  type to search")
 	case len(m.matches) == 0:
-		statusStr = lipgloss.NewStyle().
-			Foreground(colorError).
-			Background(colorBgActive).
-			Render("  no matches")
+		statusStr = styleStatusNoMatch.Render("  no matches")
 	default:
 		countStr := fmt.Sprintf("  %d/%d", m.CurrentMatchIndex(), m.MatchCount())
 		navHint := "  n:next  N:prev  esc:close"
-		statusStr = lipgloss.NewStyle().
-			Foreground(colorSuccess).
-			Background(colorBgActive).
-			Render(countStr) +
-			lipgloss.NewStyle().
-				Foreground(colorMuted).
-				Background(colorBgActive).
-				Render(navHint)
+		statusStr = styleStatusCount.Render(countStr) + styleStatusNav.Render(navHint)
 	}
 
-	prefix := prefixStyle.Render(" /")
-	inputRendered := lipgloss.NewStyle().Background(colorBg).Render(m.input.View())
+	prefix := stylePrefixBar.Render(" /")
+	inputRendered := styleInput.Render(m.input.View())
 
 	content := prefix + " " + inputRendered + statusStr
-	return barStyle.Render(content)
+	return styleBar.Render(content)
 }
 
 // rebuildMatches recomputes the match list based on the current query.
