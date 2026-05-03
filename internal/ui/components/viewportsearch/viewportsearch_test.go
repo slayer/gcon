@@ -203,8 +203,9 @@ func TestMatchIndexPreservedOnContentUpdate(t *testing.T) {
 	assert.Equal(t, 2, m.CurrentMatchLine())
 	assert.Equal(t, 2, m.CurrentMatchIndex())
 
-	// Update content with same query — index should clamp if needed
+	// Update content with same query — index should clamp if needed.
+	// m.current was 1 (0-based) which is still valid in 4 matches, so it's preserved.
+	// CurrentMatchIndex() returns m.current+1 = 2.
 	m.SetContent("foo\nfoo\nfoo\nfoo")
-	// Still 2 matches navigated (now valid in 4 matches), stays at index 1
 	assert.Equal(t, 2, m.CurrentMatchIndex())
 }
