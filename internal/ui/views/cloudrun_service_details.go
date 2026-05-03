@@ -18,6 +18,7 @@ import (
 	"github.com/slayer/gcon/internal/ui/components/actionmenu"
 	"github.com/slayer/gcon/internal/ui/components/confirm"
 	"github.com/slayer/gcon/internal/ui/components/tabs"
+	"github.com/slayer/gcon/internal/ui/components/viewportsearch"
 	"github.com/slayer/gcon/internal/ui/context"
 	uierrors "github.com/slayer/gcon/internal/ui/errors"
 	"github.com/slayer/gcon/internal/ui/focus"
@@ -98,6 +99,10 @@ type CloudRunServiceDetailsView struct {
 	observability *cloudRunObservability
 	gcpClient     *gcp.Client
 
+	// Inline search
+	search          *viewportsearch.Model
+	searchMatchLine int // last match line, used to detect changes for scrolling
+
 	keys crServiceDetailsKeyMap
 }
 
@@ -109,6 +114,7 @@ type crServiceDetailsKeyMap struct {
 	Edit         key.Binding
 	TrafficSplit key.Binding
 	ActionMenu   key.Binding
+	Search       key.Binding
 }
 
 func defaultCRServiceDetailsKeyMap() crServiceDetailsKeyMap {
@@ -140,6 +146,10 @@ func defaultCRServiceDetailsKeyMap() crServiceDetailsKeyMap {
 		ActionMenu: key.NewBinding(
 			key.WithKeys("."),
 			key.WithHelp(".", "actions"),
+		),
+		Search: key.NewBinding(
+			key.WithKeys("/"),
+			key.WithHelp("/", "search"),
 		),
 	}
 }
@@ -175,6 +185,8 @@ func NewCloudRunServiceDetailsView(projectID, serviceName, fullName string, runC
 		tabViewports:     make([]viewport.Model, 4),
 		focusMgr:         fm,
 		regionMgr:        mouse.NewRegionManager(),
+		search:           viewportsearch.New(),
+		searchMatchLine:  -1,
 	}
 }
 
@@ -371,6 +383,18 @@ func (v *CloudRunServiceDetailsView) Update(msg tea.Msg) tea.Cmd {
 			return v.deleteConfirm.Update(msg)
 		}
 
+		// Route to inline search when active (before any other key handling)
+		if v.search != nil && v.search.IsActive() {
+			cmd := v.search.Update(msg)
+			v.scrollToSearchMatch()
+			// If search was just closed, restore the viewport height
+			if !v.search.IsActive() {
+				v.searchMatchLine = -1
+				v.applySize(v.width, v.height)
+			}
+			return cmd
+		}
+
 		// Handle Tab/Shift+Tab for cycling between focus regions
 		if focusMsg := v.focusMgr.HandleKey(msg); focusMsg != nil {
 			v.updateViewportContent()
@@ -379,6 +403,12 @@ func (v *CloudRunServiceDetailsView) Update(msg tea.Msg) tea.Cmd {
 
 		// Action keys work regardless of focused region
 		switch {
+		case key.Matches(msg, v.keys.Search):
+			v.search.Open()
+			v.search.SetSize(v.width - 2)
+			v.applySize(v.width, v.height)
+			return textinput.Blink
+
 		case key.Matches(msg, v.keys.ActionMenu):
 			if v.details != nil {
 				v.actionMenu = actionmenu.New("Cloud Run Actions", v.buildActions())
@@ -494,6 +524,26 @@ func (v *CloudRunServiceDetailsView) refresh() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
+// scrollToSearchMatch scrolls the active viewport to the current search match line.
+// Called after every search key event. Only scrolls when the match line has changed.
+func (v *CloudRunServiceDetailsView) scrollToSearchMatch() {
+	if v.search == nil {
+		return
+	}
+	line := v.search.CurrentMatchLine()
+	if line == v.searchMatchLine {
+		return
+	}
+	v.searchMatchLine = line
+	if line < 0 {
+		return
+	}
+	activeIdx := v.tabs.ActiveIndex()
+	if activeIdx >= 0 && activeIdx < len(v.tabViewports) {
+		v.tabViewports[activeIdx].SetYOffset(line)
+	}
+}
+
 func (v *CloudRunServiceDetailsView) initiateDelete() tea.Cmd {
 	if v.details == nil {
 		return nil
@@ -554,7 +604,13 @@ func (v *CloudRunServiceDetailsView) View() string {
 	helpText := v.buildHelpText()
 	help := helpStyle.Render(helpText) + " " + scrollInfo
 
-	mainContent := tabBar + "\n" + viewportContent + help
+	// Inline search bar (shown between viewport and help when active)
+	searchBar := ""
+	if v.search != nil {
+		searchBar = v.search.View()
+	}
+
+	mainContent := tabBar + "\n" + viewportContent + searchBar + help
 
 	// Render overlays in z-order: traffic dialog > delete confirm > action menu
 	if v.showTrafficDialog && v.trafficDialog != nil {
@@ -605,8 +661,11 @@ func (v *CloudRunServiceDetailsView) GetCloudRunClient() *gcp.CloudRunClient {
 	return v.runClient
 }
 
-// HasTextInputFocused returns true when text input in delete confirm or traffic dialog is active
+// HasTextInputFocused returns true when text input in delete confirm, traffic dialog, or search is active
 func (v *CloudRunServiceDetailsView) HasTextInputFocused() bool {
+	if v.search != nil && v.search.IsActive() {
+		return true
+	}
 	if v.showDeleteConfirm && v.deleteConfirm != nil {
 		return v.deleteConfirm.HasTextInputFocused()
 	}
@@ -616,8 +675,17 @@ func (v *CloudRunServiceDetailsView) HasTextInputFocused() bool {
 	return false
 }
 
+// reservedLines returns the number of lines reserved for UI chrome above/below the viewport.
+// Includes 1 extra line when the inline search bar is active.
+func (v *CloudRunServiceDetailsView) reservedLines() int {
+	if v.search != nil && v.search.IsActive() {
+		return runDetailsViewportReservedLines + 1
+	}
+	return runDetailsViewportReservedLines
+}
+
 func (v *CloudRunServiceDetailsView) applySize(width, height int) {
-	viewportHeight := height - runDetailsViewportReservedLines
+	viewportHeight := height - v.reservedLines()
 	if viewportHeight < 1 {
 		viewportHeight = 1
 	}
@@ -643,6 +711,10 @@ func (v *CloudRunServiceDetailsView) applySize(width, height int) {
 	if v.observability != nil {
 		v.observability.width = viewportWidth
 		v.observability.resizeCharts()
+	}
+
+	if v.search != nil {
+		v.search.SetSize(viewportWidth)
 	}
 
 	if v.details != nil {
@@ -677,6 +749,11 @@ func (v *CloudRunServiceDetailsView) updateViewportContent() {
 	}
 
 	v.tabViewports[activeIdx].SetContent(content)
+
+	// Keep search index in sync with refreshed content
+	if v.search != nil {
+		v.search.SetContent(content)
+	}
 }
 
 func (v *CloudRunServiceDetailsView) renderDetailsTab() string {
@@ -866,14 +943,15 @@ func (v *CloudRunServiceDetailsView) buildHelpText() string {
 	var actionHints string
 	switch v.tabs.ActiveTab().ID {
 	case runTabIDObservability:
-		actionHints = "1-5: range • a: auto-refresh • I/W/E: logs • r: refresh"
+		actionHints = "1-5: range • a: auto-refresh • I/W/E: logs • r: refresh • /: search"
 	case runTabIDRevisions:
 		actionHints = ".: actions • D: delete"
 		if len(v.revisions) > 0 {
 			actionHints += " • t: traffic"
 		}
+		actionHints += " • /: search"
 	default:
-		actionHints = ".: actions • D: delete"
+		actionHints = ".: actions • D: delete • /: search"
 	}
 
 	if badge != "" {

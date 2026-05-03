@@ -9,6 +9,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -17,6 +18,7 @@ import (
 	"github.com/slayer/gcon/internal/ui/components/actionmenu"
 	"github.com/slayer/gcon/internal/ui/components/confirm"
 	"github.com/slayer/gcon/internal/ui/components/tabs"
+	"github.com/slayer/gcon/internal/ui/components/viewportsearch"
 	"github.com/slayer/gcon/internal/ui/context"
 	uierrors "github.com/slayer/gcon/internal/ui/errors"
 	"github.com/slayer/gcon/internal/ui/focus"
@@ -108,6 +110,10 @@ type SQLInstanceDetailsView struct {
 	deleteConfirm     *confirm.TypeConfirmDialog
 	showDeleteConfirm bool
 
+	// Inline search
+	search          *viewportsearch.Model
+	searchMatchLine int // last match line, used to detect changes for scrolling
+
 	keys sqlInstanceDetailsKeyMap
 }
 
@@ -121,6 +127,7 @@ type sqlInstanceDetailsKeyMap struct {
 	Delete       key.Binding
 	CreateBackup key.Binding
 	ActionMenu   key.Binding
+	Search       key.Binding
 }
 
 func defaultSQLInstanceDetailsKeyMap() sqlInstanceDetailsKeyMap {
@@ -161,6 +168,10 @@ func defaultSQLInstanceDetailsKeyMap() sqlInstanceDetailsKeyMap {
 			key.WithKeys("."),
 			key.WithHelp(".", "actions"),
 		),
+		Search: key.NewBinding(
+			key.WithKeys("/"),
+			key.WithHelp("/", "search"),
+		),
 	}
 }
 
@@ -194,6 +205,8 @@ func NewSQLInstanceDetailsView(projectID, instanceName string, sqlClient *gcp.SQ
 		tabViewports:     make([]viewport.Model, 3),
 		focusMgr:         fm,
 		regionMgr:        mouse.NewRegionManager(),
+		search:           viewportsearch.New(),
+		searchMatchLine:  -1,
 	}
 }
 
@@ -337,6 +350,18 @@ func (v *SQLInstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 			return v.deleteConfirm.Update(msg)
 		}
 
+		// Route to inline search when active (before any other key handling)
+		if v.search != nil && v.search.IsActive() {
+			cmd := v.search.Update(msg)
+			v.scrollToSearchMatch()
+			// If search was just closed, restore the viewport height
+			if !v.search.IsActive() {
+				v.searchMatchLine = -1
+				v.applySize(v.width, v.height)
+			}
+			return cmd
+		}
+
 		// Handle Tab/Shift+Tab for cycling between focus regions
 		if focusMsg := v.focusMgr.HandleKey(msg); focusMsg != nil {
 			v.updateViewportContent()
@@ -345,6 +370,12 @@ func (v *SQLInstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 
 		// Action keys checked first so they work regardless of focused region
 		switch {
+		case key.Matches(msg, v.keys.Search):
+			v.search.Open()
+			v.search.SetSize(v.width - 2)
+			v.applySize(v.width, v.height)
+			return textinput.Blink
+
 		case key.Matches(msg, v.keys.ActionMenu):
 			if v.details != nil {
 				v.actionMenu = actionmenu.New("SQL Instance Actions", v.buildActions())
@@ -448,6 +479,25 @@ func (v *SQLInstanceDetailsView) refresh() tea.Cmd {
 	return tea.Batch(v.spinner.Tick, v.loadDetails(), v.loadDatabases(), v.loadBackups())
 }
 
+// scrollToSearchMatch scrolls the active viewport to the current search match line.
+func (v *SQLInstanceDetailsView) scrollToSearchMatch() {
+	if v.search == nil {
+		return
+	}
+	line := v.search.CurrentMatchLine()
+	if line == v.searchMatchLine {
+		return
+	}
+	v.searchMatchLine = line
+	if line < 0 {
+		return
+	}
+	activeIdx := v.tabs.ActiveIndex()
+	if activeIdx >= 0 && activeIdx < len(v.tabViewports) {
+		v.tabViewports[activeIdx].SetYOffset(line)
+	}
+}
+
 func (v *SQLInstanceDetailsView) startInstance() tea.Cmd {
 	if v.details == nil || (v.details.State != "STOPPED" && v.details.State != "SUSPENDED") {
 		return nil
@@ -539,7 +589,13 @@ func (v *SQLInstanceDetailsView) View() string {
 	helpText := v.buildHelpText()
 	help := helpStyle.Render(helpText) + " " + scrollInfo
 
-	mainContent := tabBar + "\n" + viewportContent + help
+	// Inline search bar (shown between viewport and help when active)
+	searchBar := ""
+	if v.search != nil {
+		searchBar = v.search.View()
+	}
+
+	mainContent := tabBar + "\n" + viewportContent + searchBar + help
 
 	// Overlay action menu if open
 	if v.menuOpen && v.actionMenu != nil {
@@ -582,17 +638,29 @@ func (v *SQLInstanceDetailsView) GetSQLClient() *gcp.SQLClient {
 	return v.sqlClient
 }
 
-// HasTextInputFocused returns true if the delete confirm input is active.
+// HasTextInputFocused returns true if the delete confirm input or inline search is active.
 // Prevents global hotkeys (like 'q' for quit) from triggering while typing.
 func (v *SQLInstanceDetailsView) HasTextInputFocused() bool {
+	if v.search != nil && v.search.IsActive() {
+		return true
+	}
 	if v.showDeleteConfirm && v.deleteConfirm != nil {
 		return v.deleteConfirm.HasTextInputFocused()
 	}
 	return false
 }
 
+// reservedLines returns the number of lines reserved for UI chrome.
+// Includes 1 extra line when the inline search bar is active.
+func (v *SQLInstanceDetailsView) reservedLines() int {
+	if v.search != nil && v.search.IsActive() {
+		return sqlDetailsViewportReservedLines + 1
+	}
+	return sqlDetailsViewportReservedLines
+}
+
 func (v *SQLInstanceDetailsView) applySize(width, height int) {
-	viewportHeight := height - sqlDetailsViewportReservedLines
+	viewportHeight := height - v.reservedLines()
 	if viewportHeight < 1 {
 		viewportHeight = 1
 	}
@@ -614,6 +682,10 @@ func (v *SQLInstanceDetailsView) applySize(width, height int) {
 			v.tabViewports[i].Width = viewportWidth
 			v.tabViewports[i].Height = viewportHeight
 		}
+	}
+
+	if v.search != nil {
+		v.search.SetSize(viewportWidth)
 	}
 
 	if v.details != nil {
@@ -644,6 +716,11 @@ func (v *SQLInstanceDetailsView) updateViewportContent() {
 	}
 
 	v.tabViewports[activeIdx].SetContent(content)
+
+	// Keep search index in sync with refreshed content
+	if v.search != nil {
+		v.search.SetContent(content)
+	}
 }
 
 // renderDetailsTab generates the Details tab content
@@ -929,7 +1006,7 @@ func (v *SQLInstanceDetailsView) buildHelpText() string {
 			actionHints += " • s: start"
 		}
 	}
-	actionHints += " • D: delete"
+	actionHints += " • D: delete • /: search"
 
 	if badge != "" {
 		return "\n  " + badge + " • " + helpStr + " • " + actionHints
