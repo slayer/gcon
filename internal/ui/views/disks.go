@@ -192,6 +192,7 @@ func diskToRow(disk gcp.Disk) table.Row { //nolint:gocritic // Copying disk is a
 		},
 		FilterValue: disk.Name + " " + disk.Zone + " " + disk.Type + " " + disk.AttachedTo,
 		ID:          disk.Name,
+		Labels:      disk.Labels,
 	}
 }
 

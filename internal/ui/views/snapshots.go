@@ -215,6 +215,7 @@ func snapshotToRow(snapshot gcp.Snapshot) table.Row { //nolint:gocritic // Copyi
 		},
 		FilterValue: snapshot.Name + " " + snapshot.SourceDisk + " " + snapshot.Status,
 		ID:          snapshot.Name,
+		Labels:      snapshot.Labels,
 	}
 }
 
@@ -233,8 +234,8 @@ func (v *SnapshotsView) Update(msg tea.Msg) tea.Cmd {
 
 		// Convert snapshots to table rows
 		rows := make([]table.Row, len(msg.snapshots))
-		for i, snapshot := range msg.snapshots {
-			rows[i] = snapshotToRow(snapshot)
+		for i := range msg.snapshots {
+			rows[i] = snapshotToRow(msg.snapshots[i])
 		}
 		v.table.SetRows(rows)
 		return nil
@@ -473,9 +474,9 @@ type DeleteSnapshotRequestMsg struct {
 
 // findSnapshotByName looks up a snapshot by name
 func (v *SnapshotsView) findSnapshotByName(name string) *gcp.Snapshot {
-	for _, snapshot := range v.snapshots {
-		if snapshot.Name == name {
-			return &snapshot
+	for i := range v.snapshots {
+		if v.snapshots[i].Name == name {
+			return &v.snapshots[i]
 		}
 	}
 	return nil

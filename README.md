@@ -405,9 +405,20 @@ Once launched, gcon presents an intuitive interface with:
 | `Ctrl+D` | Page Down | Scroll down one page |
 | `Ctrl+U` | Page Up | Scroll up one page |
 | `Enter` | Select | Select current item or confirm action |
-| `/` | Search/Filter | Filter current list |
+| `/` | Search/Filter | Filter current list (supports `field:value` and `label:key=value`) |
 | `Tab` | Next Section | Move to next section (in details views) |
 | `Shift+Tab` | Previous Section | Move to previous section |
+
+##### Filter syntax
+
+In list views, `/` opens a filter bar that combines free-text and structured predicates with AND semantics:
+
+- `vm-web` — free-text substring match against any visible column
+- `zone:us-central1-a`, `status:running`, `region:us`, `location:us`, `family:debian` — match by column title or short alias
+- `label:env=prod` — match a GCP resource label (`label:key=value`)
+- `label:env` — match rows that have a given label (any value)
+
+In Compute instance and Cloud Run service details views, `/` opens an in-pane search bar (live highlighting, `Enter` to submit, `n`/`N` to navigate matches, `Esc` to close).
 
 #### Compute Engine - Instances
 

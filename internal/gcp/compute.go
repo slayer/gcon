@@ -49,6 +49,7 @@ type Instance struct {
 	InternalIP  string
 	ExternalIP  string
 	CreatedAt   string
+	Labels      map[string]string // GCP resource labels (for `label:key=value` filtering)
 }
 
 // Disk represents a simplified Compute Engine persistent disk
@@ -56,10 +57,11 @@ type Disk struct {
 	Name       string
 	Zone       string
 	SizeGB     int64
-	Type       string // pd-standard, pd-ssd, pd-balanced, etc.
-	Status     string // READY, CREATING, FAILED, etc.
-	AttachedTo string // Instance name if attached, empty otherwise
+	Type       string            // pd-standard, pd-ssd, pd-balanced, etc.
+	Status     string            // READY, CREATING, FAILED, etc.
+	AttachedTo string            // Instance name if attached, empty otherwise
 	CreatedAt  string
+	Labels     map[string]string // GCP resource labels (for `label:key=value` filtering)
 }
 
 // DiskDetails contains comprehensive persistent disk information
@@ -103,8 +105,9 @@ type Snapshot struct {
 	SizeGB           int64
 	Status           string // CREATING, UPLOADING, READY, FAILED, DELETING
 	CreatedAt        string
-	StorageBytes     int64    // Actual storage used (may be less than SizeGB due to compression)
-	StorageLocations []string // Storage locations (regions)
+	StorageBytes     int64             // Actual storage used (may be less than SizeGB due to compression)
+	StorageLocations []string          // Storage locations (regions)
+	Labels           map[string]string // GCP resource labels (for `label:key=value` filtering)
 }
 
 // SnapshotDetails contains comprehensive snapshot information
@@ -399,6 +402,7 @@ func diskFromAPI(d *compute.Disk, zone string) Disk {
 		Status:     d.Status,
 		AttachedTo: attachedTo,
 		CreatedAt:  d.CreationTimestamp,
+		Labels:     d.Labels,
 	}
 }
 
@@ -626,6 +630,7 @@ func instanceFromAPI(inst *compute.Instance, zone string) Instance {
 		InternalIP:  internalIP,
 		ExternalIP:  externalIP,
 		CreatedAt:   inst.CreationTimestamp,
+		Labels:      inst.Labels,
 	}
 }
 
@@ -663,9 +668,10 @@ type Image struct {
 	ArchiveSizeBytes int64
 	SourceType       string // RAW, etc.
 	CreatedAt        string
-	CreatedBy        string   // Source project or system (e.g., "debian-cloud", project ID)
-	StorageLocations []string // Regional or multi-regional locations
-	Architecture     string   // ARM64 or X86_64
+	CreatedBy        string            // Source project or system (e.g., "debian-cloud", project ID)
+	StorageLocations []string          // Regional or multi-regional locations
+	Architecture     string            // ARM64 or X86_64
+	Labels           map[string]string // GCP resource labels (for `label:key=value` filtering)
 }
 
 // ImageDetails contains comprehensive disk image information
@@ -829,6 +835,7 @@ func imageFromAPI(img *compute.Image) Image {
 		CreatedBy:        createdBy,
 		StorageLocations: []string{location},
 		Architecture:     arch,
+		Labels:           img.Labels,
 	}
 }
 
@@ -983,6 +990,7 @@ func snapshotFromAPI(s *compute.Snapshot) Snapshot {
 		CreatedAt:        s.CreationTimestamp,
 		StorageBytes:     s.StorageBytes,
 		StorageLocations: s.StorageLocations,
+		Labels:           s.Labels,
 	}
 }
 

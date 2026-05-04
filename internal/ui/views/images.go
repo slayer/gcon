@@ -195,6 +195,7 @@ func imageToRow(image gcp.Image) table.Row { //nolint:gocritic // Copying image 
 		},
 		FilterValue: image.Name + " " + image.Family + " " + image.CreatedBy + " " + location,
 		ID:          image.Name,
+		Labels:      image.Labels,
 	}
 }
 

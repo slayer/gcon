@@ -222,6 +222,7 @@ func instanceToRow(inst gcp.Instance) table.Row { //nolint:gocritic // Copying i
 		},
 		FilterValue: inst.Name + " " + inst.Zone + " " + inst.Status + " " + inst.MachineType,
 		ID:          inst.Name,
+		Labels:      inst.Labels,
 	}
 }
 

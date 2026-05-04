@@ -13,13 +13,43 @@ description: Keyboard shortcuts reference for all views
 | `Esc` | Go back |
 | `j/k` or `↓/↑` | Navigate list |
 | `r` | Refresh current view |
-| `/` | Search/Filter (supports `field:value` syntax) |
+| `/` | Search/Filter (list views) — supports `field:value` and `label:key=value` syntax |
 | `S` | Open sort menu (list views) |
 | `Enter` | Select/Confirm |
 | `:` or `Ctrl+K` | Open command palette |
 | `[` | Focus sidebar (expands if auto-hidden) |
 | `]` | Focus content (collapses sidebar if auto-hide) |
 | `{` | Pin/unpin sidebar (toggle auto-hide/always-open) |
+
+### Filter Syntax (list views)
+
+The `/` filter input accepts free text plus optional structured predicates,
+combined with AND semantics:
+
+| Form | Example | Matches |
+|------|---------|---------|
+| Free text | `vm-web` | substring of any visible column |
+| `field:value` | `zone:us-central1-a`, `status:running`, `region:us`, `location:us`, `family:debian` | column whose title (or short alias) matches `field` |
+| `label:key=value` | `label:env=prod`, `label:team=backend` | row's GCP resource label `key` whose value contains `value` |
+| `label:key` | `label:env` | row that has the given label (any value) |
+
+Field names derive from column titles automatically — both the full name
+(`machine_type`) and short alias (`type`) usually work. Ambiguous short
+aliases are silently dropped (e.g. `ip` is unavailable when both Internal IP
+and External IP columns exist; use `internal_ip:` / `external_ip:` instead).
+
+### In-pane Search (details views)
+
+Compute instance details and Cloud Run service details support incremental
+in-pane search over the rendered content:
+
+| Key | Action |
+|-----|--------|
+| `/` | Open search bar; type to highlight matches live |
+| `Enter` | Submit query; bar stays open for navigation |
+| `n` | Jump to next match |
+| `N` | Jump to previous match |
+| `Esc` | Close search bar |
 
 ## Command Palette
 

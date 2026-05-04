@@ -170,6 +170,7 @@ func cloudRunServiceToRow(svc gcp.CloudRunService) table.Row { //nolint:gocritic
 		},
 		FilterValue: svc.Name + " " + svc.Region + " " + svc.Status + " " + svc.URL,
 		ID:          svc.FullName, // Use full name as ID for navigation
+		Labels:      svc.Labels,
 	}
 }
 

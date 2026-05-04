@@ -257,3 +257,95 @@ func TestMatchesFilterSpec_FieldOutOfBounds(t *testing.T) {
 	// Column index 5 is out of bounds for a 1-element Data slice
 	assert.False(t, matchesFilterSpec(row, spec))
 }
+
+func TestParseFilter_LabelKeyValue(t *testing.T) {
+	m := newTestTableWithColumns()
+	spec := m.parseFilter("label:env=prod")
+
+	assert.Empty(t, spec.fieldFilters)
+	require.Len(t, spec.labelFilters, 1)
+	assert.Equal(t, "prod", spec.labelFilters["env"])
+	assert.Empty(t, spec.freeText)
+}
+
+func TestParseFilter_LabelKeyOnly(t *testing.T) {
+	m := newTestTableWithColumns()
+	spec := m.parseFilter("label:env")
+
+	require.Len(t, spec.labelFilters, 1)
+	assert.Equal(t, "", spec.labelFilters["env"], "key-only label match accepts any value")
+}
+
+func TestParseFilter_LabelCombinedWithFieldAndFreeText(t *testing.T) {
+	m := newTestTableWithColumns()
+	spec := m.parseFilter("status:running label:env=prod vm-web")
+
+	require.Len(t, spec.fieldFilters, 1)
+	assert.Equal(t, "running", spec.fieldFilters[2])
+	require.Len(t, spec.labelFilters, 1)
+	assert.Equal(t, "prod", spec.labelFilters["env"])
+	assert.Equal(t, "vm-web", spec.freeText)
+}
+
+func TestParseFilter_LabelCaseInsensitive(t *testing.T) {
+	m := newTestTableWithColumns()
+	spec := m.parseFilter("LABEL:Env=PROD")
+
+	require.Len(t, spec.labelFilters, 1)
+	// keys lowercased on parse so values can be looked up consistently
+	assert.Equal(t, "prod", spec.labelFilters["env"])
+}
+
+func TestApplyFilter_LabelKeyValueMatch(t *testing.T) {
+	m := newTestTableWithColumns()
+	rows := []Row{
+		{Data: []string{"vm-a", "us", "RUNNING", "e2"}, FilterValue: "vm-a", ID: "a", Labels: map[string]string{"env": "prod", "team": "backend"}},
+		{Data: []string{"vm-b", "us", "RUNNING", "e2"}, FilterValue: "vm-b", ID: "b", Labels: map[string]string{"env": "staging"}},
+		{Data: []string{"vm-c", "us", "RUNNING", "e2"}, FilterValue: "vm-c", ID: "c"}, // no labels
+	}
+	m.SetRows(rows)
+
+	m.filter.SetValue("label:env=prod")
+	m.applyFilter()
+	assert.Equal(t, 1, m.RowCount())
+}
+
+func TestApplyFilter_LabelKeyExists(t *testing.T) {
+	m := newTestTableWithColumns()
+	rows := []Row{
+		{Data: []string{"vm-a", "us", "RUNNING", "e2"}, FilterValue: "vm-a", ID: "a", Labels: map[string]string{"team": "backend"}},
+		{Data: []string{"vm-b", "us", "RUNNING", "e2"}, FilterValue: "vm-b", ID: "b", Labels: map[string]string{"env": "prod"}},
+		{Data: []string{"vm-c", "us", "RUNNING", "e2"}, FilterValue: "vm-c", ID: "c"},
+	}
+	m.SetRows(rows)
+
+	m.filter.SetValue("label:team")
+	m.applyFilter()
+	assert.Equal(t, 1, m.RowCount(), "only vm-a has the team label")
+}
+
+func TestApplyFilter_LabelANDCombinesWithField(t *testing.T) {
+	m := newTestTableWithColumns()
+	rows := []Row{
+		{Data: []string{"vm-a", "us", "RUNNING", "e2"}, FilterValue: "vm-a us RUNNING e2", ID: "a", Labels: map[string]string{"env": "prod"}},
+		{Data: []string{"vm-b", "us", "STOPPED", "e2"}, FilterValue: "vm-b us STOPPED e2", ID: "b", Labels: map[string]string{"env": "prod"}},
+		{Data: []string{"vm-c", "us", "RUNNING", "e2"}, FilterValue: "vm-c us RUNNING e2", ID: "c", Labels: map[string]string{"env": "staging"}},
+	}
+	m.SetRows(rows)
+
+	m.filter.SetValue("status:running label:env=prod")
+	m.applyFilter()
+	assert.Equal(t, 1, m.RowCount(), "only vm-a is both running and labeled env=prod")
+}
+
+func TestMatchesFilterSpec_LabelCaseInsensitiveLookup(t *testing.T) {
+	row := Row{Data: []string{"x"}, FilterValue: "x", Labels: map[string]string{"Env": "Prod"}}
+	spec := filterSpec{labelFilters: map[string]string{"env": "prod"}}
+	assert.True(t, matchesFilterSpec(row, spec))
+}
+
+func TestMatchesFilterSpec_NilLabelsRejectsLabelFilter(t *testing.T) {
+	row := Row{Data: []string{"x"}, FilterValue: "x"}
+	spec := filterSpec{labelFilters: map[string]string{"env": ""}}
+	assert.False(t, matchesFilterSpec(row, spec), "row without labels cannot satisfy label predicate")
+}

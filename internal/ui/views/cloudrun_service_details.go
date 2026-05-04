@@ -17,6 +17,7 @@ import (
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/actionmenu"
 	"github.com/slayer/gcon/internal/ui/components/confirm"
+	"github.com/slayer/gcon/internal/ui/components/panefilter"
 	"github.com/slayer/gcon/internal/ui/components/tabs"
 	"github.com/slayer/gcon/internal/ui/context"
 	uierrors "github.com/slayer/gcon/internal/ui/errors"
@@ -98,6 +99,9 @@ type CloudRunServiceDetailsView struct {
 	observability *cloudRunObservability
 	gcpClient     *gcp.Client
 
+	// In-pane search
+	panefilter *panefilter.Model
+
 	keys crServiceDetailsKeyMap
 }
 
@@ -109,6 +113,9 @@ type crServiceDetailsKeyMap struct {
 	Edit         key.Binding
 	TrafficSplit key.Binding
 	ActionMenu   key.Binding
+	Search       key.Binding
+	NextMatch    key.Binding
+	PrevMatch    key.Binding
 }
 
 func defaultCRServiceDetailsKeyMap() crServiceDetailsKeyMap {
@@ -140,6 +147,18 @@ func defaultCRServiceDetailsKeyMap() crServiceDetailsKeyMap {
 		ActionMenu: key.NewBinding(
 			key.WithKeys("."),
 			key.WithHelp(".", "actions"),
+		),
+		Search: key.NewBinding(
+			key.WithKeys("/"),
+			key.WithHelp("/", "search in pane"),
+		),
+		NextMatch: key.NewBinding(
+			key.WithKeys("n"),
+			key.WithHelp("n", "next match"),
+		),
+		PrevMatch: key.NewBinding(
+			key.WithKeys("N"),
+			key.WithHelp("N", "prev match"),
 		),
 	}
 }
@@ -175,6 +194,7 @@ func NewCloudRunServiceDetailsView(projectID, serviceName, fullName string, runC
 		tabViewports:     make([]viewport.Model, 4),
 		focusMgr:         fm,
 		regionMgr:        mouse.NewRegionManager(),
+		panefilter:       panefilter.New(),
 	}
 }
 
@@ -371,6 +391,35 @@ func (v *CloudRunServiceDetailsView) Update(msg tea.Msg) tea.Cmd {
 			return v.deleteConfirm.Update(msg)
 		}
 
+		// In-pane search has next priority. When focused, capture all keys as input
+		// (Esc closes, Enter submits, others go to textinput with live re-render).
+		// When visible but unfocused (post-submit), Esc still closes; n/N are handled
+		// in the action-key switch below.
+		if v.panefilter != nil && v.panefilter.IsFocused() {
+			switch msg.Type { //nolint:exhaustive // only special-case Esc/Enter
+			case tea.KeyEsc:
+				v.panefilter.Close()
+				v.applySize(v.width, v.height)
+				v.updateViewportContent()
+				return nil
+			case tea.KeyEnter:
+				v.panefilter.Submit()
+				v.updateViewportContent()
+				v.scrollToCurrentMatch()
+				return nil
+			}
+			cmd := v.panefilter.Update(msg)
+			v.updateViewportContent()
+			v.scrollToCurrentMatch()
+			return cmd
+		}
+		if msg.Type == tea.KeyEsc && v.panefilter != nil && v.panefilter.Visible() {
+			v.panefilter.Close()
+			v.applySize(v.width, v.height)
+			v.updateViewportContent()
+			return nil
+		}
+
 		// Handle Tab/Shift+Tab for cycling between focus regions
 		if focusMsg := v.focusMgr.HandleKey(msg); focusMsg != nil {
 			v.updateViewportContent()
@@ -379,6 +428,28 @@ func (v *CloudRunServiceDetailsView) Update(msg tea.Msg) tea.Cmd {
 
 		// Action keys work regardless of focused region
 		switch {
+		case key.Matches(msg, v.keys.Search):
+			cmd := v.panefilter.Open()
+			v.applySize(v.width, v.height)
+			v.updateViewportContent()
+			return cmd
+
+		case key.Matches(msg, v.keys.NextMatch):
+			if v.panefilter != nil && v.panefilter.Visible() && v.panefilter.MatchCount() > 0 {
+				v.panefilter.Next()
+				v.updateViewportContent()
+				v.scrollToCurrentMatch()
+				return nil
+			}
+
+		case key.Matches(msg, v.keys.PrevMatch):
+			if v.panefilter != nil && v.panefilter.Visible() && v.panefilter.MatchCount() > 0 {
+				v.panefilter.Prev()
+				v.updateViewportContent()
+				v.scrollToCurrentMatch()
+				return nil
+			}
+
 		case key.Matches(msg, v.keys.ActionMenu):
 			if v.details != nil {
 				v.actionMenu = actionmenu.New("Cloud Run Actions", v.buildActions())
@@ -554,7 +625,14 @@ func (v *CloudRunServiceDetailsView) View() string {
 	helpText := v.buildHelpText()
 	help := helpStyle.Render(helpText) + " " + scrollInfo
 
-	mainContent := tabBar + "\n" + viewportContent + help
+	// Render the in-pane search bar (when active) above the help line.
+	// applySize() reserves an extra line for it so layout height stays consistent.
+	var searchBar string
+	if v.panefilter != nil && v.panefilter.Visible() {
+		searchBar = "  " + v.panefilter.View() + "\n"
+	}
+
+	mainContent := tabBar + "\n" + viewportContent + searchBar + help
 
 	// Render overlays in z-order: traffic dialog > delete confirm > action menu
 	if v.showTrafficDialog && v.trafficDialog != nil {
@@ -590,8 +668,13 @@ func (v *CloudRunServiceDetailsView) SetError(err error) {
 	v.detailsErr = err
 }
 
-// IsMenuOpen returns true if the action menu, delete confirm, or traffic dialog is open
+// IsMenuOpen returns true if the action menu, delete confirm, traffic dialog,
+// or in-pane search bar is active. The app uses this to route Esc to the view
+// before navigation.
 func (v *CloudRunServiceDetailsView) IsMenuOpen() bool {
+	if v.panefilter != nil && v.panefilter.Visible() {
+		return true
+	}
 	return v.menuOpen || v.showDeleteConfirm || v.showTrafficDialog
 }
 
@@ -605,7 +688,9 @@ func (v *CloudRunServiceDetailsView) GetCloudRunClient() *gcp.CloudRunClient {
 	return v.runClient
 }
 
-// HasTextInputFocused returns true when text input in delete confirm or traffic dialog is active
+// HasTextInputFocused returns true when text input in delete confirm, traffic
+// dialog, or the in-pane search bar is active. Prevents the global 'q' key
+// from quitting the app while typing.
 func (v *CloudRunServiceDetailsView) HasTextInputFocused() bool {
 	if v.showDeleteConfirm && v.deleteConfirm != nil {
 		return v.deleteConfirm.HasTextInputFocused()
@@ -613,11 +698,22 @@ func (v *CloudRunServiceDetailsView) HasTextInputFocused() bool {
 	if v.showTrafficDialog && v.trafficDialog != nil {
 		return true // Traffic dialog always has text inputs focused
 	}
+	if v.panefilter != nil && v.panefilter.IsFocused() {
+		return true
+	}
 	return false
 }
 
+func (v *CloudRunServiceDetailsView) reservedLines() int {
+	r := runDetailsViewportReservedLines
+	if v.panefilter != nil && v.panefilter.Visible() {
+		r++ // search bar takes one extra line
+	}
+	return r
+}
+
 func (v *CloudRunServiceDetailsView) applySize(width, height int) {
-	viewportHeight := height - runDetailsViewportReservedLines
+	viewportHeight := height - v.reservedLines()
 	if viewportHeight < 1 {
 		viewportHeight = 1
 	}
@@ -676,7 +772,32 @@ func (v *CloudRunServiceDetailsView) updateViewportContent() {
 		content = v.renderDetailsTab()
 	}
 
+	if v.panefilter != nil && v.panefilter.Visible() {
+		content = v.panefilter.Apply(content)
+	}
+
 	v.tabViewports[activeIdx].SetContent(content)
+}
+
+// scrollToCurrentMatch positions the active tab's viewport so the current
+// pane-filter match is visible (2 lines below the top of the viewport).
+func (v *CloudRunServiceDetailsView) scrollToCurrentMatch() {
+	if v.panefilter == nil {
+		return
+	}
+	line := v.panefilter.MatchLine()
+	if line < 0 {
+		return
+	}
+	activeIdx := v.tabs.ActiveIndex()
+	if activeIdx < 0 || activeIdx >= len(v.tabViewports) {
+		return
+	}
+	target := line - 2
+	if target < 0 {
+		target = 0
+	}
+	v.tabViewports[activeIdx].SetYOffset(target)
 }
 
 func (v *CloudRunServiceDetailsView) renderDetailsTab() string {
@@ -868,12 +989,12 @@ func (v *CloudRunServiceDetailsView) buildHelpText() string {
 	case runTabIDObservability:
 		actionHints = "1-5: range • a: auto-refresh • I/W/E: logs • r: refresh"
 	case runTabIDRevisions:
-		actionHints = ".: actions • D: delete"
+		actionHints = ".: actions • /: search • D: delete"
 		if len(v.revisions) > 0 {
 			actionHints += " • t: traffic"
 		}
 	default:
-		actionHints = ".: actions • D: delete"
+		actionHints = ".: actions • /: search • D: delete"
 	}
 
 	if badge != "" {

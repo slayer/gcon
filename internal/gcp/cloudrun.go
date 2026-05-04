@@ -26,6 +26,7 @@ type CloudRunService struct {
 	LatestRevision string
 	Status         string // Ready, Deploying, Failed, etc.
 	UpdatedAt      string
+	Labels         map[string]string // GCP resource labels (for `label:key=value` filtering)
 }
 
 // CloudRunServiceDetails has full info for the detail view
@@ -589,6 +590,7 @@ func cloudRunServiceFromAPI(svc *run.GoogleCloudRunV2Service) CloudRunService {
 		LatestRevision: extractShortName(svc.LatestReadyRevision),
 		Status:         deriveStatus(svc),
 		UpdatedAt:      formatCloudRunTime(svc.UpdateTime),
+		Labels:         svc.Labels,
 	}
 }
 

@@ -20,6 +20,7 @@ import (
 	"github.com/slayer/gcon/internal/ui/components/confirm"
 	"github.com/slayer/gcon/internal/ui/components/links"
 	"github.com/slayer/gcon/internal/ui/components/metricchart"
+	"github.com/slayer/gcon/internal/ui/components/panefilter"
 	"github.com/slayer/gcon/internal/ui/components/tabs"
 	"github.com/slayer/gcon/internal/ui/context"
 	uierrors "github.com/slayer/gcon/internal/ui/errors"
@@ -151,6 +152,8 @@ type InstanceDetailsView struct {
 	// Metric charts for observability tab
 	cpuChart    *metricchart.Chart
 	memoryChart *metricchart.Chart
+	// In-pane search
+	panefilter *panefilter.Model
 }
 
 type instanceDetailsKeyMap struct {
@@ -165,6 +168,9 @@ type instanceDetailsKeyMap struct {
 	Delete     key.Binding
 	Refresh    key.Binding
 	ActionMenu key.Binding
+	Search     key.Binding
+	NextMatch  key.Binding
+	PrevMatch  key.Binding
 }
 
 func defaultInstanceDetailsKeyMap() instanceDetailsKeyMap {
@@ -212,6 +218,18 @@ func defaultInstanceDetailsKeyMap() instanceDetailsKeyMap {
 		ActionMenu: key.NewBinding(
 			key.WithKeys("."),
 			key.WithHelp(".", "actions"),
+		),
+		Search: key.NewBinding(
+			key.WithKeys("/"),
+			key.WithHelp("/", "search in pane"),
+		),
+		NextMatch: key.NewBinding(
+			key.WithKeys("n"),
+			key.WithHelp("n", "next match"),
+		),
+		PrevMatch: key.NewBinding(
+			key.WithKeys("N"),
+			key.WithHelp("N", "prev match"),
 		),
 	}
 }
@@ -261,6 +279,7 @@ func NewInstanceDetailsView(projectID, zone, instanceName string, computeClient 
 		autoRefresh:   true,          // Auto-refresh enabled by default
 		cpuChart:      cpuChart,
 		memoryChart:   memChart,
+		panefilter:    panefilter.New(),
 	}
 }
 
@@ -481,6 +500,58 @@ func (v *InstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 		// Route keys to action menu when open
 		if v.menuOpen {
 			return v.actionMenu.Update(msg)
+		}
+
+		// In-pane search routing.
+		// When focused: capture all keys (Esc closes, Enter submits, others to input).
+		// When visible but unfocused: Esc closes; n/N handled in action-key switch below.
+		if v.panefilter != nil && v.panefilter.IsFocused() {
+			switch msg.Type { //nolint:exhaustive // only special-case Esc/Enter
+			case tea.KeyEsc:
+				v.panefilter.Close()
+				v.applySize(v.width, v.height)
+				v.updateViewportContent()
+				return nil
+			case tea.KeyEnter:
+				v.panefilter.Submit()
+				v.updateViewportContent()
+				v.scrollToCurrentMatch()
+				return nil
+			}
+			cmd := v.panefilter.Update(msg)
+			v.updateViewportContent()
+			v.scrollToCurrentMatch()
+			return cmd
+		}
+		if msg.Type == tea.KeyEsc && v.panefilter != nil && v.panefilter.Visible() {
+			v.panefilter.Close()
+			v.applySize(v.width, v.height)
+			v.updateViewportContent()
+			return nil
+		}
+
+		// Search-related keys must be handled before focus-region routing,
+		// because the viewport-focused branch below consumes all unmatched keys.
+		switch {
+		case key.Matches(msg, v.keys.Search):
+			cmd := v.panefilter.Open()
+			v.applySize(v.width, v.height)
+			v.updateViewportContent()
+			return cmd
+		case key.Matches(msg, v.keys.NextMatch):
+			if v.panefilter != nil && v.panefilter.Visible() && v.panefilter.MatchCount() > 0 {
+				v.panefilter.Next()
+				v.updateViewportContent()
+				v.scrollToCurrentMatch()
+				return nil
+			}
+		case key.Matches(msg, v.keys.PrevMatch):
+			if v.panefilter != nil && v.panefilter.Visible() && v.panefilter.MatchCount() > 0 {
+				v.panefilter.Prev()
+				v.updateViewportContent()
+				v.scrollToCurrentMatch()
+				return nil
+			}
 		}
 
 		// Handle Tab/Shift+Tab for cycling between focus regions
@@ -990,7 +1061,14 @@ func (v *InstanceDetailsView) View() string {
 	helpText := v.buildHelpText()
 	help := helpStyle.Render(helpText) + " " + scrollInfo
 
-	mainContent := header + tabBar + "\n" + viewportContent + help
+	// Render the in-pane search bar above the help line when active.
+	// applySize() reserves an extra line so total height stays consistent.
+	var searchBar string
+	if v.panefilter != nil && v.panefilter.Visible() {
+		searchBar = "  " + v.panefilter.View() + "\n"
+	}
+
+	mainContent := header + tabBar + "\n" + viewportContent + searchBar + help
 
 	// Overlay action menu if open
 	if v.menuOpen && v.actionMenu != nil {
@@ -1025,24 +1103,42 @@ func (v *InstanceDetailsView) SetContext(ctx *context.ProgramContext) {
 	v.applySize(ctx.ContentWidth, ctx.ContentHeight)
 }
 
-// IsMenuOpen returns true if the action menu or delete confirm is open
+// IsMenuOpen returns true if any menu, dialog, or in-pane search bar is active.
+// The app uses this to route Esc to the view before triggering navigation.
 func (v *InstanceDetailsView) IsMenuOpen() bool {
+	if v.panefilter != nil && v.panefilter.Visible() {
+		return true
+	}
 	return v.menuOpen || v.showStopConfirm || v.showDeleteConfirm
 }
 
-// HasTextInputFocused returns true if the delete confirm input is active.
-// Used to prevent global hotkeys (like 'q' for quit) from triggering while typing.
+// HasTextInputFocused returns true if the delete confirm input or pane search
+// input is active. Used to prevent global hotkeys (like 'q' for quit) from
+// triggering while typing.
 func (v *InstanceDetailsView) HasTextInputFocused() bool {
 	if v.showDeleteConfirm && v.deleteConfirm != nil {
 		return v.deleteConfirm.HasTextInputFocused()
 	}
+	if v.panefilter != nil && v.panefilter.IsFocused() {
+		return true
+	}
 	return false
+}
+
+// reservedLines reports how many lines the surrounding chrome (header, tabs,
+// help, and the optional pane-search bar) consume from the available height.
+func (v *InstanceDetailsView) reservedLines() int {
+	r := detailsViewportReservedLines
+	if v.panefilter != nil && v.panefilter.Visible() {
+		r++
+	}
+	return r
 }
 
 // applySize applies the given dimensions to the viewports
 func (v *InstanceDetailsView) applySize(width, height int) {
 	// Reserve space for header, tab bar, and footer
-	viewportHeight := height - detailsViewportReservedLines
+	viewportHeight := height - v.reservedLines()
 	if viewportHeight < 1 {
 		viewportHeight = 1
 	}
@@ -1110,7 +1206,32 @@ func (v *InstanceDetailsView) updateViewportContent() {
 		content = v.renderDetailsTab()
 	}
 
+	if v.panefilter != nil && v.panefilter.Visible() {
+		content = v.panefilter.Apply(content)
+	}
+
 	v.tabViewports[activeIdx].SetContent(content)
+}
+
+// scrollToCurrentMatch positions the active tab's viewport so the current
+// pane-filter match is visible (2 lines below the top).
+func (v *InstanceDetailsView) scrollToCurrentMatch() {
+	if v.panefilter == nil {
+		return
+	}
+	line := v.panefilter.MatchLine()
+	if line < 0 {
+		return
+	}
+	activeIdx := v.tabs.ActiveIndex()
+	if activeIdx < 0 || activeIdx >= len(v.tabViewports) {
+		return
+	}
+	target := line - 2
+	if target < 0 {
+		target = 0
+	}
+	v.tabViewports[activeIdx].SetYOffset(target)
 }
 
 // populateDiskLinks creates link items from the instance's attached disks
@@ -1639,9 +1760,9 @@ func (v *InstanceDetailsView) buildHelpText() string {
 	helpStr := focus.FormatHelp(bindings)
 	badge := focus.FormatRegionBadge(v.focusMgr.Active())
 	if badge != "" {
-		return "\n  " + badge + " • " + helpStr + " • .: actions"
+		return "\n  " + badge + " • " + helpStr + " • .: actions • /: search"
 	}
-	return "\n  " + helpStr + " • .: actions"
+	return "\n  " + helpStr + " • .: actions • /: search"
 }
 
 // getRegionLabel returns a descriptive label for the current focus context

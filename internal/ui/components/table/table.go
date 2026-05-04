@@ -22,9 +22,10 @@ import (
 
 // Row represents a table row with filterable content
 type Row struct {
-	Data        []string // Column values
-	FilterValue string   // String used for filtering
-	ID          string   // Unique identifier for the row
+	Data        []string          // Column values
+	FilterValue string            // String used for filtering
+	ID          string            // Unique identifier for the row
+	Labels      map[string]string // Optional GCP resource labels for `label:key=value` filtering
 }
 
 // RowDoubleClickedMsg is emitted when a row is double-clicked.
@@ -249,7 +250,7 @@ func NewWithColumns(cols []Column, title string) Model {
 	t.SetStyles(styles)
 
 	ti := textinput.New()
-	ti.Placeholder = "Type to filter (field:value)..."
+	ti.Placeholder = "Type to filter (e.g. region:us, label:env=prod)..."
 	ti.CharLimit = 100
 	ti.Width = 30
 
@@ -311,47 +312,74 @@ func (m *Model) SetRows(rows []Row) {
 	m.recalcColumns()
 }
 
-// filterSpec represents a parsed filter with field-specific and free-text parts.
+// filterSpec represents a parsed filter with field-specific, label, and free-text parts.
 type filterSpec struct {
-	fieldFilters map[int]string // visible column index -> match substring (lowercase)
-	freeText     string         // remaining text for FilterValue match (lowercase)
+	fieldFilters  map[int]string    // visible column index -> match substring (lowercase)
+	labelFilters  map[string]string // label key (lowercase) -> required value substring (lowercase, "" = key-exists)
+	freeText      string            // remaining text for FilterValue match (lowercase)
 }
 
-// parseFilter splits filter input into field:value pairs and free text.
-// Tokens like "status:running" match column FilterKeys; unmatched tokens become free text.
+// parseFilter splits filter input into field:value pairs, label predicates, and free text.
+//
+// Supported syntax:
+//   - status:running             — match column whose FilterKey is "status"
+//   - label:env=prod             — match row whose Labels["env"] contains "prod"
+//   - label:env                  — match row that has a label "env" (any value)
+//   - vm-web                     — free-text substring match against FilterValue
+//
+// Multiple tokens combine with AND semantics.
 func (m *Model) parseFilter(input string) filterSpec {
-	spec := filterSpec{fieldFilters: make(map[int]string)}
-
-	if len(m.colDefs) == 0 {
-		// No enhanced columns — treat entire input as free text
-		spec.freeText = strings.ToLower(input)
-		return spec
-	}
-
-	// Build lookup: filter key -> visible column index
-	keyToVisibleIdx := make(map[string]int)
-	visibleIdx := 0
-	for _, col := range m.colDefs {
-		if col.Hidden {
-			continue
-		}
-		for _, fk := range col.FilterKeys {
-			keyToVisibleIdx[fk] = visibleIdx
-		}
-		visibleIdx++
+	spec := filterSpec{
+		fieldFilters: make(map[int]string),
+		labelFilters: make(map[string]string),
 	}
 
 	tokens := strings.Fields(input)
 	var freeTokens []string
 
+	// Build lookup: filter key -> visible column index (only when columns are defined).
+	keyToVisibleIdx := make(map[string]int)
+	if len(m.colDefs) > 0 {
+		visibleIdx := 0
+		for _, col := range m.colDefs {
+			if col.Hidden {
+				continue
+			}
+			for _, fk := range col.FilterKeys {
+				keyToVisibleIdx[fk] = visibleIdx
+			}
+			visibleIdx++
+		}
+	}
+
 	for _, token := range tokens {
 		colonIdx := strings.IndexByte(token, ':')
 		if colonIdx > 0 && colonIdx < len(token)-1 {
 			key := strings.ToLower(token[:colonIdx])
-			value := strings.ToLower(token[colonIdx+1:])
-			if idx, ok := keyToVisibleIdx[key]; ok {
-				spec.fieldFilters[idx] = value
-				continue
+			rest := token[colonIdx+1:]
+
+			// label:key=value (or label:key for "key exists")
+			if key == "label" {
+				eqIdx := strings.IndexByte(rest, '=')
+				var labelKey, labelVal string
+				if eqIdx >= 0 {
+					labelKey = strings.ToLower(rest[:eqIdx])
+					labelVal = strings.ToLower(rest[eqIdx+1:])
+				} else {
+					labelKey = strings.ToLower(rest)
+				}
+				if labelKey != "" {
+					spec.labelFilters[labelKey] = labelVal
+					continue
+				}
+			}
+
+			// field:value
+			if len(m.colDefs) > 0 {
+				if idx, ok := keyToVisibleIdx[key]; ok {
+					spec.fieldFilters[idx] = strings.ToLower(rest)
+					continue
+				}
 			}
 		}
 		freeTokens = append(freeTokens, token)
@@ -362,7 +390,7 @@ func (m *Model) parseFilter(input string) filterSpec {
 }
 
 // matchesFilterSpec checks whether a row matches the given filter spec.
-// All field filters must match (AND logic), and free text must match FilterValue.
+// All field filters, all label filters, and free text must match (AND logic).
 func matchesFilterSpec(row Row, spec filterSpec) bool {
 	// Check field-specific filters against row data columns
 	for colIdx, value := range spec.fieldFilters {
@@ -370,6 +398,17 @@ func matchesFilterSpec(row Row, spec filterSpec) bool {
 			return false
 		}
 		if !strings.Contains(strings.ToLower(row.Data[colIdx]), value) {
+			return false
+		}
+	}
+
+	// Check label filters against row.Labels (case-insensitive on keys and values).
+	for key, requiredValue := range spec.labelFilters {
+		actualValue, hasKey := lookupLabel(row.Labels, key)
+		if !hasKey {
+			return false
+		}
+		if requiredValue != "" && !strings.Contains(strings.ToLower(actualValue), requiredValue) {
 			return false
 		}
 	}
@@ -382,6 +421,19 @@ func matchesFilterSpec(row Row, spec filterSpec) bool {
 	}
 
 	return true
+}
+
+// lookupLabel returns the value for a label key, comparing keys case-insensitively.
+func lookupLabel(labels map[string]string, key string) (string, bool) {
+	if v, ok := labels[key]; ok {
+		return v, true
+	}
+	for k, v := range labels {
+		if strings.EqualFold(k, key) {
+			return v, true
+		}
+	}
+	return "", false
 }
 
 // applyFilter filters rows based on current filter value.
