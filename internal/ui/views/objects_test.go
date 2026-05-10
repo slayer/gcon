@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/slayer/gcon/internal/gcp"
+	"github.com/slayer/gcon/internal/gcp/usage"
 	"github.com/slayer/gcon/internal/ui/components/confirm"
 	"github.com/slayer/gcon/internal/ui/components/filepicker"
 	"github.com/slayer/gcon/internal/ui/components/progress"
@@ -13,6 +14,7 @@ import (
 	"github.com/slayer/gcon/internal/ui/context"
 	"github.com/slayer/gcon/internal/ui/symbols"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // testContext creates a test context with standard dimensions
@@ -767,4 +769,89 @@ func TestObjectsViewDelete(t *testing.T) {
 		assert.NotNil(t, dialog)
 		// Dialog should be created with truncated details (first 5 + "... and X more")
 	})
+}
+
+func TestObjectsView_FolderUsageRendersInlineStats(t *testing.T) {
+	v := NewObjectsView("b1", nil)
+	// Inject a deep-scan ReadyMsg matching the current (bucket, prefix) tuple.
+	v.Update(usage.ReadyMsg{
+		Usage: usage.BucketUsage{
+			Bucket:      "b1",
+			Prefix:      "",
+			TotalBytes:  87_300_000_000,
+			ObjectCount: 142_300,
+			Source:      usage.SourceDeepScan,
+		},
+	})
+	require.NotNil(t, v.folderUsage)
+	assert.Equal(t, int64(142_300), v.folderUsage.ObjectCount)
+
+	// View() requires a context and at least one object so that we render the
+	// table path. Inject one synthetic object and a sane context.
+	v.objects = []gcp.StorageObject{{Name: "f1.txt", DisplayName: "f1.txt"}}
+	v.loading = false
+	v.SetContext(testContext())
+	out := v.View()
+	assert.Contains(t, out, "Folder size:")
+	assert.Contains(t, out, "142,300")
+}
+
+func TestObjectsView_FolderUsageIgnoresOtherBuckets(t *testing.T) {
+	v := NewObjectsView("b1", nil)
+	v.Update(usage.ReadyMsg{
+		Usage: usage.BucketUsage{
+			Bucket:      "different-bucket",
+			Prefix:      "",
+			TotalBytes:  100,
+			ObjectCount: 1,
+			Source:      usage.SourceDeepScan,
+		},
+	})
+	assert.Nil(t, v.folderUsage, "ReadyMsg for unrelated bucket should be ignored")
+}
+
+func TestObjectsView_FolderUsageIgnoresOtherPrefix(t *testing.T) {
+	v := NewObjectsView("b1", nil)
+	// View is at root; ReadyMsg for a sub-prefix should not be applied here.
+	v.Update(usage.ReadyMsg{
+		Usage: usage.BucketUsage{
+			Bucket:      "b1",
+			Prefix:      "subfolder/",
+			TotalBytes:  100,
+			ObjectCount: 1,
+			Source:      usage.SourceDeepScan,
+		},
+	})
+	assert.Nil(t, v.folderUsage, "ReadyMsg for unrelated prefix should be ignored")
+}
+
+func TestObjectsView_DeepScanKeyEmitsRequest(t *testing.T) {
+	v := NewObjectsView("b1", nil)
+	v.loading = false
+	v.objects = []gcp.StorageObject{{Name: "f1.txt", DisplayName: "f1.txt"}}
+	v.table.SetRows([]table.Row{{ID: "f1.txt", Data: []string{"f1.txt", "1B", "text/plain", "now"}}})
+	v.SetContext(testContext())
+
+	cmd := v.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'C'}})
+	require.NotNil(t, cmd, "Pressing 'C' should emit a deep-scan request")
+
+	got := cmd()
+	req, ok := got.(UsageDeepScanRequestMsg)
+	require.True(t, ok, "expected UsageDeepScanRequestMsg, got %T", got)
+	assert.Equal(t, "b1", req.Bucket)
+	assert.Equal(t, "", req.Prefix)
+}
+
+func TestObjectsView_FolderUsageProgressUpdates(t *testing.T) {
+	v := NewObjectsView("b1", nil)
+	v.Update(usage.ProgressMsg{
+		Bucket:         "b1",
+		Prefix:         "",
+		ObjectsScanned: 5,
+		BytesScanned:   500,
+	})
+	require.NotNil(t, v.folderUsage)
+	assert.Equal(t, int64(500), v.folderUsage.TotalBytes)
+	assert.Equal(t, int64(5), v.folderUsage.ObjectCount)
+	assert.Equal(t, usage.SourceDeepScan, v.folderUsage.Source)
 }
