@@ -3,12 +3,14 @@ package views
 import (
 	gocontext "context"
 	"fmt"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
+	"github.com/slayer/gcon/internal/gcp/usage"
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/table"
 	"github.com/slayer/gcon/internal/ui/context"
@@ -17,9 +19,11 @@ import (
 
 // bucketKeyMap defines bucket-specific key bindings
 type bucketKeyMap struct {
-	Enter   key.Binding
-	Refresh key.Binding
-	Create  key.Binding
+	Enter    key.Binding
+	Refresh  key.Binding
+	Create   key.Binding
+	DeepScan key.Binding
+	Details  key.Binding
 }
 
 func defaultBucketKeyMap() bucketKeyMap {
@@ -36,15 +40,25 @@ func defaultBucketKeyMap() bucketKeyMap {
 			key.WithKeys("c"),
 			key.WithHelp("c", "create bucket"),
 		),
+		DeepScan: key.NewBinding(
+			key.WithKeys("C"),
+			key.WithHelp("C", "calculate usage"),
+		),
+		Details: key.NewBinding(
+			key.WithKeys("i"),
+			key.WithHelp("i", "details"),
+		),
 	}
 }
 
 // Table column definitions for buckets
 func bucketColumns() []table.Column {
 	return []table.Column{
-		{Title: "Name", Width: 40, Grow: true, Sortable: true},
-		{Title: "Location", Width: 15, Sortable: true},
-		{Title: "Storage Class", Width: 15, Sortable: true},
+		{Title: "Name", Width: 36, Grow: true, Sortable: true},
+		{Title: "Location", Width: 14, Sortable: true},
+		{Title: "Storage Class", Width: 13, Sortable: true},
+		{Title: "Size", Width: 12, Sortable: true},
+		{Title: "Objects", Width: 11, Sortable: true},
 		{Title: "Created", Width: 12, Sortable: true},
 	}
 }
@@ -61,6 +75,9 @@ type BucketsView struct {
 	err           error
 	buckets       []gcp.Bucket
 	keys          bucketKeyMap
+	// usageByBucket caches the most recent usage record per bucket so that
+	// ProgressMsg updates can be re-rendered without losing prior info.
+	usageByBucket map[string]usage.BucketUsage
 }
 
 // NewBucketsView creates a new buckets view with table display
@@ -71,11 +88,12 @@ func NewBucketsView(projectID string) *BucketsView {
 	s := components.NewGCPSpinner()
 
 	v := &BucketsView{
-		projectID: projectID,
-		table:     t,
-		spinner:   s,
-		loading:   true,
-		keys:      defaultBucketKeyMap(),
+		projectID:     projectID,
+		table:         t,
+		spinner:       s,
+		loading:       true,
+		keys:          defaultBucketKeyMap(),
+		usageByBucket: make(map[string]usage.BucketUsage),
 	}
 	v.Table = &v.table
 	return v
@@ -129,13 +147,18 @@ type BucketSelectedMsg struct {
 	Bucket gcp.Bucket
 }
 
-// bucketToRow converts a GCS bucket to a table row
+// bucketToRow converts a GCS bucket to a table row.
+// The Size and Objects cells render as a faint "…" until usage data arrives;
+// they are updated in place when UsageReadyMsg is processed.
 func bucketToRow(b gcp.Bucket) table.Row {
+	mutedDots := "…"
 	return table.Row{
 		Data: []string{
 			"📦 " + b.Name,
 			b.Location,
 			b.StorageClass,
+			mutedDots,
+			mutedDots,
 			timeutil.FormatDate(b.Created),
 		},
 		FilterValue: b.Name + " " + b.Location + " " + b.StorageClass,
@@ -154,13 +177,22 @@ func (v *BucketsView) Update(msg tea.Msg) tea.Cmd {
 		v.loading = false
 		v.buckets = msg.buckets
 
-		// Convert to table rows
+		// Convert to table rows.
 		rows := make([]table.Row, len(msg.buckets))
 		for i, bucket := range msg.buckets {
 			rows[i] = bucketToRow(bucket)
 		}
 		v.table.SetRows(rows)
-		return nil
+
+		// Fan out one monitoring request per bucket so the App can fetch
+		// totals via the usage scanner.
+		cmds := make([]tea.Cmd, 0, len(msg.buckets))
+		for _, bucket := range msg.buckets {
+			cmds = append(cmds, func() tea.Msg {
+				return UsageMonitoringRequestMsg{Bucket: bucket.Name}
+			})
+		}
+		return tea.Batch(cmds...)
 
 	case bucketsErrorMsg:
 		v.loading = false
@@ -175,6 +207,36 @@ func (v *BucketsView) Update(msg tea.Msg) tea.Cmd {
 				return BucketSelectedMsg{Bucket: *bucket}
 			}
 		}
+		return nil
+
+	case usage.ReadyMsg:
+		// Errors arrive without a usable Usage payload; ignore so we don't
+		// overwrite previously-rendered values with zeros.
+		if msg.Err != nil {
+			return nil
+		}
+		// Bucket list only cares about whole-bucket usage; ignore folder-scoped
+		// scans (Prefix != "") forwarded from ObjectsView, otherwise the bucket
+		// row's Size/Objects cells get clobbered with the folder's totals.
+		if msg.Usage.Prefix != "" {
+			return nil
+		}
+		v.applyUsage(msg.Usage, true)
+		return nil
+
+	case usage.ProgressMsg:
+		// Same scope guard as ReadyMsg: ignore folder-scoped progress events.
+		if msg.Prefix != "" {
+			return nil
+		}
+		// Show in-progress totals immediately so the user gets feedback.
+		v.applyUsage(usage.BucketUsage{
+			Bucket:      msg.Bucket,
+			TotalBytes:  msg.BytesScanned,
+			ObjectCount: msg.ObjectsScanned,
+			Source:      usage.SourceDeepScan,
+			ScannedAt:   time.Now(),
+		}, false)
 		return nil
 
 	case spinner.TickMsg:
@@ -230,6 +292,22 @@ func (v *BucketsView) Update(msg tea.Msg) tea.Cmd {
 			return func() tea.Msg {
 				return BucketCreateRequestMsg{ProjectID: v.projectID}
 			}
+
+		case key.Matches(msg, v.keys.DeepScan):
+			if row := v.table.SelectedRow(); row != nil {
+				bucketName := row.ID
+				return func() tea.Msg {
+					return UsageDeepScanRequestMsg{Bucket: bucketName, Prefix: ""}
+				}
+			}
+
+		case key.Matches(msg, v.keys.Details):
+			if row := v.table.SelectedRow(); row != nil {
+				bucketName := row.ID
+				return func() tea.Msg {
+					return BucketDetailsRequestMsg{Bucket: bucketName}
+				}
+			}
 		}
 	}
 
@@ -269,7 +347,7 @@ func (v *BucketsView) View() string {
 
 	// Help text for actions
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
-	help := helpStyle.Render("\n  enter: browse • c: create • S: sort • /: filter • r: refresh • esc: back")
+	help := helpStyle.Render("\n  enter: browse • C: calculate usage • c: create • S: sort • /: filter • r: refresh • esc: back")
 
 	return v.table.View() + help
 }
@@ -286,6 +364,12 @@ func (v *BucketsView) GetStorageClient() *gcp.StorageClient {
 	return v.storageClient
 }
 
+// Buckets returns the cached list of buckets. Used by App for navigation
+// (e.g., locating the bucket struct for BucketDetailsView).
+func (v *BucketsView) Buckets() []gcp.Bucket {
+	return v.buckets
+}
+
 // Close cleans up resources held by the view
 func (v *BucketsView) Close() error {
 	if v.storageClient != nil {
@@ -299,3 +383,51 @@ func (v *BucketsView) Close() error {
 func (v *BucketsView) HasTextInputFocused() bool {
 	return v.table.HasTextInputFocused()
 }
+
+// applyUsage stores the usage record and updates the corresponding table row's
+// Size and Objects cells in place. The "✓" suffix is reserved for FINAL
+// deep-scan results — in-flight progress ticks update the numbers but never
+// the marker, so the user can tell at a glance whether the value is verified.
+//
+// final == true means msg came from a usage.ReadyMsg (final result).
+// final == false means msg came from a usage.ProgressMsg (still scanning).
+//
+// Late-arriving ProgressMsg deliveries (channel reordering after a final
+// ReadyMsg already landed) are dropped so they can't overwrite the verified
+// total with a smaller in-progress number.
+func (v *BucketsView) applyUsage(u usage.BucketUsage, final bool) {
+	existing, hasExisting := v.usageByBucket[u.Bucket]
+	if !final && hasExisting {
+		if existing.Source == usage.SourceDeepScan && existing.ScannedAt.After(u.ScannedAt) {
+			return // stale progress after final result
+		}
+	}
+	// Deep-scan results take precedence over monitoring; never let a monitoring
+	// refresh (e.g. cache TTL expiry) overwrite a completed deep scan and its ✓
+	// marker with a stale ~24h-old monitoring value.
+	if hasExisting && u.Source == usage.SourceMonitoring && existing.Source == usage.SourceDeepScan {
+		return
+	}
+	v.usageByBucket[u.Bucket] = u
+	rows := v.table.Rows()
+	for i := range rows {
+		if rows[i].ID != u.Bucket {
+			continue
+		}
+		sizeStr := gcp.FormatSize(u.TotalBytes)
+		if final && u.Source == usage.SourceDeepScan {
+			sizeStr += " ✓"
+		}
+		countStr := formatObjectCount(u.ObjectCount)
+		// Replace the cells. Data length is fixed by bucketColumns().
+		rows[i].Data[3] = sizeStr
+		rows[i].Data[4] = countStr
+	}
+	// Preserve the user's sort across SetRows (which clears it).
+	sortCol, sortAsc := v.table.SortState()
+	v.table.SetRows(rows)
+	if sortCol >= 0 {
+		v.table.SortBy(sortCol, sortAsc)
+	}
+}
+

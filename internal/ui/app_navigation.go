@@ -11,6 +11,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/slayer/gcon/internal/gcp"
+	"github.com/slayer/gcon/internal/gcp/usage"
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/sidebar"
 	"github.com/slayer/gcon/internal/ui/context"
@@ -223,7 +224,7 @@ func (a *App) handleSidebarNavigation(msg sidebar.NavigateMsg) tea.Cmd {
 			}
 		}
 	case sidebar.ViewBuckets:
-		if a.currentView != ViewBuckets && a.currentView != ViewObjects {
+		if a.currentView != ViewBuckets && a.currentView != ViewBucketDetails && a.currentView != ViewObjects {
 			a.currentView = ViewBuckets
 			a.objectsView = nil
 			a.selectedBucket = nil
@@ -372,7 +373,7 @@ func (a *App) updateSidebarActiveView() {
 		a.sidebar.SetActiveView(sidebar.ViewSnapshots)
 	case ViewImages, ViewImageDetails:
 		a.sidebar.SetActiveView(sidebar.ViewImages)
-	case ViewBuckets, ViewObjects, ViewObjectDetails:
+	case ViewBuckets, ViewBucketDetails, ViewObjects, ViewObjectDetails:
 		a.sidebar.SetActiveView(sidebar.ViewBuckets)
 	case ViewNetworks, ViewNetworkDetails:
 		a.sidebar.SetActiveView(sidebar.ViewNetworks)
@@ -659,6 +660,16 @@ func (a *App) handleProjectSwitch(newProject *gcp.Project) tea.Cmd {
 
 // clearAllViews nils out all view instances to force reload with new project
 func (a *App) clearAllViews() {
+	// Close the scanner so the underlying monitoring gRPC client is released
+	// and in-flight scans are canceled before we drop the reference.
+	if a.usageScanner != nil {
+		_ = a.usageScanner.Close() //nolint:errcheck // best-effort cleanup
+	}
+	a.usageScanner = nil
+	// New project may have monitoring API enabled even if the previous one
+	// didn't — clear the failure flag so we retry construction.
+	a.usageScannerInitFailed = false
+
 	a.projectView = nil
 	a.instancesView = nil
 	a.instanceDetailsView = nil
@@ -669,6 +680,7 @@ func (a *App) clearAllViews() {
 	a.imagesView = nil
 	a.imageDetailsView = nil
 	a.bucketsView = nil
+	a.bucketDetailsView = nil
 	a.objectsView = nil
 	a.objectDetailsView = nil
 	a.projectMetadataView = nil
@@ -766,9 +778,10 @@ func (a *App) reloadCurrentView(projectID string) tea.Cmd {
 		a.updateViewSizes()
 		return a.imagesView.Init()
 
-	case ViewBuckets, ViewObjects, ViewObjectDetails:
+	case ViewBuckets, ViewBucketDetails, ViewObjects, ViewObjectDetails:
 		// Return to buckets list
 		a.currentView = ViewBuckets
+		a.bucketDetailsView = nil
 		a.bucketsView = views.NewBucketsView(projectID)
 		a.updateSidebarActiveView()
 		a.updateViewSizes()
@@ -3414,4 +3427,149 @@ func (a *App) handleInstanceConfigEditCanceled() {
 	}
 	a.instanceConfigEditView = nil
 	a.updateSidebarActiveView()
+}
+
+// handleUsageMonitoringRequest fetches monitoring metrics via the scanner and
+// returns the resulting tea.Cmd. The ReadyMsg lands back in App.Update which
+// dispatches to interested views.
+func (a *App) handleUsageMonitoringRequest(msg views.UsageMonitoringRequestMsg) tea.Cmd {
+	scanner := a.ensureUsageScanner()
+	if scanner == nil {
+		return nil
+	}
+	return scanner.FetchMonitoring(gocontext.Background(), msg.Bucket)
+}
+
+// handleUsageDeepScanRequest starts (or joins) a deep scan and registers a
+// footer task with live progress.
+func (a *App) handleUsageDeepScanRequest(msg views.UsageDeepScanRequestMsg) tea.Cmd {
+	scanner := a.ensureUsageScanner()
+	if scanner == nil {
+		return nil
+	}
+	jobID, cmd := scanner.StartDeepScan(gocontext.Background(), msg.Bucket, msg.Prefix)
+	desc := fmt.Sprintf("Scanning %s%s...", msg.Bucket, slashIfPrefix(msg.Prefix))
+	a.registerRunningTask(jobID, desc)
+	return cmd
+}
+
+// handleUsageProgress updates the footer task description and forwards the
+// message to interested views, then re-arms the pump.
+//
+// Important: this delivers the message DIRECTLY to mounted views via
+// view.Update(msg). Returning a Cmd that re-emits the same message would
+// re-enter App.Update for the same case, causing unbounded recursion.
+func (a *App) handleUsageProgress(msg usage.ProgressMsg) tea.Cmd {
+	if a.usageScanner == nil {
+		// Stale message after project switch; views may have been cleared too.
+		return nil
+	}
+	desc := fmt.Sprintf("Scanning %s%s — %s objects · %s",
+		msg.Bucket, slashIfPrefix(msg.Prefix),
+		formatObjectCount(msg.ObjectsScanned),
+		gcp.FormatSize(msg.BytesScanned))
+	a.updateRunningTask(msg.JobID, desc)
+	cmds := []tea.Cmd{a.usageScanner.NextMessage(msg.JobID)}
+	if a.bucketsView != nil {
+		if c := a.bucketsView.Update(msg); c != nil {
+			cmds = append(cmds, c)
+		}
+	}
+	if a.bucketDetailsView != nil {
+		if c := a.bucketDetailsView.Update(msg); c != nil {
+			cmds = append(cmds, c)
+		}
+	}
+	if a.objectsView != nil {
+		if c := a.objectsView.Update(msg); c != nil {
+			cmds = append(cmds, c)
+		}
+	}
+	return tea.Batch(cmds...)
+}
+
+// handleUsageReady finalizes the footer task and forwards to interested views.
+//
+// Important: like handleUsageProgress, this delivers the message DIRECTLY to
+// mounted views via view.Update(msg). Returning a Cmd that re-emits the same
+// message would re-enter App.Update and re-fire finishTask repeatedly.
+func (a *App) handleUsageReady(msg usage.ReadyMsg) tea.Cmd {
+	if a.usageScanner == nil {
+		// Stale message after project switch; views may have been cleared too.
+		return nil
+	}
+	finishCmd := a.finishTask(msg.JobID, msg.Err)
+	cmds := []tea.Cmd{}
+	if finishCmd != nil {
+		cmds = append(cmds, finishCmd)
+	}
+	if a.bucketsView != nil {
+		if c := a.bucketsView.Update(msg); c != nil {
+			cmds = append(cmds, c)
+		}
+	}
+	if a.bucketDetailsView != nil {
+		if c := a.bucketDetailsView.Update(msg); c != nil {
+			cmds = append(cmds, c)
+		}
+	}
+	if a.objectsView != nil {
+		if c := a.objectsView.Update(msg); c != nil {
+			cmds = append(cmds, c)
+		}
+	}
+	return tea.Batch(cmds...)
+}
+
+// slashIfPrefix returns "/<prefix>" when prefix is non-empty, "" otherwise.
+// Used for human-readable scan descriptions.
+func slashIfPrefix(prefix string) string {
+	if prefix == "" {
+		return ""
+	}
+	return "/" + prefix
+}
+
+// formatObjectCount renders n with comma thousands separators. Duplicated from
+// the views package to avoid importing views from app_navigation; this helper
+// is small enough that DRY isn't worth the layering cost.
+func formatObjectCount(n int64) string {
+	if n < 1000 {
+		return fmt.Sprintf("%d", n)
+	}
+	s := fmt.Sprintf("%d", n)
+	out := make([]byte, 0, len(s)+len(s)/3)
+	for i, c := range s {
+		if i > 0 && (len(s)-i)%3 == 0 {
+			out = append(out, ',')
+		}
+		out = append(out, byte(c))
+	}
+	return string(out)
+}
+
+// handleBucketDetailsRequest navigates to BucketDetailsView for the named bucket.
+// Locates the bucket struct in the BucketsView cache so the details view has
+// metadata (location, class, created) without an extra GCP call.
+func (a *App) handleBucketDetailsRequest(msg views.BucketDetailsRequestMsg) tea.Cmd {
+	if a.bucketsView == nil {
+		return nil
+	}
+	buckets := a.bucketsView.Buckets()
+	var found *gcp.Bucket
+	for i := range buckets {
+		if buckets[i].Name == msg.Bucket {
+			found = &buckets[i]
+			break
+		}
+	}
+	if found == nil {
+		return nil
+	}
+	a.viewStack = append(a.viewStack, a.currentView)
+	a.currentView = ViewBucketDetails
+	a.selectedBucket = found
+	a.bucketDetailsView = views.NewBucketDetailsView(*found)
+	a.updateViewSizes()
+	return a.bucketDetailsView.Init()
 }

@@ -311,6 +311,14 @@ func (m *Model) SetRows(rows []Row) {
 	m.recalcColumns()
 }
 
+// Rows returns a copy of the current (unfiltered) rows. Callers may mutate the
+// returned slice safely; the model only updates when SetRows is called.
+func (m *Model) Rows() []Row {
+	out := make([]Row, len(m.allRows))
+	copy(out, m.allRows)
+	return out
+}
+
 // filterSpec represents a parsed filter with field-specific and free-text parts.
 type filterSpec struct {
 	fieldFilters map[int]string // visible column index -> match substring (lowercase)
@@ -425,6 +433,13 @@ func (m *Model) applyFilter() {
 		tableRows[i] = row.Data
 	}
 	m.table.SetRows(tableRows)
+}
+
+// SortState returns the current sort column index (or -1 when no sort) and the
+// sort direction. Used by callers that need to preserve the user's sort across
+// SetRows() (which clears the sort).
+func (m *Model) SortState() (col int, ascending bool) {
+	return m.sortColumn, m.sortAscending
 }
 
 // SortBy sorts the table by a visible column index. Reapplies to current filter.

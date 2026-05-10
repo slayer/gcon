@@ -13,6 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
+	"github.com/slayer/gcon/internal/gcp/usage"
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/actionmenu"
 	"github.com/slayer/gcon/internal/ui/components/confirm"
@@ -39,6 +40,7 @@ type objectKeyMap struct {
 	Upload     key.Binding
 	Delete     key.Binding
 	ActionMenu key.Binding
+	DeepScan   key.Binding
 }
 
 func defaultObjectKeyMap() objectKeyMap {
@@ -66,6 +68,10 @@ func defaultObjectKeyMap() objectKeyMap {
 		ActionMenu: key.NewBinding(
 			key.WithKeys("."),
 			key.WithHelp(".", "actions"),
+		),
+		DeepScan: key.NewBinding(
+			key.WithKeys("C"),
+			key.WithHelp("C", "calculate folder size"),
 		),
 	}
 }
@@ -131,6 +137,11 @@ type ObjectsView struct {
 	// Action menu state
 	actionMenu *actionmenu.ActionMenu
 	menuOpen   bool
+
+	// folderUsage holds the most recent deep-scan result for the current
+	// (bucketName, currentPrefix) pair, displayed as an inline stats line
+	// above the table. Set by ReadyMsg / ProgressMsg from the usage scanner.
+	folderUsage *usage.BucketUsage
 }
 
 // NewObjectsView creates a new objects view with table display
@@ -269,6 +280,29 @@ func objectToRow(obj gcp.StorageObject) table.Row { //nolint:gocritic // Copying
 	}
 }
 
+// folderUsageKey computes the ByTopPrefix key for a folder row, given the
+// scan prefix (= currentPrefix at the time of scan). Mirrors the logic in
+// usage.tally.topPrefixSegment so cell lookups match scan results for folder
+// rows. Files are not looked up via this helper (they map to "(root)" or
+// other extension-based buckets in the usage breakdown).
+func folderUsageKey(rowID, scanPrefix string) string {
+	rel := rowID
+	if scanPrefix != "" {
+		normalized := scanPrefix
+		if !strings.HasSuffix(normalized, "/") {
+			normalized += "/"
+		}
+		rel = strings.TrimPrefix(rowID, normalized)
+	}
+	if rel == "" {
+		return "(root)"
+	}
+	if i := strings.Index(rel, "/"); i >= 0 {
+		return rel[:i+1]
+	}
+	return rel
+}
+
 // Download-related messages
 type downloadStartMsg struct {
 	files []gcp.StorageObject // Files to download (single file or folder contents)
@@ -403,6 +437,37 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 			v.resetScrollState()
 			v.loading = true
 			return tea.Batch(v.spinner.Tick, v.loadObjects())
+		}
+		return nil
+
+	case usage.ReadyMsg:
+		// Errors arrive without a usable Usage payload; ignore so we don't
+		// overwrite previously-rendered values.
+		if msg.Err != nil {
+			return nil
+		}
+		// Only consume results that match this view's (bucket, prefix) tuple.
+		if msg.Usage.Bucket != v.bucketName || msg.Usage.Prefix != v.currentPrefix {
+			return nil
+		}
+		u := msg.Usage
+		v.folderUsage = &u
+		// Populate per-sub-folder Size cells from the per-prefix breakdown.
+		// Only the final ReadyMsg has ByTopPrefix populated; ProgressMsg
+		// updates the inline header but leaves cells alone.
+		v.applyFolderUsageToTable()
+		return nil
+
+	case usage.ProgressMsg:
+		if msg.Bucket != v.bucketName || msg.Prefix != v.currentPrefix {
+			return nil
+		}
+		v.folderUsage = &usage.BucketUsage{
+			Bucket:      msg.Bucket,
+			Prefix:      msg.Prefix,
+			TotalBytes:  msg.BytesScanned,
+			ObjectCount: msg.ObjectsScanned,
+			Source:      usage.SourceDeepScan,
 		}
 		return nil
 
@@ -731,6 +796,15 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 				}
 			}
 
+		case key.Matches(msg, v.keys.DeepScan):
+			// Run a folder-scoped deep scan. App registers the footer task and
+			// dispatches Progress/Ready messages back to this view.
+			bucket := v.bucketName
+			prefix := v.currentPrefix
+			return func() tea.Msg {
+				return UsageDeepScanRequestMsg{Bucket: bucket, Prefix: prefix}
+			}
+
 		case key.Matches(msg, v.keys.Refresh):
 			v.resetScrollState()
 			v.loading = true
@@ -761,6 +835,47 @@ func (v *ObjectsView) findObjectByName(name string) *gcp.StorageObject {
 	return nil
 }
 
+// applyFolderUsageToTable walks the current table rows; for each folder row,
+// looks up its recursive size in v.folderUsage.ByTopPrefix and updates the
+// Size cell in place. Files are left untouched. Called after a deep-scan
+// ReadyMsg arrives. Sort state is preserved by snapshotting before SetRows.
+//
+// Builds an O(1)-lookup map from object Name -> *StorageObject once, so total
+// cost is O(rows + objects) instead of O(rows * objects). With 10k objects in
+// a folder a naive nested scan was ~100M comparisons per call.
+func (v *ObjectsView) applyFolderUsageToTable() {
+	if v.folderUsage == nil || v.folderUsage.Source != usage.SourceDeepScan {
+		return
+	}
+	if len(v.folderUsage.ByTopPrefix) == 0 {
+		return
+	}
+	objIndex := make(map[string]*gcp.StorageObject, len(v.objects))
+	for i := range v.objects {
+		objIndex[v.objects[i].Name] = &v.objects[i]
+	}
+	rows := v.table.Rows()
+	for i := range rows {
+		obj, ok := objIndex[rows[i].ID]
+		if !ok || !obj.IsFolder {
+			continue
+		}
+		key := folderUsageKey(rows[i].ID, v.folderUsage.Prefix)
+		stat, ok := v.folderUsage.ByTopPrefix[key]
+		if !ok {
+			continue // no data for this folder
+		}
+		// Size cell is index 1 per objectColumns().
+		rows[i].Data[1] = gcp.FormatSize(stat.Bytes) + " ✓"
+	}
+	// Preserve the user's sort across SetRows (which clears it).
+	sortCol, sortAsc := v.table.SortState()
+	v.table.SetRows(rows)
+	if sortCol >= 0 {
+		v.table.SortBy(sortCol, sortAsc)
+	}
+}
+
 // HandleBack handles ESC key - returns true if handled internally (went up a folder)
 func (v *ObjectsView) HandleBack() (handled bool, cmd tea.Cmd) {
 	// If we're in a subfolder, go up
@@ -775,7 +890,9 @@ func (v *ObjectsView) HandleBack() (handled bool, cmd tea.Cmd) {
 	return false, nil
 }
 
-// resetScrollState resets infinite scroll state for folder navigation
+// resetScrollState resets infinite scroll state for folder navigation.
+// Also clears any cached folder-usage stats since they were tied to the old
+// (bucket, prefix) and don't apply to the new folder.
 func (v *ObjectsView) resetScrollState() {
 	v.nextPageToken = ""
 	v.loadingMore = false
@@ -783,6 +900,7 @@ func (v *ObjectsView) resetScrollState() {
 	v.loadMoreErr = nil
 	v.loadGeneration++ // Invalidate any in-flight responses
 	v.objects = nil
+	v.folderUsage = nil
 	v.table.ResetNearBottom()
 }
 
@@ -850,9 +968,21 @@ func (v *ObjectsView) View() string {
 
 	// Help text for actions
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
-	help := helpStyle.Render("\n  enter: open • d: download • u: upload • D: delete • .: menu • /: filter • r: refresh • esc: back")
+	help := helpStyle.Render("\n  enter: open • C: folder size • d: download • u: upload • D: delete • .: menu • /: filter • r: refresh • esc: back")
 
-	content := v.table.View() + help
+	// Inline folder-size stats line shown above the table when a deep scan
+	// has produced (or is producing) data for the current folder.
+	var statsLine string
+	if v.folderUsage != nil {
+		muted := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
+		statsLine = "  " + muted.Render(fmt.Sprintf(
+			"Folder size: %s · %s objects (deep scan)",
+			gcp.FormatSize(v.folderUsage.TotalBytes),
+			formatObjectCount(v.folderUsage.ObjectCount),
+		)) + "\n"
+	}
+
+	content := statsLine + v.table.View() + help
 
 	// Overlay action menu when shown
 	if v.menuOpen && v.actionMenu != nil {

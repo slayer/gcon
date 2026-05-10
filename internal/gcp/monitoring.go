@@ -18,6 +18,9 @@ import (
 type MonitoringClient struct {
 	metricsClient *monitoring.MetricClient
 	projectID     string
+	// fetchFunc is the seam for tests. Production code leaves this nil and
+	// the methods fall back to fetchMetricData.
+	fetchFunc func(ctx context.Context, filter string, duration time.Duration) ([]DataPoint, error)
 }
 
 // DataPoint represents a single metric data point
@@ -253,6 +256,14 @@ func (c *MonitoringClient) GetLogEntryCount(ctx context.Context, timeRange time.
 // fetchMetricData is a helper to fetch time series data using ALIGN_MEAN.
 func (c *MonitoringClient) fetchMetricData(ctx context.Context, filter string, duration time.Duration) ([]DataPoint, error) {
 	return c.fetchMetricDataWithAligner(ctx, filter, duration, monitoringpb.Aggregation_ALIGN_MEAN)
+}
+
+// fetch dispatches to fetchFunc when set (tests) or fetchMetricData (production).
+func (c *MonitoringClient) fetch(ctx context.Context, filter string, duration time.Duration) ([]DataPoint, error) {
+	if c.fetchFunc != nil {
+		return c.fetchFunc(ctx, filter, duration)
+	}
+	return c.fetchMetricData(ctx, filter, duration)
 }
 
 // fetchMetricDataWithAligner fetches time series data with a specific per-series aligner.

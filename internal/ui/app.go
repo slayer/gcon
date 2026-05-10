@@ -1,6 +1,8 @@
 package ui
 
 import (
+	gocontext "context"
+	"fmt"
 	"os"
 	"strings"
 	"time"
@@ -12,6 +14,7 @@ import (
 	"github.com/slayer/gcon/internal/config"
 
 	"github.com/slayer/gcon/internal/gcp"
+	"github.com/slayer/gcon/internal/gcp/usage"
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/commandpalette"
 	"github.com/slayer/gcon/internal/ui/components/projectselector"
@@ -40,6 +43,7 @@ const (
 	ViewImages
 	ViewImageDetails
 	ViewBuckets
+	ViewBucketDetails  // Bucket details + Usage tab
 	ViewObjects        // Browsing objects within a bucket
 	ViewObjectDetails  // Viewing object details
 	ViewInstanceEditor // Editing instance properties (labels, etc.)
@@ -85,13 +89,20 @@ const (
 // App is the main application model
 type App struct {
 	gcpClient *gcp.Client
-	ctx       *context.ProgramContext // Shared context for all views
-	styles    Styles
-	keys      KeyMap
-	help      help.Model
-	width     int
-	height    int
-	layout    *layout.Layout // Tile-based layout manager
+	// usageScanner provides bucket usage data (monitoring + deep scans).
+	// Constructed lazily on first usage request after a project is selected.
+	usageScanner *usage.Scanner
+	// usageScannerInitFailed records that ensureUsageScanner has already tried
+	// and failed for the current project (most commonly: monitoring API not
+	// enabled). Reset in clearAllViews() when switching projects.
+	usageScannerInitFailed bool
+	ctx          *context.ProgramContext // Shared context for all views
+	styles       Styles
+	keys         KeyMap
+	help         help.Model
+	width        int
+	height       int
+	layout       *layout.Layout // Tile-based layout manager
 
 	// Current view state
 	currentView                ViewType
@@ -108,6 +119,7 @@ type App struct {
 	imagesView                 *views.ImagesView
 	imageDetailsView           *views.ImageDetailsView
 	bucketsView                *views.BucketsView
+	bucketDetailsView          *views.BucketDetailsView
 	objectsView                *views.ObjectsView
 	objectDetailsView          *views.ObjectDetailsView
 	instanceEditorView         *views.InstanceEditorView
@@ -363,6 +375,8 @@ func (a *App) getCurrentViewModel() views.View {
 		return a.imageDetailsView
 	case ViewBuckets:
 		return a.bucketsView
+	case ViewBucketDetails:
+		return a.bucketDetailsView
 	case ViewObjects:
 		return a.objectsView
 	case ViewObjectDetails:
@@ -532,9 +546,17 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case ViewImageDetails:
 					a.imageDetailsView = nil
 					a.selectedImage = nil
+				case ViewBucketDetails:
+					a.bucketDetailsView = nil
+					a.selectedBucket = nil
 				case ViewObjects:
 					a.objectsView = nil
-					a.selectedBucket = nil
+					// Preserve selectedBucket when the parent we're returning to is BucketDetails,
+					// since that view's breadcrumb depends on it. By this point, viewStack has
+					// already been popped and a.currentView is the parent.
+					if a.currentView != ViewBucketDetails {
+						a.selectedBucket = nil
+					}
 				case ViewObjectDetails:
 					a.objectDetailsView = nil
 					a.selectedObject = nil
@@ -623,6 +645,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Global key handlers (only when text input is NOT focused)
 		switch {
+		case key.Matches(msg, a.keys.CancelUsageScan):
+			if a.usageScanner != nil {
+				for _, jobID := range a.activeUsageScanJobIDs() {
+					a.usageScanner.Cancel(jobID)
+				}
+			}
+			return a, nil
 		case key.Matches(msg, a.keys.Quit):
 			// Clean up resources before quitting
 			a.cleanup()
@@ -694,8 +723,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case context.TaskClearMsg:
-		// Remove completed task from tracking
-		delete(a.ctx.Tasks, msg.TaskID)
+		// Remove completed task from tracking. Only delete tasks that have
+		// actually finished — a deterministic JobID may have been reused for a
+		// fresh in-flight scan within the 2s clear delay; deleting it would
+		// wipe the new scan's footer entry.
+		if t, ok := a.ctx.Tasks[msg.TaskID]; ok && t.State != context.TaskRunning {
+			delete(a.ctx.Tasks, msg.TaskID)
+		}
 		return a, nil
 
 	case ErrorMsg:
@@ -821,6 +855,26 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case views.BucketCreateCanceledMsg:
 		a.handleBucketCreateCanceled()
 		return a, nil
+
+	case views.BucketDetailsRequestMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleBucketDetailsRequest(msg)
+
+	case views.UsageMonitoringRequestMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleUsageMonitoringRequest(msg)
+
+	case views.UsageDeepScanRequestMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleUsageDeepScanRequest(msg)
+
+	case usage.ProgressMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleUsageProgress(msg)
+
+	case usage.ReadyMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleUsageReady(msg)
 
 	case views.DeleteDiskConfirmedMsg:
 		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
@@ -1139,6 +1193,10 @@ func (a *App) cleanup() {
 	if a.bucketsView != nil {
 		_ = a.bucketsView.Close() //nolint:errcheck // Best-effort cleanup on exit
 	}
+	if a.usageScanner != nil {
+		_ = a.usageScanner.Close() //nolint:errcheck // Best-effort cleanup on exit
+		a.usageScanner = nil
+	}
 }
 
 // startTask registers a new async task and returns a command to animate the spinner.
@@ -1168,6 +1226,16 @@ func (a *App) registerRunningTask(id, description string) {
 	}
 }
 
+// updateRunningTask updates the description of an already-running task.
+// Used to surface live progress (e.g. scan counters) without re-registering
+// the task. No-op if the task is not in TaskRunning state.
+func (a *App) updateRunningTask(id, description string) {
+	if t, ok := a.ctx.Tasks[id]; ok && t.State == context.TaskRunning {
+		t.Description = description
+		a.ctx.Tasks[id] = t
+	}
+}
+
 // clearRunningTasks removes all tasks still in TaskRunning state.
 // Called when navigating back — in-flight async results will be dropped.
 func (a *App) clearRunningTasks() {
@@ -1176,6 +1244,63 @@ func (a *App) clearRunningTasks() {
 			delete(a.ctx.Tasks, id)
 		}
 	}
+}
+
+// activeUsageScanJobIDs returns the IDs of every in-flight usage scan
+// found in the task tracker (those whose ID begins with "scan:").
+// Used by the Ctrl+X cancel handler to cancel all scans deterministically.
+func (a *App) activeUsageScanJobIDs() []string {
+	var ids []string
+	for id, t := range a.ctx.Tasks {
+		if t.State == context.TaskRunning && strings.HasPrefix(id, "scan:") {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+// ensureUsageScanner constructs the scanner on first use. Requires:
+//   - selectedProject (for monitoring scope)
+//   - bucketsView with an initialized StorageClient (for deep scans)
+//   - successful MonitoringClient construction (for inline bucket totals)
+//
+// If MonitoringClient construction fails (auth failure, API not enabled, etc.)
+// the scanner is NOT built and ALL usage features are disabled, including
+// deep scan — the Scanner constructor requires both backends. This is
+// acceptable for v1 because the most common monitoring failure mode (missing
+// API enablement) also affects most other observability features. We set
+// usageScannerInitFailed so we don't retry (and re-set a.err) on every
+// keystroke that hits the usage code path.
+//
+// Future work: support a degraded-mode scanner with a no-op MonitoringFetcher
+// so deep scans remain available even when monitoring is unreachable.
+func (a *App) ensureUsageScanner() *usage.Scanner {
+	if a.usageScanner != nil {
+		return a.usageScanner
+	}
+	if a.usageScannerInitFailed {
+		// Already tried and failed once for this project; don't keep retrying.
+		// The flag is reset in clearAllViews() when the user switches projects.
+		return nil
+	}
+	if a.selectedProject == nil {
+		return nil
+	}
+	if a.bucketsView == nil {
+		return nil
+	}
+	storageClient := a.bucketsView.GetStorageClient()
+	if storageClient == nil {
+		return nil
+	}
+	monClient, err := gcp.NewMonitoringClient(gocontext.Background(), a.selectedProject.ID)
+	if err != nil {
+		a.err = fmt.Errorf("usage scanner monitoring init: %w", err)
+		a.usageScannerInitFailed = true
+		return nil
+	}
+	a.usageScanner = usage.New(storageClient, monClient)
+	return a.usageScanner
 }
 
 // finishTask marks a task as complete and schedules its removal after 2 seconds.
@@ -1291,6 +1416,9 @@ func (a *App) updateViewSizes() {
 	}
 	if a.bucketsView != nil {
 		a.bucketsView.SetContext(a.ctx)
+	}
+	if a.bucketDetailsView != nil {
+		a.bucketDetailsView.SetContext(a.ctx)
 	}
 	if a.objectsView != nil {
 		a.objectsView.SetContext(a.ctx)

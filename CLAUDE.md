@@ -229,6 +229,12 @@ On developing or updating a new feature keep in mind the following guidelines:
   - Access control settings (uniform/fine-grained)
   - Data protection options (versioning, retention, soft delete)
   - Labels and CMEK encryption support
+- [x] Cloud Storage bucket usage analysis
+  - Cloud Monitoring metrics (total bytes, object count) shown inline in buckets list
+  - On-demand deep scan with breakdowns by storage class, top-level prefix, and file extension
+  - Footer spinner during scan; results delivered when complete (`Ctrl+X` to cancel)
+  - Folder-scoped deep scan from objects browser (`C` key) with inline stats
+  - Bucket details view (`i` key) with Details and Usage tabs
 - [x] Command palette with fuzzy search
 - [x] Recent items tracking
 - [x] Sidebar navigation
