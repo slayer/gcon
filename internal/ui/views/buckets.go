@@ -188,7 +188,6 @@ func (v *BucketsView) Update(msg tea.Msg) tea.Cmd {
 		// totals via the usage scanner.
 		cmds := make([]tea.Cmd, 0, len(msg.buckets))
 		for _, bucket := range msg.buckets {
-			bucket := bucket // capture
 			cmds = append(cmds, func() tea.Msg {
 				return UsageMonitoringRequestMsg{Bucket: bucket.Name}
 			})
@@ -333,7 +332,7 @@ func (v *BucketsView) View() string {
 
 	// Help text for actions
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
-	help := helpStyle.Render("\n  enter: browse • c: create • S: sort • /: filter • r: refresh • esc: back")
+	help := helpStyle.Render("\n  enter: browse • C: calculate usage • c: create • S: sort • /: filter • r: refresh • esc: back")
 
 	return v.table.View() + help
 }

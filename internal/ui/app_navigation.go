@@ -661,7 +661,7 @@ func (a *App) handleProjectSwitch(newProject *gcp.Project) tea.Cmd {
 // clearAllViews nils out all view instances to force reload with new project
 func (a *App) clearAllViews() {
 	// Drop the scanner so a fresh one is built for the new project's clients.
-	// In-flight scans tied to the old project will be cancelled when their
+	// In-flight scans tied to the old project will be canceled when their
 	// underlying contexts are garbage-collected; for v1 we accept that they may
 	// briefly continue running in the background until they hit ctx.Done.
 	a.usageScanner = nil

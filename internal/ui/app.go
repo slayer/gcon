@@ -841,15 +841,19 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case views.UsageMonitoringRequestMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
 		return a, a.handleUsageMonitoringRequest(msg)
 
 	case views.UsageDeepScanRequestMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
 		return a, a.handleUsageDeepScanRequest(msg)
 
 	case usage.ProgressMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
 		return a, a.handleUsageProgress(msg)
 
 	case usage.ReadyMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
 		return a, a.handleUsageReady(msg)
 
 	case views.DeleteDiskConfirmedMsg:
