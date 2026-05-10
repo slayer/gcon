@@ -1050,14 +1050,21 @@ func formatRelativeDuration(d time.Duration) string {
 	const day = 24 * time.Hour
 	switch {
 	case d >= day:
-		return fmt.Sprintf("%d days", int(d/day))
+		return pluralize(int(d/day), "day", "days")
 	case d >= time.Hour:
-		return fmt.Sprintf("%d hours", int(d/time.Hour))
+		return pluralize(int(d/time.Hour), "hour", "hours")
 	default:
 		mins := int(d / time.Minute)
 		if mins < 1 {
 			mins = 1
 		}
-		return fmt.Sprintf("%d min", mins)
+		return pluralize(mins, "min", "min")
 	}
+}
+
+func pluralize(n int, singular, plural string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, singular)
+	}
+	return fmt.Sprintf("%d %s", n, plural)
 }

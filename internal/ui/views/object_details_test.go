@@ -91,7 +91,7 @@ func TestFormatLifecycleEffective(t *testing.T) {
 	assert.Equal(t, "due now", formatLifecycleEffective(time.Time{}))
 
 	future := formatLifecycleEffective(time.Now().Add(48 * time.Hour))
-	assert.True(t, strings.Contains(future, "in 2 days") || strings.Contains(future, "in 1 days"),
+	assert.True(t, strings.Contains(future, "in 2 days") || strings.Contains(future, "in 1 day"),
 		"got %q", future)
 
 	past := formatLifecycleEffective(time.Now().Add(-25 * time.Hour))

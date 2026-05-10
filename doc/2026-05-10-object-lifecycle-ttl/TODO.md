@@ -37,7 +37,7 @@ GCS does not have per-object TTLs; expiration comes from a combination of:
   - Custom-time-based delete
   - Storage-class transition
   - Multiple rules → earliest applicable wins
-  - Hold blocks the estimate
+  - Archived liveness skipped
 - Cache TTL test using injectable clock
 
 ## Out of scope

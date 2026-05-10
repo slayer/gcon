@@ -116,9 +116,10 @@ func convertCondition(c storage.LifecycleCondition) LifecycleCondition {
 // matches or if the matching rules cannot be evaluated (e.g. require version
 // counts we don't fetch). The function is pure and safe for tests.
 //
-// Holds (event-based or temporary) and per-object retention block deletion in
-// GCS itself; we surface them in the result's Reason but still return the
-// action so the UI can warn explicitly.
+// Holds (event-based or temporary) and per-object retention block deletion at
+// the GCS layer regardless of lifecycle rules. They are not factored into
+// this estimate — the UI displays them as separate signals so users see both
+// the "would-trigger" date and the "actually-blocked" status.
 func EstimateLifecycleAction(rules []LifecycleRule, meta *ObjectMetadata, now time.Time) *EstimatedLifecycleAction {
 	if meta == nil || len(rules) == 0 {
 		return nil
