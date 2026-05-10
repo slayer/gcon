@@ -484,9 +484,15 @@ func (m *Model) ClearSort() {
 
 // recalcColumns forces column width recalculation (e.g. after sort indicator changes).
 func (m *Model) recalcColumns() {
+	m.columnsComputed = false
+	// Always rebuild — even when lastWidth is 0 (i.e., SetSize hasn't run
+	// yet). At width 0 the dynamic distribution is a no-op and columns
+	// keep their static colDef widths, but the *visible-column set* still
+	// gets pushed to the underlying bubbles table. Without this,
+	// SetColumnHidden invoked at construction time would update colDefs
+	// but leave bubbles' column list out of date until the first resize.
+	m.adjustColumnWidths(m.lastWidth)
 	if m.lastWidth > 0 {
-		m.columnsComputed = false
-		m.adjustColumnWidths(m.lastWidth)
 		m.columnsComputed = true
 	}
 }

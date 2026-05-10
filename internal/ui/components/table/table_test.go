@@ -51,6 +51,29 @@ func TestSetColumnHidden(t *testing.T) {
 	assert.True(t, m.colDefs[1].Hidden)
 }
 
+// Regression: SetColumnHidden called before SetSize must still rebuild
+// the visible-column list pushed to the underlying bubbles table.
+// Previously recalcColumns() was a no-op until lastWidth > 0, so a
+// construction-time call to hide a column updated colDefs but left
+// bubbles thinking all columns were visible until the first resize.
+func TestSetColumnHidden_PropagatesBeforeSetSize(t *testing.T) {
+	cols := []Column{
+		{Title: "Sel", Width: 4},
+		{Title: "Name", Width: 20, Grow: true},
+		{Title: "Size", Width: 10},
+	}
+	m := NewWithColumns(cols, "T")
+	// Hide Sel before any SetSize. GetVisibleColumnCount queries the
+	// underlying bubbles columns slice, so this verifies the rebuild
+	// reached bubbles, not just colDefs.
+	m.SetColumnHidden("Sel", true)
+	assert.Equal(t, 2, m.GetVisibleColumnCount(),
+		"Sel should be hidden in the bubbles column list even pre-SetSize")
+	// Reverse direction also works pre-SetSize.
+	m.SetColumnHidden("Sel", false)
+	assert.Equal(t, 3, m.GetVisibleColumnCount())
+}
+
 // Regression: hiding a column after rows are loaded must not panic when
 // bubbles' renderer iterates over each row's cells to redraw the viewport.
 // The bug: row.Data had a cell for the now-hidden column, but

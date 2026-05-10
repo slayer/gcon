@@ -14,7 +14,10 @@ operations on the selection.
 - A leading "Sel" column shows `[✓]` / `[ ]`.
 - Status bar shows "N selected" when selection is non-empty.
 - The `..` row is never selectable.
-- Navigation (Up/Down/Right/Refresh) clears selection.
+- Folder navigation (`enter` on folder, `→`, `←`, `..`, `r` refresh,
+  post-upload/post-delete reload) clears the selection. Cursor
+  movement (`j`/`k`/arrow keys) preserves it so the user can build a
+  selection while scrolling.
 
 ## Single vs bulk routing
 
@@ -28,9 +31,9 @@ selection when it's non-empty:
 ## Bulk actions in this PR
 
 - [x] Selection infrastructure (Space, *, Esc-clears, status)
-- [ ] Bulk delete — single confirmation dialog ("Delete N objects?")
-- [ ] Bulk download — iterate, progress per file, summary on completion
-- [ ] Change storage class — picker (STANDARD/NEARLINE/COLDLINE/ARCHIVE);
+- [x] Bulk delete — single confirmation dialog ("Delete N objects?")
+- [x] Bulk download — iterate, progress per file, summary on completion
+- [x] Change storage class — picker (STANDARD/NEARLINE/COLDLINE/ARCHIVE);
       server-side rewrite per object
 
 ## Deferred to a follow-up
