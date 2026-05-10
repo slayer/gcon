@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slayer/gcon/internal/gcp"
+	"github.com/slayer/gcon/internal/gcp/usage"
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/table"
 	"github.com/slayer/gcon/internal/ui/context"
@@ -42,9 +43,11 @@ func defaultBucketKeyMap() bucketKeyMap {
 // Table column definitions for buckets
 func bucketColumns() []table.Column {
 	return []table.Column{
-		{Title: "Name", Width: 40, Grow: true, Sortable: true},
-		{Title: "Location", Width: 15, Sortable: true},
-		{Title: "Storage Class", Width: 15, Sortable: true},
+		{Title: "Name", Width: 36, Grow: true, Sortable: true},
+		{Title: "Location", Width: 14, Sortable: true},
+		{Title: "Storage Class", Width: 13, Sortable: true},
+		{Title: "Size", Width: 12, Sortable: true},
+		{Title: "Objects", Width: 11, Sortable: true},
 		{Title: "Created", Width: 12, Sortable: true},
 	}
 }
@@ -61,6 +64,9 @@ type BucketsView struct {
 	err           error
 	buckets       []gcp.Bucket
 	keys          bucketKeyMap
+	// usageByBucket caches the most recent usage record per bucket so that
+	// ProgressMsg updates can be re-rendered without losing prior info.
+	usageByBucket map[string]usage.BucketUsage
 }
 
 // NewBucketsView creates a new buckets view with table display
@@ -71,11 +77,12 @@ func NewBucketsView(projectID string) *BucketsView {
 	s := components.NewGCPSpinner()
 
 	v := &BucketsView{
-		projectID: projectID,
-		table:     t,
-		spinner:   s,
-		loading:   true,
-		keys:      defaultBucketKeyMap(),
+		projectID:     projectID,
+		table:         t,
+		spinner:       s,
+		loading:       true,
+		keys:          defaultBucketKeyMap(),
+		usageByBucket: make(map[string]usage.BucketUsage),
 	}
 	v.Table = &v.table
 	return v
@@ -129,13 +136,18 @@ type BucketSelectedMsg struct {
 	Bucket gcp.Bucket
 }
 
-// bucketToRow converts a GCS bucket to a table row
+// bucketToRow converts a GCS bucket to a table row.
+// The Size and Objects cells render as a faint "…" until usage data arrives;
+// they are updated in place when UsageReadyMsg is processed.
 func bucketToRow(b gcp.Bucket) table.Row {
+	mutedDots := "…"
 	return table.Row{
 		Data: []string{
 			"📦 " + b.Name,
 			b.Location,
 			b.StorageClass,
+			mutedDots,
+			mutedDots,
 			timeutil.FormatDate(b.Created),
 		},
 		FilterValue: b.Name + " " + b.Location + " " + b.StorageClass,

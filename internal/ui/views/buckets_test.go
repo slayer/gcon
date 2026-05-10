@@ -23,7 +23,10 @@ func TestBucketToRow(t *testing.T) {
 		assert.Contains(t, row.Data[0], "test-bucket")
 		assert.Equal(t, "us-central1", row.Data[1])
 		assert.Equal(t, "STANDARD", row.Data[2])
-		assert.Equal(t, "2024-01-15", row.Data[3])
+		// Size and Objects (cols 3, 4) start as placeholder until usage arrives.
+		assert.Equal(t, "…", row.Data[3])
+		assert.Equal(t, "…", row.Data[4])
+		assert.Equal(t, "2024-01-15", row.Data[5])
 	})
 
 	t.Run("FilterValue", func(t *testing.T) {
