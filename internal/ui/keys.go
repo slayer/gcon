@@ -18,9 +18,10 @@ type KeyMap struct {
 	ShiftTab       key.Binding
 	SelectSidebar  key.Binding // '[' - focus sidebar
 	SelectContent  key.Binding // ']' - focus content
-	ToggleSidebar  key.Binding // '{' - show/hide sidebar
-	ActionMenu     key.Binding
-	CommandPalette key.Binding
+	ToggleSidebar   key.Binding // '{' - show/hide sidebar
+	ActionMenu      key.Binding
+	CommandPalette  key.Binding
+	CancelUsageScan key.Binding // 'ctrl+x' - cancel active bucket usage scan
 }
 
 // DefaultKeyMap returns the default key bindings
@@ -93,6 +94,10 @@ func DefaultKeyMap() KeyMap {
 		CommandPalette: key.NewBinding(
 			key.WithKeys(":", "ctrl+k"),
 			key.WithHelp(":/^k", "command palette"),
+		),
+		CancelUsageScan: key.NewBinding(
+			key.WithKeys("ctrl+x"),
+			key.WithHelp("ctrl+x", "cancel scan"),
 		),
 	}
 }

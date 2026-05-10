@@ -629,6 +629,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Global key handlers (only when text input is NOT focused)
 		switch {
+		case key.Matches(msg, a.keys.CancelUsageScan):
+			if jobID, ok := a.activeUsageScanJobID(); ok && a.usageScanner != nil {
+				a.usageScanner.Cancel(jobID)
+			}
+			return a, nil
 		case key.Matches(msg, a.keys.Quit):
 			// Clean up resources before quitting
 			a.cleanup()
@@ -1192,6 +1197,18 @@ func (a *App) clearRunningTasks() {
 			delete(a.ctx.Tasks, id)
 		}
 	}
+}
+
+// activeUsageScanJobID returns the JobID of the first in-flight usage scan
+// found in the task tracker (those whose ID begins with "scan:"), and true
+// if one exists. Used by the Ctrl+X cancel handler.
+func (a *App) activeUsageScanJobID() (string, bool) {
+	for id, t := range a.ctx.Tasks {
+		if t.State == context.TaskRunning && strings.HasPrefix(id, "scan:") {
+			return id, true
+		}
+	}
+	return "", false
 }
 
 // ensureUsageScanner constructs the scanner on first use. It needs both a
