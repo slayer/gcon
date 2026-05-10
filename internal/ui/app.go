@@ -1168,6 +1168,16 @@ func (a *App) registerRunningTask(id, description string) {
 	}
 }
 
+// updateRunningTask updates the description of an already-running task.
+// Used to surface live progress (e.g. scan counters) without re-registering
+// the task. No-op if the task is not in TaskRunning state.
+func (a *App) updateRunningTask(id, description string) {
+	if t, ok := a.ctx.Tasks[id]; ok && t.State == context.TaskRunning {
+		t.Description = description
+		a.ctx.Tasks[id] = t
+	}
+}
+
 // clearRunningTasks removes all tasks still in TaskRunning state.
 // Called when navigating back — in-flight async results will be dropped.
 func (a *App) clearRunningTasks() {
