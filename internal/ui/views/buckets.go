@@ -166,13 +166,23 @@ func (v *BucketsView) Update(msg tea.Msg) tea.Cmd {
 		v.loading = false
 		v.buckets = msg.buckets
 
-		// Convert to table rows
+		// Convert to table rows.
 		rows := make([]table.Row, len(msg.buckets))
 		for i, bucket := range msg.buckets {
 			rows[i] = bucketToRow(bucket)
 		}
 		v.table.SetRows(rows)
-		return nil
+
+		// Fan out one monitoring request per bucket so the App can fetch
+		// totals via the usage scanner.
+		cmds := make([]tea.Cmd, 0, len(msg.buckets))
+		for _, bucket := range msg.buckets {
+			bucket := bucket // capture
+			cmds = append(cmds, func() tea.Msg {
+				return UsageMonitoringRequestMsg{Bucket: bucket.Name}
+			})
+		}
+		return tea.Batch(cmds...)
 
 	case bucketsErrorMsg:
 		v.loading = false
