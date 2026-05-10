@@ -15,8 +15,11 @@ import (
 )
 
 var (
-	errBucketDetailsForeign = errors.New("foreign")
-	errBucketDetailsOurs    = errors.New("ours")
+	errBucketDetailsForeign       = errors.New("foreign")
+	errBucketDetailsOurs          = errors.New("ours")
+	errBucketDetailsMonitoring    = errors.New("monitoring API not enabled")
+	errBucketDetailsTransient     = errors.New("transient")
+	errBucketDetailsForeignBucket = errors.New("foreign bucket")
 )
 
 func TestBucketDetailsView_InitFiresMonitoringRequest(t *testing.T) {
@@ -35,13 +38,35 @@ func TestBucketDetailsView_DeepScanKeyEmitsRequest(t *testing.T) {
 
 	cmd := v.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'C'}})
 	require.NotNil(t, cmd, "Pressing 'C' on the Usage tab should emit a deep-scan request")
+	assert.True(t, v.scanInProgress, "scanInProgress should flip to true after deep-scan request")
 
-	got := cmd()
-	req, ok := got.(UsageDeepScanRequestMsg)
-	require.True(t, ok, "expected UsageDeepScanRequestMsg, got %T", got)
+	// 'C' returns a tea.Batch(spinner.Tick, deep-scan request closure). Drain
+	// the batch and verify one of the produced messages is the request.
+	req := findDeepScanRequest(t, cmd)
 	assert.Equal(t, "b1", req.Bucket)
 	assert.Equal(t, "", req.Prefix)
-	assert.True(t, v.scanInProgress, "scanInProgress should flip to true after deep-scan request")
+}
+
+// findDeepScanRequest invokes the cmd (which may be a Batch) and returns the
+// UsageDeepScanRequestMsg it produces, failing the test if absent.
+func findDeepScanRequest(t *testing.T, cmd tea.Cmd) UsageDeepScanRequestMsg {
+	t.Helper()
+	msg := cmd()
+	switch m := msg.(type) {
+	case UsageDeepScanRequestMsg:
+		return m
+	case tea.BatchMsg:
+		for _, sub := range m {
+			if sub == nil {
+				continue
+			}
+			if r, ok := sub().(UsageDeepScanRequestMsg); ok {
+				return r
+			}
+		}
+	}
+	t.Fatalf("did not find UsageDeepScanRequestMsg in cmd output (got %T)", msg)
+	return UsageDeepScanRequestMsg{}
 }
 
 func TestBucketDetailsView_DeepScanIgnoredOnDetailsTab(t *testing.T) {
@@ -211,6 +236,54 @@ func TestBucketDetailsView_TabKeyCyclesTabs(t *testing.T) {
 	require.Equal(t, "details", v.tabs.ActiveTab().ID)
 	v.Update(tea.KeyMsg{Type: tea.KeyTab})
 	assert.Equal(t, "usage", v.tabs.ActiveTab().ID)
+}
+
+// TestBucketDetailsView_MonitoringErrorIsRendered verifies that a ReadyMsg
+// with JobID "monitoring:<bucket>" and a non-nil Err is captured in
+// monitoringErr (rather than silently dropped because the JobID doesn't match
+// the deep-scan prefix), and that the Usage tab surfaces the error.
+func TestBucketDetailsView_MonitoringErrorIsRendered(t *testing.T) {
+	v := NewBucketDetailsView(gcp.Bucket{Name: "b1"})
+	ctx := context.New()
+	ctx.SetDimensions(120, 40, 100, 35)
+	v.SetContext(ctx)
+	v.tabs.SetActive(1) // Usage tab
+
+	v.Update(usage.ReadyMsg{JobID: "monitoring:b1", Err: errBucketDetailsMonitoring})
+
+	require.NotNil(t, v.monitoringErr)
+	assert.Equal(t, errBucketDetailsMonitoring, v.monitoringErr)
+
+	out := v.View()
+	assert.Contains(t, out, "Monitoring error")
+	assert.Contains(t, out, "monitoring API not enabled")
+}
+
+// TestBucketDetailsView_MonitoringErrorClearedOnSuccess verifies that a later
+// successful monitoring fetch clears any prior monitoring error.
+func TestBucketDetailsView_MonitoringErrorClearedOnSuccess(t *testing.T) {
+	v := NewBucketDetailsView(gcp.Bucket{Name: "b1"})
+	v.Update(usage.ReadyMsg{JobID: "monitoring:b1", Err: errBucketDetailsTransient})
+	require.NotNil(t, v.monitoringErr)
+
+	v.Update(usage.ReadyMsg{
+		Usage: usage.BucketUsage{
+			Bucket:     "b1",
+			TotalBytes: 100,
+			Source:     usage.SourceMonitoring,
+			ScannedAt:  time.Now(),
+		},
+	})
+	assert.Nil(t, v.monitoringErr, "successful fetch should clear the prior monitoring error")
+}
+
+// TestBucketDetailsView_MonitoringErrorForOtherBucketIgnored verifies the
+// JobID gating works: monitoring errors for a *different* bucket must not
+// be attributed to this view.
+func TestBucketDetailsView_MonitoringErrorForOtherBucketIgnored(t *testing.T) {
+	v := NewBucketDetailsView(gcp.Bucket{Name: "b1"})
+	v.Update(usage.ReadyMsg{JobID: "monitoring:other", Err: errBucketDetailsForeignBucket})
+	assert.Nil(t, v.monitoringErr, "monitoring error for a different bucket must not be attributed")
 }
 
 func TestBucketDetailsView_EnterEmitsBucketSelected(t *testing.T) {

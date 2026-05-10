@@ -55,7 +55,11 @@ type BucketDetailsView struct {
 	usage *usage.BucketUsage
 	// scanInProgress is true between StartDeepScan and ReadyMsg.
 	scanInProgress bool
-	scanErr        error
+	// scanErr captures the most recent deep-scan error.
+	scanErr error
+	// monitoringErr captures the most recent monitoring fetch error. Cleared
+	// on the next successful monitoring ReadyMsg.
+	monitoringErr error
 }
 
 // NewBucketDetailsView constructs the view. Caller must call Init() afterwards.
@@ -131,20 +135,26 @@ func (v *BucketDetailsView) Update(msg tea.Msg) tea.Cmd {
 		}
 		if msg.Err != nil {
 			// Errors carry no Usage struct so the bucket+prefix filter above
-			// can't gate them. Match the deterministic JobID instead so foreign
-			// scans (other buckets, or folder-scoped scans from ObjectsView)
-			// can't mis-attribute their failures here. JobID format from
-			// usage/job.go: "scan:" + bucket + "|" + prefix.
-			expectedID := "scan:" + v.bucket.Name + "|"
-			if msg.JobID != expectedID {
-				return nil
+			// can't gate them. Match against the two deterministic JobID forms
+			// the scanner uses, so foreign scans (other buckets, or folder-scoped
+			// scans from ObjectsView) can't mis-attribute their failures here.
+			//   - deep scan: "scan:" + bucket + "|" + prefix (see usage/job.go)
+			//   - monitoring fetch: "monitoring:" + bucket   (see scanner.go)
+			deepScanID := "scan:" + v.bucket.Name + "|"
+			monitoringID := "monitoring:" + v.bucket.Name
+			switch msg.JobID {
+			case deepScanID:
+				v.scanErr = msg.Err
+				v.scanInProgress = false
+			case monitoringID:
+				v.monitoringErr = msg.Err
 			}
-			v.scanErr = msg.Err
-			v.scanInProgress = false
 			return nil
 		}
 		u := msg.Usage
 		v.usage = &u
+		// Successful monitoring fetch clears any prior monitoring error.
+		v.monitoringErr = nil
 		v.scanInProgress = false
 		return nil
 
@@ -153,6 +163,11 @@ func (v *BucketDetailsView) Update(msg tea.Msg) tea.Cmd {
 		if msg.Bucket != v.bucket.Name || msg.Prefix != "" {
 			return nil
 		}
+		// If a scan started elsewhere (e.g. dispatched before the user landed
+		// here) the local scanInProgress flag may not be set yet. Detect the
+		// transition and (re)start the spinner tick. Otherwise the spinner
+		// would freeze.
+		wasInProgress := v.scanInProgress
 		v.scanInProgress = true
 		// Show running tally in the Usage tab.
 		v.usage = &usage.BucketUsage{
@@ -161,6 +176,9 @@ func (v *BucketDetailsView) Update(msg tea.Msg) tea.Cmd {
 			TotalBytes:  msg.BytesScanned,
 			ObjectCount: msg.ObjectsScanned,
 			Source:      usage.SourceDeepScan,
+		}
+		if !wasInProgress {
+			return v.spinner.Tick
 		}
 		return nil
 
@@ -200,9 +218,15 @@ func (v *BucketDetailsView) Update(msg tea.Msg) tea.Cmd {
 			}
 			v.scanInProgress = true
 			v.scanErr = nil
-			return func() tea.Msg {
-				return UsageDeepScanRequestMsg{Bucket: v.bucket.Name, Prefix: ""}
-			}
+			bucket := v.bucket.Name
+			// Restart the spinner tick — the previous tick chain stopped when
+			// scanInProgress flipped back to false, so we need a fresh one.
+			return tea.Batch(
+				v.spinner.Tick,
+				func() tea.Msg {
+					return UsageDeepScanRequestMsg{Bucket: bucket, Prefix: ""}
+				},
+			)
 		case key.Matches(msg, v.keys.Refresh):
 			return func() tea.Msg {
 				return UsageMonitoringRequestMsg{Bucket: v.bucket.Name}
@@ -241,6 +265,12 @@ func (v *BucketDetailsView) renderUsageTab() string {
 		b.WriteString(errStyle.Render("  Scan error: "+v.scanErr.Error()) + "\n\n")
 	}
 	if v.usage == nil {
+		if v.monitoringErr != nil {
+			errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#EA4335"))
+			b.WriteString(errStyle.Render("  Monitoring error: "+v.monitoringErr.Error()) + "\n")
+			b.WriteString("\n  Press 'r' to retry monitoring, or 'C' to run a deep scan.\n")
+			return b.String()
+		}
 		b.WriteString("  Loading monitoring metrics...\n")
 		b.WriteString("\n  Press 'C' to run a deep scan.\n")
 		return b.String()
@@ -252,8 +282,10 @@ func (v *BucketDetailsView) renderUsageTab() string {
 	switch u.Source {
 	case usage.SourceMonitoring:
 		hint := "Source: Monitoring"
-		if !u.ScannedAt.IsZero() {
-			hint += " - as of " + timeutil.FormatDateTime(u.ScannedAt)
+		// AsOf reflects the metric publication time (typically ~daily).
+		// ScannedAt is just our fetch time, which is misleading to display.
+		if !u.AsOf.IsZero() {
+			hint += " - as of " + timeutil.FormatDateTime(u.AsOf)
 		}
 		b.WriteString("  " + muted.Render(hint) + "\n")
 		b.WriteString("\n  Press 'C' to run a deep scan for breakdowns.\n")

@@ -63,6 +63,7 @@ func extensionOf(fullName string) string {
 // is the storage class of object i. Pass an empty string to skip classification
 // for that object.
 func tallyObjects(bucket, prefix string, objs []gcp.StorageObject, classes []string) BucketUsage {
+	now := time.Now()
 	u := BucketUsage{
 		Bucket:         bucket,
 		Prefix:         prefix,
@@ -70,7 +71,9 @@ func tallyObjects(bucket, prefix string, objs []gcp.StorageObject, classes []str
 		ByTopPrefix:    make(map[string]Stat),
 		ByExtension:    make(map[string]Stat),
 		Source:         SourceDeepScan,
-		ScannedAt:      time.Now(),
+		ScannedAt:      now,
+		// For deep scans, the data freshness equals the scan time.
+		AsOf: now,
 	}
 	for i, o := range objs {
 		if o.IsFolder {

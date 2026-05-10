@@ -82,9 +82,12 @@ func (s *Scanner) FetchMonitoring(ctx context.Context, bucket string) tea.Cmd {
 		if err != nil {
 			return ReadyMsg{JobID: "monitoring:" + bucket, Err: err}
 		}
-		// Use ScannedAt as "when this record was created", not the asOf of the
-		// underlying metric. asOf is preserved on the BucketUsage so the UI can
-		// render "12h ago" — but cache TTL is based on when we fetched.
+		// ScannedAt drives the cache TTL — it must always be the moment we
+		// fetched, never the metric's publication time. AsOf carries the
+		// metric publication time for UI display (e.g. "as of 12h ago").
+		// Mixing the two defeated the cache because monitoring metrics are
+		// typically many hours old, so time.Since(asOf) > monitoringTTL on
+		// every check.
 		u := BucketUsage{
 			Bucket:      bucket,
 			Prefix:      "",
@@ -92,11 +95,7 @@ func (s *Scanner) FetchMonitoring(ctx context.Context, bucket string) tea.Cmd {
 			ObjectCount: count,
 			Source:      SourceMonitoring,
 			ScannedAt:   time.Now(),
-		}
-		// Repurpose ScannedAt only when asOf is meaningful, so the UI's
-		// "X ago" hint reflects metric freshness rather than fetch freshness.
-		if !asOf.IsZero() {
-			u.ScannedAt = asOf
+			AsOf:        asOf,
 		}
 		s.mu.Lock()
 		s.cache[key] = u

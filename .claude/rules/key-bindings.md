@@ -189,7 +189,7 @@ description: Keyboard shortcuts reference for all views
 | `r` | Refresh monitoring metrics |
 | `Tab` / `h` / `l` | Switch tabs (Details/Usage) |
 | `1` / `2` | Jump to tab by number |
-| `Enter` | Browse objects (when "Browse objects" link is focused) |
+| `Enter` | Browse bucket objects |
 | `Esc` | Go back |
 
 ## Images View

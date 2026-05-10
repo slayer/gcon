@@ -77,6 +77,11 @@ func TestTallyObjects(t *testing.T) {
 	assert.Equal(t, Stat{Bytes: 50, Count: 1}, usage.ByExtension[".md"])
 	assert.Equal(t, SourceDeepScan, usage.Source)
 	assert.Equal(t, "my-bucket", usage.Bucket)
+	// For deep scans, ScannedAt and AsOf are both populated to the same
+	// instant: the data freshness equals the scan time.
+	assert.False(t, usage.ScannedAt.IsZero(), "ScannedAt should be populated")
+	assert.False(t, usage.AsOf.IsZero(), "AsOf should be populated")
+	assert.Equal(t, usage.ScannedAt, usage.AsOf, "AsOf should equal ScannedAt for deep scans")
 }
 
 func TestTallyObjects_PrefixScoped(t *testing.T) {

@@ -666,6 +666,9 @@ func (a *App) clearAllViews() {
 		_ = a.usageScanner.Close() //nolint:errcheck // best-effort cleanup
 	}
 	a.usageScanner = nil
+	// New project may have monitoring API enabled even if the previous one
+	// didn't — clear the failure flag so we retry construction.
+	a.usageScannerInitFailed = false
 
 	a.projectView = nil
 	a.instancesView = nil

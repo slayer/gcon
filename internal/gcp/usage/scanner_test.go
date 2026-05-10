@@ -113,6 +113,40 @@ func TestScanner_FetchMonitoring_CacheHit(t *testing.T) {
 	assert.Equal(t, 1, mon.calls, "cache hit should not call monitoring again")
 }
 
+// TestScanner_FetchMonitoring_CacheHitWithStaleAsOf is a regression test for
+// the bug where ScannedAt was overwritten with asOf (the metric publication
+// time, often many hours old). That defeated the 10-minute TTL because
+// time.Since(asOf) > monitoringTTL on every check, so every nav re-hit
+// Cloud Monitoring. The fix keeps ScannedAt = fetch time and stores asOf in
+// a separate field. With the bug, this test fails with mon.calls == 2.
+func TestScanner_FetchMonitoring_CacheHitWithStaleAsOf(t *testing.T) {
+	mon := &fakeMonitoring{
+		bytes: 10,
+		// Simulate a metric whose publication time is 12 hours ago — typical
+		// for storage.googleapis.com/storage/total_bytes which updates ~daily.
+		asOf: time.Now().Add(-12 * time.Hour),
+	}
+	s := New(&fakeStorage{}, mon)
+
+	// First call — populates the cache.
+	first, ok := s.FetchMonitoring(context.Background(), "b")().(ReadyMsg)
+	require.True(t, ok)
+	require.NoError(t, first.Err)
+	assert.Equal(t, 1, mon.calls)
+	// AsOf surfaced for UI display, ScannedAt set to fetch-time (now).
+	assert.False(t, first.Usage.AsOf.IsZero())
+	assert.WithinDuration(t, time.Now(), first.Usage.ScannedAt, time.Second)
+
+	// Second call — should be a cache hit (TTL not yet expired).
+	second := s.FetchMonitoring(context.Background(), "b")()
+	if second != nil {
+		if _, ok := second.(ReadyMsg); !ok {
+			t.Fatalf("unexpected message type %T", second)
+		}
+	}
+	assert.Equal(t, 1, mon.calls, "stale-asOf cache hit must NOT trigger a second monitoring fetch")
+}
+
 func TestScanner_FetchMonitoring_Error(t *testing.T) {
 	mon := &fakeMonitoring{err: errFakeMonitoring}
 	s := New(&fakeStorage{}, mon)

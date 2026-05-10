@@ -44,7 +44,12 @@ type BucketUsage struct {
 	ByTopPrefix    map[string]Stat // populated only when Source == SourceDeepScan
 	ByExtension    map[string]Stat // populated only when Source == SourceDeepScan
 	Source         Source
-	ScannedAt      time.Time
+	// ScannedAt is when WE fetched/scanned this record. Used for cache TTL.
+	ScannedAt time.Time
+	// AsOf is when the underlying data was published (Cloud Monitoring) or
+	// scanned (deep scan, equal to ScannedAt). Zero if unknown. Used by the UI
+	// to render data freshness ("as of X"); MUST NOT be used for cache TTL.
+	AsOf time.Time
 }
 
 // ProgressMsg is emitted periodically during a deep scan to surface live counts.

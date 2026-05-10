@@ -92,6 +92,10 @@ type App struct {
 	// usageScanner provides bucket usage data (monitoring + deep scans).
 	// Constructed lazily on first usage request after a project is selected.
 	usageScanner *usage.Scanner
+	// usageScannerInitFailed records that ensureUsageScanner has already tried
+	// and failed for the current project (most commonly: monitoring API not
+	// enabled). Reset in clearAllViews() when switching projects.
+	usageScannerInitFailed bool
 	ctx          *context.ProgramContext // Shared context for all views
 	styles       Styles
 	keys         KeyMap
@@ -1255,14 +1259,29 @@ func (a *App) activeUsageScanJobIDs() []string {
 	return ids
 }
 
-// ensureUsageScanner constructs the scanner on first use. It needs both a
-// StorageClient and a MonitoringClient; the storage client is borrowed from
-// BucketsView (whichever view created it first), and a fresh MonitoringClient
-// is created scoped to the current project. Returns nil if the prerequisites
-// are not yet available.
+// ensureUsageScanner constructs the scanner on first use. Requires:
+//   - selectedProject (for monitoring scope)
+//   - bucketsView with an initialized StorageClient (for deep scans)
+//   - successful MonitoringClient construction (for inline bucket totals)
+//
+// If MonitoringClient construction fails (auth failure, API not enabled, etc.)
+// the scanner is NOT built and ALL usage features are disabled, including
+// deep scan — the Scanner constructor requires both backends. This is
+// acceptable for v1 because the most common monitoring failure mode (missing
+// API enablement) also affects most other observability features. We set
+// usageScannerInitFailed so we don't retry (and re-set a.err) on every
+// keystroke that hits the usage code path.
+//
+// Future work: support a degraded-mode scanner with a no-op MonitoringFetcher
+// so deep scans remain available even when monitoring is unreachable.
 func (a *App) ensureUsageScanner() *usage.Scanner {
 	if a.usageScanner != nil {
 		return a.usageScanner
+	}
+	if a.usageScannerInitFailed {
+		// Already tried and failed once for this project; don't keep retrying.
+		// The flag is reset in clearAllViews() when the user switches projects.
+		return nil
 	}
 	if a.selectedProject == nil {
 		return nil
@@ -1276,11 +1295,8 @@ func (a *App) ensureUsageScanner() *usage.Scanner {
 	}
 	monClient, err := gcp.NewMonitoringClient(gocontext.Background(), a.selectedProject.ID)
 	if err != nil {
-		// Log via existing error mechanism; without monitoring we can't show
-		// inline totals. Deep scans still work via the storage path, but we
-		// require both to construct the Scanner. Defer construction until next
-		// attempt.
 		a.err = fmt.Errorf("usage scanner monitoring init: %w", err)
+		a.usageScannerInitFailed = true
 		return nil
 	}
 	a.usageScanner = usage.New(storageClient, monClient)
