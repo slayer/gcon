@@ -167,6 +167,23 @@ func TestObjectsView_ParentNavRowInjected(t *testing.T) {
 			assert.NotEqual(t, parentNavRowID, rows[0].ID)
 		}
 	})
+
+	t.Run("empty subfolder still shows .. row and renders the table", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.currentPrefix = "empty-folder/"
+		view.Update(objectsLoadedMsg{objects: nil, generation: 0})
+
+		rows := view.table.Rows()
+		if assert.Len(t, rows, 1, "empty subfolder should still have the .. row") {
+			assert.Equal(t, parentNavRowID, rows[0].ID)
+		}
+
+		out := view.View()
+		assert.NotContains(t, out, "This folder is empty.",
+			"empty subfolder should render the table (with ..), not the empty-state message")
+		assert.Contains(t, out, "←: up",
+			"help text should advertise ←: up when in a subfolder")
+	})
 }
 
 func TestObjectsView_NavigateUp(t *testing.T) {

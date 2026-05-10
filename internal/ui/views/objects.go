@@ -1015,27 +1015,29 @@ func (v *ObjectsView) View() string {
 		return errStyle.Render(fmt.Sprintf("\n  Error: %v\n\n  Press 'r' to retry", v.err))
 	}
 
-	if len(v.objects) == 0 {
+	// Only show the bare "empty" message at the bucket root. In a subfolder,
+	// the synthetic ".." row keeps the table non-empty so the user can still
+	// navigate up via Enter on it (or Left arrow).
+	if len(v.objects) == 0 && v.currentPrefix == "" {
 		// When file picker is shown, render it directly (not as overlay)
 		// since empty bucket content is too short for proper overlay
 		if v.showFilePicker && v.filePicker != nil {
 			return v.renderCenteredFilePicker()
 		}
-
-		msg := "This bucket is empty."
-		if v.currentPrefix != "" {
-			msg = "This folder is empty."
-		}
-		return fmt.Sprintf("\n  %s\n  Press 'u' to upload files, 'esc' to go back.", msg)
+		return "\n  This bucket is empty.\n  Press 'u' to upload files, 'esc' to go back."
 	}
 
 	// Keep table title and status in sync with current state
 	v.table.SetTitle(v.buildTitle())
 	v.table.SetStatusSuffix(v.scrollInfo())
 
-	// Help text for actions
+	// Help text for actions. Only mention ←: up when actually in a subfolder.
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
-	help := helpStyle.Render("\n  enter: open • C: folder size • d: download • u: upload • D: delete • .: menu • /: filter • r: refresh • esc: back")
+	helpText := "\n  enter: open • C: folder size • d: download • u: upload • D: delete • .: menu • /: filter • r: refresh • esc: back"
+	if v.currentPrefix != "" {
+		helpText = "\n  enter: open (or .. to go up) • ←: up • C: folder size • d: download • u: upload • D: delete • .: menu • /: filter • r: refresh • esc: back"
+	}
+	help := helpStyle.Render(helpText)
 
 	// Inline folder-size stats line shown above the table when a deep scan
 	// has produced (or is producing) data for the current folder.
