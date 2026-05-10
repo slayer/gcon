@@ -10,6 +10,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"cloud.google.com/go/storage"
@@ -47,6 +48,14 @@ type ObjectListResult struct {
 // StorageClient handles Cloud Storage operations
 type StorageClient struct {
 	client *storage.Client
+
+	// Lifecycle rules per bucket. Admin config that rarely changes; cached for
+	// the session so that opening many objects in the same bucket only fetches
+	// once. See storage_lifecycle.go.
+	lifecycleCache sync.Map // bucketName -> bucketLifecycleCacheEntry
+
+	// now is injectable for tests. Defaults to time.Now.
+	now func() time.Time
 }
 
 // NewStorageClient creates a new Cloud Storage client
@@ -56,7 +65,7 @@ func NewStorageClient(ctx context.Context) (*StorageClient, error) {
 		return nil, fmt.Errorf("failed to create storage client: %w", err)
 	}
 
-	return &StorageClient{client: client}, nil
+	return &StorageClient{client: client, now: time.Now}, nil
 }
 
 // Close closes the storage client
@@ -395,6 +404,8 @@ type ObjectMetadata struct {
 	Etag           string
 	Generation     int64
 	Metageneration int64
+	ComponentCount int64  // >0 for composite objects
+	KMSKeyName     string // CMEK key used for encryption
 
 	// Access control
 	Owner string
@@ -405,6 +416,14 @@ type ObjectMetadata struct {
 	ContentEncoding    string
 	ContentLanguage    string
 
+	// Lifecycle / retention
+	CustomTime              time.Time // user-set time, used by lifecycle conditions
+	RetentionExpirationTime time.Time // bucket retention policy expiration (zero = none)
+	RetentionMode           string    // per-object retention mode (e.g. "Locked", "Unlocked"); empty = not set
+	RetentionRetainUntil    time.Time // per-object retain-until time (zero = not set)
+	EventBasedHold          bool
+	TemporaryHold           bool
+
 	// Custom metadata
 	CustomMetadata map[string]string
 
@@ -412,6 +431,43 @@ type ObjectMetadata struct {
 	PublicURL        string // https://storage.googleapis.com/{bucket}/{object}
 	AuthenticatedURL string // https://storage.cloud.google.com/{bucket}/{object}
 	GsutilURI        string // gs://{bucket}/{object}
+}
+
+// LifecycleAction describes an action taken by a bucket lifecycle rule.
+type LifecycleAction struct {
+	Type         string // "Delete", "SetStorageClass", "AbortIncompleteMultipartUpload"
+	StorageClass string // populated for SetStorageClass actions
+}
+
+// LifecycleCondition mirrors storage.LifecycleCondition with only the fields we
+// support in matching. Zero-valued fields mean "no constraint".
+type LifecycleCondition struct {
+	AgeInDays               int64     // applies if AgeApplies is true (use 0 with AgeApplies=true to mean immediate)
+	AgeApplies              bool      // distinguishes "no AgeInDays constraint" from "AgeInDays=0"
+	CreatedBefore           time.Time // matches if object Created < CreatedBefore
+	CustomTimeBefore        time.Time // matches if CustomTime < CustomTimeBefore (and CustomTime is set)
+	DaysSinceCustomTime     int64     // applies if DaysSinceCustomTimeApplies is true
+	DaysSinceCustomTimeUsed bool
+	MatchesStorageClasses   []string // matches if object storage class is one of these
+	MatchesPrefix           []string // matches if object name has any of these prefixes
+	MatchesSuffix           []string // matches if object name has any of these suffixes
+	Liveness                string   // "any", "live", "archived"; empty == "any"
+	NumNewerVersions        int64    // unsupported in estimator (we don't fetch versions)
+	NumNewerVersionsApplies bool
+}
+
+// LifecycleRule pairs a condition with an action.
+type LifecycleRule struct {
+	Action    LifecycleAction
+	Condition LifecycleCondition
+}
+
+// EstimatedLifecycleAction is the soonest lifecycle action expected to apply
+// to a particular object based on the bucket's lifecycle rules.
+type EstimatedLifecycleAction struct {
+	Action      LifecycleAction
+	EffectiveAt time.Time // expected time the action runs (best effort; may be zero if "now")
+	Reason      string    // short human description of the matching condition
 }
 
 // GetObjectMetadata fetches full metadata for an object
@@ -437,29 +493,40 @@ func (c *StorageClient) GetObjectMetadata(ctx context.Context, bucketName, objec
 	// We encode each path segment separately to preserve "/" as path separators
 	encodedObjectName := encodeObjectPath(objectName)
 
-	return &ObjectMetadata{
-		Name:               attrs.Name,
-		Bucket:             attrs.Bucket,
-		Size:               attrs.Size,
-		ContentType:        attrs.ContentType,
-		Created:            attrs.Created,
-		Updated:            attrs.Updated,
-		StorageClass:       attrs.StorageClass,
-		MD5Hash:            md5Hash,
-		CRC32C:             attrs.CRC32C,
-		Etag:               attrs.Etag,
-		Generation:         attrs.Generation,
-		Metageneration:     attrs.Metageneration,
-		Owner:              owner,
-		CacheControl:       attrs.CacheControl,
-		ContentDisposition: attrs.ContentDisposition,
-		ContentEncoding:    attrs.ContentEncoding,
-		ContentLanguage:    attrs.ContentLanguage,
-		CustomMetadata:     attrs.Metadata,
-		PublicURL:          fmt.Sprintf("https://storage.googleapis.com/%s/%s", bucketName, encodedObjectName),
-		AuthenticatedURL:   fmt.Sprintf("https://storage.cloud.google.com/%s/%s", bucketName, encodedObjectName),
-		GsutilURI:          fmt.Sprintf("gs://%s/%s", bucketName, objectName),
-	}, nil
+	meta := &ObjectMetadata{
+		Name:                    attrs.Name,
+		Bucket:                  attrs.Bucket,
+		Size:                    attrs.Size,
+		ContentType:             attrs.ContentType,
+		Created:                 attrs.Created,
+		Updated:                 attrs.Updated,
+		StorageClass:            attrs.StorageClass,
+		MD5Hash:                 md5Hash,
+		CRC32C:                  attrs.CRC32C,
+		Etag:                    attrs.Etag,
+		Generation:              attrs.Generation,
+		Metageneration:          attrs.Metageneration,
+		ComponentCount:          attrs.ComponentCount,
+		KMSKeyName:              attrs.KMSKeyName,
+		Owner:                   owner,
+		CacheControl:            attrs.CacheControl,
+		ContentDisposition:      attrs.ContentDisposition,
+		ContentEncoding:         attrs.ContentEncoding,
+		ContentLanguage:         attrs.ContentLanguage,
+		CustomTime:              attrs.CustomTime,
+		RetentionExpirationTime: attrs.RetentionExpirationTime,
+		EventBasedHold:          attrs.EventBasedHold,
+		TemporaryHold:           attrs.TemporaryHold,
+		CustomMetadata:          attrs.Metadata,
+		PublicURL:               fmt.Sprintf("https://storage.googleapis.com/%s/%s", bucketName, encodedObjectName),
+		AuthenticatedURL:        fmt.Sprintf("https://storage.cloud.google.com/%s/%s", bucketName, encodedObjectName),
+		GsutilURI:               fmt.Sprintf("gs://%s/%s", bucketName, objectName),
+	}
+	if attrs.Retention != nil {
+		meta.RetentionMode = attrs.Retention.Mode
+		meta.RetentionRetainUntil = attrs.Retention.RetainUntil
+	}
+	return meta, nil
 }
 
 // encodeObjectPath URL-encodes each segment of an object path while preserving "/" separators
