@@ -29,7 +29,12 @@ func TestRenderDetailsTab_ShowsLifecycleSectionWhenEstimatePresent(t *testing.T)
 	assert.Contains(t, out, "Lifecycle & Retention")
 	assert.Contains(t, out, "Delete")
 	assert.Contains(t, out, "Matches")
-	assert.Contains(t, out, "in 29 days")
+	// formatLifecycleEffective recomputes time.Now() inside, so the rounded
+	// day count can land on either side of the boundary depending on
+	// scheduling. Accept either.
+	assert.True(t,
+		strings.Contains(out, "in 30 days") || strings.Contains(out, "in 29 days"),
+		"expected ~30-day relative formatting, got: %s", out)
 }
 
 func TestRenderDetailsTab_ShowsHoldsAndRetention(t *testing.T) {

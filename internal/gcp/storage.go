@@ -446,7 +446,7 @@ type LifecycleCondition struct {
 	AgeApplies              bool      // distinguishes "no AgeInDays constraint" from "AgeInDays=0"
 	CreatedBefore           time.Time // matches if object Created < CreatedBefore
 	CustomTimeBefore        time.Time // matches if CustomTime < CustomTimeBefore (and CustomTime is set)
-	DaysSinceCustomTime     int64     // applies if DaysSinceCustomTimeApplies is true
+	DaysSinceCustomTime     int64     // applies if DaysSinceCustomTimeUsed is true
 	DaysSinceCustomTimeUsed bool
 	MatchesStorageClasses   []string // matches if object storage class is one of these
 	MatchesPrefix           []string // matches if object name has any of these prefixes

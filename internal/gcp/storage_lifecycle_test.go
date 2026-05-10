@@ -187,6 +187,25 @@ func TestEstimateLifecycleAction_NoRulesOrNoMatch(t *testing.T) {
 	}}, meta, now))
 }
 
+func TestCloneRules_DefendsAgainstCallerMutation(t *testing.T) {
+	original := []LifecycleRule{{
+		Action: LifecycleAction{Type: "Delete"},
+		Condition: LifecycleCondition{
+			MatchesPrefix:         []string{"logs/"},
+			MatchesStorageClasses: []string{"STANDARD"},
+		},
+	}}
+	clone := cloneRules(original)
+
+	clone[0].Condition.MatchesPrefix[0] = "MUTATED"
+	clone[0].Condition.MatchesPrefix = append(clone[0].Condition.MatchesPrefix, "extra/")
+	clone[0].Action.Type = "MUTATED"
+
+	assert.Equal(t, "logs/", original[0].Condition.MatchesPrefix[0], "original prefix mutated")
+	assert.Len(t, original[0].Condition.MatchesPrefix, 1, "original prefix slice grew")
+	assert.Equal(t, "Delete", original[0].Action.Type, "original action mutated")
+}
+
 func TestStorageClient_LifecycleCacheTTL(t *testing.T) {
 	// We can't easily invoke GetBucketLifecycle without a real GCS client, so
 	// we exercise the TTL/eviction logic by manipulating the cache directly.

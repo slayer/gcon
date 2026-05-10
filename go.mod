@@ -1,6 +1,6 @@
 module github.com/slayer/gcon
 
-go 1.24.5
+go 1.26.3
 
 require (
 	cloud.google.com/go/logging v1.13.1

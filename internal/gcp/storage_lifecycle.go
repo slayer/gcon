@@ -21,12 +21,13 @@ type bucketLifecycleCacheEntry struct {
 }
 
 // GetBucketLifecycle returns the lifecycle rules for a bucket, using a
-// short-lived in-memory cache. The cache key is the bucket name.
+// short-lived in-memory cache. The cache key is the bucket name. Returned
+// slices are independent copies; the caller may not assume mutations leak
+// back into the cache.
 func (c *StorageClient) GetBucketLifecycle(ctx context.Context, bucketName string) ([]LifecycleRule, error) {
-	now := c.nowFn()
 	if v, ok := c.lifecycleCache.Load(bucketName); ok {
-		if entry, ok := v.(bucketLifecycleCacheEntry); ok && now.Sub(entry.fetchedAt) < bucketLifecycleTTL {
-			return entry.rules, nil
+		if entry, ok := v.(bucketLifecycleCacheEntry); ok && c.nowFn().Sub(entry.fetchedAt) < bucketLifecycleTTL {
+			return cloneRules(entry.rules), nil
 		}
 	}
 
@@ -35,8 +36,29 @@ func (c *StorageClient) GetBucketLifecycle(ctx context.Context, bucketName strin
 		return nil, fmt.Errorf("failed to fetch bucket attrs: %w", err)
 	}
 	rules := convertLifecycle(attrs.Lifecycle)
-	c.lifecycleCache.Store(bucketName, bucketLifecycleCacheEntry{rules: rules, fetchedAt: now})
-	return rules, nil
+	// Capture fetchedAt after the (potentially slow) network call so the TTL
+	// reflects when we actually have the data, not when the call started.
+	c.lifecycleCache.Store(bucketName, bucketLifecycleCacheEntry{rules: rules, fetchedAt: c.nowFn()})
+	return cloneRules(rules), nil
+}
+
+// cloneRules returns a shallow copy of the rules slice and of each rule's
+// inner string slices. The Action and scalar Condition fields are value
+// copies. Callers can therefore append to / replace any of these slices
+// without affecting the cached entry.
+func cloneRules(rules []LifecycleRule) []LifecycleRule {
+	if rules == nil {
+		return nil
+	}
+	out := make([]LifecycleRule, len(rules))
+	for i := range rules {
+		r := &rules[i]
+		out[i] = *r
+		out[i].Condition.MatchesStorageClasses = append([]string(nil), r.Condition.MatchesStorageClasses...)
+		out[i].Condition.MatchesPrefix = append([]string(nil), r.Condition.MatchesPrefix...)
+		out[i].Condition.MatchesSuffix = append([]string(nil), r.Condition.MatchesSuffix...)
+	}
+	return out
 }
 
 // InvalidateBucketLifecycle removes the cached lifecycle rules for a bucket.
