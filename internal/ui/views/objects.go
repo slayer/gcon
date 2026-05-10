@@ -415,14 +415,15 @@ func (v *ObjectsView) toggleSelection() bool {
 }
 
 // toggleSelectAll selects every visible (post-filter) non-".." row when
-// any are unselected; otherwise clears the selection. Folders are
-// included so the user can "select all and delete" a filtered set in one
-// go.
+// any are unselected; otherwise clears the selection. Uses VisibleRows()
+// so an active filter scopes the gesture to the rows the user actually
+// sees — selecting filtered-out rows would mislead the user about what
+// a subsequent bulk action operates on.
 func (v *ObjectsView) toggleSelectAll() {
 	if v.selectedIDs == nil {
 		v.selectedIDs = make(map[string]struct{})
 	}
-	rows := v.table.Rows()
+	rows := v.table.VisibleRows()
 	allSelected := true
 	for _, r := range rows {
 		if r.ID == parentNavRowID {
@@ -998,9 +999,7 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 			close(v.changeChan)
 			v.changeChan = nil
 		}
-		files := v.changeFiles
 		v.changeFiles = nil
-		class := v.changeClass
 		v.changeClass = ""
 		if msg.err != nil {
 			if msg.doneCount > 0 {
@@ -1010,11 +1009,8 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 			}
 			return nil
 		}
-		// Refresh list — storage class changes affect the visible Class column
-		// (in the details view) and the new generation invalidates any cached
-		// metadata.
-		_ = files
-		_ = class
+		// Refresh list — storage class changes produce a new object
+		// generation and invalidate cached metadata.
 		v.beginNavigation()
 		return tea.Batch(v.spinner.Tick, v.loadObjects())
 

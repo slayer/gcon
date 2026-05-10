@@ -49,5 +49,8 @@ selection when it's non-empty:
   preserves the table's bookkeeping.
 - Bulk delete / download reuse the per-object code paths; the only
   new wiring is iterating + aggregating progress.
-- Storage-class change uses `Object.Update(ctx, ObjectAttrsToUpdate{
-  StorageClass: "..."})`.
+- Storage-class change is a server-side rewrite: `obj.CopierFrom(obj)`
+  with `Copier.StorageClass` set to the desired class. (GCS does not
+  expose a metadata-only StorageClass update; it's part of object
+  data placement and requires a rewrite. For typical objects this is
+  fast and doesn't transfer bytes off Google's network.)

@@ -86,6 +86,77 @@ func TestSetColumnHidden_DoesNotPanicOnRender(t *testing.T) {
 	assert.NotPanics(t, func() { _ = m.View() })
 }
 
+// Regression: a hidden column placed before a target column shifts the
+// visible-vs-underlying index alignment. parseFilter must store the
+// underlying colDef index (not a "visible-only" position) so that
+// matchesFilterSpec reads the right cell.
+func TestParseFilter_HiddenColumnDoesNotMisalignFieldIndex(t *testing.T) {
+	cols := []Column{
+		{Title: "Sel", Width: 4, Hidden: true},
+		{Title: "Name", Width: 20, Grow: true, FilterKeys: []string{"name"}},
+		{Title: "Class", Width: 10, FilterKeys: []string{"class"}},
+	}
+	m := NewWithColumns(cols, "T")
+	spec := m.parseFilter("name:foo")
+	assert.Len(t, spec.fieldFilters, 1)
+	// Underlying colDef index for "Name" is 1 — even though it's at visible
+	// index 0 (Sel is hidden). Storing 0 would cause matchesFilterSpec to
+	// read row.Data[0] (the Sel cell) instead of the Name cell.
+	assert.Equal(t, "foo", spec.fieldFilters[1])
+}
+
+// Regression: sortRows must translate the public visible-column index
+// into the underlying colDef index before reading row.Data, otherwise
+// it sorts on the wrong cell when a hidden column comes before the sort
+// column.
+func TestSortRows_RespectsHiddenColumnOffset(t *testing.T) {
+	cols := []Column{
+		{Title: "Sel", Width: 4, Hidden: true},
+		{Title: "Name", Width: 20, Grow: true},
+		{Title: "Size", Width: 10},
+	}
+	m := NewWithColumns(cols, "T")
+	m.SetSize(60, 10)
+	// Cells in row.Data are indexed by colDef position: [Sel, Name, Size].
+	m.SetRows([]Row{
+		{ID: "a", Data: []string{"", "zeta", "1"}},
+		{ID: "b", Data: []string{"", "alpha", "2"}},
+		{ID: "c", Data: []string{"", "mike", "3"}},
+	})
+	// Sort by visible column 0 = Name (Sel is hidden, so visible 0 maps
+	// to underlying 1). Ascending should yield alpha, mike, zeta.
+	m.SortBy(0, true)
+	rows := m.VisibleRows()
+	if assert.Len(t, rows, 3) {
+		assert.Equal(t, "alpha", rows[0].Data[1])
+		assert.Equal(t, "mike", rows[1].Data[1])
+		assert.Equal(t, "zeta", rows[2].Data[1])
+	}
+}
+
+// VisibleRows reflects the filter, while Rows returns the unfiltered
+// allRows. Bulk-action callers ("select all") rely on this distinction.
+func TestVisibleRows_ReflectsActiveFilter(t *testing.T) {
+	cols := []Column{
+		{Title: "Name", Width: 20, Grow: true, FilterKeys: []string{"name"}},
+	}
+	m := NewWithColumns(cols, "T")
+	m.SetSize(60, 10)
+	m.SetRows([]Row{
+		{ID: "a", Data: []string{"alpha"}, FilterValue: "alpha"},
+		{ID: "b", Data: []string{"alpaca"}, FilterValue: "alpaca"},
+		{ID: "c", Data: []string{"zeta"}, FilterValue: "zeta"},
+	})
+	// Apply a free-text filter that matches only "alp*" rows.
+	m.filter.SetValue("alp")
+	m.applyFilter()
+
+	all := m.Rows()
+	visible := m.VisibleRows()
+	assert.Len(t, all, 3, "Rows() should return all rows")
+	assert.Len(t, visible, 2, "VisibleRows() should drop the filtered-out row")
+}
+
 // SetRows (and the filter / sort pipelines that call it internally) must
 // also feed bubbles only the cells matching its current visible-column
 // count, otherwise renderRow panics on the next viewport refresh.
