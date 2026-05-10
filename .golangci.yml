@@ -41,6 +41,15 @@ linters:
         - (io.Closer).Close
         - (*os.File).Close
 
+    staticcheck:
+      # Keep bug-detection (SA*) only — same scope this project enforced under
+      # golangci-lint v2.6. Newer staticcheck releases enable additional ST*
+      # (style/godoc), S* (simplifications), and QF* (quickfix refactor)
+      # checks by default; those are stylistic suggestions, not warnings, and
+      # this project hasn't adopted them.
+      checks:
+        - SA*
+
     errorlint:
       errorf: true
       asserts: true

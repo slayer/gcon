@@ -285,8 +285,8 @@ func (v *BucketDetailsView) renderUsageTab() string {
 	}
 	u := *v.usage
 	muted := lipgloss.NewStyle().Foreground(v.ctx.Styles.Colors.Muted)
-	b.WriteString(fmt.Sprintf("  Total size:    %s\n", gcp.FormatSize(u.TotalBytes)))
-	b.WriteString(fmt.Sprintf("  Object count:  %s\n\n", formatObjectCount(u.ObjectCount)))
+	fmt.Fprintf(&b, "  Total size:    %s\n", gcp.FormatSize(u.TotalBytes))
+	fmt.Fprintf(&b, "  Object count:  %s\n\n", formatObjectCount(u.ObjectCount))
 	switch u.Source {
 	case usage.SourceMonitoring:
 		hint := "Source: Monitoring"

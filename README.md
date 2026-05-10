@@ -143,7 +143,7 @@ make test           # run all tests
 make lint           # run golangci-lint
 ```
 
-Without mise, install Go 1.26+ and `golangci-lint` 2.6+ manually.
+Without mise, install Go 1.26+ and `golangci-lint` 2.12+ manually.
 
 ## Features
 

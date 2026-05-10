@@ -16,7 +16,7 @@ A terminal-based user interface for managing Google Cloud Platform resources, bu
   - Mocking with interfaces and test implementations
   - use `testify` for assertions
   - use table-driven tests if applicable
-- **Linting**: golangci-lint v2.6.0+ with 32 enabled linters
+- **Linting**: golangci-lint v2.12+ with 32 enabled linters
   - Comprehensive error handling, security, and code quality checks
   - Bubble Tea-specific complexity allowances
 
