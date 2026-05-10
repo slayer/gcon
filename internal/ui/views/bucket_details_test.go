@@ -286,6 +286,54 @@ func TestBucketDetailsView_MonitoringErrorForOtherBucketIgnored(t *testing.T) {
 	assert.Nil(t, v.monitoringErr, "monitoring error for a different bucket must not be attributed")
 }
 
+// TestBucketDetailsView_MonitoringDoesNotOverwriteDeepScan verifies that once
+// the user has run a deep scan (giving them breakdown sections by storage
+// class, prefix, extension), a subsequent monitoring ReadyMsg — whether from
+// pressing 'r' to "refresh monitoring" or from a late-arriving Init() fetch —
+// does not replace the rich deep-scan record with the stale ~24h-old
+// monitoring value.
+func TestBucketDetailsView_MonitoringDoesNotOverwriteDeepScan(t *testing.T) {
+	v := NewBucketDetailsView(gcp.Bucket{Name: "b1"})
+
+	// Deep scan completes with breakdowns.
+	v.Update(usage.ReadyMsg{
+		JobID: "scan:b1|",
+		Usage: usage.BucketUsage{
+			Bucket:      "b1",
+			TotalBytes:  500_000_000,
+			ObjectCount: 5000,
+			Source:      usage.SourceDeepScan,
+			ScannedAt:   time.Now(),
+			ByStorageClass: map[string]usage.Stat{
+				"STANDARD": {Bytes: 500_000_000, Count: 5000},
+			},
+		},
+	})
+	require.NotNil(t, v.usage)
+	require.Equal(t, usage.SourceDeepScan, v.usage.Source)
+	require.NotEmpty(t, v.usage.ByStorageClass, "deep-scan breakdown should be populated")
+
+	// Monitoring refresh arrives later (e.g., user pressed 'r').
+	v.Update(usage.ReadyMsg{
+		JobID: "monitoring:b1",
+		Usage: usage.BucketUsage{
+			Bucket:      "b1",
+			TotalBytes:  100_000_000,
+			ObjectCount: 1000,
+			Source:      usage.SourceMonitoring,
+			ScannedAt:   time.Now().Add(time.Second),
+		},
+	})
+
+	require.NotNil(t, v.usage)
+	assert.Equal(t, usage.SourceDeepScan, v.usage.Source,
+		"deep-scan result must not be replaced by a monitoring refresh")
+	assert.Equal(t, int64(500_000_000), v.usage.TotalBytes,
+		"deep-scan totals must survive a subsequent monitoring refresh")
+	assert.NotEmpty(t, v.usage.ByStorageClass,
+		"deep-scan breakdown sections must not be wiped by a monitoring refresh")
+}
+
 func TestBucketDetailsView_EnterEmitsBucketSelected(t *testing.T) {
 	v := NewBucketDetailsView(gcp.Bucket{Name: "b1"})
 	cmd := v.Update(tea.KeyMsg{Type: tea.KeyEnter})

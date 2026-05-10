@@ -237,6 +237,121 @@ func TestBucketsView_SortPreservedAcrossUsageUpdate(t *testing.T) {
 	assert.False(t, asc, "applyUsage must preserve user's sort direction")
 }
 
+// TestBucketsView_IgnoresFolderScopedReadyMsg verifies that a ReadyMsg with a
+// non-empty Prefix (originating from ObjectsView's folder scan) does NOT
+// overwrite the bucket-row totals. Otherwise navigating into a folder and
+// running a deep scan would clobber the bucket-level Size/Objects columns.
+func TestBucketsView_IgnoresFolderScopedReadyMsg(t *testing.T) {
+	v := NewBucketsView("p")
+	v.loading = false
+	v.buckets = []gcp.Bucket{{Name: "b1", Location: "us", StorageClass: "STANDARD", Created: time.Now()}}
+	v.table.SetRows([]table.Row{bucketToRow(v.buckets[0])})
+
+	// Seed a real bucket-level value first.
+	v.Update(usage.ReadyMsg{
+		JobID: "monitoring:b1",
+		Usage: usage.BucketUsage{
+			Bucket:      "b1",
+			TotalBytes:  9_000_000,
+			ObjectCount: 42,
+			Source:      usage.SourceMonitoring,
+			ScannedAt:   time.Now(),
+		},
+	})
+	before := v.table.Rows()[0].Data[3]
+
+	// Folder-scoped ReadyMsg arrives (forwarded by App from ObjectsView).
+	v.Update(usage.ReadyMsg{
+		JobID: "scan:b1|logs/",
+		Usage: usage.BucketUsage{
+			Bucket:      "b1",
+			Prefix:      "logs/",
+			TotalBytes:  1_000,
+			ObjectCount: 2,
+			Source:      usage.SourceDeepScan,
+			ScannedAt:   time.Now(),
+		},
+	})
+	after := v.table.Rows()[0].Data[3]
+	assert.Equal(t, before, after,
+		"folder-scoped ReadyMsg must not overwrite bucket-level row totals")
+}
+
+// TestBucketsView_IgnoresFolderScopedProgressMsg is the ProgressMsg counterpart
+// of TestBucketsView_IgnoresFolderScopedReadyMsg.
+func TestBucketsView_IgnoresFolderScopedProgressMsg(t *testing.T) {
+	v := NewBucketsView("p")
+	v.loading = false
+	v.buckets = []gcp.Bucket{{Name: "b1", Location: "us", StorageClass: "STANDARD", Created: time.Now()}}
+	v.table.SetRows([]table.Row{bucketToRow(v.buckets[0])})
+
+	v.Update(usage.ReadyMsg{
+		JobID: "monitoring:b1",
+		Usage: usage.BucketUsage{
+			Bucket:      "b1",
+			TotalBytes:  9_000_000,
+			ObjectCount: 42,
+			Source:      usage.SourceMonitoring,
+			ScannedAt:   time.Now(),
+		},
+	})
+	before := v.table.Rows()[0].Data[3]
+
+	v.Update(usage.ProgressMsg{
+		JobID:          "scan:b1|logs/",
+		Bucket:         "b1",
+		Prefix:         "logs/",
+		BytesScanned:   1_000,
+		ObjectsScanned: 2,
+	})
+	after := v.table.Rows()[0].Data[3]
+	assert.Equal(t, before, after,
+		"folder-scoped ProgressMsg must not overwrite bucket-level row totals")
+}
+
+// TestBucketsView_DeepScanNotOverwrittenByMonitoring verifies the precedence
+// rule: once a deep-scan result lands (with its ✓ marker), a subsequent
+// monitoring refresh (e.g. cache TTL expiry) must not overwrite it.
+func TestBucketsView_DeepScanNotOverwrittenByMonitoring(t *testing.T) {
+	v := NewBucketsView("p")
+	v.loading = false
+	v.buckets = []gcp.Bucket{{Name: "b1", Location: "us", StorageClass: "STANDARD", Created: time.Now()}}
+	v.table.SetRows([]table.Row{bucketToRow(v.buckets[0])})
+
+	// Deep scan completes.
+	v.Update(usage.ReadyMsg{
+		JobID: "scan:b1|",
+		Usage: usage.BucketUsage{
+			Bucket:      "b1",
+			TotalBytes:  500_000_000,
+			ObjectCount: 5000,
+			Source:      usage.SourceDeepScan,
+			ScannedAt:   time.Now(),
+		},
+	})
+	deepScanRow := v.table.Rows()[0].Data[3]
+	require.Contains(t, deepScanRow, "✓",
+		"deep-scan result should display ✓ marker (precondition)")
+
+	// Later monitoring refresh arrives with a stale, smaller value.
+	v.Update(usage.ReadyMsg{
+		JobID: "monitoring:b1",
+		Usage: usage.BucketUsage{
+			Bucket:      "b1",
+			TotalBytes:  100_000_000,
+			ObjectCount: 1000,
+			Source:      usage.SourceMonitoring,
+			ScannedAt:   time.Now().Add(time.Second),
+		},
+	})
+
+	got := v.table.Rows()[0].Data[3]
+	assert.Equal(t, deepScanRow, got,
+		"monitoring refresh must not overwrite verified deep-scan result")
+	assert.Contains(t, got, "✓",
+		"the ✓ marker must survive a subsequent monitoring refresh")
+}
+
 func TestBucketsViewSetContext(t *testing.T) {
 	view := NewBucketsView("test-project")
 	ctx := &context.ProgramContext{

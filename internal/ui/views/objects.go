@@ -835,23 +835,14 @@ func (v *ObjectsView) findObjectByName(name string) *gcp.StorageObject {
 	return nil
 }
 
-// lookupObjectByName returns a pointer into v.objects whose Name matches; nil
-// if not found. Unlike findObjectByName this returns a stable pointer into the
-// slice (rather than a loop-variable copy), but for our read-only callers the
-// distinction is immaterial.
-func (v *ObjectsView) lookupObjectByName(name string) *gcp.StorageObject {
-	for i := range v.objects {
-		if v.objects[i].Name == name {
-			return &v.objects[i]
-		}
-	}
-	return nil
-}
-
 // applyFolderUsageToTable walks the current table rows; for each folder row,
 // looks up its recursive size in v.folderUsage.ByTopPrefix and updates the
 // Size cell in place. Files are left untouched. Called after a deep-scan
 // ReadyMsg arrives. Sort state is preserved by snapshotting before SetRows.
+//
+// Builds an O(1)-lookup map from object Name -> *StorageObject once, so total
+// cost is O(rows + objects) instead of O(rows * objects). With 10k objects in
+// a folder a naive nested scan was ~100M comparisons per call.
 func (v *ObjectsView) applyFolderUsageToTable() {
 	if v.folderUsage == nil || v.folderUsage.Source != usage.SourceDeepScan {
 		return
@@ -859,10 +850,14 @@ func (v *ObjectsView) applyFolderUsageToTable() {
 	if len(v.folderUsage.ByTopPrefix) == 0 {
 		return
 	}
+	objIndex := make(map[string]*gcp.StorageObject, len(v.objects))
+	for i := range v.objects {
+		objIndex[v.objects[i].Name] = &v.objects[i]
+	}
 	rows := v.table.Rows()
 	for i := range rows {
-		obj := v.lookupObjectByName(rows[i].ID)
-		if obj == nil || !obj.IsFolder {
+		obj, ok := objIndex[rows[i].ID]
+		if !ok || !obj.IsFolder {
 			continue
 		}
 		key := folderUsageKey(rows[i].ID, v.folderUsage.Prefix)

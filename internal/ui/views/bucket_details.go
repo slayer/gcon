@@ -151,6 +151,14 @@ func (v *BucketDetailsView) Update(msg tea.Msg) tea.Cmd {
 			}
 			return nil
 		}
+		// Don't let a monitoring refresh wipe a completed deep scan and its
+		// breakdown sections. The 'r' key is documented as "refresh
+		// monitoring", not "discard the deep scan you just ran".
+		if msg.Usage.Source == usage.SourceMonitoring && v.usage != nil && v.usage.Source == usage.SourceDeepScan {
+			// Clear any prior monitoring error since the fetch did succeed.
+			v.monitoringErr = nil
+			return nil
+		}
 		u := msg.Usage
 		v.usage = &u
 		// Successful monitoring fetch clears any prior monitoring error.

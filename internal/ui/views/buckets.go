@@ -215,10 +215,20 @@ func (v *BucketsView) Update(msg tea.Msg) tea.Cmd {
 		if msg.Err != nil {
 			return nil
 		}
+		// Bucket list only cares about whole-bucket usage; ignore folder-scoped
+		// scans (Prefix != "") forwarded from ObjectsView, otherwise the bucket
+		// row's Size/Objects cells get clobbered with the folder's totals.
+		if msg.Usage.Prefix != "" {
+			return nil
+		}
 		v.applyUsage(msg.Usage, true)
 		return nil
 
 	case usage.ProgressMsg:
+		// Same scope guard as ReadyMsg: ignore folder-scoped progress events.
+		if msg.Prefix != "" {
+			return nil
+		}
 		// Show in-progress totals immediately so the user gets feedback.
 		v.applyUsage(usage.BucketUsage{
 			Bucket:      msg.Bucket,
@@ -386,12 +396,17 @@ func (v *BucketsView) HasTextInputFocused() bool {
 // ReadyMsg already landed) are dropped so they can't overwrite the verified
 // total with a smaller in-progress number.
 func (v *BucketsView) applyUsage(u usage.BucketUsage, final bool) {
-	if !final {
-		if existing, ok := v.usageByBucket[u.Bucket]; ok {
-			if existing.Source == usage.SourceDeepScan && existing.ScannedAt.After(u.ScannedAt) {
-				return // stale progress after final result
-			}
+	existing, hasExisting := v.usageByBucket[u.Bucket]
+	if !final && hasExisting {
+		if existing.Source == usage.SourceDeepScan && existing.ScannedAt.After(u.ScannedAt) {
+			return // stale progress after final result
 		}
+	}
+	// Deep-scan results take precedence over monitoring; never let a monitoring
+	// refresh (e.g. cache TTL expiry) overwrite a completed deep scan and its ✓
+	// marker with a stale ~24h-old monitoring value.
+	if hasExisting && u.Source == usage.SourceMonitoring && existing.Source == usage.SourceDeepScan {
+		return
 	}
 	v.usageByBucket[u.Bucket] = u
 	rows := v.table.Rows()
