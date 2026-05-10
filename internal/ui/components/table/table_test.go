@@ -5,6 +5,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewWithColumns(t *testing.T) {
@@ -178,6 +179,32 @@ func TestVisibleRows_ReflectsActiveFilter(t *testing.T) {
 	visible := m.VisibleRows()
 	assert.Len(t, all, 3, "Rows() should return all rows")
 	assert.Len(t, visible, 2, "VisibleRows() should drop the filtered-out row")
+}
+
+// Regression: SetColumnHidden internally calls SetRows(nil) then
+// SetRows(reshaped), each of which resets bubbles' cursor to 0. Without
+// snapshot+restore, toggling a column visibility mid multi-select would
+// jump the user out of their current row.
+func TestSetColumnHidden_PreservesCursor(t *testing.T) {
+	cols := []Column{
+		{Title: "Sel", Width: 4, Hidden: true},
+		{Title: "Name", Width: 20, Grow: true},
+		{Title: "Size", Width: 10},
+	}
+	m := NewWithColumns(cols, "T")
+	m.SetSize(60, 10)
+	m.SetRows([]Row{
+		{ID: "a", Data: []string{"", "alpha", "1"}},
+		{ID: "b", Data: []string{"", "beta", "2"}},
+		{ID: "c", Data: []string{"", "gamma", "3"}},
+	})
+	m.SetCursor(2) // gamma
+	require.Equal(t, "c", m.SelectedRow().ID)
+
+	m.SetColumnHidden("Sel", false)
+	if r := m.SelectedRow(); assert.NotNil(t, r) {
+		assert.Equal(t, "c", r.ID, "cursor should still be on gamma after column toggle")
+	}
 }
 
 // SetRows (and the filter / sort pipelines that call it internally) must

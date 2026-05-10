@@ -1606,13 +1606,11 @@ func (v *ObjectsView) startDownload() tea.Cmd {
 				},
 			)
 			if err != nil {
-				// Send error completion
-				select {
-				case v.downloadChan <- progress.ProgressUpdate{
+				// Completion (error path) MUST be delivered or
+				// waitForProgress hangs forever. Block on the send.
+				v.downloadChan <- progress.ProgressUpdate{
 					Done:  true,
 					Error: fmt.Errorf("failed to download %s: %w", file.DisplayName, err),
-				}:
-				default:
 				}
 				return
 			}
@@ -1620,11 +1618,8 @@ func (v *ObjectsView) startDownload() tea.Cmd {
 			bytesDownloaded += file.Size
 		}
 
-		// Send completion signal
-		select {
-		case v.downloadChan <- progress.ProgressUpdate{Done: true}:
-		default:
-		}
+		// Final completion — also blocking for the same reason.
+		v.downloadChan <- progress.ProgressUpdate{Done: true}
 	}()
 
 	// Immediately start polling for progress updates
@@ -1762,13 +1757,11 @@ func (v *ObjectsView) startUpload() tea.Cmd {
 				},
 			)
 			if err != nil {
-				// Send error completion
-				select {
-				case v.uploadChan <- progress.ProgressUpdate{
+				// Completion (error path) MUST be delivered or
+				// waitForUploadProgress hangs forever. Block on the send.
+				v.uploadChan <- progress.ProgressUpdate{
 					Done:  true,
 					Error: fmt.Errorf("failed to upload %s: %w", filepath.Base(file.localPath), err),
-				}:
-				default:
 				}
 				return
 			}
@@ -1776,11 +1769,8 @@ func (v *ObjectsView) startUpload() tea.Cmd {
 			bytesUploaded += file.size
 		}
 
-		// Send completion signal
-		select {
-		case v.uploadChan <- progress.ProgressUpdate{Done: true}:
-		default:
-		}
+		// Final completion — also blocking for the same reason.
+		v.uploadChan <- progress.ProgressUpdate{Done: true}
 	}()
 
 	// Immediately start polling for progress updates
@@ -1976,7 +1966,8 @@ func (v *ObjectsView) startDelete() tea.Cmd {
 
 	go func() {
 		for i, file := range files {
-			// Send progress before each delete (non-blocking)
+			// Send progress before each delete (non-blocking — dropped
+			// intermediate updates just mean a slightly stale label).
 			select {
 			case v.deleteChan <- deleteProgressUpdate{
 				deletedCount: i,
@@ -1992,27 +1983,21 @@ func (v *ObjectsView) startDelete() tea.Cmd {
 				file.Name,
 			)
 			if err != nil {
-				// Send error completion
-				select {
-				case v.deleteChan <- deleteProgressUpdate{
+				// Completion (success or error) MUST be delivered or the
+				// progress-wait tea.Cmd hangs forever. Block on the send.
+				v.deleteChan <- deleteProgressUpdate{
 					done:         true,
 					err:          err,
 					deletedCount: i,
 					failedObject: file.DisplayName,
-				}:
-				default:
 				}
 				return
 			}
 		}
 
-		// Send completion signal
-		select {
-		case v.deleteChan <- deleteProgressUpdate{
+		v.deleteChan <- deleteProgressUpdate{
 			done:         true,
 			deletedCount: len(files),
-		}:
-		default:
 		}
 	}()
 
@@ -2242,6 +2227,9 @@ func (v *ObjectsView) startStorageClassChange() tea.Cmd {
 	v.changeChan = make(chan storageClassProgressUpdate, 10)
 	go func() {
 		for i, f := range files {
+			// Progress updates are non-blocking — it's fine if a fast
+			// loop overruns the buffer and a few intermediate updates
+			// are dropped, the next one supersedes them anyway.
 			select {
 			case v.changeChan <- storageClassProgressUpdate{
 				doneCount:   i,
@@ -2256,24 +2244,20 @@ func (v *ObjectsView) startStorageClassChange() tea.Cmd {
 				f.Name,
 				class,
 			); err != nil {
-				select {
-				case v.changeChan <- storageClassProgressUpdate{
+				// Completion (success OR error) MUST be delivered or the
+				// progress-wait command hangs forever. Block on the send.
+				v.changeChan <- storageClassProgressUpdate{
 					done:         true,
 					err:          err,
 					doneCount:    i,
 					failedObject: f.DisplayName,
-				}:
-				default:
 				}
 				return
 			}
 		}
-		select {
-		case v.changeChan <- storageClassProgressUpdate{
+		v.changeChan <- storageClassProgressUpdate{
 			done:      true,
 			doneCount: len(files),
-		}:
-		default:
 		}
 	}()
 	return v.waitForStorageClassProgress()

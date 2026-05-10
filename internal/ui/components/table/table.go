@@ -953,6 +953,16 @@ func (m *Model) SetColumnHidden(title string, hidden bool) {
 			if m.colDefs[i].Hidden == hidden {
 				return
 			}
+			// Snapshot cursor by row ID so we can restore it after the
+			// rebuild — bubbles' SetRows resets the cursor to 0, which
+			// would otherwise jump the user out of their selection mid
+			// multi-select toggle.
+			cursor := m.table.Cursor()
+			var selectedID string
+			if cursor >= 0 && cursor < len(m.rows) {
+				selectedID = m.rows[cursor].ID
+			}
+
 			m.colDefs[i].Hidden = hidden
 			m.table.SetRows(nil)
 			m.recalcColumns()
@@ -961,17 +971,34 @@ func (m *Model) SetColumnHidden(title string, hidden bool) {
 				tableRows[j] = m.visibleCells(row.Data)
 			}
 			m.table.SetRows(tableRows)
-			break
+
+			// Restore cursor: prefer matching by ID (handles a future where
+			// rebuilds reorder rows), fall back to the prior index.
+			if selectedID != "" {
+				for j, row := range m.rows {
+					if row.ID == selectedID {
+						m.table.SetCursor(j)
+						return
+					}
+				}
+			}
+			if cursor >= 0 && cursor < len(m.rows) {
+				m.table.SetCursor(cursor)
+			}
+			return
 		}
 	}
 }
 
-// visibleCells returns a copy of data with cells for hidden columns dropped.
-// When colDefs is empty (no per-column metadata yet) the data is returned
-// as-is so legacy callers that don't use column-hiding still work.
+// visibleCells returns a fresh slice containing the cells for visible
+// columns only. The result is always a copy — callers may mutate it
+// without affecting the model's stored row data, including the legacy
+// no-colDefs path.
 func (m *Model) visibleCells(data []string) []string {
 	if len(m.colDefs) == 0 {
-		return data
+		out := make([]string, len(data))
+		copy(out, data)
+		return out
 	}
 	out := make([]string, 0, len(data))
 	for i := 0; i < len(data) && i < len(m.colDefs); i++ {
