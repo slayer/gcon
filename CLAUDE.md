@@ -6,7 +6,7 @@ A terminal-based user interface for managing Google Cloud Platform resources, bu
 
 ## Tech Stack
 
-- **Language**: Go 1.22+
+- **Language**: Go 1.26+ (toolchain pinned via `mise.toml`)
 - **TUI Framework**: [Bubble Tea](https://github.com/charmbracelet/bubbletea) (Elm-inspired architecture)
 - **Styling**: [Lip Gloss](https://github.com/charmbracelet/lipgloss)
 - **Charts**: [ntcharts](https://github.com/NimbleMarkets/ntcharts) (braille time series)
@@ -16,7 +16,7 @@ A terminal-based user interface for managing Google Cloud Platform resources, bu
   - Mocking with interfaces and test implementations
   - use `testify` for assertions
   - use table-driven tests if applicable
-- **Linting**: golangci-lint v2.6.0+ with 32 enabled linters
+- **Linting**: golangci-lint v2.12+ with 32 enabled linters
   - Comprehensive error handling, security, and code quality checks
   - Bubble Tea-specific complexity allowances
 

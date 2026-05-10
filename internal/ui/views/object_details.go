@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -45,6 +46,7 @@ const (
 // Message types for object details view
 type objectMetadataLoadedMsg struct {
 	metadata *gcp.ObjectMetadata
+	estimate *gcp.EstimatedLifecycleAction
 }
 
 type objectMetadataErrorMsg struct {
@@ -134,13 +136,14 @@ func defaultObjectDetailsKeyMap() objectDetailsKeyMap {
 
 // ObjectDetailsView displays comprehensive GCS object information
 type ObjectDetailsView struct {
-	storageClient *gcp.StorageClient
-	bucketName    string
-	objectName    string
-	displayName   string
-	ctx           *context.ProgramContext
-	metadata      *gcp.ObjectMetadata
-	spinner       spinner.Model
+	storageClient     *gcp.StorageClient
+	bucketName        string
+	objectName        string
+	displayName       string
+	ctx               *context.ProgramContext
+	metadata          *gcp.ObjectMetadata
+	lifecycleEstimate *gcp.EstimatedLifecycleAction
+	spinner           spinner.Model
 	loading       bool
 	err           error
 	width         int
@@ -214,10 +217,11 @@ func (v *ObjectDetailsView) Init() tea.Cmd {
 	)
 }
 
-// loadMetadata fetches object metadata from GCS
+// loadMetadata fetches object metadata from GCS along with the bucket
+// lifecycle rules (cached) and the estimated next lifecycle action.
 func (v *ObjectDetailsView) loadMetadata() tea.Cmd {
 	return func() tea.Msg {
-		metadata, err := v.storageClient.GetObjectMetadata(
+		metadata, estimate, err := v.storageClient.GetObjectMetadataAndLifecycle(
 			gocontext.Background(),
 			v.bucketName,
 			v.objectName,
@@ -225,7 +229,7 @@ func (v *ObjectDetailsView) loadMetadata() tea.Cmd {
 		if err != nil {
 			return objectMetadataErrorMsg{err: err}
 		}
-		return objectMetadataLoadedMsg{metadata: metadata}
+		return objectMetadataLoadedMsg{metadata: metadata, estimate: estimate}
 	}
 }
 
@@ -256,6 +260,7 @@ func (v *ObjectDetailsView) Update(msg tea.Msg) tea.Cmd {
 	case objectMetadataLoadedMsg:
 		v.loading = false
 		v.metadata = msg.metadata
+		v.lifecycleEstimate = msg.estimate
 		v.updateViewportContent()
 
 		// Handle pending action after metadata loads
@@ -786,6 +791,41 @@ func (v *ObjectDetailsView) renderDetailsTab() string {
 	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Storage class", defaultIfEmpty(m.StorageClass, "Standard")))
 	b.WriteString("\n")
 
+	// Lifecycle & Retention section (only when there's anything to show)
+	if hasLifecycleInfo(m, v.lifecycleEstimate) {
+		warnStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FBBC04"))
+		b.WriteString(sectionStyle.Render("Lifecycle & Retention"))
+		b.WriteString("\n")
+
+		if est := v.lifecycleEstimate; est != nil {
+			b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Next action", formatLifecycleAction(est.Action)))
+			b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Effective", formatLifecycleEffective(est.EffectiveAt)))
+			if est.Reason != "" {
+				b.WriteString(renderRow(labelStyle, mutedStyle, mutedStyle, "Matches", est.Reason))
+			}
+		}
+		if !m.RetentionRetainUntil.IsZero() {
+			label := "Retention"
+			if m.RetentionMode != "" {
+				label = fmt.Sprintf("Retention (%s)", m.RetentionMode)
+			}
+			b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, label, formatLifecycleEffective(m.RetentionRetainUntil)))
+		}
+		if !m.RetentionExpirationTime.IsZero() {
+			b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Bucket retention", formatLifecycleEffective(m.RetentionExpirationTime)))
+		}
+		if m.EventBasedHold {
+			b.WriteString(renderRow(labelStyle, warnStyle, mutedStyle, "Event-based hold", "ACTIVE — deletion blocked"))
+		}
+		if m.TemporaryHold {
+			b.WriteString(renderRow(labelStyle, warnStyle, mutedStyle, "Temporary hold", "ACTIVE — deletion blocked"))
+		}
+		if !m.CustomTime.IsZero() {
+			b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Custom time", timeutil.FormatTimestamp(m.CustomTime.Format("2006-01-02T15:04:05Z07:00"))))
+		}
+		b.WriteString("\n")
+	}
+
 	// URLs section
 	b.WriteString(sectionStyle.Render("URLs"))
 	b.WriteString("\n")
@@ -806,6 +846,12 @@ func (v *ObjectDetailsView) renderDetailsTab() string {
 	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "ETag", defaultIfEmpty(m.Etag, "—")))
 	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Generation", fmt.Sprintf("%d", m.Generation)))
 	b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Metageneration", fmt.Sprintf("%d", m.Metageneration)))
+	if m.ComponentCount > 0 {
+		b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "Components", fmt.Sprintf("%d", m.ComponentCount)))
+	}
+	if m.KMSKeyName != "" {
+		b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, "KMS Key", m.KMSKeyName))
+	}
 	b.WriteString("\n")
 
 	// Content headers section (if any are set)
@@ -940,4 +986,85 @@ func (v *ObjectDetailsView) GetStorageClient() *gcp.StorageClient {
 // GetBucketName returns the bucket name
 func (v *ObjectDetailsView) GetBucketName() string {
 	return v.bucketName
+}
+
+// hasLifecycleInfo reports whether there is any lifecycle/retention data
+// worth showing for the object — either a bucket-rule estimate or one of the
+// per-object retention/hold/custom-time fields is set.
+func hasLifecycleInfo(m *gcp.ObjectMetadata, est *gcp.EstimatedLifecycleAction) bool {
+	if m == nil {
+		return false
+	}
+	if est != nil {
+		return true
+	}
+	return !m.RetentionRetainUntil.IsZero() ||
+		!m.RetentionExpirationTime.IsZero() ||
+		m.EventBasedHold ||
+		m.TemporaryHold ||
+		!m.CustomTime.IsZero()
+}
+
+// formatLifecycleAction renders a LifecycleAction as a short human-readable
+// string (e.g. "Delete", "Set storage class → NEARLINE").
+func formatLifecycleAction(a gcp.LifecycleAction) string {
+	switch a.Type {
+	case "Delete":
+		return "Delete"
+	case "SetStorageClass":
+		if a.StorageClass != "" {
+			return fmt.Sprintf("Set storage class → %s", a.StorageClass)
+		}
+		return "Set storage class"
+	case "AbortIncompleteMultipartUpload":
+		return "Abort incomplete multipart upload"
+	case "":
+		return "—"
+	default:
+		return a.Type
+	}
+}
+
+// formatLifecycleEffective renders an absolute date/time plus a relative
+// hint ("in 12 days", "overdue"). A zero time is shown as "due now".
+func formatLifecycleEffective(t time.Time) string {
+	if t.IsZero() {
+		return "due now"
+	}
+	now := time.Now()
+	delta := t.Sub(now)
+	abs := delta
+	if abs < 0 {
+		abs = -abs
+	}
+	rel := formatRelativeDuration(abs)
+	if delta < 0 {
+		return fmt.Sprintf("%s (%s overdue)", timeutil.FormatDateTime(t), rel)
+	}
+	return fmt.Sprintf("%s (in %s)", timeutil.FormatDateTime(t), rel)
+}
+
+// formatRelativeDuration renders a duration in days/hours/minutes for use
+// next to a target date.
+func formatRelativeDuration(d time.Duration) string {
+	const day = 24 * time.Hour
+	switch {
+	case d >= day:
+		return pluralize(int(d/day), "day", "days")
+	case d >= time.Hour:
+		return pluralize(int(d/time.Hour), "hour", "hours")
+	default:
+		mins := int(d / time.Minute)
+		if mins < 1 {
+			mins = 1
+		}
+		return pluralize(mins, "min", "min")
+	}
+}
+
+func pluralize(n int, singular, plural string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, singular)
+	}
+	return fmt.Sprintf("%d %s", n, plural)
 }

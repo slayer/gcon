@@ -296,7 +296,7 @@ func (m *Model) View() string {
 
 	// Loading state
 	if m.loading {
-		b.WriteString(fmt.Sprintf("%s Loading projects...", m.spinner.View()))
+		fmt.Fprintf(&b, "%s Loading projects...", m.spinner.View())
 		b.WriteString("\n\n")
 		b.WriteString(m.styles.Help.Render("esc: cancel"))
 		return m.styles.Container.Width(m.width).Render(b.String())

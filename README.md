@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/go-1.24+-blue" alt="Go Version">
+  <img src="https://img.shields.io/badge/go-1.26+-blue" alt="Go Version">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="License"></a>
   <img src="https://img.shields.io/badge/platform-linux%20%7C%20macOS%20%7C%20windows-lightgrey" alt="Platform">
 </p>
@@ -130,6 +130,20 @@ go install github.com/slayer/gcon/cmd/gcon@latest
 ### From Releases
 
 Download the latest binary from [Releases](https://github.com/slayer/gcon/releases).
+
+### Development setup
+
+The repository ships a [`mise`](https://mise.jdx.dev/) config (`mise.toml`)
+pinning the Go and `golangci-lint` versions used by CI. With mise installed:
+
+```bash
+mise install        # installs the pinned toolchain
+make build          # build the binary
+make test           # run all tests
+make lint           # run golangci-lint
+```
+
+Without mise, install Go 1.26+ and `golangci-lint` 2.12+ manually.
 
 ## Features
 
