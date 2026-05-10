@@ -14,6 +14,9 @@ import (
 	"github.com/slayer/gcon/internal/gcp"
 )
 
+// errFakeMonitoring is a static sentinel error used by the monitoring-error test.
+var errFakeMonitoring = errors.New("boom")
+
 // fakeMonitoring is a programmable MonitoringFetcher.
 type fakeMonitoring struct {
 	mu    sync.Mutex
@@ -24,7 +27,7 @@ type fakeMonitoring struct {
 	err   error
 }
 
-func (f *fakeMonitoring) FetchBucketUsage(_ context.Context, _ string) (int64, int64, time.Time, error) {
+func (f *fakeMonitoring) FetchBucketUsage(_ context.Context, _ string) (bytes, count int64, asOf time.Time, err error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++
@@ -103,7 +106,7 @@ func TestScanner_FetchMonitoring_CacheHit(t *testing.T) {
 }
 
 func TestScanner_FetchMonitoring_Error(t *testing.T) {
-	mon := &fakeMonitoring{err: errors.New("boom")}
+	mon := &fakeMonitoring{err: errFakeMonitoring}
 	s := New(&fakeStorage{}, mon)
 	msg := s.FetchMonitoring(context.Background(), "b")()
 	ready, ok := msg.(ReadyMsg)
@@ -203,7 +206,7 @@ func TestScanner_StartDeepScan_Dedup(t *testing.T) {
 
 func drainToReady(t *testing.T, s *Scanner, jobID string, cmd tea.Cmd) ReadyMsg {
 	t.Helper()
-	for i := 0; i < 1000; i++ {
+	for range 1000 {
 		msg := cmd()
 		if msg == nil {
 			t.Fatal("nil message")
