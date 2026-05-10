@@ -197,8 +197,10 @@ Download the latest binary from [Releases](https://github.com/slayer/gcon/releas
 - 🪣 **Bucket Management**
   - List all Cloud Storage buckets
   - View bucket details (location, storage class, access control)
+  - Bucket details view (`i` key) with Details and Usage tabs
   - Bucket usage column showing total size and object count (from Cloud Monitoring)
-  - On-demand deep scan (`C` key) with live progress in the footer
+  - On-demand deep scan (`C` key) with live progress in the footer (Ctrl+X to cancel)
+  - Usage tab breakdowns by storage class, top-level prefix, and file extension
   - Create new buckets with comprehensive options:
     - Location type selection (region/dual-region/multi-region)
     - Storage class selection (STANDARD/NEARLINE/COLDLINE/ARCHIVE)
@@ -212,6 +214,7 @@ Download the latest binary from [Releases](https://github.com/slayer/gcon/releas
   - Download individual files or entire folders
   - Delete objects with confirmation
   - View object details and metadata
+  - Folder-scoped deep scan (`C` key) with inline stats line above the table
   - Pagination for large buckets
 </details>
 

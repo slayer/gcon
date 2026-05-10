@@ -273,8 +273,8 @@ func writeStatTable(b *strings.Builder, title string, m map[string]usage.Stat, l
 	}
 	b.WriteString("  --- " + title + " ---\n")
 	for _, e := range all {
-		b.WriteString(fmt.Sprintf("    %-30s %12s  %12s\n",
-			e.k, gcp.FormatSize(e.v.Bytes), formatObjectCount(e.v.Count)))
+		fmt.Fprintf(b, "    %-30s %12s  %12s\n",
+			e.k, gcp.FormatSize(e.v.Bytes), formatObjectCount(e.v.Count))
 	}
 	b.WriteString("\n")
 }

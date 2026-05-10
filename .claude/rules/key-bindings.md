@@ -173,11 +173,23 @@ description: Keyboard shortcuts reference for all views
 | Key | Action |
 |-----|--------|
 | `Enter` | Browse bucket contents |
+| `i` | View bucket details (Details/Usage tabs) |
 | `S` | Open sort menu |
 | `c` | Create new bucket |
 | `C` | Calculate usage (deep scan, footer progress, Ctrl+X to cancel) |
 | `/` | Filter buckets |
 | `r` | Refresh list |
+| `Esc` | Go back |
+
+## Bucket Details View
+
+| Key | Action |
+|-----|--------|
+| `C` | Run deep scan (Usage tab) |
+| `r` | Refresh monitoring metrics |
+| `Tab` / `h` / `l` | Switch tabs (Details/Usage) |
+| `1` / `2` | Jump to tab by number |
+| `Enter` | Browse objects (when "Browse objects" link is focused) |
 | `Esc` | Go back |
 
 ## Images View
@@ -212,6 +224,7 @@ description: Keyboard shortcuts reference for all views
 | `d` | Download file/folder |
 | `u` | Upload files |
 | `D` | Delete file/folder (with confirmation) |
+| `C` | Calculate current folder size (deep scan, inline stats) |
 | `.` | Open action menu |
 | `/` | Filter objects |
 | `r` | Refresh list |
