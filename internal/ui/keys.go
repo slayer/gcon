@@ -4,20 +4,20 @@ import "github.com/charmbracelet/bubbles/key"
 
 // KeyMap defines all application key bindings
 type KeyMap struct {
-	Up             key.Binding
-	Down           key.Binding
-	Left           key.Binding
-	Right          key.Binding
-	Select         key.Binding
-	Back           key.Binding
-	Quit           key.Binding
-	Help           key.Binding
-	Refresh        key.Binding
-	Search         key.Binding
-	Tab            key.Binding
-	ShiftTab       key.Binding
-	SelectSidebar  key.Binding // '[' - focus sidebar
-	SelectContent  key.Binding // ']' - focus content
+	Up              key.Binding
+	Down            key.Binding
+	Left            key.Binding
+	Right           key.Binding
+	Select          key.Binding
+	Back            key.Binding
+	Quit            key.Binding
+	Help            key.Binding
+	Refresh         key.Binding
+	Search          key.Binding
+	Tab             key.Binding
+	ShiftTab        key.Binding
+	SelectSidebar   key.Binding // '[' - focus sidebar
+	SelectContent   key.Binding // ']' - focus content
 	ToggleSidebar   key.Binding // '{' - show/hide sidebar
 	ActionMenu      key.Binding
 	CommandPalette  key.Binding

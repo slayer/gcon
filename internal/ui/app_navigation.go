@@ -660,10 +660,11 @@ func (a *App) handleProjectSwitch(newProject *gcp.Project) tea.Cmd {
 
 // clearAllViews nils out all view instances to force reload with new project
 func (a *App) clearAllViews() {
-	// Drop the scanner so a fresh one is built for the new project's clients.
-	// In-flight scans tied to the old project will be canceled when their
-	// underlying contexts are garbage-collected; for v1 we accept that they may
-	// briefly continue running in the background until they hit ctx.Done.
+	// Close the scanner so the underlying monitoring gRPC client is released
+	// and in-flight scans are canceled before we drop the reference.
+	if a.usageScanner != nil {
+		_ = a.usageScanner.Close() //nolint:errcheck // best-effort cleanup
+	}
 	a.usageScanner = nil
 
 	a.projectView = nil
@@ -3449,58 +3450,60 @@ func (a *App) handleUsageDeepScanRequest(msg views.UsageDeepScanRequestMsg) tea.
 
 // handleUsageProgress updates the footer task description and forwards the
 // message to interested views, then re-arms the pump.
+//
+// Important: this delivers the message DIRECTLY to mounted views via
+// view.Update(msg). Returning a Cmd that re-emits the same message would
+// re-enter App.Update for the same case, causing unbounded recursion.
 func (a *App) handleUsageProgress(msg usage.ProgressMsg) tea.Cmd {
+	if a.usageScanner == nil {
+		// Stale message after project switch; views may have been cleared too.
+		return nil
+	}
 	desc := fmt.Sprintf("Scanning %s%s — %s objects · %s",
 		msg.Bucket, slashIfPrefix(msg.Prefix),
 		formatObjectCount(msg.ObjectsScanned),
 		gcp.FormatSize(msg.BytesScanned))
 	a.updateRunningTask(msg.JobID, desc)
 	cmds := []tea.Cmd{a.usageScanner.NextMessage(msg.JobID)}
-	cmds = append(cmds, a.dispatchUsageProgress(msg)...)
+	if a.bucketsView != nil {
+		if c := a.bucketsView.Update(msg); c != nil {
+			cmds = append(cmds, c)
+		}
+	}
+	if a.objectsView != nil {
+		if c := a.objectsView.Update(msg); c != nil {
+			cmds = append(cmds, c)
+		}
+	}
 	return tea.Batch(cmds...)
 }
 
 // handleUsageReady finalizes the footer task and forwards to interested views.
+//
+// Important: like handleUsageProgress, this delivers the message DIRECTLY to
+// mounted views via view.Update(msg). Returning a Cmd that re-emits the same
+// message would re-enter App.Update and re-fire finishTask repeatedly.
 func (a *App) handleUsageReady(msg usage.ReadyMsg) tea.Cmd {
+	if a.usageScanner == nil {
+		// Stale message after project switch; views may have been cleared too.
+		return nil
+	}
 	finishCmd := a.finishTask(msg.JobID, msg.Err)
 	cmds := []tea.Cmd{}
 	if finishCmd != nil {
 		cmds = append(cmds, finishCmd)
 	}
-	cmds = append(cmds, a.dispatchUsageReady(msg)...)
+	if a.bucketsView != nil {
+		if c := a.bucketsView.Update(msg); c != nil {
+			cmds = append(cmds, c)
+		}
+	}
+	if a.objectsView != nil {
+		if c := a.objectsView.Update(msg); c != nil {
+			cmds = append(cmds, c)
+		}
+	}
 	return tea.Batch(cmds...)
-}
-
-// dispatchUsageProgress sends a ProgressMsg to every mounted view that may be
-// interested in this bucket. A view's Update will simply ignore unrecognized
-// or unrelated messages.
-func (a *App) dispatchUsageProgress(msg usage.ProgressMsg) []tea.Cmd {
-	cmds := []tea.Cmd{}
-	if a.bucketsView != nil {
-		cmds = append(cmds, msgCmd(msg))
-	}
-	if a.objectsView != nil {
-		cmds = append(cmds, msgCmd(msg))
-	}
-	// Phase 3 also dispatches to bucketDetailsView; harmless to add now under a nil guard.
-	return cmds
-}
-
-// dispatchUsageReady fans out the ReadyMsg to all mounted views.
-func (a *App) dispatchUsageReady(msg usage.ReadyMsg) []tea.Cmd {
-	cmds := []tea.Cmd{}
-	if a.bucketsView != nil {
-		cmds = append(cmds, msgCmd(msg))
-	}
-	if a.objectsView != nil {
-		cmds = append(cmds, msgCmd(msg))
-	}
-	return cmds
-}
-
-// msgCmd wraps a value as a tea.Cmd so it can be returned in a Batch.
-func msgCmd(m tea.Msg) tea.Cmd {
-	return func() tea.Msg { return m }
 }
 
 // slashIfPrefix returns "/<prefix>" when prefix is non-empty, "" otherwise.

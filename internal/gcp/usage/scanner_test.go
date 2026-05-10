@@ -245,6 +245,52 @@ func TestScanner_StartDeepScan_Dedup(t *testing.T) {
 	assert.Equal(t, 1, st.calls, "only one underlying List call expected")
 }
 
+// closableMonitoring is a fakeMonitoring variant that also implements io.Closer
+// so we can verify Scanner.Close() releases the monitoring client.
+type closableMonitoring struct {
+	fakeMonitoring
+	closed bool
+}
+
+func (c *closableMonitoring) Close() error {
+	c.closed = true
+	return nil
+}
+
+func TestScanner_Close_ReleasesMonitoringClient(t *testing.T) {
+	mon := &closableMonitoring{}
+	s := New(&fakeStorage{}, mon)
+	require.NoError(t, s.Close())
+	assert.True(t, mon.closed, "Scanner.Close should propagate to monitoring closer")
+}
+
+func TestScanner_Close_CancelsInflightScans(t *testing.T) {
+	st := &fakeStorage{
+		delay: 5 * time.Second,
+		objs:  []gcp.StorageObject{{Name: "a", Size: 1}},
+	}
+	s := New(st, &fakeMonitoring{})
+	jobID, cmd := s.StartDeepScan(context.Background(), "b", "")
+
+	// Close should cancel the running scan and produce ReadyMsg{Err: Canceled}.
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		_ = s.Close() //nolint:errcheck // Close error not relevant to this test
+	}()
+
+	msg := cmd()
+	ready, ok := msg.(ReadyMsg)
+	require.True(t, ok, "expected ReadyMsg after Close, got %T", msg)
+	assert.Equal(t, jobID, ready.JobID)
+	assert.ErrorIs(t, ready.Err, context.Canceled)
+}
+
+func TestScanner_Close_Idempotent(t *testing.T) {
+	s := New(&fakeStorage{}, &closableMonitoring{})
+	require.NoError(t, s.Close())
+	require.NoError(t, s.Close(), "second Close should be a no-op, not panic")
+}
+
 func drainToReady(t *testing.T, s *Scanner, jobID string, cmd tea.Cmd) ReadyMsg {
 	t.Helper()
 	for range 1000 {

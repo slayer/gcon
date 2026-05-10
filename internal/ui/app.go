@@ -92,12 +92,12 @@ type App struct {
 	// Constructed lazily on first usage request after a project is selected.
 	usageScanner *usage.Scanner
 	ctx          *context.ProgramContext // Shared context for all views
-	styles    Styles
-	keys      KeyMap
-	help      help.Model
-	width     int
-	height    int
-	layout    *layout.Layout // Tile-based layout manager
+	styles       Styles
+	keys         KeyMap
+	help         help.Model
+	width        int
+	height       int
+	layout       *layout.Layout // Tile-based layout manager
 
 	// Current view state
 	currentView                ViewType
@@ -705,8 +705,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case context.TaskClearMsg:
-		// Remove completed task from tracking
-		delete(a.ctx.Tasks, msg.TaskID)
+		// Remove completed task from tracking. Only delete tasks that have
+		// actually finished — a deterministic JobID may have been reused for a
+		// fresh in-flight scan within the 2s clear delay; deleting it would
+		// wipe the new scan's footer entry.
+		if t, ok := a.ctx.Tasks[msg.TaskID]; ok && t.State != context.TaskRunning {
+			delete(a.ctx.Tasks, msg.TaskID)
+		}
 		return a, nil
 
 	case ErrorMsg:
@@ -1172,6 +1177,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (a *App) cleanup() {
 	if a.bucketsView != nil {
 		_ = a.bucketsView.Close() //nolint:errcheck // Best-effort cleanup on exit
+	}
+	if a.usageScanner != nil {
+		_ = a.usageScanner.Close() //nolint:errcheck // Best-effort cleanup on exit
+		a.usageScanner = nil
 	}
 }
 

@@ -435,6 +435,13 @@ func (m *Model) applyFilter() {
 	m.table.SetRows(tableRows)
 }
 
+// SortState returns the current sort column index (or -1 when no sort) and the
+// sort direction. Used by callers that need to preserve the user's sort across
+// SetRows() (which clears the sort).
+func (m *Model) SortState() (col int, ascending bool) {
+	return m.sortColumn, m.sortAscending
+}
+
 // SortBy sorts the table by a visible column index. Reapplies to current filter.
 func (m *Model) SortBy(colIndex int, ascending bool) {
 	m.sortColumn = colIndex

@@ -2,6 +2,7 @@ package usage
 
 import (
 	"context"
+	"io"
 	"sync"
 	"time"
 
@@ -177,4 +178,21 @@ func (s *Scanner) Cancel(jobID string) {
 	if target != nil {
 		target.cancel()
 	}
+}
+
+// Close releases the underlying monitoring client and cancels any in-flight
+// scans. Safe to call multiple times. After Close, the scanner is unusable.
+func (s *Scanner) Close() error {
+	s.mu.Lock()
+	for _, job := range s.inflight {
+		if job.cancel != nil {
+			job.cancel()
+		}
+	}
+	s.inflight = make(map[string]*scanJob)
+	s.mu.Unlock()
+	if closer, ok := s.monitoring.(io.Closer); ok {
+		return closer.Close()
+	}
+	return nil
 }

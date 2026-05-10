@@ -210,7 +210,12 @@ func (v *BucketsView) Update(msg tea.Msg) tea.Cmd {
 		return nil
 
 	case usage.ReadyMsg:
-		v.applyUsage(msg.Usage)
+		// Errors arrive without a usable Usage payload; ignore so we don't
+		// overwrite previously-rendered values with zeros.
+		if msg.Err != nil {
+			return nil
+		}
+		v.applyUsage(msg.Usage, true)
 		return nil
 
 	case usage.ProgressMsg:
@@ -221,7 +226,7 @@ func (v *BucketsView) Update(msg tea.Msg) tea.Cmd {
 			ObjectCount: msg.ObjectsScanned,
 			Source:      usage.SourceDeepScan,
 			ScannedAt:   time.Now(),
-		})
+		}, false)
 		return nil
 
 	case spinner.TickMsg:
@@ -364,9 +369,24 @@ func (v *BucketsView) HasTextInputFocused() bool {
 }
 
 // applyUsage stores the usage record and updates the corresponding table row's
-// Size and Objects cells in place. Deep-scan results show a "✓" suffix to
-// distinguish them from monitoring estimates.
-func (v *BucketsView) applyUsage(u usage.BucketUsage) {
+// Size and Objects cells in place. The "✓" suffix is reserved for FINAL
+// deep-scan results — in-flight progress ticks update the numbers but never
+// the marker, so the user can tell at a glance whether the value is verified.
+//
+// final == true means msg came from a usage.ReadyMsg (final result).
+// final == false means msg came from a usage.ProgressMsg (still scanning).
+//
+// Late-arriving ProgressMsg deliveries (channel reordering after a final
+// ReadyMsg already landed) are dropped so they can't overwrite the verified
+// total with a smaller in-progress number.
+func (v *BucketsView) applyUsage(u usage.BucketUsage, final bool) {
+	if !final {
+		if existing, ok := v.usageByBucket[u.Bucket]; ok {
+			if existing.Source == usage.SourceDeepScan && existing.ScannedAt.After(u.ScannedAt) {
+				return // stale progress after final result
+			}
+		}
+	}
 	v.usageByBucket[u.Bucket] = u
 	rows := v.table.Rows()
 	for i := range rows {
@@ -374,7 +394,7 @@ func (v *BucketsView) applyUsage(u usage.BucketUsage) {
 			continue
 		}
 		sizeStr := gcp.FormatSize(u.TotalBytes)
-		if u.Source == usage.SourceDeepScan {
+		if final && u.Source == usage.SourceDeepScan {
 			sizeStr += " ✓"
 		}
 		countStr := formatObjectCount(u.ObjectCount)
@@ -382,7 +402,12 @@ func (v *BucketsView) applyUsage(u usage.BucketUsage) {
 		rows[i].Data[3] = sizeStr
 		rows[i].Data[4] = countStr
 	}
+	// Preserve the user's sort across SetRows (which clears it).
+	sortCol, sortAsc := v.table.SortState()
 	v.table.SetRows(rows)
+	if sortCol >= 0 {
+		v.table.SortBy(sortCol, sortAsc)
+	}
 }
 
 // formatObjectCount renders an int64 with thousands separators. For now we use
