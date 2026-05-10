@@ -200,6 +200,30 @@ func TestObjectsView_NavigateInto(t *testing.T) {
 	})
 }
 
+func TestObjectsView_NavigationClearsStaleError(t *testing.T) {
+	t.Run("navigateUp clears stale err", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.currentPrefix = "folder1/"
+		view.err = assert.AnError
+		view.loadMoreErr = assert.AnError
+
+		_ = view.navigateUp()
+
+		assert.NoError(t, view.err)
+		assert.NoError(t, view.loadMoreErr)
+	})
+
+	t.Run("navigateInto clears stale err", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.currentPrefix = ""
+		view.err = assert.AnError
+
+		_ = view.navigateInto("folder1/")
+
+		assert.NoError(t, view.err)
+	})
+}
+
 func TestObjectsView_NavigateUp(t *testing.T) {
 	t.Run("moves to parent and pushes onto stack", func(t *testing.T) {
 		view := NewObjectsView("test-bucket", nil)

@@ -47,10 +47,11 @@ type objectKeyMap struct {
 
 // parentNavRowID is the sentinel row ID used for the synthetic ".." row that
 // appears at the top of the table when the user is inside a subfolder. The
-// underscore-bracketed prefix avoids collision with real GCS object names
-// (which technically allow any UTF-8 sequence) while staying readable in
-// debug output.
-const parentNavRowID = "__gcon_parent__"
+// leading "\n" makes collision with a real GCS object name impossible: per
+// the Cloud Storage object naming rules an object name cannot contain a
+// carriage return or line feed character.
+// https://cloud.google.com/storage/docs/objects#naming
+const parentNavRowID = "\n__gcon_parent_nav__"
 
 func defaultObjectKeyMap() objectKeyMap {
 	return objectKeyMap{
@@ -306,8 +307,7 @@ func (v *ObjectsView) navigateUp() tea.Cmd {
 	}
 	v.prefixStack = append(v.prefixStack, v.currentPrefix)
 	v.currentPrefix = parentPrefix(v.currentPrefix)
-	v.resetScrollState()
-	v.loading = true
+	v.beginNavigation()
 	return tea.Batch(v.spinner.Tick, v.loadObjects())
 }
 
@@ -317,9 +317,19 @@ func (v *ObjectsView) navigateUp() tea.Cmd {
 func (v *ObjectsView) navigateInto(folderPrefix string) tea.Cmd {
 	v.prefixStack = append(v.prefixStack, v.currentPrefix)
 	v.currentPrefix = folderPrefix
-	v.resetScrollState()
-	v.loading = true
+	v.beginNavigation()
 	return tea.Batch(v.spinner.Tick, v.loadObjects())
+}
+
+// beginNavigation resets transient state shared by every navigation gesture
+// (up, into, refresh): clears scroll/cursor, clears any stale errors that
+// would otherwise short-circuit View() after a successful load, and flips
+// the loading flag so the spinner takes over.
+func (v *ObjectsView) beginNavigation() {
+	v.resetScrollState()
+	v.err = nil
+	v.loadMoreErr = nil
+	v.loading = true
 }
 
 // objectToRow converts a GCS object to a table row
@@ -665,8 +675,7 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 			v.err = msg.err
 		} else {
 			// Refresh the list after successful upload
-			v.resetScrollState()
-			v.loading = true
+			v.beginNavigation()
 			return tea.Batch(v.spinner.Tick, v.loadObjects())
 		}
 		return nil
@@ -763,8 +772,7 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 			}
 		} else {
 			// Refresh list after successful deletion
-			v.resetScrollState()
-			v.loading = true
+			v.beginNavigation()
 			return tea.Batch(v.spinner.Tick, v.loadObjects())
 		}
 		return nil
@@ -891,9 +899,7 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 			}
 
 		case key.Matches(msg, v.keys.Refresh):
-			v.resetScrollState()
-			v.loading = true
-			v.err = nil
+			v.beginNavigation()
 			return tea.Batch(v.spinner.Tick, v.loadObjects())
 		}
 
