@@ -11,6 +11,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/slayer/gcon/internal/gcp"
+	"github.com/slayer/gcon/internal/gcp/usage"
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/sidebar"
 	"github.com/slayer/gcon/internal/ui/context"
@@ -3420,4 +3421,111 @@ func (a *App) handleInstanceConfigEditCanceled() {
 	}
 	a.instanceConfigEditView = nil
 	a.updateSidebarActiveView()
+}
+
+// handleUsageMonitoringRequest fetches monitoring metrics via the scanner and
+// returns the resulting tea.Cmd. The ReadyMsg lands back in App.Update which
+// dispatches to interested views.
+func (a *App) handleUsageMonitoringRequest(msg views.UsageMonitoringRequestMsg) tea.Cmd {
+	scanner := a.ensureUsageScanner()
+	if scanner == nil {
+		return nil
+	}
+	return scanner.FetchMonitoring(gocontext.Background(), msg.Bucket)
+}
+
+// handleUsageDeepScanRequest starts (or joins) a deep scan and registers a
+// footer task with live progress.
+func (a *App) handleUsageDeepScanRequest(msg views.UsageDeepScanRequestMsg) tea.Cmd {
+	scanner := a.ensureUsageScanner()
+	if scanner == nil {
+		return nil
+	}
+	jobID, cmd := scanner.StartDeepScan(gocontext.Background(), msg.Bucket, msg.Prefix)
+	desc := fmt.Sprintf("Scanning %s%s...", msg.Bucket, slashIfPrefix(msg.Prefix))
+	a.registerRunningTask(jobID, desc)
+	return cmd
+}
+
+// handleUsageProgress updates the footer task description and forwards the
+// message to interested views, then re-arms the pump.
+func (a *App) handleUsageProgress(msg usage.ProgressMsg) tea.Cmd {
+	desc := fmt.Sprintf("Scanning %s%s — %s objects · %s",
+		msg.Bucket, slashIfPrefix(msg.Prefix),
+		formatObjectCount(msg.ObjectsScanned),
+		gcp.FormatSize(msg.BytesScanned))
+	a.updateRunningTask(msg.JobID, desc)
+	cmds := []tea.Cmd{a.usageScanner.NextMessage(msg.JobID)}
+	cmds = append(cmds, a.dispatchUsageProgress(msg)...)
+	return tea.Batch(cmds...)
+}
+
+// handleUsageReady finalizes the footer task and forwards to interested views.
+func (a *App) handleUsageReady(msg usage.ReadyMsg) tea.Cmd {
+	finishCmd := a.finishTask(msg.JobID, msg.Err)
+	cmds := []tea.Cmd{}
+	if finishCmd != nil {
+		cmds = append(cmds, finishCmd)
+	}
+	cmds = append(cmds, a.dispatchUsageReady(msg)...)
+	return tea.Batch(cmds...)
+}
+
+// dispatchUsageProgress sends a ProgressMsg to every mounted view that may be
+// interested in this bucket. A view's Update will simply ignore unrecognized
+// or unrelated messages.
+func (a *App) dispatchUsageProgress(msg usage.ProgressMsg) []tea.Cmd {
+	cmds := []tea.Cmd{}
+	if a.bucketsView != nil {
+		cmds = append(cmds, msgCmd(msg))
+	}
+	if a.objectsView != nil {
+		cmds = append(cmds, msgCmd(msg))
+	}
+	// Phase 3 also dispatches to bucketDetailsView; harmless to add now under a nil guard.
+	return cmds
+}
+
+// dispatchUsageReady fans out the ReadyMsg to all mounted views.
+func (a *App) dispatchUsageReady(msg usage.ReadyMsg) []tea.Cmd {
+	cmds := []tea.Cmd{}
+	if a.bucketsView != nil {
+		cmds = append(cmds, msgCmd(msg))
+	}
+	if a.objectsView != nil {
+		cmds = append(cmds, msgCmd(msg))
+	}
+	return cmds
+}
+
+// msgCmd wraps a value as a tea.Cmd so it can be returned in a Batch.
+func msgCmd(m tea.Msg) tea.Cmd {
+	return func() tea.Msg { return m }
+}
+
+// slashIfPrefix returns "/<prefix>" when prefix is non-empty, "" otherwise.
+// Used for human-readable scan descriptions.
+func slashIfPrefix(prefix string) string {
+	if prefix == "" {
+		return ""
+	}
+	return "/" + prefix
+}
+
+// formatObjectCount renders n with comma thousands separators. Duplicated from
+// the views package to avoid importing views from app_navigation; this helper
+// is small enough that DRY isn't worth the layering cost.
+func formatObjectCount(n int64) string {
+	if n < 1000 {
+		return fmt.Sprintf("%d", n)
+	}
+	s := fmt.Sprintf("%d", n)
+	out := make([]byte, 0, len(s)+len(s)/3)
+	for i, c := range s {
+		if i > 0 && (len(s)-i)%3 == 0 {
+			out = append(out, ',')
+		}
+		out = append(out, byte(c))
+	}
+	return string(out)
 }

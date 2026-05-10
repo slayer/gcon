@@ -833,6 +833,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.handleBucketCreateCanceled()
 		return a, nil
 
+	case views.UsageMonitoringRequestMsg:
+		return a, a.handleUsageMonitoringRequest(msg)
+
+	case views.UsageDeepScanRequestMsg:
+		return a, a.handleUsageDeepScanRequest(msg)
+
+	case usage.ProgressMsg:
+		return a, a.handleUsageProgress(msg)
+
+	case usage.ReadyMsg:
+		return a, a.handleUsageReady(msg)
+
 	case views.DeleteDiskConfirmedMsg:
 		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
 		return a, a.handleDeleteDiskConfirmed(msg)
