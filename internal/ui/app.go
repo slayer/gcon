@@ -547,7 +547,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					a.selectedBucket = nil
 				case ViewObjects:
 					a.objectsView = nil
-					a.selectedBucket = nil
+					// Preserve selectedBucket when the parent we're returning to is BucketDetails,
+					// since that view's breadcrumb depends on it. By this point, viewStack has
+					// already been popped and a.currentView is the parent.
+					if a.currentView != ViewBucketDetails {
+						a.selectedBucket = nil
+					}
 				case ViewObjectDetails:
 					a.objectDetailsView = nil
 					a.selectedObject = nil
@@ -637,8 +642,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Global key handlers (only when text input is NOT focused)
 		switch {
 		case key.Matches(msg, a.keys.CancelUsageScan):
-			if jobID, ok := a.activeUsageScanJobID(); ok && a.usageScanner != nil {
-				a.usageScanner.Cancel(jobID)
+			if a.usageScanner != nil {
+				for _, jobID := range a.activeUsageScanJobIDs() {
+					a.usageScanner.Cancel(jobID)
+				}
 			}
 			return a, nil
 		case key.Matches(msg, a.keys.Quit):
@@ -1235,16 +1242,17 @@ func (a *App) clearRunningTasks() {
 	}
 }
 
-// activeUsageScanJobID returns the JobID of the first in-flight usage scan
-// found in the task tracker (those whose ID begins with "scan:"), and true
-// if one exists. Used by the Ctrl+X cancel handler.
-func (a *App) activeUsageScanJobID() (string, bool) {
+// activeUsageScanJobIDs returns the IDs of every in-flight usage scan
+// found in the task tracker (those whose ID begins with "scan:").
+// Used by the Ctrl+X cancel handler to cancel all scans deterministically.
+func (a *App) activeUsageScanJobIDs() []string {
+	var ids []string
 	for id, t := range a.ctx.Tasks {
 		if t.State == context.TaskRunning && strings.HasPrefix(id, "scan:") {
-			return id, true
+			ids = append(ids, id)
 		}
 	}
-	return "", false
+	return ids
 }
 
 // ensureUsageScanner constructs the scanner on first use. It needs both a

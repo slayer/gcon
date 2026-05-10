@@ -97,7 +97,7 @@ func DefaultKeyMap() KeyMap {
 		),
 		CancelUsageScan: key.NewBinding(
 			key.WithKeys("ctrl+x"),
-			key.WithHelp("ctrl+x", "cancel scan"),
+			key.WithHelp("ctrl+x", "cancel all scans"),
 		),
 	}
 }

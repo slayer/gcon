@@ -87,6 +87,40 @@ func TestHandleUsageProgress_NoMessageReemission(t *testing.T) {
 	}
 }
 
+// TestActiveUsageScanJobIDs_ReturnsAllRunningScans verifies that the Ctrl+X
+// cancel handler can find every in-flight scan (not just the first one yielded
+// by random map iteration). Previously activeUsageScanJobID returned a single
+// nondeterministic ID, causing only one of N concurrent scans to be canceled.
+func TestActiveUsageScanJobIDs_ReturnsAllRunningScans(t *testing.T) {
+	a := &App{ctx: uictx.New()}
+
+	// Register two running scans plus one finished (to ensure filtering works).
+	a.registerRunningTask("scan:bucket-a|", "scanning bucket-a")
+	a.registerRunningTask("scan:bucket-b|logs/", "scanning bucket-b/logs/")
+	a.registerRunningTask("scan:bucket-c|", "scanning bucket-c")
+	a.finishTask("scan:bucket-c|", nil)
+
+	// Also register a non-scan task that must be ignored.
+	a.registerRunningTask("delete:abc", "deleting")
+
+	ids := a.activeUsageScanJobIDs()
+	assert.ElementsMatch(t,
+		[]string{"scan:bucket-a|", "scan:bucket-b|logs/"},
+		ids,
+		"must return every running scan task, exclude finished and non-scan tasks")
+}
+
+// TestActiveUsageScanJobIDs_EmptyWhenNoneRunning returns nil/empty when there
+// are no scan tasks (also covers nil-task-map edge cases via uictx.New()).
+func TestActiveUsageScanJobIDs_EmptyWhenNoneRunning(t *testing.T) {
+	a := &App{ctx: uictx.New()}
+	assert.Empty(t, a.activeUsageScanJobIDs())
+
+	a.registerRunningTask("delete:abc", "deleting")
+	assert.Empty(t, a.activeUsageScanJobIDs(),
+		"non-scan tasks must not be returned")
+}
+
 // TestHandleUsageReady_NilScanner_NoPanic verifies the early bail-out when the
 // scanner has been dropped (e.g., after a project switch). An in-flight
 // ProgressMsg/ReadyMsg arriving after clearAllViews() must not panic (C2).

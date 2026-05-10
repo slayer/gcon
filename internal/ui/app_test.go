@@ -438,6 +438,60 @@ func TestIAMPolicyOverlayKeyRouting(t *testing.T) {
 	})
 }
 
+// TestEscFromObjectsBackToBucketDetailsPreservesSelectedBucket verifies the
+// breadcrumb fix: navigating Buckets → BucketDetails (i) → Objects (Enter)
+// → Esc must leave a.selectedBucket populated, because BucketDetailsView's
+// breadcrumb in renderHeader reads it. The leavingView cleanup for ViewObjects
+// must skip the selectedBucket=nil clear when the parent is ViewBucketDetails.
+func TestEscFromObjectsBackToBucketDetailsPreservesSelectedBucket(t *testing.T) {
+	app := createTestApp()
+	simulateProjectSelection(app)
+
+	// Simulate the navigation chain: Buckets -> BucketDetails -> Objects.
+	// Both BucketDetails and Objects share the same selectedBucket.
+	bucket := &gcp.Bucket{Name: "my-bucket", Location: "US", StorageClass: "STANDARD"}
+	app.selectedBucket = bucket
+	app.viewStack = []ViewType{ViewBuckets, ViewBucketDetails}
+	app.currentView = ViewObjects
+	app.objectsView = views.NewObjectsView(bucket.Name, nil)
+	app.objectsView.SetContext(app.ctx)
+	// Make sure no internal back navigation kicks in.
+	app.objectsView.Update(views.ObjectsLoadedMsgForTest([]gcp.StorageObject{}, "", false))
+	app.focusedPanel = FocusContent
+
+	// Press Esc — the leavingView=ViewObjects cleanup branch should preserve
+	// selectedBucket because the parent (top of viewStack) is ViewBucketDetails.
+	app.Update(tea.KeyMsg{Type: tea.KeyEsc})
+
+	assert.Equal(t, ViewBucketDetails, app.currentView, "should pop back to BucketDetails")
+	assert.NotNil(t, app.selectedBucket, "selectedBucket must be preserved when returning to BucketDetails")
+	if app.selectedBucket != nil {
+		assert.Equal(t, "my-bucket", app.selectedBucket.Name)
+	}
+}
+
+// TestEscFromObjectsBackToBucketsClearsSelectedBucket verifies the inverse:
+// when popping back to ViewBuckets (the standard path), selectedBucket should
+// still be cleared so it doesn't leak into the next bucket interaction.
+func TestEscFromObjectsBackToBucketsClearsSelectedBucket(t *testing.T) {
+	app := createTestApp()
+	simulateProjectSelection(app)
+
+	bucket := &gcp.Bucket{Name: "my-bucket"}
+	app.selectedBucket = bucket
+	app.viewStack = []ViewType{ViewBuckets}
+	app.currentView = ViewObjects
+	app.objectsView = views.NewObjectsView(bucket.Name, nil)
+	app.objectsView.SetContext(app.ctx)
+	app.objectsView.Update(views.ObjectsLoadedMsgForTest([]gcp.StorageObject{}, "", false))
+	app.focusedPanel = FocusContent
+
+	app.Update(tea.KeyMsg{Type: tea.KeyEsc})
+
+	assert.Equal(t, ViewBuckets, app.currentView, "should pop back to Buckets")
+	assert.Nil(t, app.selectedBucket, "selectedBucket should be cleared when returning to Buckets list")
+}
+
 // ViewType.String helper for test names
 func (v ViewType) String() string {
 	switch v {

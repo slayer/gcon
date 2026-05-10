@@ -199,7 +199,7 @@ Download the latest binary from [Releases](https://github.com/slayer/gcon/releas
   - View bucket details (location, storage class, access control)
   - Bucket details view (`i` key) with Details and Usage tabs
   - Bucket usage column showing total size and object count (from Cloud Monitoring)
-  - On-demand deep scan (`C` key) with live progress in the footer (Ctrl+X to cancel)
+  - On-demand deep scan (`C` key) — footer spinner during scan; results delivered when complete (Ctrl+X to cancel)
   - Usage tab breakdowns by storage class, top-level prefix, and file extension
   - Create new buckets with comprehensive options:
     - Location type selection (region/dual-region/multi-region)
@@ -463,7 +463,7 @@ Once launched, gcon presents an intuitive interface with:
 |-----|--------|-------------|
 | `Enter` | Browse Contents | Open bucket and view objects |
 | `c` | Create Bucket | Create a new bucket with guided form |
-| `C` | Calculate Usage | Deep scan for size/object count (footer progress, `Ctrl+X` to cancel) |
+| `C` | Calculate Usage | Deep scan for size/object count (footer spinner, `Ctrl+X` to cancel) |
 | `D` | Delete | Delete bucket (must be empty) |
 | `/` | Filter | Filter buckets by name |
 | `r` | Refresh | Reload bucket list |

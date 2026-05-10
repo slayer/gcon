@@ -174,10 +174,34 @@ func TestBucketDetailsView_IgnoresFolderScopedProgress(t *testing.T) {
 
 func TestBucketDetailsView_ErrorOnlyAttributedWhenScanning(t *testing.T) {
 	v := NewBucketDetailsView(gcp.Bucket{Name: "b1"})
-	v.Update(usage.ReadyMsg{Err: errBucketDetailsForeign})
+	// Foreign JobID and not scanning: ignored.
+	v.Update(usage.ReadyMsg{JobID: "scan:other|", Err: errBucketDetailsForeign})
 	assert.Nil(t, v.scanErr, "foreign error must not be attributed when not scanning")
+	// Our scan starts, our JobID lands: error is attributed.
 	v.scanInProgress = true
-	v.Update(usage.ReadyMsg{Err: errBucketDetailsOurs})
+	v.Update(usage.ReadyMsg{JobID: "scan:b1|", Err: errBucketDetailsOurs})
+	assert.NotNil(t, v.scanErr)
+	assert.False(t, v.scanInProgress)
+}
+
+// TestBucketDetailsView_ForeignErrorIgnoredEvenWhenScanInProgress verifies
+// that errors from concurrent scans (different bucket, or folder-scoped scan
+// from ObjectsView in our bucket) are not mis-attributed to this view, even
+// when this view has its own scan in flight. Gating is by JobID, not by the
+// scanInProgress flag alone.
+func TestBucketDetailsView_ForeignErrorIgnoredEvenWhenScanInProgress(t *testing.T) {
+	v := NewBucketDetailsView(gcp.Bucket{Name: "b1"})
+	v.scanInProgress = true
+	// Foreign scan error (different bucket).
+	v.Update(usage.ReadyMsg{JobID: "scan:other-bucket|", Err: errBucketDetailsForeign})
+	assert.Nil(t, v.scanErr, "foreign-bucket error must not be attributed even when our scan is in progress")
+	assert.True(t, v.scanInProgress, "our scan-in-progress flag must not be cleared by foreign error")
+	// Folder-scoped error from our own bucket (same bucket, non-empty prefix).
+	v.Update(usage.ReadyMsg{JobID: "scan:b1|logs/", Err: errBucketDetailsForeign})
+	assert.Nil(t, v.scanErr, "folder-scoped error from our bucket must not be attributed")
+	assert.True(t, v.scanInProgress)
+	// Our error (matching JobID with empty prefix).
+	v.Update(usage.ReadyMsg{JobID: "scan:b1|", Err: errBucketDetailsOurs})
 	assert.NotNil(t, v.scanErr)
 	assert.False(t, v.scanInProgress)
 }

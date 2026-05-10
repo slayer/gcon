@@ -130,12 +130,17 @@ func (v *BucketDetailsView) Update(msg tea.Msg) tea.Cmd {
 			return nil
 		}
 		if msg.Err != nil {
-			// Only attribute errors when we actually have a scan in flight,
-			// otherwise foreign errors (from other views) would surface here.
-			if v.scanInProgress {
-				v.scanErr = msg.Err
-				v.scanInProgress = false
+			// Errors carry no Usage struct so the bucket+prefix filter above
+			// can't gate them. Match the deterministic JobID instead so foreign
+			// scans (other buckets, or folder-scoped scans from ObjectsView)
+			// can't mis-attribute their failures here. JobID format from
+			// usage/job.go: "scan:" + bucket + "|" + prefix.
+			expectedID := "scan:" + v.bucket.Name + "|"
+			if msg.JobID != expectedID {
+				return nil
 			}
+			v.scanErr = msg.Err
+			v.scanInProgress = false
 			return nil
 		}
 		u := msg.Usage

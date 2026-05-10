@@ -23,7 +23,6 @@ const (
 	ViewImages
 	ViewProjectMetadata
 	ViewBuckets
-	ViewBucketDetails
 	ViewNetworks
 	ViewFirewall
 	ViewSubnets
@@ -43,7 +42,6 @@ const (
 	IconImage          = "◉"
 	IconMetadata       = "◐"
 	IconBucket         = "▪"
-	IconBucketDetails  = "▣"
 	IconVPC            = "◆"
 	IconFirewall       = "▲"
 	IconSubnet         = "▫"

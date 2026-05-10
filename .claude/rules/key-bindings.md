@@ -20,7 +20,7 @@ description: Keyboard shortcuts reference for all views
 | `[` | Focus sidebar (expands if auto-hidden) |
 | `]` | Focus content (collapses sidebar if auto-hide) |
 | `{` | Pin/unpin sidebar (toggle auto-hide/always-open) |
-| `Ctrl+X` | Cancel active usage scan |
+| `Ctrl+X` | Cancel all active usage scans |
 
 ## Command Palette
 
@@ -176,7 +176,7 @@ description: Keyboard shortcuts reference for all views
 | `i` | View bucket details (Details/Usage tabs) |
 | `S` | Open sort menu |
 | `c` | Create new bucket |
-| `C` | Calculate usage (deep scan, footer progress, Ctrl+X to cancel) |
+| `C` | Calculate usage (deep scan, footer spinner, Ctrl+X to cancel) |
 | `/` | Filter buckets |
 | `r` | Refresh list |
 | `Esc` | Go back |
