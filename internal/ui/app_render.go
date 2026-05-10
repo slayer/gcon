@@ -27,7 +27,7 @@ func (a *App) renderHeader() string {
 		switch a.currentView {
 		case ViewInstances, ViewInstanceDetails, ViewInstanceEditor, ViewInstanceCreate, ViewInstanceConfigEdit, ViewDisks, ViewDiskDetails, ViewSnapshots, ViewSnapshotDetails, ViewImages, ViewImageDetails:
 			category = "Compute Engine"
-		case ViewBuckets, ViewObjects, ViewObjectDetails:
+		case ViewBuckets, ViewBucketDetails, ViewObjects, ViewObjectDetails:
 			category = "Cloud Storage"
 		case ViewNetworks, ViewNetworkDetails, ViewFirewall, ViewFirewallDetails, ViewSubnets, ViewSubnetDetails, ViewSubnetCreate, ViewRoutes, ViewRouteDetails, ViewRouteCreate:
 			category = "VPC Network"
@@ -87,6 +87,10 @@ func (a *App) renderHeader() string {
 			if path := a.objectsView.GetCurrentPath(); path != "" {
 				resources = append(resources, path)
 			}
+		}
+	case ViewBucketDetails:
+		if a.selectedBucket != nil {
+			resources = append(resources, a.selectedBucket.Name)
 		}
 	case ViewObjectDetails:
 		// Show bucket name and object name when viewing object details
@@ -216,6 +220,10 @@ func (a *App) renderCurrentView() string {
 	case ViewBuckets:
 		if a.bucketsView != nil {
 			return a.bucketsView.View()
+		}
+	case ViewBucketDetails:
+		if a.bucketDetailsView != nil {
+			return a.bucketDetailsView.View()
 		}
 	case ViewObjects:
 		if a.objectsView != nil {

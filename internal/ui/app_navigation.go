@@ -677,6 +677,7 @@ func (a *App) clearAllViews() {
 	a.imagesView = nil
 	a.imageDetailsView = nil
 	a.bucketsView = nil
+	a.bucketDetailsView = nil
 	a.objectsView = nil
 	a.objectDetailsView = nil
 	a.projectMetadataView = nil
@@ -3470,6 +3471,11 @@ func (a *App) handleUsageProgress(msg usage.ProgressMsg) tea.Cmd {
 			cmds = append(cmds, c)
 		}
 	}
+	if a.bucketDetailsView != nil {
+		if c := a.bucketDetailsView.Update(msg); c != nil {
+			cmds = append(cmds, c)
+		}
+	}
 	if a.objectsView != nil {
 		if c := a.objectsView.Update(msg); c != nil {
 			cmds = append(cmds, c)
@@ -3495,6 +3501,11 @@ func (a *App) handleUsageReady(msg usage.ReadyMsg) tea.Cmd {
 	}
 	if a.bucketsView != nil {
 		if c := a.bucketsView.Update(msg); c != nil {
+			cmds = append(cmds, c)
+		}
+	}
+	if a.bucketDetailsView != nil {
+		if c := a.bucketDetailsView.Update(msg); c != nil {
 			cmds = append(cmds, c)
 		}
 	}
@@ -3531,4 +3542,30 @@ func formatObjectCount(n int64) string {
 		out = append(out, byte(c))
 	}
 	return string(out)
+}
+
+// handleBucketDetailsRequest navigates to BucketDetailsView for the named bucket.
+// Locates the bucket struct in the BucketsView cache so the details view has
+// metadata (location, class, created) without an extra GCP call.
+func (a *App) handleBucketDetailsRequest(msg views.BucketDetailsRequestMsg) tea.Cmd {
+	if a.bucketsView == nil {
+		return nil
+	}
+	buckets := a.bucketsView.Buckets()
+	var found *gcp.Bucket
+	for i := range buckets {
+		if buckets[i].Name == msg.Bucket {
+			found = &buckets[i]
+			break
+		}
+	}
+	if found == nil {
+		return nil
+	}
+	a.viewStack = append(a.viewStack, a.currentView)
+	a.currentView = ViewBucketDetails
+	a.selectedBucket = found
+	a.bucketDetailsView = views.NewBucketDetailsView(*found)
+	a.updateViewSizes()
+	return a.bucketDetailsView.Init()
 }

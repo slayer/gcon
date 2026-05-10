@@ -43,6 +43,7 @@ const (
 	ViewImages
 	ViewImageDetails
 	ViewBuckets
+	ViewBucketDetails  // Bucket details + Usage tab
 	ViewObjects        // Browsing objects within a bucket
 	ViewObjectDetails  // Viewing object details
 	ViewInstanceEditor // Editing instance properties (labels, etc.)
@@ -114,6 +115,7 @@ type App struct {
 	imagesView                 *views.ImagesView
 	imageDetailsView           *views.ImageDetailsView
 	bucketsView                *views.BucketsView
+	bucketDetailsView          *views.BucketDetailsView
 	objectsView                *views.ObjectsView
 	objectDetailsView          *views.ObjectDetailsView
 	instanceEditorView         *views.InstanceEditorView
@@ -369,6 +371,8 @@ func (a *App) getCurrentViewModel() views.View {
 		return a.imageDetailsView
 	case ViewBuckets:
 		return a.bucketsView
+	case ViewBucketDetails:
+		return a.bucketDetailsView
 	case ViewObjects:
 		return a.objectsView
 	case ViewObjectDetails:
@@ -839,11 +843,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case views.BucketDetailsRequestMsg:
-		// Phase 3 wires this to BucketDetailsView. For Phase 2 we no-op;
-		// the user sees nothing when pressing 'i', which is acceptable
-		// because the help text only documents 'i' once Phase 3 lands.
-		_ = msg
-		return a, nil
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleBucketDetailsRequest(msg)
 
 	case views.UsageMonitoringRequestMsg:
 		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
@@ -1388,6 +1389,9 @@ func (a *App) updateViewSizes() {
 	}
 	if a.bucketsView != nil {
 		a.bucketsView.SetContext(a.ctx)
+	}
+	if a.bucketDetailsView != nil {
+		a.bucketDetailsView.SetContext(a.ctx)
 	}
 	if a.objectsView != nil {
 		a.objectsView.SetContext(a.ctx)

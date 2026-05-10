@@ -354,6 +354,12 @@ func (v *BucketsView) GetStorageClient() *gcp.StorageClient {
 	return v.storageClient
 }
 
+// Buckets returns the cached list of buckets. Used by App for navigation
+// (e.g., locating the bucket struct for BucketDetailsView).
+func (v *BucketsView) Buckets() []gcp.Bucket {
+	return v.buckets
+}
+
 // Close cleans up resources held by the view
 func (v *BucketsView) Close() error {
 	if v.storageClient != nil {
