@@ -120,6 +120,136 @@ func TestObjectsViewUpdate(t *testing.T) {
 	})
 }
 
+func TestParentPrefix(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"", ""},
+		{"folder1/", ""},
+		{"folder1/folder2/", "folder1/"},
+		{"a/b/c/", "a/b/"},
+		{"folder1", ""}, // missing trailing slash still treated as folder
+	}
+	for _, tc := range cases {
+		t.Run(tc.in, func(t *testing.T) {
+			assert.Equal(t, tc.want, parentPrefix(tc.in))
+		})
+	}
+}
+
+func TestObjectsView_ParentNavRowInjected(t *testing.T) {
+	t.Run("not at root: prepends .. row", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.currentPrefix = "folder1/"
+		view.Update(objectsLoadedMsg{
+			objects: []gcp.StorageObject{
+				{Name: "folder1/file.txt", DisplayName: "file.txt", IsFolder: false},
+			},
+			generation: 0,
+		})
+
+		rows := view.table.Rows()
+		if assert.GreaterOrEqual(t, len(rows), 1) {
+			assert.Equal(t, parentNavRowID, rows[0].ID, "first row should be the .. parent nav")
+		}
+	})
+
+	t.Run("at root: no .. row", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.currentPrefix = ""
+		view.Update(objectsLoadedMsg{
+			objects: []gcp.StorageObject{
+				{Name: "file.txt", DisplayName: "file.txt", IsFolder: false},
+			},
+			generation: 0,
+		})
+
+		rows := view.table.Rows()
+		if assert.Len(t, rows, 1) {
+			assert.NotEqual(t, parentNavRowID, rows[0].ID)
+		}
+	})
+
+	t.Run("empty subfolder still shows .. row and renders the table", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.currentPrefix = "empty-folder/"
+		view.Update(objectsLoadedMsg{objects: nil, generation: 0})
+
+		rows := view.table.Rows()
+		if assert.Len(t, rows, 1, "empty subfolder should still have the .. row") {
+			assert.Equal(t, parentNavRowID, rows[0].ID)
+		}
+
+		out := view.View()
+		assert.NotContains(t, out, "This folder is empty.",
+			"empty subfolder should render the table (with ..), not the empty-state message")
+		assert.Contains(t, out, "←: up",
+			"help text should advertise ←: up when in a subfolder")
+	})
+}
+
+func TestObjectsView_NavigateInto(t *testing.T) {
+	t.Run("enters a folder and pushes onto stack", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.currentPrefix = "folder1/"
+		view.prefixStack = []string{""}
+
+		_ = view.navigateInto("folder1/folder2/")
+
+		assert.Equal(t, "folder1/folder2/", view.currentPrefix)
+		assert.Equal(t, []string{"", "folder1/"}, view.prefixStack)
+		assert.True(t, view.loading)
+	})
+}
+
+func TestObjectsView_NavigationClearsStaleError(t *testing.T) {
+	t.Run("navigateUp clears stale err", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.currentPrefix = "folder1/"
+		view.err = assert.AnError
+		view.loadMoreErr = assert.AnError
+
+		_ = view.navigateUp()
+
+		assert.NoError(t, view.err)
+		assert.NoError(t, view.loadMoreErr)
+	})
+
+	t.Run("navigateInto clears stale err", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.currentPrefix = ""
+		view.err = assert.AnError
+
+		_ = view.navigateInto("folder1/")
+
+		assert.NoError(t, view.err)
+	})
+}
+
+func TestObjectsView_NavigateUp(t *testing.T) {
+	t.Run("moves to parent and pushes onto stack", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.currentPrefix = "folder1/folder2/"
+		view.prefixStack = []string{""}
+
+		_ = view.navigateUp()
+
+		assert.Equal(t, "folder1/", view.currentPrefix)
+		assert.Equal(t, []string{"", "folder1/folder2/"}, view.prefixStack)
+		assert.True(t, view.loading)
+	})
+
+	t.Run("no-op at root", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.currentPrefix = ""
+		view.prefixStack = nil
+
+		cmd := view.navigateUp()
+
+		assert.Nil(t, cmd)
+		assert.Equal(t, "", view.currentPrefix)
+		assert.Empty(t, view.prefixStack)
+	})
+}
+
 func TestObjectsViewHandleBack(t *testing.T) {
 	t.Run("returns to parent folder when in subfolder", func(t *testing.T) {
 		view := NewObjectsView("test-bucket", nil)

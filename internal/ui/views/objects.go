@@ -34,20 +34,38 @@ const maxLoadedObjects = 10000
 
 // objectKeyMap defines object-specific key bindings
 type objectKeyMap struct {
-	Enter      key.Binding
-	Refresh    key.Binding
-	Download   key.Binding
-	Upload     key.Binding
-	Delete     key.Binding
-	ActionMenu key.Binding
-	DeepScan   key.Binding
+	Enter        key.Binding
+	NavigateUp   key.Binding
+	NavigateInto key.Binding
+	Refresh      key.Binding
+	Download     key.Binding
+	Upload       key.Binding
+	Delete       key.Binding
+	ActionMenu   key.Binding
+	DeepScan     key.Binding
 }
+
+// parentNavRowID is the sentinel row ID used for the synthetic ".." row that
+// appears at the top of the table when the user is inside a subfolder. The
+// leading "\n" makes collision with a real GCS object name impossible: per
+// the Cloud Storage object naming rules an object name cannot contain a
+// carriage return or line feed character.
+// https://cloud.google.com/storage/docs/objects#naming
+const parentNavRowID = "\n__gcon_parent_nav__"
 
 func defaultObjectKeyMap() objectKeyMap {
 	return objectKeyMap{
 		Enter: key.NewBinding(
 			key.WithKeys("enter"),
 			key.WithHelp("enter", "open"),
+		),
+		NavigateUp: key.NewBinding(
+			key.WithKeys("left"),
+			key.WithHelp("←", "up one folder"),
+		),
+		NavigateInto: key.NewBinding(
+			key.WithKeys("right"),
+			key.WithHelp("→", "enter folder"),
 		),
 		Refresh: key.NewBinding(
 			key.WithKeys("r"),
@@ -254,6 +272,66 @@ type objectsMoreErrorMsg struct {
 // ObjectsBackMsg signals to return to buckets view (exported for app.go)
 type ObjectsBackMsg struct{}
 
+// parentPrefix returns the parent of a folder prefix:
+//   - "folder1/folder2/" -> "folder1/"
+//   - "folder1/"         -> ""
+//   - ""                 -> "" (root has no parent)
+func parentPrefix(prefix string) string {
+	trimmed := strings.TrimSuffix(prefix, "/")
+	if trimmed == "" {
+		return ""
+	}
+	if i := strings.LastIndex(trimmed, "/"); i >= 0 {
+		return trimmed[:i+1]
+	}
+	return ""
+}
+
+// parentNavRow builds the synthetic ".." row shown at the top of the table
+// when the user is inside a subfolder. Its ID is parentNavRowID so callers
+// can detect it without involving v.objects.
+func parentNavRow() table.Row {
+	return table.Row{
+		Data:        []string{symbols.Folder() + " ..", "-", "Parent folder", "-"},
+		FilterValue: "..",
+		ID:          parentNavRowID,
+	}
+}
+
+// navigateUp moves to the parent folder of currentPrefix and reloads, mirroring
+// the down-navigation pattern (push current to prefixStack so Esc takes the
+// user back to where they came from). No-op at the bucket root.
+func (v *ObjectsView) navigateUp() tea.Cmd {
+	if v.currentPrefix == "" {
+		return nil
+	}
+	v.prefixStack = append(v.prefixStack, v.currentPrefix)
+	v.currentPrefix = parentPrefix(v.currentPrefix)
+	v.beginNavigation()
+	return tea.Batch(v.spinner.Tick, v.loadObjects())
+}
+
+// navigateInto enters the folder identified by its full GCS prefix
+// (e.g. "folder1/folder2/"), pushing the current prefix onto the back-stack
+// so Esc returns to the previous folder.
+func (v *ObjectsView) navigateInto(folderPrefix string) tea.Cmd {
+	v.prefixStack = append(v.prefixStack, v.currentPrefix)
+	v.currentPrefix = folderPrefix
+	v.beginNavigation()
+	return tea.Batch(v.spinner.Tick, v.loadObjects())
+}
+
+// beginNavigation resets transient state shared by every navigation gesture
+// (up, into, refresh): clears scroll/cursor, clears any stale errors that
+// would otherwise short-circuit View() after a successful load, and flips
+// the loading flag so the spinner takes over.
+func (v *ObjectsView) beginNavigation() {
+	v.resetScrollState()
+	v.err = nil
+	v.loadMoreErr = nil
+	v.loading = true
+}
+
 // objectToRow converts a GCS object to a table row
 func objectToRow(obj gcp.StorageObject) table.Row { //nolint:gocritic // Copying object is acceptable
 	var name, size, contentType, modified string
@@ -379,10 +457,14 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 		v.nextPageToken = msg.nextToken
 		v.allLoaded = !msg.hasMore
 
-		// Convert to table rows
-		rows := make([]table.Row, len(msg.objects))
-		for i, obj := range msg.objects {
-			rows[i] = objectToRow(obj)
+		// Convert to table rows. Prepend a synthetic ".." row so users can
+		// navigate up by pressing Enter on it (left arrow does the same).
+		rows := make([]table.Row, 0, len(msg.objects)+1)
+		if v.currentPrefix != "" {
+			rows = append(rows, parentNavRow())
+		}
+		for _, obj := range msg.objects {
+			rows = append(rows, objectToRow(obj))
 		}
 		v.table.SetRows(rows)
 		return nil
@@ -428,15 +510,14 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 		return nil
 
 	case table.RowDoubleClickedMsg:
-		// Handle double-click on table row - navigate into folder
+		// Handle double-click on table row - navigate up if it's the parent
+		// nav row, else navigate into the folder.
+		if msg.RowID == parentNavRowID {
+			return v.navigateUp()
+		}
 		obj := v.findObjectByName(msg.RowID)
 		if obj != nil && obj.IsFolder {
-			// Push current prefix to stack and navigate into folder
-			v.prefixStack = append(v.prefixStack, v.currentPrefix)
-			v.currentPrefix = obj.Name
-			v.resetScrollState()
-			v.loading = true
-			return tea.Batch(v.spinner.Tick, v.loadObjects())
+			return v.navigateInto(obj.Name)
 		}
 		return nil
 
@@ -594,8 +675,7 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 			v.err = msg.err
 		} else {
 			// Refresh the list after successful upload
-			v.resetScrollState()
-			v.loading = true
+			v.beginNavigation()
 			return tea.Batch(v.spinner.Tick, v.loadObjects())
 		}
 		return nil
@@ -692,8 +772,7 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 			}
 		} else {
 			// Refresh list after successful deletion
-			v.resetScrollState()
-			v.loading = true
+			v.beginNavigation()
 			return tea.Batch(v.spinner.Tick, v.loadObjects())
 		}
 		return nil
@@ -775,18 +854,32 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 				}
 			}
 
+		case key.Matches(msg, v.keys.NavigateUp):
+			return v.navigateUp()
+
+		case key.Matches(msg, v.keys.NavigateInto):
+			// Right arrow: enter the selected folder. No-op on files and on
+			// the ".." row — Right is a "drill-down" gesture, not the
+			// generic open-or-up that Enter performs.
+			if row := v.table.SelectedRow(); row != nil && row.ID != parentNavRowID {
+				obj := v.findObjectByName(row.ID)
+				if obj != nil && obj.IsFolder {
+					return v.navigateInto(obj.Name)
+				}
+			}
+			return nil
+
 		case key.Matches(msg, v.keys.Enter):
-			// Navigate into folder or view file details on Enter
+			// Navigate into folder, up to parent (".." row), or view file
+			// details on Enter.
 			if row := v.table.SelectedRow(); row != nil {
+				if row.ID == parentNavRowID {
+					return v.navigateUp()
+				}
 				obj := v.findObjectByName(row.ID)
 				if obj != nil {
 					if obj.IsFolder {
-						// Navigate into folder
-						v.prefixStack = append(v.prefixStack, v.currentPrefix)
-						v.currentPrefix = obj.Name
-						v.resetScrollState()
-						v.loading = true
-						return tea.Batch(v.spinner.Tick, v.loadObjects())
+						return v.navigateInto(obj.Name)
 					}
 					// For files, emit selection message to open details view
 					selectedObj := *obj
@@ -806,9 +899,7 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 			}
 
 		case key.Matches(msg, v.keys.Refresh):
-			v.resetScrollState()
-			v.loading = true
-			v.err = nil
+			v.beginNavigation()
 			return tea.Batch(v.spinner.Tick, v.loadObjects())
 		}
 
@@ -948,27 +1039,31 @@ func (v *ObjectsView) View() string {
 		return errStyle.Render(fmt.Sprintf("\n  Error: %v\n\n  Press 'r' to retry", v.err))
 	}
 
-	if len(v.objects) == 0 {
+	// Only show the bare "empty" message at the bucket root. In a subfolder,
+	// the synthetic ".." row keeps the table non-empty so the user can still
+	// navigate up via Enter on it (or Left arrow).
+	if len(v.objects) == 0 && v.currentPrefix == "" {
 		// When file picker is shown, render it directly (not as overlay)
 		// since empty bucket content is too short for proper overlay
 		if v.showFilePicker && v.filePicker != nil {
 			return v.renderCenteredFilePicker()
 		}
-
-		msg := "This bucket is empty."
-		if v.currentPrefix != "" {
-			msg = "This folder is empty."
-		}
-		return fmt.Sprintf("\n  %s\n  Press 'u' to upload files, 'esc' to go back.", msg)
+		return "\n  This bucket is empty.\n  Press 'u' to upload files, 'esc' to go back."
 	}
 
 	// Keep table title and status in sync with current state
 	v.table.SetTitle(v.buildTitle())
 	v.table.SetStatusSuffix(v.scrollInfo())
 
-	// Help text for actions
+	// Help text for actions. Right arrow is shown unconditionally (always
+	// useful for drilling into folders); left/.. are only relevant in a
+	// subfolder.
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
-	help := helpStyle.Render("\n  enter: open • C: folder size • d: download • u: upload • D: delete • .: menu • /: filter • r: refresh • esc: back")
+	helpText := "\n  enter: open • →: enter folder • C: folder size • d: download • u: upload • D: delete • .: menu • /: filter • r: refresh • esc: back"
+	if v.currentPrefix != "" {
+		helpText = "\n  enter: open (or .. to go up) • ←: up • →: enter folder • C: folder size • d: download • u: upload • D: delete • .: menu • /: filter • r: refresh • esc: back"
+	}
+	help := helpStyle.Render(helpText)
 
 	// Inline folder-size stats line shown above the table when a deep scan
 	// has produced (or is producing) data for the current folder.
