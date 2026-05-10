@@ -5,8 +5,6 @@ import (
 	"sync"
 
 	tea "github.com/charmbracelet/bubbletea"
-
-	"github.com/slayer/gcon/internal/gcp"
 )
 
 // scanJob represents one in-flight deep scan. Multiple subscribers (one per
@@ -51,6 +49,15 @@ func (j *scanJob) addSubscriber() chan tea.Msg {
 	return ch
 }
 
+// lastSubscriberLocked returns the most recently added subscriber channel, or
+// nil if the job has none or has already completed. Caller MUST hold j.mu.
+func (j *scanJob) lastSubscriberLocked() chan tea.Msg {
+	if j.done || len(j.subscribers) == 0 {
+		return nil
+	}
+	return j.subscribers[len(j.subscribers)-1]
+}
+
 // broadcast sends msg to all subscribers (non-blocking; drops if buffer is full).
 func (j *scanJob) broadcast(msg tea.Msg) {
 	j.mu.Lock()
@@ -81,13 +88,22 @@ func (j *scanJob) closeAll() {
 func (s *Scanner) runScan(ctx context.Context, job *scanJob) {
 	objs, err := s.storage.ListAllObjects(ctx, job.bucket, job.prefix)
 
-	// Always remove the job from inflight before the final broadcast so that
-	// a subscriber re-subscribing after they see ReadyMsg gets a fresh job.
-	s.mu.Lock()
-	delete(s.inflight, cacheKey(job.bucket, job.prefix))
-	s.mu.Unlock()
+	// Honor a late cancellation: if the user pressed Ctrl+X while ListAllObjects
+	// was completing, deliver context.Canceled instead of pretending the scan
+	// succeeded.
+	if cerr := ctx.Err(); cerr != nil {
+		s.mu.Lock()
+		delete(s.inflight, cacheKey(job.bucket, job.prefix))
+		s.mu.Unlock()
+		job.broadcast(ReadyMsg{JobID: job.id, Err: cerr})
+		job.closeAll()
+		return
+	}
 
 	if err != nil {
+		s.mu.Lock()
+		delete(s.inflight, cacheKey(job.bucket, job.prefix))
+		s.mu.Unlock()
 		job.broadcast(ReadyMsg{JobID: job.id, Err: err})
 		job.closeAll()
 		return
@@ -99,8 +115,10 @@ func (s *Scanner) runScan(ctx context.Context, job *scanJob) {
 	classes := make([]string, len(objs))
 	usage := tallyObjects(job.bucket, job.prefix, objs, classes)
 
-	// Cache the result.
+	// Atomic delete-from-inflight + write-to-cache so concurrent StartDeepScan
+	// callers either dedup with this job or see the cached result; never miss both.
 	s.mu.Lock()
+	delete(s.inflight, cacheKey(job.bucket, job.prefix))
 	s.cache[cacheKey(job.bucket, job.prefix)] = usage
 	s.mu.Unlock()
 
@@ -126,6 +144,3 @@ func pumpCmd(ch chan tea.Msg) tea.Cmd {
 func jobIDFor(bucket, prefix string) string {
 	return "scan:" + bucket + "|" + prefix
 }
-
-// _ unused-import guard to keep the gcp import even when fields aren't referenced.
-var _ gcp.StorageObject

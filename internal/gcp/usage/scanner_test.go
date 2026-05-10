@@ -36,18 +36,26 @@ func (f *fakeMonitoring) FetchBucketUsage(_ context.Context, _ string) (bytes, c
 
 // fakeStorage is a programmable StorageLister.
 type fakeStorage struct {
-	mu      sync.Mutex
-	calls   int
-	objs    []gcp.StorageObject
-	err     error
-	delay   time.Duration // optional pause to simulate a slow scan
-	classes func(o gcp.StorageObject) string
+	mu       sync.Mutex
+	calls    int
+	objs     []gcp.StorageObject
+	err      error
+	delay    time.Duration                       // optional pause to simulate a slow scan
+	classes  func(o gcp.StorageObject) string    //nolint:unused // reserved for future per-object class injection
+	listFunc func(ctx context.Context) error     // optional override for ListAllObjects
 }
 
 func (f *fakeStorage) ListAllObjects(ctx context.Context, _, _ string) ([]gcp.StorageObject, error) {
 	f.mu.Lock()
 	f.calls++
+	listFunc := f.listFunc
 	f.mu.Unlock()
+	if listFunc != nil {
+		if err := listFunc(ctx); err != nil {
+			return nil, err
+		}
+		return f.objs, f.err
+	}
 	if f.delay > 0 {
 		select {
 		case <-time.After(f.delay):
@@ -177,6 +185,39 @@ func TestScanner_StartDeepScan_Cancel(t *testing.T) {
 	msg := cmd()
 	ready, ok := msg.(ReadyMsg)
 	require.True(t, ok, "expected ReadyMsg after cancel, got %T", msg)
+	require.Error(t, ready.Err)
+	assert.ErrorIs(t, ready.Err, context.Canceled)
+}
+
+// TestScanner_StartDeepScan_LateCancel exercises the cancel race where Cancel()
+// arrives AFTER ListAllObjects has begun but the runner has not yet finished
+// processing the result. The late cancellation must produce a ReadyMsg with
+// context.Canceled, not a successful ReadyMsg.
+func TestScanner_StartDeepScan_LateCancel(t *testing.T) {
+	releaseList := make(chan struct{})
+	st := &fakeStorage{
+		objs: []gcp.StorageObject{{Name: "a", Size: 1}},
+		listFunc: func(ctx context.Context) error {
+			// Wait for the test to release; meanwhile the test will cancel.
+			select {
+			case <-releaseList:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		},
+	}
+	s := New(st, &fakeMonitoring{})
+	jobID, cmd := s.StartDeepScan(context.Background(), "b", "")
+
+	// Cancel first, then release ListAllObjects — Cancel cancels the runner's
+	// context. ListAllObjects will return ctx.Err() because of the inner select.
+	s.Cancel(jobID)
+	close(releaseList)
+
+	msg := cmd()
+	ready, ok := msg.(ReadyMsg)
+	require.True(t, ok)
 	require.Error(t, ready.Err)
 	assert.ErrorIs(t, ready.Err, context.Canceled)
 }

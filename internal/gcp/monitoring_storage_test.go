@@ -2,6 +2,7 @@ package gcp
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,10 +17,10 @@ func TestFetchBucketUsage_BothMetricsPresent(t *testing.T) {
 		projectID: "test-project",
 		fetchFunc: func(ctx context.Context, filter string, duration time.Duration) ([]DataPoint, error) {
 			// Two filters in sequence: total_bytes then object_count.
-			if contains(filter, "total_bytes") {
+			if strings.Contains(filter, "total_bytes") {
 				return []DataPoint{{Timestamp: now.Add(-2 * time.Hour), Value: 1.5e9}}, nil
 			}
-			if contains(filter, "object_count") {
+			if strings.Contains(filter, "object_count") {
 				return []DataPoint{{Timestamp: now.Add(-2 * time.Hour), Value: 4321}}, nil
 			}
 			return nil, nil
@@ -51,7 +52,7 @@ func TestFetchBucketUsage_OnlyBytes(t *testing.T) {
 	c := &MonitoringClient{
 		projectID: "test-project",
 		fetchFunc: func(ctx context.Context, filter string, duration time.Duration) ([]DataPoint, error) {
-			if contains(filter, "total_bytes") {
+			if strings.Contains(filter, "total_bytes") {
 				return []DataPoint{{Timestamp: now, Value: 100}}, nil
 			}
 			return nil, nil
@@ -64,16 +65,3 @@ func TestFetchBucketUsage_OnlyBytes(t *testing.T) {
 	assert.WithinDuration(t, now, asOf, time.Second)
 }
 
-// contains is a small helper to keep the test free of stdlib imports.
-func contains(haystack, needle string) bool {
-	return len(haystack) >= len(needle) && (haystack == needle ||
-		(len(haystack) > len(needle) && (containsAt(haystack, needle))))
-}
-func containsAt(h, n string) bool {
-	for i := 0; i+len(n) <= len(h); i++ {
-		if h[i:i+len(n)] == n {
-			return true
-		}
-	}
-	return false
-}

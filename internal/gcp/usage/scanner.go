@@ -131,33 +131,34 @@ func (s *Scanner) StartDeepScan(ctx context.Context, bucket, prefix string) (str
 	return job.id, pumpCmd(ch)
 }
 
-// NextMessage returns a Cmd that reads the next message for the caller's most
-// recent subscription on the given job. Each call here creates a NEW subscriber
-// channel — this is intentional: in practice the App handler invokes pumpCmd
-// once per message, so we re-issue a fresh single-shot pump. To keep ordering
-// across messages within one logical pump, NextMessage returns a Cmd reading
-// from the SAME channel as the prior pump call by re-using the job's most
-// recent subscriber. Callers should treat the returned Cmd as the continuation
-// of the previous pump; do not invoke NextMessage from multiple goroutines for
-// the same caller.
+// NextMessage returns a Cmd that reads the next message from the job's most
+// recent subscriber channel. Used by the App handler to keep the pump alive
+// across messages.
 //
-// Implementation: we look up the job and add a fresh subscriber. This means
-// two consecutive NextMessage calls actually read from two different channels,
-// but because a scan only ever broadcasts ONE Ready (terminal) and broadcasts
-// every Progress to every subscriber, the App receives all messages it needs
-// in order. The slight redundancy in subscribers is acceptable for v1; future
-// work can attach a per-caller ID and look up the same channel.
+// Implementation: we look up the job and reuse its most recent subscriber
+// channel. This assumes a single sequential pump per job, which is the
+// standard pattern (App.Update is the sole consumer per scan). New
+// subscribers are only added by StartDeepScan when a different caller joins
+// an in-flight scan.
+//
+// Returns a no-op Cmd if the job is no longer in flight (completed, canceled,
+// or never started).
 func (s *Scanner) NextMessage(jobID string) tea.Cmd {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	for _, job := range s.inflight {
-		if job.id == jobID {
-			ch := job.addSubscriber()
-			return pumpCmd(ch)
+		if job.id != jobID {
+			continue
 		}
+		job.mu.Lock()
+		ch := job.lastSubscriberLocked()
+		job.mu.Unlock()
+		if ch == nil {
+			return noOpCmd()
+		}
+		// Reuse the most recently added subscriber channel.
+		return pumpCmd(ch)
 	}
-	// Job is no longer in flight (completed or never started). Return a no-op
-	// so the handler chain doesn't crash.
 	return noOpCmd()
 }
 
