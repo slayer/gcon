@@ -22,6 +22,7 @@ import (
 	"github.com/slayer/gcon/internal/ui/components/table"
 	"github.com/slayer/gcon/internal/ui/context"
 	uierrors "github.com/slayer/gcon/internal/ui/errors"
+	"github.com/slayer/gcon/internal/ui/overlay"
 	"github.com/slayer/gcon/internal/ui/symbols"
 	"github.com/slayer/gcon/internal/ui/timeutil"
 )
@@ -1426,23 +1427,9 @@ func (v *ObjectsView) View() string {
 }
 
 // overlayStorageClassProgress renders the storage-class change progress bar
-// centered over the content.
+// centered over the content, preserving table cells on either side.
 func (v *ObjectsView) overlayStorageClassProgress(content string) string {
-	lines := strings.Split(content, "\n")
-	progressView := v.changeProgress.View()
-	progressLines := strings.Split(progressView, "\n")
-	startRow := (len(lines) - len(progressLines)) / 2
-	if startRow < 0 {
-		startRow = 0
-	}
-	for i, pLine := range progressLines {
-		row := startRow + i
-		if row >= len(lines) {
-			break
-		}
-		lines[row] = pLine
-	}
-	return strings.Join(lines, "\n")
+	return overlay.Center(content, v.changeProgress.View(), v.width, lipgloss.Height(content))
 }
 
 // SetContext updates the view with shared program context.
@@ -1664,46 +1651,7 @@ func (v *ObjectsView) waitForProgress() tea.Cmd {
 
 // overlayProgress renders the progress bar centered over the content
 func (v *ObjectsView) overlayProgress(content string) string {
-	// Split content into lines
-	lines := strings.Split(content, "\n")
-
-	// Get progress bar content
-	progressView := v.downloadProgress.View()
-	progressLines := strings.Split(progressView, "\n")
-
-	// Calculate vertical position (center)
-	startRow := (len(lines) - len(progressLines)) / 2
-	if startRow < 0 {
-		startRow = 0
-	}
-
-	// Calculate horizontal position (center) for each progress line
-	for i, pLine := range progressLines {
-		row := startRow + i
-		if row >= len(lines) {
-			break
-		}
-
-		// Get visible width of progress line (accounting for ANSI codes)
-		pWidth := lipgloss.Width(pLine)
-		contentWidth := lipgloss.Width(lines[row])
-
-		// Calculate padding to center the progress bar
-		leftPad := (v.width - pWidth) / 2
-		if leftPad < 0 {
-			leftPad = 0
-		}
-
-		// Build the new line with progress centered
-		if contentWidth > 0 && leftPad > 0 {
-			// Create padded progress line
-			lines[row] = strings.Repeat(" ", leftPad) + pLine
-		} else {
-			lines[row] = pLine
-		}
-	}
-
-	return strings.Join(lines, "\n")
+	return overlay.Center(content, v.downloadProgress.View(), v.width, lipgloss.Height(content))
 }
 
 // startUpload begins the actual upload process in a background goroutine
@@ -1923,31 +1871,7 @@ func (v *ObjectsView) overlayFilePicker(content string) string {
 
 // overlayUploadProgress renders the upload progress bar centered over the content
 func (v *ObjectsView) overlayUploadProgress(content string) string {
-	lines := strings.Split(content, "\n")
-	progressView := v.uploadProgress.View()
-	progressLines := strings.Split(progressView, "\n")
-
-	startRow := (len(lines) - len(progressLines)) / 2
-	if startRow < 0 {
-		startRow = 0
-	}
-
-	for i, pLine := range progressLines {
-		row := startRow + i
-		if row >= len(lines) {
-			break
-		}
-
-		pWidth := lipgloss.Width(pLine)
-		leftPad := (v.width - pWidth) / 2
-		if leftPad < 0 {
-			leftPad = 0
-		}
-
-		lines[row] = strings.Repeat(" ", leftPad) + pLine
-	}
-
-	return strings.Join(lines, "\n")
+	return overlay.Center(content, v.uploadProgress.View(), v.width, lipgloss.Height(content))
 }
 
 // prepareDelete initiates the delete flow
@@ -2122,89 +2046,21 @@ func (v *ObjectsView) waitForDeleteProgress() tea.Cmd {
 
 // overlayDeleteConfirm renders the delete confirmation dialog centered over the content
 func (v *ObjectsView) overlayDeleteConfirm(content string) string {
-	lines := strings.Split(content, "\n")
-	dialogView := v.deleteConfirm.View()
-	dialogLines := strings.Split(dialogView, "\n")
-
-	startRow := (len(lines) - len(dialogLines)) / 2
-	if startRow < 0 {
-		startRow = 0
-	}
-
-	for i, dLine := range dialogLines {
-		row := startRow + i
-		if row >= len(lines) {
-			break
-		}
-
-		dWidth := lipgloss.Width(dLine)
-		leftPad := (v.width - dWidth) / 2
-		if leftPad < 0 {
-			leftPad = 0
-		}
-
-		lines[row] = strings.Repeat(" ", leftPad) + dLine
-	}
-
-	return strings.Join(lines, "\n")
+	return overlay.Center(content, v.deleteConfirm.View(), v.width, lipgloss.Height(content))
 }
 
 // overlayDeleteProgress renders the delete progress bar centered over the content
 func (v *ObjectsView) overlayDeleteProgress(content string) string {
-	lines := strings.Split(content, "\n")
-	progressView := v.deleteProgress.View()
-	progressLines := strings.Split(progressView, "\n")
-
-	startRow := (len(lines) - len(progressLines)) / 2
-	if startRow < 0 {
-		startRow = 0
-	}
-
-	for i, pLine := range progressLines {
-		row := startRow + i
-		if row >= len(lines) {
-			break
-		}
-
-		pWidth := lipgloss.Width(pLine)
-		leftPad := (v.width - pWidth) / 2
-		if leftPad < 0 {
-			leftPad = 0
-		}
-
-		lines[row] = strings.Repeat(" ", leftPad) + pLine
-	}
-
-	return strings.Join(lines, "\n")
+	return overlay.Center(content, v.deleteProgress.View(), v.width, lipgloss.Height(content))
 }
 
-// overlayActionMenu renders the action menu centered over the content
+// overlayActionMenu renders the action menu centered over the content,
+// preserving the surrounding table cells on either side. The previous
+// implementation replaced the entire row with `spaces + menu`, which
+// blanked the table cells to the left and right of the menu — visually
+// "erasing" the rows behind the popup.
 func (v *ObjectsView) overlayActionMenu(content string) string {
-	lines := strings.Split(content, "\n")
-	menuView := v.actionMenu.View()
-	menuLines := strings.Split(menuView, "\n")
-
-	startRow := (len(lines) - len(menuLines)) / 2
-	if startRow < 0 {
-		startRow = 0
-	}
-
-	for i, mLine := range menuLines {
-		row := startRow + i
-		if row >= len(lines) {
-			break
-		}
-
-		mWidth := lipgloss.Width(mLine)
-		leftPad := (v.width - mWidth) / 2
-		if leftPad < 0 {
-			leftPad = 0
-		}
-
-		lines[row] = strings.Repeat(" ", leftPad) + mLine
-	}
-
-	return strings.Join(lines, "\n")
+	return overlay.Center(content, v.actionMenu.View(), v.width, lipgloss.Height(content))
 }
 
 // buildObjectActions creates action menu items for the selected object
