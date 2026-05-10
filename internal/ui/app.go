@@ -1,6 +1,8 @@
 package ui
 
 import (
+	gocontext "context"
+	"fmt"
 	"os"
 	"strings"
 	"time"
@@ -12,6 +14,7 @@ import (
 	"github.com/slayer/gcon/internal/config"
 
 	"github.com/slayer/gcon/internal/gcp"
+	"github.com/slayer/gcon/internal/gcp/usage"
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/commandpalette"
 	"github.com/slayer/gcon/internal/ui/components/projectselector"
@@ -85,7 +88,10 @@ const (
 // App is the main application model
 type App struct {
 	gcpClient *gcp.Client
-	ctx       *context.ProgramContext // Shared context for all views
+	// usageScanner provides bucket usage data (monitoring + deep scans).
+	// Constructed lazily on first usage request after a project is selected.
+	usageScanner *usage.Scanner
+	ctx          *context.ProgramContext // Shared context for all views
 	styles    Styles
 	keys      KeyMap
 	help      help.Model
@@ -1186,6 +1192,38 @@ func (a *App) clearRunningTasks() {
 			delete(a.ctx.Tasks, id)
 		}
 	}
+}
+
+// ensureUsageScanner constructs the scanner on first use. It needs both a
+// StorageClient and a MonitoringClient; the storage client is borrowed from
+// BucketsView (whichever view created it first), and a fresh MonitoringClient
+// is created scoped to the current project. Returns nil if the prerequisites
+// are not yet available.
+func (a *App) ensureUsageScanner() *usage.Scanner {
+	if a.usageScanner != nil {
+		return a.usageScanner
+	}
+	if a.selectedProject == nil {
+		return nil
+	}
+	if a.bucketsView == nil {
+		return nil
+	}
+	storageClient := a.bucketsView.GetStorageClient()
+	if storageClient == nil {
+		return nil
+	}
+	monClient, err := gcp.NewMonitoringClient(gocontext.Background(), a.selectedProject.ID)
+	if err != nil {
+		// Log via existing error mechanism; without monitoring we can't show
+		// inline totals. Deep scans still work via the storage path, but we
+		// require both to construct the Scanner. Defer construction until next
+		// attempt.
+		a.err = fmt.Errorf("usage scanner monitoring init: %w", err)
+		return nil
+	}
+	a.usageScanner = usage.New(storageClient, monClient)
+	return a.usageScanner
 }
 
 // finishTask marks a task as complete and schedules its removal after 2 seconds.
