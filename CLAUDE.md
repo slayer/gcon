@@ -6,7 +6,7 @@ A terminal-based user interface for managing Google Cloud Platform resources, bu
 
 ## Tech Stack
 
-- **Language**: Go 1.22+
+- **Language**: Go 1.26+ (toolchain pinned via `mise.toml`)
 - **TUI Framework**: [Bubble Tea](https://github.com/charmbracelet/bubbletea) (Elm-inspired architecture)
 - **Styling**: [Lip Gloss](https://github.com/charmbracelet/lipgloss)
 - **Charts**: [ntcharts](https://github.com/NimbleMarkets/ntcharts) (braille time series)
