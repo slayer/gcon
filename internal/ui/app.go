@@ -833,6 +833,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.handleBucketCreateCanceled()
 		return a, nil
 
+	case views.BucketDetailsRequestMsg:
+		// Phase 3 wires this to BucketDetailsView. For Phase 2 we no-op;
+		// the user sees nothing when pressing 'i', which is acceptable
+		// because the help text only documents 'i' once Phase 3 lands.
+		_ = msg
+		return a, nil
+
 	case views.UsageMonitoringRequestMsg:
 		return a, a.handleUsageMonitoringRequest(msg)
 

@@ -23,6 +23,7 @@ type bucketKeyMap struct {
 	Refresh  key.Binding
 	Create   key.Binding
 	DeepScan key.Binding
+	Details  key.Binding
 }
 
 func defaultBucketKeyMap() bucketKeyMap {
@@ -42,6 +43,10 @@ func defaultBucketKeyMap() bucketKeyMap {
 		DeepScan: key.NewBinding(
 			key.WithKeys("C"),
 			key.WithHelp("C", "calculate usage"),
+		),
+		Details: key.NewBinding(
+			key.WithKeys("i"),
+			key.WithHelp("i", "details"),
 		),
 	}
 }
@@ -279,6 +284,14 @@ func (v *BucketsView) Update(msg tea.Msg) tea.Cmd {
 				bucketName := row.ID
 				return func() tea.Msg {
 					return UsageDeepScanRequestMsg{Bucket: bucketName, Prefix: ""}
+				}
+			}
+
+		case key.Matches(msg, v.keys.Details):
+			if row := v.table.SelectedRow(); row != nil {
+				bucketName := row.ID
+				return func() tea.Msg {
+					return BucketDetailsRequestMsg{Bucket: bucketName}
 				}
 			}
 		}
