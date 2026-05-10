@@ -888,6 +888,15 @@ func (m *Model) adjustColumnsWithDefs(availableWidth int) {
 // SetColumnHidden changes the visibility of a column by title.
 // Triggers a recalculation of column widths and re-emits the row data so
 // the underlying bubbles table sees row cells matching its column count.
+//
+// Implementation note: bubbles' `renderRow` iterates over a row's cells
+// and indexes into the column slice, so any transient state where the
+// cell count and column count disagree panics. Unfortunately bubbles has
+// no atomic "set both" API, and either single ordering (rows-first or
+// columns-first) is wrong in one of the two directions. We instead clear
+// bubbles' rows before changing the column set, then re-emit the
+// reshaped rows. The empty intermediate state is safe in either
+// direction.
 func (m *Model) SetColumnHidden(title string, hidden bool) {
 	for i := range m.colDefs {
 		if m.colDefs[i].Title == title {
@@ -895,10 +904,8 @@ func (m *Model) SetColumnHidden(title string, hidden bool) {
 				return
 			}
 			m.colDefs[i].Hidden = hidden
+			m.table.SetRows(nil)
 			m.recalcColumns()
-			// Push the rows through visibleCells so cell count matches the
-			// new visible column count. Without this, bubbles' renderer
-			// indexes past the end of m.cols and panics.
 			tableRows := make([]table.Row, len(m.rows))
 			for j, row := range m.rows {
 				tableRows[j] = m.visibleCells(row.Data)

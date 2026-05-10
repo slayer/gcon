@@ -51,6 +51,65 @@ func TestSetColumnHidden(t *testing.T) {
 	assert.True(t, m.colDefs[1].Hidden)
 }
 
+// Regression: hiding a column after rows are loaded must not panic when
+// bubbles' renderer iterates over each row's cells to redraw the viewport.
+// The bug: row.Data had a cell for the now-hidden column, but
+// m.table.SetColumns had reduced the visible-column count, so renderRow
+// indexed past the end of the column slice. Repro covers both directions
+// (hide then show then hide again).
+func TestSetColumnHidden_DoesNotPanicOnRender(t *testing.T) {
+	cols := []Column{
+		{Title: "Sel", Width: 4, Hidden: true},
+		{Title: "Name", Width: 20, Grow: true},
+		{Title: "Size", Width: 10},
+		{Title: "Modified", Width: 12},
+	}
+	m := NewWithColumns(cols, "Test")
+	m.SetSize(80, 20)
+	m.SetRows([]Row{
+		{ID: "a", Data: []string{"", "alpha.txt", "1 KB", "2026-05-10"}},
+		{ID: "b", Data: []string{"", "beta.txt", "2 KB", "2026-05-10"}},
+	})
+
+	// View() drives bubbles' UpdateViewport → renderRow path. Toggling
+	// column visibility in either direction must not panic on the
+	// subsequent View().
+	assert.NotPanics(t, func() { _ = m.View() })
+
+	m.SetColumnHidden("Sel", false)
+	assert.NotPanics(t, func() { _ = m.View() })
+
+	m.SetColumnHidden("Sel", true)
+	assert.NotPanics(t, func() { _ = m.View() })
+
+	m.SetColumnHidden("Sel", false)
+	assert.NotPanics(t, func() { _ = m.View() })
+}
+
+// SetRows (and the filter / sort pipelines that call it internally) must
+// also feed bubbles only the cells matching its current visible-column
+// count, otherwise renderRow panics on the next viewport refresh.
+func TestSetRows_ShapesCellsToVisibleColumns(t *testing.T) {
+	cols := []Column{
+		{Title: "Sel", Width: 4, Hidden: true},
+		{Title: "Name", Width: 20, Grow: true},
+		{Title: "Size", Width: 10},
+	}
+	m := NewWithColumns(cols, "Test")
+	m.SetSize(60, 10)
+	// Rows have data for all defined columns including the hidden one.
+	m.SetRows([]Row{{ID: "a", Data: []string{"[ ]", "alpha", "1 KB"}}})
+	assert.NotPanics(t, func() { _ = m.View() })
+
+	// Toggle the hidden column on; rows must now expose all cells.
+	m.SetColumnHidden("Sel", false)
+	assert.NotPanics(t, func() { _ = m.View() })
+
+	// And back off again — the dangerous direction (shrink columns).
+	m.SetColumnHidden("Sel", true)
+	assert.NotPanics(t, func() { _ = m.View() })
+}
+
 func TestGetVisibleColumnCount(t *testing.T) {
 	cols := []Column{
 		{Title: "A", Width: 5, Hidden: false},
