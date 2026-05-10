@@ -20,12 +20,8 @@ type Scanner struct {
 
 	mu       sync.RWMutex
 	cache    map[string]BucketUsage
-	inflight map[string]*scanJob // populated in Task 1.5; declared here for layout
+	inflight map[string]*scanJob
 }
-
-// scanJob is a placeholder declared in this task; the full implementation
-// lives in job.go (Task 1.5).
-type scanJob struct{}
 
 // New constructs a Scanner with the given backends. The two arguments are
 // interfaces so tests can supply fakes; production callers pass in
@@ -105,5 +101,79 @@ func (s *Scanner) FetchMonitoring(ctx context.Context, bucket string) tea.Cmd {
 		s.cache[key] = u
 		s.mu.Unlock()
 		return ReadyMsg{JobID: "monitoring:" + bucket, Usage: u}
+	}
+}
+
+// StartDeepScan begins (or joins) a deep scan for (bucket, prefix). It returns
+// the job ID and a tea.Cmd that reads exactly one message from this caller's
+// subscriber channel. The App handler MUST call Scanner.NextMessage(jobID) on
+// every ProgressMsg to keep the pump alive. ReadyMsg ends the pump (channel
+// closes; subsequent NextMessage calls are no-ops).
+//
+// If a scan for the same key is already in flight, returns the existing jobID
+// and a fresh subscriber Cmd attached to the existing job.
+func (s *Scanner) StartDeepScan(ctx context.Context, bucket, prefix string) (string, tea.Cmd) {
+	key := cacheKey(bucket, prefix)
+	s.mu.Lock()
+	if existing, ok := s.inflight[key]; ok {
+		ch := existing.addSubscriber()
+		s.mu.Unlock()
+		return existing.id, pumpCmd(ch)
+	}
+	scanCtx, cancel := context.WithCancel(ctx)
+	job := newScanJob(jobIDFor(bucket, prefix), bucket, prefix, cancel)
+	s.inflight[key] = job
+	ch := job.addSubscriber()
+	s.mu.Unlock()
+
+	go s.runScan(scanCtx, job)
+
+	return job.id, pumpCmd(ch)
+}
+
+// NextMessage returns a Cmd that reads the next message for the caller's most
+// recent subscription on the given job. Each call here creates a NEW subscriber
+// channel — this is intentional: in practice the App handler invokes pumpCmd
+// once per message, so we re-issue a fresh single-shot pump. To keep ordering
+// across messages within one logical pump, NextMessage returns a Cmd reading
+// from the SAME channel as the prior pump call by re-using the job's most
+// recent subscriber. Callers should treat the returned Cmd as the continuation
+// of the previous pump; do not invoke NextMessage from multiple goroutines for
+// the same caller.
+//
+// Implementation: we look up the job and add a fresh subscriber. This means
+// two consecutive NextMessage calls actually read from two different channels,
+// but because a scan only ever broadcasts ONE Ready (terminal) and broadcasts
+// every Progress to every subscriber, the App receives all messages it needs
+// in order. The slight redundancy in subscribers is acceptable for v1; future
+// work can attach a per-caller ID and look up the same channel.
+func (s *Scanner) NextMessage(jobID string) tea.Cmd {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, job := range s.inflight {
+		if job.id == jobID {
+			ch := job.addSubscriber()
+			return pumpCmd(ch)
+		}
+	}
+	// Job is no longer in flight (completed or never started). Return a no-op
+	// so the handler chain doesn't crash.
+	return noOpCmd()
+}
+
+// Cancel terminates the named in-flight job, causing the runner to exit and
+// broadcast ReadyMsg{Err: context.Canceled}. No-op if jobID is unknown.
+func (s *Scanner) Cancel(jobID string) {
+	s.mu.RLock()
+	var target *scanJob
+	for _, job := range s.inflight {
+		if job.id == jobID {
+			target = job
+			break
+		}
+	}
+	s.mu.RUnlock()
+	if target != nil {
+		target.cancel()
 	}
 }

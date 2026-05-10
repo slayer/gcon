@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -119,4 +120,100 @@ func TestScanner_Invalidate(t *testing.T) {
 	s.Invalidate("b", "")
 	s.FetchMonitoring(context.Background(), "b")()
 	assert.Equal(t, 2, mon.calls, "after invalidate, fetch should hit monitoring again")
+}
+
+func TestScanner_StartDeepScan_Success(t *testing.T) {
+	st := &fakeStorage{
+		objs: []gcp.StorageObject{
+			{Name: "a.txt", Size: 100},
+			{Name: "logs/b.log", Size: 200},
+		},
+	}
+	s := New(st, &fakeMonitoring{})
+	jobID, cmd := s.StartDeepScan(context.Background(), "b", "")
+	require.NotEmpty(t, jobID)
+	require.NotNil(t, cmd)
+
+	// Pump until ReadyMsg.
+	var ready ReadyMsg
+	for {
+		msg := cmd()
+		if msg == nil {
+			t.Fatal("nil message before ReadyMsg")
+		}
+		if r, ok := msg.(ReadyMsg); ok {
+			ready = r
+			break
+		}
+		// Otherwise it's a ProgressMsg — re-arm.
+		cmd = s.NextMessage(jobID)
+		require.NotNil(t, cmd)
+	}
+	require.NoError(t, ready.Err)
+	assert.Equal(t, int64(300), ready.Usage.TotalBytes)
+	assert.Equal(t, int64(2), ready.Usage.ObjectCount)
+	assert.Equal(t, SourceDeepScan, ready.Usage.Source)
+
+	// Cached for next caller.
+	cached, ok := s.Get("b", "")
+	assert.True(t, ok)
+	assert.Equal(t, int64(300), cached.TotalBytes)
+}
+
+func TestScanner_StartDeepScan_Cancel(t *testing.T) {
+	st := &fakeStorage{
+		delay: 5 * time.Second,
+		objs:  []gcp.StorageObject{{Name: "a", Size: 1}},
+	}
+	s := New(st, &fakeMonitoring{})
+	jobID, cmd := s.StartDeepScan(context.Background(), "b", "")
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		s.Cancel(jobID)
+	}()
+	msg := cmd()
+	ready, ok := msg.(ReadyMsg)
+	require.True(t, ok, "expected ReadyMsg after cancel, got %T", msg)
+	require.Error(t, ready.Err)
+	assert.ErrorIs(t, ready.Err, context.Canceled)
+}
+
+func TestScanner_StartDeepScan_Dedup(t *testing.T) {
+	st := &fakeStorage{
+		delay: 100 * time.Millisecond,
+		objs:  []gcp.StorageObject{{Name: "a", Size: 1}},
+	}
+	s := New(st, &fakeMonitoring{})
+
+	job1, cmd1 := s.StartDeepScan(context.Background(), "b", "")
+	job2, cmd2 := s.StartDeepScan(context.Background(), "b", "")
+	assert.Equal(t, job1, job2, "second call for same key should reuse jobID")
+	require.NotNil(t, cmd1)
+	require.NotNil(t, cmd2)
+
+	// Both subscribers should receive the final ReadyMsg.
+	got1 := drainToReady(t, s, job1, cmd1)
+	got2 := drainToReady(t, s, job2, cmd2)
+	require.NoError(t, got1.Err)
+	require.NoError(t, got2.Err)
+	assert.Equal(t, int64(1), got1.Usage.TotalBytes)
+	assert.Equal(t, int64(1), got2.Usage.TotalBytes)
+	assert.Equal(t, 1, st.calls, "only one underlying List call expected")
+}
+
+func drainToReady(t *testing.T, s *Scanner, jobID string, cmd tea.Cmd) ReadyMsg {
+	t.Helper()
+	for i := 0; i < 1000; i++ {
+		msg := cmd()
+		if msg == nil {
+			t.Fatal("nil message")
+		}
+		if r, ok := msg.(ReadyMsg); ok {
+			return r
+		}
+		cmd = s.NextMessage(jobID)
+		require.NotNil(t, cmd)
+	}
+	t.Fatal("never reached ReadyMsg")
+	return ReadyMsg{}
 }
