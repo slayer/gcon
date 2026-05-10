@@ -224,7 +224,7 @@ func (a *App) handleSidebarNavigation(msg sidebar.NavigateMsg) tea.Cmd {
 			}
 		}
 	case sidebar.ViewBuckets:
-		if a.currentView != ViewBuckets && a.currentView != ViewObjects {
+		if a.currentView != ViewBuckets && a.currentView != ViewBucketDetails && a.currentView != ViewObjects {
 			a.currentView = ViewBuckets
 			a.objectsView = nil
 			a.selectedBucket = nil
@@ -373,7 +373,7 @@ func (a *App) updateSidebarActiveView() {
 		a.sidebar.SetActiveView(sidebar.ViewSnapshots)
 	case ViewImages, ViewImageDetails:
 		a.sidebar.SetActiveView(sidebar.ViewImages)
-	case ViewBuckets, ViewObjects, ViewObjectDetails:
+	case ViewBuckets, ViewBucketDetails, ViewObjects, ViewObjectDetails:
 		a.sidebar.SetActiveView(sidebar.ViewBuckets)
 	case ViewNetworks, ViewNetworkDetails:
 		a.sidebar.SetActiveView(sidebar.ViewNetworks)
@@ -775,9 +775,10 @@ func (a *App) reloadCurrentView(projectID string) tea.Cmd {
 		a.updateViewSizes()
 		return a.imagesView.Init()
 
-	case ViewBuckets, ViewObjects, ViewObjectDetails:
+	case ViewBuckets, ViewBucketDetails, ViewObjects, ViewObjectDetails:
 		// Return to buckets list
 		a.currentView = ViewBuckets
+		a.bucketDetailsView = nil
 		a.bucketsView = views.NewBucketsView(projectID)
 		a.updateSidebarActiveView()
 		a.updateViewSizes()

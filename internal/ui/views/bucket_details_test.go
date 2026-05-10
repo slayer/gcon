@@ -1,6 +1,7 @@
 package views
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -11,6 +12,11 @@ import (
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/gcp/usage"
 	"github.com/slayer/gcon/internal/ui/context"
+)
+
+var (
+	errBucketDetailsForeign = errors.New("foreign")
+	errBucketDetailsOurs    = errors.New("ours")
 )
 
 func TestBucketDetailsView_InitFiresMonitoringRequest(t *testing.T) {
@@ -145,4 +151,50 @@ func TestBucketDetailsView_ViewRendersUsageTabWithMonitoring(t *testing.T) {
 	assert.Contains(t, out, "Total size:")
 	assert.Contains(t, out, "Object count:")
 	assert.Contains(t, out, "Monitoring")
+}
+
+func TestBucketDetailsView_IgnoresFolderScopedReadyMsg(t *testing.T) {
+	v := NewBucketDetailsView(gcp.Bucket{Name: "b1"})
+	v.Update(usage.ReadyMsg{
+		Usage: usage.BucketUsage{
+			Bucket:     "b1",
+			Prefix:     "logs/",
+			TotalBytes: 999,
+			Source:     usage.SourceDeepScan,
+		},
+	})
+	assert.Nil(t, v.usage, "folder-scoped ReadyMsg should not populate bucket-level usage")
+}
+
+func TestBucketDetailsView_IgnoresFolderScopedProgress(t *testing.T) {
+	v := NewBucketDetailsView(gcp.Bucket{Name: "b1"})
+	v.Update(usage.ProgressMsg{Bucket: "b1", Prefix: "logs/", BytesScanned: 500})
+	assert.Nil(t, v.usage, "folder-scoped ProgressMsg should not populate bucket-level usage")
+}
+
+func TestBucketDetailsView_ErrorOnlyAttributedWhenScanning(t *testing.T) {
+	v := NewBucketDetailsView(gcp.Bucket{Name: "b1"})
+	v.Update(usage.ReadyMsg{Err: errBucketDetailsForeign})
+	assert.Nil(t, v.scanErr, "foreign error must not be attributed when not scanning")
+	v.scanInProgress = true
+	v.Update(usage.ReadyMsg{Err: errBucketDetailsOurs})
+	assert.NotNil(t, v.scanErr)
+	assert.False(t, v.scanInProgress)
+}
+
+func TestBucketDetailsView_TabKeyCyclesTabs(t *testing.T) {
+	v := NewBucketDetailsView(gcp.Bucket{Name: "b1"})
+	require.Equal(t, "details", v.tabs.ActiveTab().ID)
+	v.Update(tea.KeyMsg{Type: tea.KeyTab})
+	assert.Equal(t, "usage", v.tabs.ActiveTab().ID)
+}
+
+func TestBucketDetailsView_EnterEmitsBucketSelected(t *testing.T) {
+	v := NewBucketDetailsView(gcp.Bucket{Name: "b1"})
+	cmd := v.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	require.NotNil(t, cmd)
+	msg := cmd()
+	sel, ok := msg.(BucketSelectedMsg)
+	require.True(t, ok, "expected BucketSelectedMsg, got %T", msg)
+	assert.Equal(t, "b1", sel.Bucket.Name)
 }

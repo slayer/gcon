@@ -542,6 +542,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case ViewImageDetails:
 					a.imageDetailsView = nil
 					a.selectedImage = nil
+				case ViewBucketDetails:
+					a.bucketDetailsView = nil
+					a.selectedBucket = nil
 				case ViewObjects:
 					a.objectsView = nil
 					a.selectedBucket = nil

@@ -25,16 +25,18 @@ type bucketDetailsKeyMap struct {
 	PrevTab  key.Binding
 	Tab1     key.Binding
 	Tab2     key.Binding
+	Browse   key.Binding
 }
 
 func defaultBucketDetailsKeyMap() bucketDetailsKeyMap {
 	return bucketDetailsKeyMap{
 		DeepScan: key.NewBinding(key.WithKeys("C"), key.WithHelp("C", "calculate usage")),
 		Refresh:  key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh monitoring")),
-		NextTab:  key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "next tab")),
-		PrevTab:  key.NewBinding(key.WithKeys("h"), key.WithHelp("h", "prev tab")),
+		NextTab:  key.NewBinding(key.WithKeys("l", "tab"), key.WithHelp("tab/l", "next tab")),
+		PrevTab:  key.NewBinding(key.WithKeys("h", "shift+tab"), key.WithHelp("shift+tab/h", "prev tab")),
 		Tab1:     key.NewBinding(key.WithKeys("1")),
 		Tab2:     key.NewBinding(key.WithKeys("2")),
+		Browse:   key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "browse objects")),
 	}
 }
 
@@ -121,12 +123,19 @@ func (v *BucketDetailsView) View() string {
 func (v *BucketDetailsView) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case usage.ReadyMsg:
-		if msg.Err == nil && msg.Usage.Bucket != v.bucket.Name {
-			return nil // not for us
+		// Only consume bucket-level results for *our* bucket; ignore folder-scoped
+		// scans (Prefix != "") which originate from ObjectsView and would otherwise
+		// overwrite this view's bucket-level totals.
+		if msg.Err == nil && (msg.Usage.Bucket != v.bucket.Name || msg.Usage.Prefix != "") {
+			return nil
 		}
 		if msg.Err != nil {
-			v.scanErr = msg.Err
-			v.scanInProgress = false
+			// Only attribute errors when we actually have a scan in flight,
+			// otherwise foreign errors (from other views) would surface here.
+			if v.scanInProgress {
+				v.scanErr = msg.Err
+				v.scanInProgress = false
+			}
 			return nil
 		}
 		u := msg.Usage
@@ -135,7 +144,8 @@ func (v *BucketDetailsView) Update(msg tea.Msg) tea.Cmd {
 		return nil
 
 	case usage.ProgressMsg:
-		if msg.Bucket != v.bucket.Name {
+		// Same scope guard as ReadyMsg: ignore folder-scoped progress events.
+		if msg.Bucket != v.bucket.Name || msg.Prefix != "" {
 			return nil
 		}
 		v.scanInProgress = true
@@ -150,6 +160,11 @@ func (v *BucketDetailsView) Update(msg tea.Msg) tea.Cmd {
 		return nil
 
 	case spinner.TickMsg:
+		// Stop ticking once the scan is over; otherwise the spinner would emit
+		// ticks forever and waste CPU.
+		if !v.scanInProgress {
+			return nil
+		}
 		var cmd tea.Cmd
 		v.spinner, cmd = v.spinner.Update(msg)
 		return cmd
@@ -186,6 +201,11 @@ func (v *BucketDetailsView) Update(msg tea.Msg) tea.Cmd {
 		case key.Matches(msg, v.keys.Refresh):
 			return func() tea.Msg {
 				return UsageMonitoringRequestMsg{Bucket: v.bucket.Name}
+			}
+		case key.Matches(msg, v.keys.Browse):
+			bucket := v.bucket
+			return func() tea.Msg {
+				return BucketSelectedMsg{Bucket: bucket}
 			}
 		}
 	}
