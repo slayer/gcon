@@ -489,10 +489,13 @@ Once launched, gcon presents an intuitive interface with:
 | `Enter` | Open/View | Open folder, view file details, or go up (on `..` row) |
 | `→` | Enter Folder | Drill into the selected folder (no-op on files and on `..`) |
 | `←` | Go Up | Navigate to parent folder (no-op at bucket root) |
+| `Space` | Toggle Select | Add/remove cursor row from the bulk selection |
+| `*` | Select All | Toggle select-all on visible (filtered) rows |
 | `u` | Upload | Upload files to current folder |
-| `d` | Download | Download selected file or folder |
-| `D` | Delete | Delete object (with confirmation) |
-| `Esc` | Go Back | Return to previous view (pops navigation history) |
+| `d` | Download | Download cursor row, or **all selected** when a selection is active |
+| `D` | Delete | Delete cursor row, or **all selected** when a selection is active |
+| `.` | Action Menu | Per-row actions, or **bulk menu** (incl. *Change storage class*) when a selection is active |
+| `Esc` | Clear / Back | Clear bulk selection if any; otherwise pop navigation history |
 
 #### VPC Networks
 

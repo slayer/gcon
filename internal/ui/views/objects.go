@@ -34,15 +34,17 @@ const maxLoadedObjects = 10000
 
 // objectKeyMap defines object-specific key bindings
 type objectKeyMap struct {
-	Enter        key.Binding
-	NavigateUp   key.Binding
-	NavigateInto key.Binding
-	Refresh      key.Binding
-	Download     key.Binding
-	Upload       key.Binding
-	Delete       key.Binding
-	ActionMenu   key.Binding
-	DeepScan     key.Binding
+	Enter           key.Binding
+	NavigateUp      key.Binding
+	NavigateInto    key.Binding
+	Refresh         key.Binding
+	Download        key.Binding
+	Upload          key.Binding
+	Delete          key.Binding
+	ActionMenu      key.Binding
+	DeepScan        key.Binding
+	ToggleSelect    key.Binding
+	ToggleSelectAll key.Binding
 }
 
 // parentNavRowID is the sentinel row ID used for the synthetic ".." row that
@@ -91,12 +93,32 @@ func defaultObjectKeyMap() objectKeyMap {
 			key.WithKeys("C"),
 			key.WithHelp("C", "calculate folder size"),
 		),
+		ToggleSelect: key.NewBinding(
+			key.WithKeys(" "),
+			key.WithHelp("space", "toggle selection"),
+		),
+		ToggleSelectAll: key.NewBinding(
+			key.WithKeys("*"),
+			key.WithHelp("*", "select all (visible)"),
+		),
 	}
 }
 
-// Table column definitions for objects (no sorting or field filtering)
+// Table column definitions for objects (no sorting or field filtering).
+// The first "Sel" column is hidden by default and shown only while a bulk
+// selection is active. Column index references (Data[i]) below assume this
+// ordering — keep them in sync if columns are reordered.
+const (
+	objectColIndexSel         = 0
+	objectColIndexName        = 1
+	objectColIndexSize        = 2
+	objectColIndexContentType = 3
+	objectColIndexModified    = 4
+)
+
 func objectColumns() []table.Column {
 	return []table.Column{
+		{Title: "Sel", Width: 4},
 		{Title: "Name", Width: 40, Grow: true},
 		{Title: "Size", Width: 12},
 		{Title: "Content Type", Width: 20},
@@ -160,7 +182,39 @@ type ObjectsView struct {
 	// (bucketName, currentPrefix) pair, displayed as an inline stats line
 	// above the table. Set by ReadyMsg / ProgressMsg from the usage scanner.
 	folderUsage *usage.BucketUsage
+
+	// Bulk selection: rows the user has marked with Space. Keyed by GCS
+	// object full name (= row.ID). Cleared on every navigation gesture.
+	// The "..", parent-nav row is never selectable.
+	selectedIDs map[string]struct{}
+
+	// Action menu kind. The ActionSelectedMsg handler dispatches differently
+	// depending on which menu is open (single-row, bulk, or storage-class
+	// picker).
+	menuKind objectsMenuKind
+
+	// Bulk-action snapshot. Captured when the user opens the bulk action
+	// menu so subsequent toggles in the table don't mutate the list under
+	// the operation. Cleared on cancel/completion.
+	menuPendingObjects []gcp.StorageObject
+
+	// Storage-class change state. Mirrors the delete state's shape so the
+	// progress overlay rendering can reuse the same plumbing pattern.
+	changingClass     bool
+	changeFiles       []gcp.StorageObject
+	changeClass       string
+	changeProgress    *progress.Progress
+	changeChan        chan storageClassProgressUpdate
 }
+
+// objectsMenuKind discriminates the active action menu.
+type objectsMenuKind int
+
+const (
+	menuKindObject       objectsMenuKind = iota // single-row right-click style
+	menuKindBulk                                // bulk-action menu over selectedObjects
+	menuKindStorageClass                        // class picker spawned from bulk menu
+)
 
 // NewObjectsView creates a new objects view with table display
 func NewObjectsView(bucketName string, storageClient *gcp.StorageClient) *ObjectsView {
@@ -181,8 +235,12 @@ func NewObjectsView(bucketName string, storageClient *gcp.StorageClient) *Object
 		downloadProgress: progress.New(),
 		uploadProgress:   progress.New(),
 		deleteProgress:   progress.New(),
+		changeProgress:   progress.New(),
+		selectedIDs:      make(map[string]struct{}),
 	}
 	v.Table = &v.table
+	// Hide the Sel column until the user actually starts a multi-select.
+	v.table.SetColumnHidden("Sel", true)
 	// Enable near-bottom detection for infinite scroll
 	v.table.SetNearBottomThreshold(5)
 	return v
@@ -289,10 +347,11 @@ func parentPrefix(prefix string) string {
 
 // parentNavRow builds the synthetic ".." row shown at the top of the table
 // when the user is inside a subfolder. Its ID is parentNavRowID so callers
-// can detect it without involving v.objects.
+// can detect it without involving v.objects. The Sel cell stays empty —
+// the parent row is never selectable.
 func parentNavRow() table.Row {
 	return table.Row{
-		Data:        []string{symbols.Folder() + " ..", "-", "Parent folder", "-"},
+		Data:        []string{"", symbols.Folder() + " ..", "-", "Parent folder", "-"},
 		FilterValue: "..",
 		ID:          parentNavRowID,
 	}
@@ -323,17 +382,107 @@ func (v *ObjectsView) navigateInto(folderPrefix string) tea.Cmd {
 
 // beginNavigation resets transient state shared by every navigation gesture
 // (up, into, refresh): clears scroll/cursor, clears any stale errors that
-// would otherwise short-circuit View() after a successful load, and flips
-// the loading flag so the spinner takes over.
+// would otherwise short-circuit View() after a successful load, clears the
+// bulk selection, and flips the loading flag so the spinner takes over.
 func (v *ObjectsView) beginNavigation() {
 	v.resetScrollState()
 	v.err = nil
 	v.loadMoreErr = nil
 	v.loading = true
+	v.clearSelection()
 }
 
-// objectToRow converts a GCS object to a table row
-func objectToRow(obj gcp.StorageObject) table.Row { //nolint:gocritic // Copying object is acceptable
+// toggleSelection flips the selection state for the cursor row. The ".."
+// parent-nav row and folder rows that don't yet have resolved descendants
+// are always selectable as containers — bulk operations resolve folders
+// to their members before acting (mirrors the existing single-folder
+// delete/download flow). Returns true if the selection state changed.
+func (v *ObjectsView) toggleSelection() bool {
+	row := v.table.SelectedRow()
+	if row == nil || row.ID == parentNavRowID {
+		return false
+	}
+	if v.selectedIDs == nil {
+		v.selectedIDs = make(map[string]struct{})
+	}
+	if _, on := v.selectedIDs[row.ID]; on {
+		delete(v.selectedIDs, row.ID)
+	} else {
+		v.selectedIDs[row.ID] = struct{}{}
+	}
+	v.refreshSelectionView()
+	return true
+}
+
+// toggleSelectAll selects every visible (post-filter) non-".." row when
+// any are unselected; otherwise clears the selection. Folders are
+// included so the user can "select all and delete" a filtered set in one
+// go.
+func (v *ObjectsView) toggleSelectAll() {
+	if v.selectedIDs == nil {
+		v.selectedIDs = make(map[string]struct{})
+	}
+	rows := v.table.Rows()
+	allSelected := true
+	for _, r := range rows {
+		if r.ID == parentNavRowID {
+			continue
+		}
+		if _, on := v.selectedIDs[r.ID]; !on {
+			allSelected = false
+			break
+		}
+	}
+	if allSelected {
+		// Toggle off — clear the selection completely.
+		v.selectedIDs = make(map[string]struct{})
+	} else {
+		for _, r := range rows {
+			if r.ID == parentNavRowID {
+				continue
+			}
+			v.selectedIDs[r.ID] = struct{}{}
+		}
+	}
+	v.refreshSelectionView()
+}
+
+// clearSelection drops the selection and hides the Sel column.
+func (v *ObjectsView) clearSelection() {
+	if len(v.selectedIDs) == 0 {
+		return
+	}
+	v.selectedIDs = make(map[string]struct{})
+	v.refreshSelectionView()
+}
+
+// refreshSelectionView reflects the current selection state into the
+// table: re-renders the Sel cell on every row, shows/hides the Sel
+// column, and updates the status suffix with the "N selected" hint.
+// Call after any selectedIDs mutation. The cursor and sort state are
+// preserved across the SetRows.
+func (v *ObjectsView) refreshSelectionView() {
+	rows := v.table.Rows()
+	for i := range rows {
+		if rows[i].ID == parentNavRowID {
+			continue
+		}
+		rows[i].Data[objectColIndexSel] = v.selMarkFor(rows[i].ID)
+	}
+	sortCol, sortAsc := v.table.SortState()
+	cursor := v.table.SelectedIndex()
+	v.table.SetRows(rows)
+	if sortCol >= 0 {
+		v.table.SortBy(sortCol, sortAsc)
+	}
+	v.table.SetCursor(cursor)
+	v.table.SetColumnHidden("Sel", len(v.selectedIDs) == 0)
+}
+
+// objectToRow converts a GCS object to a table row. selMark is the cell
+// content for the Sel column (e.g. "[✓]" or "[ ]"; empty when the column
+// is hidden).
+func objectToRow(obj gcp.StorageObject, selMark string) table.Row { //nolint:gocritic // Copying object is acceptable
 	var name, size, contentType, modified string
 
 	if obj.IsFolder {
@@ -352,10 +501,22 @@ func objectToRow(obj gcp.StorageObject) table.Row { //nolint:gocritic // Copying
 	}
 
 	return table.Row{
-		Data:        []string{name, size, contentType, modified},
+		Data:        []string{selMark, name, size, contentType, modified},
 		FilterValue: obj.DisplayName + " " + contentType,
 		ID:          obj.Name, // Full path name for lookup
 	}
+}
+
+// selMarkFor returns the Sel-column cell for an object in the current
+// selection state. Empty when the bulk-select UI is hidden.
+func (v *ObjectsView) selMarkFor(objName string) string {
+	if len(v.selectedIDs) == 0 {
+		return ""
+	}
+	if _, ok := v.selectedIDs[objName]; ok {
+		return "[✓]"
+	}
+	return "[ ]"
 }
 
 // folderUsageKey computes the ByTopPrefix key for a folder row, given the
@@ -442,6 +603,33 @@ type deleteCompleteMsg struct {
 	failedObject string
 }
 
+// Storage-class change messages (bulk).
+type storageClassStartMsg struct {
+	class string
+	files []gcp.StorageObject
+}
+
+type storageClassProgressUpdate struct {
+	doneCount    int
+	totalCount   int
+	currentFile  string
+	done         bool
+	err          error
+	failedObject string
+}
+
+type storageClassProgressMsg struct {
+	doneCount   int
+	totalCount  int
+	currentFile string
+}
+
+type storageClassCompleteMsg struct {
+	err          error
+	doneCount    int
+	failedObject string
+}
+
 // Update handles messages for the objects view
 //
 //nolint:gocognit // Bubble Tea Update pattern - complexity 108
@@ -464,7 +652,7 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 			rows = append(rows, parentNavRow())
 		}
 		for _, obj := range msg.objects {
-			rows = append(rows, objectToRow(obj))
+			rows = append(rows, objectToRow(obj, v.selMarkFor(obj.Name)))
 		}
 		v.table.SetRows(rows)
 		return nil
@@ -483,7 +671,7 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 		// Append to table (preserves cursor position)
 		newRows := make([]table.Row, len(msg.objects))
 		for i, obj := range msg.objects {
-			newRows[i] = objectToRow(obj)
+			newRows[i] = objectToRow(obj, v.selMarkFor(obj.Name))
 		}
 		v.table.AppendRows(newRows)
 		return nil
@@ -777,10 +965,72 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 		}
 		return nil
 
+	case storageClassStartMsg:
+		v.changingClass = true
+		v.changeFiles = msg.files
+		v.changeClass = msg.class
+		v.changeProgress.Start()
+		v.changeProgress.SetProgress(
+			fmt.Sprintf("Setting class %s", msg.class),
+			msg.files[0].DisplayName,
+			1,
+			len(msg.files),
+			0,
+			int64(len(msg.files)),
+		)
+		v.changeProgress.SetSize(v.width)
+		return v.startStorageClassChange()
+
+	case storageClassProgressMsg:
+		v.changeProgress.SetProgress(
+			fmt.Sprintf("Setting class %s", v.changeClass),
+			msg.currentFile,
+			msg.doneCount+1,
+			msg.totalCount,
+			int64(msg.doneCount),
+			int64(msg.totalCount),
+		)
+		return v.waitForStorageClassProgress()
+
+	case storageClassCompleteMsg:
+		v.changingClass = false
+		if v.changeChan != nil {
+			close(v.changeChan)
+			v.changeChan = nil
+		}
+		files := v.changeFiles
+		v.changeFiles = nil
+		class := v.changeClass
+		v.changeClass = ""
+		if msg.err != nil {
+			if msg.doneCount > 0 {
+				v.err = fmt.Errorf("set class on %d files, failed on %s: %w", msg.doneCount, msg.failedObject, msg.err)
+			} else {
+				v.err = msg.err
+			}
+			return nil
+		}
+		// Refresh list — storage class changes affect the visible Class column
+		// (in the details view) and the new generation invalidates any cached
+		// metadata.
+		_ = files
+		_ = class
+		v.beginNavigation()
+		return tea.Batch(v.spinner.Tick, v.loadObjects())
+
 	case actionmenu.ActionSelectedMsg:
-		// Handle action menu selection
+		// Handle action menu selection. The menu is closed up front;
+		// individual handlers may re-open a different menu (e.g. the
+		// storage-class picker) by setting v.actionMenu and v.menuOpen.
 		v.menuOpen = false
-		return v.executeMenuAction(msg.Key)
+		switch v.menuKind {
+		case menuKindBulk:
+			return v.executeBulkAction(msg.Key)
+		case menuKindStorageClass:
+			return v.executeStorageClassPick(msg.Key)
+		default:
+			return v.executeMenuAction(msg.Key)
+		}
 
 	case actionmenu.ActionMenuClosedMsg:
 		v.menuOpen = false
@@ -804,8 +1054,8 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 			return cmd
 		}
 
-		// Don't handle keys during loading, downloading, uploading, or deleting
-		if v.loading || v.downloading || v.uploading || v.deleting {
+		// Don't handle keys during loading or any in-flight bulk operation.
+		if v.loading || v.downloading || v.uploading || v.deleting || v.changingClass {
 			return nil
 		}
 
@@ -818,10 +1068,20 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 
 		switch {
 		case key.Matches(msg, v.keys.ActionMenu):
-			// Open action menu for selected item
+			// Bulk-actions menu when a selection is active; otherwise the
+			// per-row menu for whatever the cursor is on.
+			if sel := v.selectedObjects(); len(sel) > 0 {
+				v.menuKind = menuKindBulk
+				v.menuPendingObjects = sel
+				title := fmt.Sprintf("Bulk actions on %d items", len(sel))
+				v.actionMenu = actionmenu.New(title, buildBulkActions())
+				v.menuOpen = true
+				return nil
+			}
 			if row := v.table.SelectedRow(); row != nil {
 				obj := v.findObjectByName(row.ID)
 				if obj != nil {
+					v.menuKind = menuKindObject
 					v.actionMenu = actionmenu.New("Object Actions", v.buildObjectActions(*obj))
 					v.menuOpen = true
 				}
@@ -837,7 +1097,10 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 			return v.filePicker.Init()
 
 		case key.Matches(msg, v.keys.Delete):
-			// Delete selected file or folder
+			// Bulk delete when a selection is active; otherwise the cursor row.
+			if sel := v.selectedObjects(); len(sel) > 0 {
+				return v.prepareBulkDelete(sel)
+			}
 			if row := v.table.SelectedRow(); row != nil {
 				obj := v.findObjectByName(row.ID)
 				if obj != nil {
@@ -846,7 +1109,10 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 			}
 
 		case key.Matches(msg, v.keys.Download):
-			// Download selected file or folder
+			// Bulk download when a selection is active; otherwise the cursor row.
+			if sel := v.selectedObjects(); len(sel) > 0 {
+				return v.prepareBulkDownload(sel)
+			}
 			if row := v.table.SelectedRow(); row != nil {
 				obj := v.findObjectByName(row.ID)
 				if obj != nil {
@@ -901,6 +1167,14 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 		case key.Matches(msg, v.keys.Refresh):
 			v.beginNavigation()
 			return tea.Batch(v.spinner.Tick, v.loadObjects())
+
+		case key.Matches(msg, v.keys.ToggleSelect):
+			v.toggleSelection()
+			return nil
+
+		case key.Matches(msg, v.keys.ToggleSelectAll):
+			v.toggleSelectAll()
+			return nil
 		}
 
 	default:
@@ -924,6 +1198,23 @@ func (v *ObjectsView) findObjectByName(name string) *gcp.StorageObject {
 		}
 	}
 	return nil
+}
+
+// selectedObjects returns the StorageObject values for every entry in
+// selectedIDs, in the order they appear in v.objects (so file-listing order
+// is preserved). The ".." synthetic row is intentionally never in the
+// selection set.
+func (v *ObjectsView) selectedObjects() []gcp.StorageObject {
+	if len(v.selectedIDs) == 0 {
+		return nil
+	}
+	out := make([]gcp.StorageObject, 0, len(v.selectedIDs))
+	for i := range v.objects {
+		if _, on := v.selectedIDs[v.objects[i].Name]; on {
+			out = append(out, v.objects[i])
+		}
+	}
+	return out
 }
 
 // applyFolderUsageToTable walks the current table rows; for each folder row,
@@ -956,8 +1247,8 @@ func (v *ObjectsView) applyFolderUsageToTable() {
 		if !ok {
 			continue // no data for this folder
 		}
-		// Size cell is index 1 per objectColumns().
-		rows[i].Data[1] = gcp.FormatSize(stat.Bytes) + " ✓"
+		// Size cell is at objectColIndexSize per objectColumns().
+		rows[i].Data[objectColIndexSize] = gcp.FormatSize(stat.Bytes) + " ✓"
 	}
 	// Preserve the user's sort across SetRows (which clears it).
 	sortCol, sortAsc := v.table.SortState()
@@ -969,6 +1260,12 @@ func (v *ObjectsView) applyFolderUsageToTable() {
 
 // HandleBack handles ESC key - returns true if handled internally (went up a folder)
 func (v *ObjectsView) HandleBack() (handled bool, cmd tea.Cmd) {
+	// If a bulk selection is active, clear it first; users typically want to
+	// abort the selection, not navigate away. A second Esc then navigates.
+	if len(v.selectedIDs) > 0 {
+		v.clearSelection()
+		return true, nil
+	}
 	// If we're in a subfolder, go up
 	if len(v.prefixStack) > 0 {
 		v.currentPrefix = v.prefixStack[len(v.prefixStack)-1]
@@ -996,21 +1293,30 @@ func (v *ObjectsView) resetScrollState() {
 }
 
 // scrollInfo returns the infinite scroll state suffix for the status bar.
+// Prepends a "N selected" hint when a bulk selection is active so the count
+// is always visible alongside scroll state.
 func (v *ObjectsView) scrollInfo() string {
+	var base string
 	switch {
 	case v.loadMoreErr != nil:
-		return "(load error, press r to retry)"
+		base = "(load error, press r to retry)"
 	case v.loadingMore:
-		return "(loading more...)"
+		base = "(loading more...)"
 	case len(v.objects) >= maxLoadedObjects && v.nextPageToken != "":
-		return fmt.Sprintf("(showing first %d, use filter to narrow)", maxLoadedObjects)
+		base = fmt.Sprintf("(showing first %d, use filter to narrow)", maxLoadedObjects)
 	case v.allLoaded:
-		return "(all loaded)"
+		base = "(all loaded)"
 	case v.nextPageToken != "":
-		return "(scroll for more)"
-	default:
-		return ""
+		base = "(scroll for more)"
 	}
+	if n := len(v.selectedIDs); n > 0 {
+		hint := fmt.Sprintf("[%d selected]", n)
+		if base == "" {
+			return hint
+		}
+		return hint + " " + base
+	}
+	return base
 }
 
 // buildTitle builds the title showing current path
@@ -1057,11 +1363,17 @@ func (v *ObjectsView) View() string {
 
 	// Help text for actions. Right arrow is shown unconditionally (always
 	// useful for drilling into folders); left/.. are only relevant in a
-	// subfolder.
+	// subfolder. When a bulk selection is active, advertise the bulk gesture
+	// keys instead of the per-row hint.
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
-	helpText := "\n  enter: open • →: enter folder • C: folder size • d: download • u: upload • D: delete • .: menu • /: filter • r: refresh • esc: back"
-	if v.currentPrefix != "" {
-		helpText = "\n  enter: open (or .. to go up) • ←: up • →: enter folder • C: folder size • d: download • u: upload • D: delete • .: menu • /: filter • r: refresh • esc: back"
+	var helpText string
+	switch {
+	case len(v.selectedIDs) > 0:
+		helpText = fmt.Sprintf("\n  space: toggle • *: select all • d: download • D: delete • .: bulk menu • esc: clear (%d selected)", len(v.selectedIDs))
+	case v.currentPrefix != "":
+		helpText = "\n  enter: open (or .. to go up) • ←: up • →: enter folder • space: select • d: download • u: upload • D: delete • .: menu • /: filter • r: refresh • esc: back"
+	default:
+		helpText = "\n  enter: open • →: enter folder • space: select • d: download • u: upload • D: delete • .: menu • /: filter • r: refresh • esc: back"
 	}
 	help := helpStyle.Render(helpText)
 
@@ -1109,7 +1421,32 @@ func (v *ObjectsView) View() string {
 		content = v.overlayDeleteProgress(content)
 	}
 
+	// Overlay progress bar while changing storage class
+	if v.changingClass {
+		content = v.overlayStorageClassProgress(content)
+	}
+
 	return content
+}
+
+// overlayStorageClassProgress renders the storage-class change progress bar
+// centered over the content.
+func (v *ObjectsView) overlayStorageClassProgress(content string) string {
+	lines := strings.Split(content, "\n")
+	progressView := v.changeProgress.View()
+	progressLines := strings.Split(progressView, "\n")
+	startRow := (len(lines) - len(progressLines)) / 2
+	if startRow < 0 {
+		startRow = 0
+	}
+	for i, pLine := range progressLines {
+		row := startRow + i
+		if row >= len(lines) {
+			break
+		}
+		lines[row] = pLine
+	}
+	return strings.Join(lines, "\n")
 }
 
 // SetContext updates the view with shared program context.
@@ -1172,6 +1509,46 @@ func (v *ObjectsView) prepareDownload(obj gcp.StorageObject) tea.Cmd { //nolint:
 		}
 		// Single file download
 		return downloadStartMsg{files: []gcp.StorageObject{obj}}
+	}
+}
+
+// prepareBulkDownload initiates a multi-object download. Folder entries are
+// expanded to their recursive members; duplicates are deduped. The existing
+// startDownload progress flow then iterates the full list. An empty result
+// (only-empty folders selected) reports a friendly error.
+func (v *ObjectsView) prepareBulkDownload(objs []gcp.StorageObject) tea.Cmd {
+	bucket := v.bucketName
+	client := v.storageClient
+	captured := append([]gcp.StorageObject(nil), objs...)
+	return func() tea.Msg {
+		ctx := gocontext.Background()
+		seen := make(map[string]struct{}, len(captured))
+		var combined []gcp.StorageObject
+		for _, o := range captured {
+			if !o.IsFolder {
+				if _, dup := seen[o.Name]; dup {
+					continue
+				}
+				seen[o.Name] = struct{}{}
+				combined = append(combined, o)
+				continue
+			}
+			members, err := client.ListAllObjects(ctx, bucket, o.Name)
+			if err != nil {
+				return downloadCompleteMsg{err: fmt.Errorf("list %s: %w", o.Name, err)}
+			}
+			for _, m := range members {
+				if _, dup := seen[m.Name]; dup {
+					continue
+				}
+				seen[m.Name] = struct{}{}
+				combined = append(combined, m)
+			}
+		}
+		if len(combined) == 0 {
+			return downloadCompleteMsg{err: uierrors.ErrFolderEmpty}
+		}
+		return downloadStartMsg{files: combined}
 	}
 }
 
@@ -1599,16 +1976,56 @@ func (v *ObjectsView) resolveDeleteFiles(folder gcp.StorageObject) tea.Cmd { //n
 	}
 }
 
-// createDeleteConfirmDialog creates the confirmation dialog for deletion
+// prepareBulkDelete kicks off resolution + confirmation for a multi-object
+// delete. Files in the input are kept as-is; folders are resolved to their
+// recursive contents via ListAllObjects. Returns a single
+// deleteFilesResolvedMsg with the combined list, so the existing delete
+// flow (confirm dialog → progress overlay → completion) handles the rest.
+func (v *ObjectsView) prepareBulkDelete(objs []gcp.StorageObject) tea.Cmd {
+	bucket := v.bucketName
+	client := v.storageClient
+	captured := append([]gcp.StorageObject(nil), objs...)
+	return func() tea.Msg {
+		ctx := gocontext.Background()
+		seen := make(map[string]struct{}, len(captured))
+		var combined []gcp.StorageObject
+		for _, o := range captured {
+			if !o.IsFolder {
+				if _, dup := seen[o.Name]; dup {
+					continue
+				}
+				seen[o.Name] = struct{}{}
+				combined = append(combined, o)
+				continue
+			}
+			members, err := client.ListAllObjects(ctx, bucket, o.Name)
+			if err != nil {
+				return deleteFilesResolvedMsg{err: fmt.Errorf("list %s: %w", o.Name, err)}
+			}
+			for _, m := range members {
+				if _, dup := seen[m.Name]; dup {
+					continue
+				}
+				seen[m.Name] = struct{}{}
+				combined = append(combined, m)
+			}
+		}
+		return deleteFilesResolvedMsg{files: combined}
+	}
+}
+
+// createDeleteConfirmDialog creates the confirmation dialog for deletion.
+// Title/message adjust for the single-file vs multi-object case.
 func (v *ObjectsView) createDeleteConfirmDialog(files []gcp.StorageObject) *confirm.ConfirmDialog {
 	var title, message string
 	var details []string
 
-	if len(files) == 1 {
+	switch {
+	case len(files) == 1:
 		title = "Delete File"
 		message = fmt.Sprintf("Are you sure you want to delete '%s'?", files[0].DisplayName)
-	} else {
-		title = "Delete Folder"
+	default:
+		title = "Delete Files"
 		message = fmt.Sprintf("Are you sure you want to delete %d files?", len(files))
 		// Show first few files as details
 		maxDetails := 5
@@ -1852,6 +2269,188 @@ func isFilePreviewable(contentType string, size int64, name string) bool {
 	}
 
 	return false
+}
+
+// buildBulkActions returns the action items shown when the user opens the
+// action menu while a bulk selection is active.
+func buildBulkActions() []actionmenu.Action {
+	return []actionmenu.Action{
+		{Key: 'd', Label: "Download", Enabled: true},
+		{Key: 'D', Label: "Delete", Enabled: true, Dangerous: true},
+		{Key: 's', Label: "Change storage class", Enabled: true},
+	}
+}
+
+// buildStorageClassActions returns the action items shown when the user
+// is picking a destination storage class for a bulk class-change.
+func buildStorageClassActions() []actionmenu.Action {
+	return []actionmenu.Action{
+		{Key: '1', Label: "STANDARD", Enabled: true},
+		{Key: '2', Label: "NEARLINE", Enabled: true},
+		{Key: '3', Label: "COLDLINE", Enabled: true},
+		{Key: '4', Label: "ARCHIVE", Enabled: true},
+	}
+}
+
+// executeBulkAction handles a selection from the bulk-actions menu.
+func (v *ObjectsView) executeBulkAction(actionKey rune) tea.Cmd {
+	objs := v.menuPendingObjects
+	if len(objs) == 0 {
+		v.menuKind = menuKindObject
+		return nil
+	}
+	switch actionKey {
+	case 'd':
+		v.menuKind = menuKindObject
+		return v.prepareBulkDownload(objs)
+	case 'D':
+		v.menuKind = menuKindObject
+		return v.prepareBulkDelete(objs)
+	case 's':
+		// Re-open the action menu as a class picker. menuPendingObjects
+		// stays set so the picker's selection knows what to operate on.
+		v.menuKind = menuKindStorageClass
+		v.actionMenu = actionmenu.New("Set storage class", buildStorageClassActions())
+		v.menuOpen = true
+		return nil
+	}
+	v.menuKind = menuKindObject
+	return nil
+}
+
+// executeStorageClassPick handles a selection from the class picker.
+func (v *ObjectsView) executeStorageClassPick(actionKey rune) tea.Cmd {
+	classByKey := map[rune]string{
+		'1': "STANDARD",
+		'2': "NEARLINE",
+		'3': "COLDLINE",
+		'4': "ARCHIVE",
+	}
+	class, ok := classByKey[actionKey]
+	if !ok {
+		v.menuKind = menuKindObject
+		return nil
+	}
+	objs := v.menuPendingObjects
+	v.menuPendingObjects = nil
+	v.menuKind = menuKindObject
+	if len(objs) == 0 {
+		return nil
+	}
+	return v.prepareBulkStorageClassChange(objs, class)
+}
+
+// prepareBulkStorageClassChange resolves any folder entries to their
+// recursive members (folders themselves don't have a storage class) and
+// dispatches a storageClassStartMsg with the file-only list.
+func (v *ObjectsView) prepareBulkStorageClassChange(objs []gcp.StorageObject, class string) tea.Cmd {
+	bucket := v.bucketName
+	client := v.storageClient
+	captured := append([]gcp.StorageObject(nil), objs...)
+	return func() tea.Msg {
+		ctx := gocontext.Background()
+		seen := make(map[string]struct{}, len(captured))
+		var files []gcp.StorageObject
+		for _, o := range captured {
+			if !o.IsFolder {
+				if _, dup := seen[o.Name]; dup {
+					continue
+				}
+				seen[o.Name] = struct{}{}
+				files = append(files, o)
+				continue
+			}
+			members, err := client.ListAllObjects(ctx, bucket, o.Name)
+			if err != nil {
+				return storageClassCompleteMsg{err: fmt.Errorf("list %s: %w", o.Name, err)}
+			}
+			for _, m := range members {
+				if _, dup := seen[m.Name]; dup {
+					continue
+				}
+				seen[m.Name] = struct{}{}
+				files = append(files, m)
+			}
+		}
+		if len(files) == 0 {
+			return storageClassCompleteMsg{err: uierrors.ErrFolderEmpty}
+		}
+		return storageClassStartMsg{class: class, files: files}
+	}
+}
+
+// startStorageClassChange spawns a goroutine that iterates files and
+// applies the new storage class to each, sending progress on changeChan.
+func (v *ObjectsView) startStorageClassChange() tea.Cmd {
+	files := v.changeFiles
+	class := v.changeClass
+	if len(files) == 0 || class == "" {
+		return func() tea.Msg { return storageClassCompleteMsg{} }
+	}
+	v.changeChan = make(chan storageClassProgressUpdate, 10)
+	go func() {
+		for i, f := range files {
+			select {
+			case v.changeChan <- storageClassProgressUpdate{
+				doneCount:   i,
+				totalCount:  len(files),
+				currentFile: f.DisplayName,
+			}:
+			default:
+			}
+			if err := v.storageClient.UpdateObjectStorageClass(
+				gocontext.Background(),
+				v.bucketName,
+				f.Name,
+				class,
+			); err != nil {
+				select {
+				case v.changeChan <- storageClassProgressUpdate{
+					done:         true,
+					err:          err,
+					doneCount:    i,
+					failedObject: f.DisplayName,
+				}:
+				default:
+				}
+				return
+			}
+		}
+		select {
+		case v.changeChan <- storageClassProgressUpdate{
+			done:      true,
+			doneCount: len(files),
+		}:
+		default:
+		}
+	}()
+	return v.waitForStorageClassProgress()
+}
+
+// waitForStorageClassProgress blocks on the next update from changeChan and
+// translates it into a Bubble Tea message.
+func (v *ObjectsView) waitForStorageClassProgress() tea.Cmd {
+	return func() tea.Msg {
+		if v.changeChan == nil {
+			return storageClassCompleteMsg{}
+		}
+		update, ok := <-v.changeChan
+		if !ok {
+			return storageClassCompleteMsg{}
+		}
+		if update.done {
+			return storageClassCompleteMsg{
+				err:          update.err,
+				doneCount:    update.doneCount,
+				failedObject: update.failedObject,
+			}
+		}
+		return storageClassProgressMsg{
+			doneCount:   update.doneCount,
+			totalCount:  update.totalCount,
+			currentFile: update.currentFile,
+		}
+	}
 }
 
 // executeMenuAction performs the action selected from the menu

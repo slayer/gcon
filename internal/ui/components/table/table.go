@@ -430,7 +430,7 @@ func (m *Model) applyFilter() {
 	// Convert to table.Row format
 	tableRows := make([]table.Row, len(m.rows))
 	for i, row := range m.rows {
-		tableRows[i] = row.Data
+		tableRows[i] = m.visibleCells(row.Data)
 	}
 	m.table.SetRows(tableRows)
 }
@@ -451,7 +451,7 @@ func (m *Model) SortBy(colIndex int, ascending bool) {
 	// Rebuild table rows
 	tableRows := make([]table.Row, len(m.rows))
 	for i, row := range m.rows {
-		tableRows[i] = row.Data
+		tableRows[i] = m.visibleCells(row.Data)
 	}
 	m.table.SetRows(tableRows)
 
@@ -712,6 +712,21 @@ func (m *Model) SelectedIndex() int {
 	return m.table.Cursor()
 }
 
+// SetCursor moves the cursor to row i in the currently visible (filtered)
+// row list. Out-of-range indices are clamped to a valid value.
+func (m *Model) SetCursor(i int) {
+	if len(m.rows) == 0 {
+		return
+	}
+	if i < 0 {
+		i = 0
+	}
+	if i >= len(m.rows) {
+		i = len(m.rows) - 1
+	}
+	m.table.SetCursor(i)
+}
+
 // SetSize updates the table dimensions
 func (m *Model) SetSize(width, height int) {
 	m.width = width
@@ -871,15 +886,44 @@ func (m *Model) adjustColumnsWithDefs(availableWidth int) {
 }
 
 // SetColumnHidden changes the visibility of a column by title.
-// Triggers a recalculation of column widths.
+// Triggers a recalculation of column widths and re-emits the row data so
+// the underlying bubbles table sees row cells matching its column count.
 func (m *Model) SetColumnHidden(title string, hidden bool) {
 	for i := range m.colDefs {
 		if m.colDefs[i].Title == title {
+			if m.colDefs[i].Hidden == hidden {
+				return
+			}
 			m.colDefs[i].Hidden = hidden
 			m.recalcColumns()
+			// Push the rows through visibleCells so cell count matches the
+			// new visible column count. Without this, bubbles' renderer
+			// indexes past the end of m.cols and panics.
+			tableRows := make([]table.Row, len(m.rows))
+			for j, row := range m.rows {
+				tableRows[j] = m.visibleCells(row.Data)
+			}
+			m.table.SetRows(tableRows)
 			break
 		}
 	}
+}
+
+// visibleCells returns a copy of data with cells for hidden columns dropped.
+// When colDefs is empty (no per-column metadata yet) the data is returned
+// as-is so legacy callers that don't use column-hiding still work.
+func (m *Model) visibleCells(data []string) []string {
+	if len(m.colDefs) == 0 {
+		return data
+	}
+	out := make([]string, 0, len(data))
+	for i := 0; i < len(data) && i < len(m.colDefs); i++ {
+		if m.colDefs[i].Hidden {
+			continue
+		}
+		out = append(out, data[i])
+	}
+	return out
 }
 
 // GetVisibleColumnCount returns the number of visible columns

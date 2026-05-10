@@ -223,14 +223,21 @@ description: Keyboard shortcuts reference for all views
 | `Enter` | Open folder / View file details / Go up (when `..` is selected) |
 | `→` | Enter selected folder (no-op on files and on `..`) |
 | `←` | Go up one folder (no-op at bucket root) |
-| `d` | Download file/folder |
+| `Space` | Toggle bulk-select on the cursor row (not on `..`) |
+| `*` | Select-all on currently visible (post-filter) rows; toggles off when all are already selected |
+| `d` | Download cursor row (or **selected items** when a selection is active) |
 | `u` | Upload files |
-| `D` | Delete file/folder (with confirmation) |
+| `D` | Delete cursor row (or **selected items** when a selection is active) |
 | `C` | Calculate current folder size (deep scan, inline stats) |
-| `.` | Open action menu |
+| `.` | Open action menu (per-row, or bulk-actions when a selection is active) |
 | `/` | Filter objects |
 | `r` | Refresh list |
-| `Esc` | Go back (pops navigation history) |
+| `Esc` | Clear selection if non-empty; otherwise go back |
+
+When a bulk selection is non-empty, `D` and `d` operate on every selected
+item — folders included (recursively expanded). `.` opens a bulk menu
+adding **Change storage class**, which spawns a class picker
+(STANDARD/NEARLINE/COLDLINE/ARCHIVE) and rewrites each object server-side.
 
 In a subfolder, a synthetic `..` row appears at the top of the table so
 users can navigate to the parent folder by pressing Enter on it. Left
