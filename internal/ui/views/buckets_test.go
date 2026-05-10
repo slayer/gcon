@@ -5,8 +5,11 @@ import (
 	"time"
 
 	"github.com/slayer/gcon/internal/gcp"
+	"github.com/slayer/gcon/internal/gcp/usage"
+	"github.com/slayer/gcon/internal/ui/components/table"
 	"github.com/slayer/gcon/internal/ui/context"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBucketToRow(t *testing.T) {
@@ -78,6 +81,38 @@ func TestBucketsViewUpdate(t *testing.T) {
 		assert.False(t, view.loading)
 		assert.Equal(t, testErr, view.err)
 	})
+}
+
+func TestBucketsView_UsageReadyUpdatesRow(t *testing.T) {
+	v := NewBucketsView("p")
+	// Skip the normal load — synthesize the loaded state directly.
+	v.loading = false
+	v.buckets = []gcp.Bucket{
+		{Name: "b1", Location: "us", StorageClass: "STANDARD", Created: time.Now()},
+		{Name: "b2", Location: "eu", StorageClass: "NEARLINE", Created: time.Now()},
+	}
+	rows := []table.Row{bucketToRow(v.buckets[0]), bucketToRow(v.buckets[1])}
+	v.table.SetRows(rows)
+
+	// Inject a ReadyMsg for b1.
+	v.Update(usage.ReadyMsg{
+		JobID: "monitoring:b1",
+		Usage: usage.BucketUsage{
+			Bucket:      "b1",
+			TotalBytes:  1_500_000_000,
+			ObjectCount: 4321,
+			Source:      usage.SourceMonitoring,
+			ScannedAt:   time.Now().Add(-2 * time.Hour),
+		},
+	})
+
+	// Locate the b1 row and check Size and Objects cells.
+	got := v.table.Rows()
+	require.Len(t, got, 2)
+	row := got[0]
+	assert.Contains(t, row.Data[3], "1.4 GB", "Size cell should be human formatted (1.5e9 ~ 1.4 GiB)")
+	// Object count should be present (formatting may vary - thousands grouped).
+	assert.Contains(t, row.Data[4], "4,321")
 }
 
 func TestBucketsViewSetContext(t *testing.T) {

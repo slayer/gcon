@@ -3,6 +3,7 @@ package views
 import (
 	gocontext "context"
 	"fmt"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -199,6 +200,21 @@ func (v *BucketsView) Update(msg tea.Msg) tea.Cmd {
 		}
 		return nil
 
+	case usage.ReadyMsg:
+		v.applyUsage(msg.Usage)
+		return nil
+
+	case usage.ProgressMsg:
+		// Show in-progress totals immediately so the user gets feedback.
+		v.applyUsage(usage.BucketUsage{
+			Bucket:      msg.Bucket,
+			TotalBytes:  msg.BytesScanned,
+			ObjectCount: msg.ObjectsScanned,
+			Source:      usage.SourceDeepScan,
+			ScannedAt:   time.Now(),
+		})
+		return nil
+
 	case spinner.TickMsg:
 		if v.loading {
 			var cmd tea.Cmd
@@ -320,4 +336,45 @@ func (v *BucketsView) Close() error {
 // Used to prevent global hotkeys (like 'q' for quit) from triggering while typing.
 func (v *BucketsView) HasTextInputFocused() bool {
 	return v.table.HasTextInputFocused()
+}
+
+// applyUsage stores the usage record and updates the corresponding table row's
+// Size and Objects cells in place. Deep-scan results show a "✓" suffix to
+// distinguish them from monitoring estimates.
+func (v *BucketsView) applyUsage(u usage.BucketUsage) {
+	v.usageByBucket[u.Bucket] = u
+	rows := v.table.Rows()
+	for i := range rows {
+		if rows[i].ID != u.Bucket {
+			continue
+		}
+		sizeStr := gcp.FormatSize(u.TotalBytes)
+		if u.Source == usage.SourceDeepScan {
+			sizeStr += " ✓"
+		}
+		countStr := formatObjectCount(u.ObjectCount)
+		// Replace the cells. Data length is fixed by bucketColumns().
+		rows[i].Data[3] = sizeStr
+		rows[i].Data[4] = countStr
+	}
+	v.table.SetRows(rows)
+}
+
+// formatObjectCount renders an int64 with thousands separators. For now we use
+// a simple grouping; if the table column is too narrow, we'll add SI suffixes
+// later (1.2k, 4.5M) — postponed to keep this PR small.
+func formatObjectCount(n int64) string {
+	if n < 1000 {
+		return fmt.Sprintf("%d", n)
+	}
+	// Insert commas every three digits from the right.
+	s := fmt.Sprintf("%d", n)
+	out := make([]byte, 0, len(s)+len(s)/3)
+	for i, c := range s {
+		if i > 0 && (len(s)-i)%3 == 0 {
+			out = append(out, ',')
+		}
+		out = append(out, byte(c))
+	}
+	return string(out)
 }

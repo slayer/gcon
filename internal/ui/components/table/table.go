@@ -311,6 +311,14 @@ func (m *Model) SetRows(rows []Row) {
 	m.recalcColumns()
 }
 
+// Rows returns a copy of the current (unfiltered) rows. Callers may mutate the
+// returned slice safely; the model only updates when SetRows is called.
+func (m *Model) Rows() []Row {
+	out := make([]Row, len(m.allRows))
+	copy(out, m.allRows)
+	return out
+}
+
 // filterSpec represents a parsed filter with field-specific and free-text parts.
 type filterSpec struct {
 	fieldFilters map[int]string // visible column index -> match substring (lowercase)
