@@ -855,3 +855,53 @@ func TestObjectsView_FolderUsageProgressUpdates(t *testing.T) {
 	assert.Equal(t, int64(5), v.folderUsage.ObjectCount)
 	assert.Equal(t, usage.SourceDeepScan, v.folderUsage.Source)
 }
+
+func TestObjectsView_FolderSizesPopulatedAfterDeepScan(t *testing.T) {
+	v := NewObjectsView("b1", nil)
+	// Manually inject objects so the table has folder + file rows.
+	v.objects = []gcp.StorageObject{
+		{Name: "2024/", DisplayName: "2024", IsFolder: true},
+		{Name: "2025/", DisplayName: "2025", IsFolder: true},
+		{Name: "readme.txt", DisplayName: "readme.txt", Size: 100, ContentType: "text/plain"},
+	}
+	rows := []table.Row{
+		objectToRow(v.objects[0]),
+		objectToRow(v.objects[1]),
+		objectToRow(v.objects[2]),
+	}
+	v.table.SetRows(rows)
+	// Scan results: 2024/ has ~745 GB, 2025/ has ~186 GB (1024-based units).
+	v.Update(usage.ReadyMsg{
+		Usage: usage.BucketUsage{
+			Bucket: "b1",
+			Prefix: "",
+			ByTopPrefix: map[string]usage.Stat{
+				"2024/":  {Bytes: 800_000_000_000, Count: 100},
+				"2025/":  {Bytes: 200_000_000_000, Count: 50},
+				"(root)": {Bytes: 100, Count: 1},
+			},
+			Source: usage.SourceDeepScan,
+		},
+	})
+	got := v.table.Rows()
+	require.Len(t, got, 3)
+	assert.Contains(t, got[0].Data[1], "745.1 GB", "2024/ folder Size cell should show recursive size")
+	assert.Contains(t, got[0].Data[1], "✓", "scanned cell should have ✓ marker")
+	assert.Contains(t, got[1].Data[1], "186.3 GB", "2025/ folder Size cell should show recursive size")
+	assert.Equal(t, "100 B", got[2].Data[1], "file Size cell should NOT change")
+}
+
+func TestFolderUsageKey(t *testing.T) {
+	tests := []struct{ name, rowID, scanPrefix, want string }{
+		{"top-level folder root scan", "2024/", "", "2024/"},
+		{"sub-folder scoped scan", "logs/2024/", "logs/", "2024/"},
+		{"sub-folder scan-prefix without slash", "logs/2024/", "logs", "2024/"},
+		{"file at root", "readme.txt", "", "readme.txt"},
+		{"file in folder", "logs/file.log", "logs/", "file.log"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, folderUsageKey(tt.rowID, tt.scanPrefix))
+		})
+	}
+}

@@ -280,6 +280,29 @@ func objectToRow(obj gcp.StorageObject) table.Row { //nolint:gocritic // Copying
 	}
 }
 
+// folderUsageKey computes the ByTopPrefix key for a folder row, given the
+// scan prefix (= currentPrefix at the time of scan). Mirrors the logic in
+// usage.tally.topPrefixSegment so cell lookups match scan results for folder
+// rows. Files are not looked up via this helper (they map to "(root)" or
+// other extension-based buckets in the usage breakdown).
+func folderUsageKey(rowID, scanPrefix string) string {
+	rel := rowID
+	if scanPrefix != "" {
+		normalized := scanPrefix
+		if !strings.HasSuffix(normalized, "/") {
+			normalized += "/"
+		}
+		rel = strings.TrimPrefix(rowID, normalized)
+	}
+	if rel == "" {
+		return "(root)"
+	}
+	if i := strings.Index(rel, "/"); i >= 0 {
+		return rel[:i+1]
+	}
+	return rel
+}
+
 // Download-related messages
 type downloadStartMsg struct {
 	files []gcp.StorageObject // Files to download (single file or folder contents)
@@ -429,6 +452,10 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 		}
 		u := msg.Usage
 		v.folderUsage = &u
+		// Populate per-sub-folder Size cells from the per-prefix breakdown.
+		// Only the final ReadyMsg has ByTopPrefix populated; ProgressMsg
+		// updates the inline header but leaves cells alone.
+		v.applyFolderUsageToTable()
 		return nil
 
 	case usage.ProgressMsg:
@@ -806,6 +833,52 @@ func (v *ObjectsView) findObjectByName(name string) *gcp.StorageObject {
 		}
 	}
 	return nil
+}
+
+// lookupObjectByName returns a pointer into v.objects whose Name matches; nil
+// if not found. Unlike findObjectByName this returns a stable pointer into the
+// slice (rather than a loop-variable copy), but for our read-only callers the
+// distinction is immaterial.
+func (v *ObjectsView) lookupObjectByName(name string) *gcp.StorageObject {
+	for i := range v.objects {
+		if v.objects[i].Name == name {
+			return &v.objects[i]
+		}
+	}
+	return nil
+}
+
+// applyFolderUsageToTable walks the current table rows; for each folder row,
+// looks up its recursive size in v.folderUsage.ByTopPrefix and updates the
+// Size cell in place. Files are left untouched. Called after a deep-scan
+// ReadyMsg arrives. Sort state is preserved by snapshotting before SetRows.
+func (v *ObjectsView) applyFolderUsageToTable() {
+	if v.folderUsage == nil || v.folderUsage.Source != usage.SourceDeepScan {
+		return
+	}
+	if len(v.folderUsage.ByTopPrefix) == 0 {
+		return
+	}
+	rows := v.table.Rows()
+	for i := range rows {
+		obj := v.lookupObjectByName(rows[i].ID)
+		if obj == nil || !obj.IsFolder {
+			continue
+		}
+		key := folderUsageKey(rows[i].ID, v.folderUsage.Prefix)
+		stat, ok := v.folderUsage.ByTopPrefix[key]
+		if !ok {
+			continue // no data for this folder
+		}
+		// Size cell is index 1 per objectColumns().
+		rows[i].Data[1] = gcp.FormatSize(stat.Bytes) + " ✓"
+	}
+	// Preserve the user's sort across SetRows (which clears it).
+	sortCol, sortAsc := v.table.SortState()
+	v.table.SetRows(rows)
+	if sortCol >= 0 {
+		v.table.SortBy(sortCol, sortAsc)
+	}
 }
 
 // HandleBack handles ESC key - returns true if handled internally (went up a folder)
