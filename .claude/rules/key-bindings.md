@@ -220,7 +220,8 @@ description: Keyboard shortcuts reference for all views
 
 | Key | Action |
 |-----|--------|
-| `Enter` | Open folder / View file details |
+| `Enter` | Open folder / View file details / Go up (when `..` is selected) |
+| `←` | Go up one folder (when in a subfolder) |
 | `d` | Download file/folder |
 | `u` | Upload files |
 | `D` | Delete file/folder (with confirmation) |
@@ -228,7 +229,11 @@ description: Keyboard shortcuts reference for all views
 | `.` | Open action menu |
 | `/` | Filter objects |
 | `r` | Refresh list |
-| `Esc` | Go back |
+| `Esc` | Go back (pops navigation history) |
+
+In a subfolder, a synthetic `..` row appears at the top of the table so
+users can navigate to the parent folder by pressing Enter on it. Left
+arrow does the same without needing to select the row first.
 
 ## Networks View
 

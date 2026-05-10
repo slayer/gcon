@@ -120,6 +120,81 @@ func TestObjectsViewUpdate(t *testing.T) {
 	})
 }
 
+func TestParentPrefix(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"", ""},
+		{"folder1/", ""},
+		{"folder1/folder2/", "folder1/"},
+		{"a/b/c/", "a/b/"},
+		{"folder1", ""}, // missing trailing slash still treated as folder
+	}
+	for _, tc := range cases {
+		t.Run(tc.in, func(t *testing.T) {
+			assert.Equal(t, tc.want, parentPrefix(tc.in))
+		})
+	}
+}
+
+func TestObjectsView_ParentNavRowInjected(t *testing.T) {
+	t.Run("not at root: prepends .. row", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.currentPrefix = "folder1/"
+		view.Update(objectsLoadedMsg{
+			objects: []gcp.StorageObject{
+				{Name: "folder1/file.txt", DisplayName: "file.txt", IsFolder: false},
+			},
+			generation: 0,
+		})
+
+		rows := view.table.Rows()
+		if assert.GreaterOrEqual(t, len(rows), 1) {
+			assert.Equal(t, parentNavRowID, rows[0].ID, "first row should be the .. parent nav")
+		}
+	})
+
+	t.Run("at root: no .. row", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.currentPrefix = ""
+		view.Update(objectsLoadedMsg{
+			objects: []gcp.StorageObject{
+				{Name: "file.txt", DisplayName: "file.txt", IsFolder: false},
+			},
+			generation: 0,
+		})
+
+		rows := view.table.Rows()
+		if assert.Len(t, rows, 1) {
+			assert.NotEqual(t, parentNavRowID, rows[0].ID)
+		}
+	})
+}
+
+func TestObjectsView_NavigateUp(t *testing.T) {
+	t.Run("moves to parent and pushes onto stack", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.currentPrefix = "folder1/folder2/"
+		view.prefixStack = []string{""}
+
+		_ = view.navigateUp()
+
+		assert.Equal(t, "folder1/", view.currentPrefix)
+		assert.Equal(t, []string{"", "folder1/folder2/"}, view.prefixStack)
+		assert.True(t, view.loading)
+	})
+
+	t.Run("no-op at root", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.currentPrefix = ""
+		view.prefixStack = nil
+
+		cmd := view.navigateUp()
+
+		assert.Nil(t, cmd)
+		assert.Equal(t, "", view.currentPrefix)
+		assert.Empty(t, view.prefixStack)
+	})
+}
+
 func TestObjectsViewHandleBack(t *testing.T) {
 	t.Run("returns to parent folder when in subfolder", func(t *testing.T) {
 		view := NewObjectsView("test-bucket", nil)
