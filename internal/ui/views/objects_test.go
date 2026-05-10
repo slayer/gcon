@@ -186,6 +186,20 @@ func TestObjectsView_ParentNavRowInjected(t *testing.T) {
 	})
 }
 
+func TestObjectsView_NavigateInto(t *testing.T) {
+	t.Run("enters a folder and pushes onto stack", func(t *testing.T) {
+		view := NewObjectsView("test-bucket", nil)
+		view.currentPrefix = "folder1/"
+		view.prefixStack = []string{""}
+
+		_ = view.navigateInto("folder1/folder2/")
+
+		assert.Equal(t, "folder1/folder2/", view.currentPrefix)
+		assert.Equal(t, []string{"", "folder1/"}, view.prefixStack)
+		assert.True(t, view.loading)
+	})
+}
+
 func TestObjectsView_NavigateUp(t *testing.T) {
 	t.Run("moves to parent and pushes onto stack", func(t *testing.T) {
 		view := NewObjectsView("test-bucket", nil)

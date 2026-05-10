@@ -221,6 +221,7 @@ description: Keyboard shortcuts reference for all views
 | Key | Action |
 |-----|--------|
 | `Enter` | Open folder / View file details / Go up (when `..` is selected) |
+| `→` | Enter selected folder (no-op on files and `..`) |
 | `←` | Go up one folder (when in a subfolder) |
 | `d` | Download file/folder |
 | `u` | Upload files |

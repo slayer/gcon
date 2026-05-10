@@ -34,14 +34,15 @@ const maxLoadedObjects = 10000
 
 // objectKeyMap defines object-specific key bindings
 type objectKeyMap struct {
-	Enter      key.Binding
-	NavigateUp key.Binding
-	Refresh    key.Binding
-	Download   key.Binding
-	Upload     key.Binding
-	Delete     key.Binding
-	ActionMenu key.Binding
-	DeepScan   key.Binding
+	Enter        key.Binding
+	NavigateUp   key.Binding
+	NavigateInto key.Binding
+	Refresh      key.Binding
+	Download     key.Binding
+	Upload       key.Binding
+	Delete       key.Binding
+	ActionMenu   key.Binding
+	DeepScan     key.Binding
 }
 
 // parentNavRowID is the sentinel row ID used for the synthetic ".." row that
@@ -60,6 +61,10 @@ func defaultObjectKeyMap() objectKeyMap {
 		NavigateUp: key.NewBinding(
 			key.WithKeys("left"),
 			key.WithHelp("←", "up one folder"),
+		),
+		NavigateInto: key.NewBinding(
+			key.WithKeys("right"),
+			key.WithHelp("→", "enter folder"),
 		),
 		Refresh: key.NewBinding(
 			key.WithKeys("r"),
@@ -306,6 +311,17 @@ func (v *ObjectsView) navigateUp() tea.Cmd {
 	return tea.Batch(v.spinner.Tick, v.loadObjects())
 }
 
+// navigateInto enters the folder identified by its full GCS prefix
+// (e.g. "folder1/folder2/"), pushing the current prefix onto the back-stack
+// so Esc returns to the previous folder.
+func (v *ObjectsView) navigateInto(folderPrefix string) tea.Cmd {
+	v.prefixStack = append(v.prefixStack, v.currentPrefix)
+	v.currentPrefix = folderPrefix
+	v.resetScrollState()
+	v.loading = true
+	return tea.Batch(v.spinner.Tick, v.loadObjects())
+}
+
 // objectToRow converts a GCS object to a table row
 func objectToRow(obj gcp.StorageObject) table.Row { //nolint:gocritic // Copying object is acceptable
 	var name, size, contentType, modified string
@@ -491,12 +507,7 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 		}
 		obj := v.findObjectByName(msg.RowID)
 		if obj != nil && obj.IsFolder {
-			// Push current prefix to stack and navigate into folder
-			v.prefixStack = append(v.prefixStack, v.currentPrefix)
-			v.currentPrefix = obj.Name
-			v.resetScrollState()
-			v.loading = true
-			return tea.Batch(v.spinner.Tick, v.loadObjects())
+			return v.navigateInto(obj.Name)
 		}
 		return nil
 
@@ -838,6 +849,18 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 		case key.Matches(msg, v.keys.NavigateUp):
 			return v.navigateUp()
 
+		case key.Matches(msg, v.keys.NavigateInto):
+			// Right arrow: enter the selected folder. No-op on files and on
+			// the ".." row — Right is a "drill-down" gesture, not the
+			// generic open-or-up that Enter performs.
+			if row := v.table.SelectedRow(); row != nil && row.ID != parentNavRowID {
+				obj := v.findObjectByName(row.ID)
+				if obj != nil && obj.IsFolder {
+					return v.navigateInto(obj.Name)
+				}
+			}
+			return nil
+
 		case key.Matches(msg, v.keys.Enter):
 			// Navigate into folder, up to parent (".." row), or view file
 			// details on Enter.
@@ -848,12 +871,7 @@ func (v *ObjectsView) Update(msg tea.Msg) tea.Cmd {
 				obj := v.findObjectByName(row.ID)
 				if obj != nil {
 					if obj.IsFolder {
-						// Navigate into folder
-						v.prefixStack = append(v.prefixStack, v.currentPrefix)
-						v.currentPrefix = obj.Name
-						v.resetScrollState()
-						v.loading = true
-						return tea.Batch(v.spinner.Tick, v.loadObjects())
+						return v.navigateInto(obj.Name)
 					}
 					// For files, emit selection message to open details view
 					selectedObj := *obj
@@ -1031,11 +1049,13 @@ func (v *ObjectsView) View() string {
 	v.table.SetTitle(v.buildTitle())
 	v.table.SetStatusSuffix(v.scrollInfo())
 
-	// Help text for actions. Only mention ←: up when actually in a subfolder.
+	// Help text for actions. Right arrow is shown unconditionally (always
+	// useful for drilling into folders); left/.. are only relevant in a
+	// subfolder.
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
-	helpText := "\n  enter: open • C: folder size • d: download • u: upload • D: delete • .: menu • /: filter • r: refresh • esc: back"
+	helpText := "\n  enter: open • →: enter folder • C: folder size • d: download • u: upload • D: delete • .: menu • /: filter • r: refresh • esc: back"
 	if v.currentPrefix != "" {
-		helpText = "\n  enter: open (or .. to go up) • ←: up • C: folder size • d: download • u: upload • D: delete • .: menu • /: filter • r: refresh • esc: back"
+		helpText = "\n  enter: open (or .. to go up) • ←: up • →: enter folder • C: folder size • d: download • u: upload • D: delete • .: menu • /: filter • r: refresh • esc: back"
 	}
 	help := helpStyle.Render(helpText)
 

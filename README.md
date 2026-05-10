@@ -487,6 +487,7 @@ Once launched, gcon presents an intuitive interface with:
 | Key | Action | Description |
 |-----|--------|-------------|
 | `Enter` | Open/View | Open folder, view file details, or go up (on `..` row) |
+| `→` | Enter Folder | Drill into the selected folder (no-op on files) |
 | `←` | Go Up | Navigate to parent folder |
 | `u` | Upload | Upload files to current folder |
 | `d` | Download | Download selected file or folder |
