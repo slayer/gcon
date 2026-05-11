@@ -13,6 +13,7 @@ import (
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/actionmenu"
 	"github.com/slayer/gcon/internal/ui/components/confirm"
+	"github.com/slayer/gcon/internal/ui/components/sshdialog"
 	"github.com/slayer/gcon/internal/ui/components/table"
 	"github.com/slayer/gcon/internal/ui/context"
 	uierrors "github.com/slayer/gcon/internal/ui/errors"
@@ -48,6 +49,11 @@ type InstancesView struct {
 	pendingDelete     *gcp.Instance        // Instance pending deletion
 	pendingDetails    *gcp.InstanceDetails // Details for deletion protection check
 
+	// SSH dialog state
+	sshDialog     *sshdialog.Dialog
+	showSSHDialog bool
+	sshErr        error
+
 	// View dimensions for overlay rendering
 	width  int
 	height int
@@ -65,6 +71,7 @@ type instanceKeyMap struct {
 	Delete     key.Binding
 	Refresh    key.Binding
 	ActionMenu key.Binding
+	SSH        key.Binding
 }
 
 func defaultInstanceKeyMap() instanceKeyMap {
@@ -108,6 +115,10 @@ func defaultInstanceKeyMap() instanceKeyMap {
 		ActionMenu: key.NewBinding(
 			key.WithKeys("."),
 			key.WithHelp(".", "actions"),
+		),
+		SSH: key.NewBinding(
+			key.WithKeys("t"),
+			key.WithHelp("t", "ssh"),
 		),
 	}
 }
@@ -229,7 +240,30 @@ func instanceToRow(inst gcp.Instance) table.Row { //nolint:gocritic // Copying i
 //
 //nolint:gocognit // Bubble Tea Update pattern - complexity 57
 func (v *InstancesView) Update(msg tea.Msg) tea.Cmd {
+	// Route all messages through the SSH dialog while it is open, except for
+	// the dialog's own terminal messages (ConnectMsg / CancelMsg).
+	if v.showSSHDialog && v.sshDialog != nil {
+		if _, isConnect := msg.(sshdialog.ConnectMsg); !isConnect {
+			if _, isCancel := msg.(sshdialog.CancelMsg); !isCancel {
+				var cmd tea.Cmd
+				v.sshDialog, cmd = v.sshDialog.Update(msg)
+				return cmd
+			}
+		}
+	}
+
 	switch msg := msg.(type) {
+	case sshdialog.ConnectMsg:
+		v.showSSHDialog = false
+		opts := msg.Options
+		return func() tea.Msg {
+			return SSHRequestMsg{Options: opts, OriginView: v}
+		}
+
+	case sshdialog.CancelMsg:
+		v.showSSHDialog = false
+		return nil
+
 	case computeClientReadyMsg:
 		v.computeClient = msg.client
 		// Register loading task in status bar
@@ -491,6 +525,11 @@ func (v *InstancesView) Update(msg tea.Msg) tea.Cmd {
 				}
 			}
 			return nil
+
+		case key.Matches(msg, v.keys.SSH):
+			if inst := v.cursorInstance(); inst != nil && inst.IsRunning() {
+				return v.openSSHDialog(inst)
+			}
 		}
 	}
 
@@ -508,6 +547,7 @@ func (v *InstancesView) buildActions(inst gcp.Instance) []actionmenu.Action { //
 
 	return []actionmenu.Action{
 		{Key: 'c', Label: "Create Instance", Enabled: true},
+		{Key: 't', Label: "SSH", Enabled: isRunning},
 		{Key: 's', Label: "Start", Enabled: isStopped},
 		{Key: 'x', Label: "Stop", Enabled: isRunning},
 		{Key: 'z', Label: "Suspend", Enabled: isRunning},
@@ -533,6 +573,10 @@ func (v *InstancesView) executeAction(actionKey rune) tea.Cmd {
 	case 'c':
 		return func() tea.Msg {
 			return InstanceCreateRequestMsg{ProjectID: v.projectID}
+		}
+	case 't':
+		if inst.IsRunning() {
+			return v.openSSHDialog(inst)
 		}
 	case 's':
 		if inst.IsStopped() {
@@ -587,6 +631,37 @@ func (v *InstancesView) findInstanceByName(name string) *gcp.Instance {
 		}
 	}
 	return nil
+}
+
+// cursorInstance returns the instance under the current table cursor, or nil
+// if no row is selected or the row cannot be matched to an instance.
+func (v *InstancesView) cursorInstance() *gcp.Instance {
+	if row := v.table.SelectedRow(); row != nil {
+		return v.findInstanceByName(row.ID)
+	}
+	return nil
+}
+
+// openSSHDialog opens the SSH options modal for the given running instance.
+// Caller must have verified inst is non-nil and running.
+func (v *InstancesView) openSSHDialog(inst *gcp.Instance) tea.Cmd {
+	v.sshErr = nil
+	v.sshDialog = sshdialog.New(sshdialog.Params{
+		Project:    v.projectID,
+		Zone:       inst.Zone,
+		Instance:   inst.Name,
+		InternalIP: inst.InternalIP,
+		ExternalIP: inst.ExternalIP,
+		OriginView: v,
+	})
+	v.sshDialog.SetSize(v.width, v.height)
+	v.showSSHDialog = true
+	return v.sshDialog.Init()
+}
+
+// SetSSHError stores an error from a finished SSH session for inline display.
+func (v *InstancesView) SetSSHError(err error) {
+	v.sshErr = err
 }
 
 func (v *InstancesView) startInstance(inst gcp.Instance) tea.Cmd { //nolint:gocritic // Copying instance is acceptable
@@ -724,6 +799,15 @@ func (v *InstancesView) View() string {
 
 	mainContent := header + v.table.View() + help
 
+	if v.sshErr != nil {
+		mainContent += "\n" + components.RenderInlineError(v.sshErr)
+	}
+
+	// Overlay SSH dialog — highest priority
+	if v.showSSHDialog && v.sshDialog != nil {
+		return v.renderWithOverlay(mainContent, v.sshDialog.View())
+	}
+
 	// Overlay action menu if open
 	if v.menuOpen && v.actionMenu != nil {
 		return v.renderWithOverlay(mainContent, v.actionMenu.View())
@@ -770,14 +854,17 @@ func (v *InstancesView) GetComputeClient() *gcp.ComputeClient {
 	return v.computeClient
 }
 
-// IsMenuOpen returns true if the action menu or a confirmation dialog is open
+// IsMenuOpen returns true if the action menu, a confirmation dialog, or the SSH dialog is open.
 func (v *InstancesView) IsMenuOpen() bool {
-	return v.menuOpen || v.showStopConfirm || v.showDeleteConfirm
+	return v.menuOpen || v.showStopConfirm || v.showDeleteConfirm || v.showSSHDialog
 }
 
-// HasTextInputFocused returns true if the table filter or delete confirm input is active.
+// HasTextInputFocused returns true if the table filter, delete confirm input, or SSH dialog is active.
 // Used to prevent global hotkeys (like 'q' for quit) from triggering while typing.
 func (v *InstancesView) HasTextInputFocused() bool {
+	if v.showSSHDialog && v.sshDialog != nil {
+		return true
+	}
 	if v.showDeleteConfirm && v.deleteConfirm != nil {
 		return v.deleteConfirm.HasTextInputFocused()
 	}
