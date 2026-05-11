@@ -40,6 +40,7 @@
 - ⚡ **Async Operations** - Non-blocking API calls with real-time loading indicators
 - 🔍 **Fuzzy Search** - Quickly find projects, instances, and resources with built-in filtering
 - 📊 **Resource Monitoring** - Real-time metrics, logs, and observability for your instances
+- 🗂️ **File-manager-grade GCS browser** - `Space` to multi-select, `←`/`→` to navigate folders, bulk delete / download / storage-class change with progress overlays — works the way `mc` / `ranger` users expect
 
 ## Demo
 
@@ -205,31 +206,49 @@ Without mise, install Go 1.26+ and `golangci-lint` 2.12+ manually.
   - Bulk label operations
 </details>
 
-<details>
-<summary><strong>Cloud Storage</strong></summary>
+<details open>
+<summary><strong>Cloud Storage</strong> — full file-manager UX in your terminal</summary>
+
+> The Cloud Storage views are the most polished part of gcon. The
+> Objects browser feels like a real file manager (Far/Midnight Commander
+> style) — keyboard-driven, multi-select, parent navigation, bulk
+> operations — backed by GCS instead of a local filesystem.
 
 - 🪣 **Bucket Management**
-  - List all Cloud Storage buckets
-  - View bucket details (location, storage class, access control)
-  - Bucket details view (`i` key) with Details and Usage tabs
-  - Bucket usage column showing total size and object count (from Cloud Monitoring)
-  - On-demand deep scan (`C` key) — footer spinner during scan; results delivered when complete (Ctrl+X to cancel)
-  - Usage tab breakdowns by storage class, top-level prefix, and file extension
-  - Create new buckets with comprehensive options:
-    - Location type selection (region/dual-region/multi-region)
-    - Storage class selection (STANDARD/NEARLINE/COLDLINE/ARCHIVE)
-    - Access control settings (uniform/fine-grained)
-    - Data protection (versioning, retention, soft delete)
-    - Labels and CMEK encryption support
+  - List all buckets with inline usage column (total size + object count) sourced from Cloud Monitoring — no extra clicks
+  - Bucket details view (`i` key) with **Details** and **Usage** tabs
+  - **Deep scan** on demand (`C` key): footer spinner reports
+    progress while you keep working; results break down by storage
+    class, top-level prefix, and file extension. `Ctrl+X` cancels.
+  - Create buckets with the full GCS option set: region / dual /
+    multi-region, storage class, uniform vs fine-grained access,
+    versioning, retention, soft delete, labels, and CMEK encryption
 
 - 📁 **Object Browser**
-  - Navigate bucket contents with folder structure
-  - Upload files and folders
-  - Download individual files or entire folders
-  - Delete objects with confirmation
-  - View object details and metadata
-  - Folder-scoped deep scan (`C` key) with inline stats line above the table
-  - Pagination for large buckets
+  - **Navigate like a shell:** `..` row at the top of every subfolder,
+    `←` to go up, `→` to drill in, `Enter` for "open or up", and `Esc`
+    pops a back-stack so the previous folder is one keystroke away
+  - **Multi-select & bulk actions** — `Space` toggles, `*` selects-all
+    on visible (filtered) rows, status bar shows `[N selected]`. Then:
+    - `D` — bulk delete with single confirmation (folders auto-expand)
+    - `d` — bulk download with per-file progress overlay
+    - `.` → *Change storage class* — pick STANDARD / NEARLINE /
+      COLDLINE / ARCHIVE; server-side rewrite per object
+  - **Rich object details** with KMS key, component count, MD5/CRC32C,
+    Public/Authenticated/`gs://` URLs side-by-side, and a dedicated
+    **Lifecycle & Retention** section that surfaces:
+    - The estimated next lifecycle action with effective date and the
+      matching rule ("Delete in 12 days — age ≥ 60d")
+    - Per-object retention (Locked/Unlocked + retain-until)
+    - Event-based and Temporary holds — warn-styled
+    - Custom time used by lifecycle rules
+  - **Inline preview** for text files (`v` key) with line numbers and
+    truncation hint; `o` opens binary files with the OS default app
+  - **Upload** any local file or folder, **download** to the working
+    directory, **infinite scroll** through large buckets, and
+    **folder-scoped deep scan** (`C`) for one-folder stats with a `✓`
+    marker on scanned cells
+
 </details>
 
 <details>
@@ -489,10 +508,13 @@ Once launched, gcon presents an intuitive interface with:
 | `Enter` | Open/View | Open folder, view file details, or go up (on `..` row) |
 | `→` | Enter Folder | Drill into the selected folder (no-op on files and on `..`) |
 | `←` | Go Up | Navigate to parent folder (no-op at bucket root) |
+| `Space` | Toggle Select | Add/remove cursor row from the bulk selection |
+| `*` | Select All | Toggle select-all on visible (filtered) rows |
 | `u` | Upload | Upload files to current folder |
-| `d` | Download | Download selected file or folder |
-| `D` | Delete | Delete object (with confirmation) |
-| `Esc` | Go Back | Return to previous view (pops navigation history) |
+| `d` | Download | Download cursor row, or **all selected** when a selection is active |
+| `D` | Delete | Delete cursor row, or **all selected** when a selection is active |
+| `.` | Action Menu | Per-row actions, or **bulk menu** (incl. *Change storage class*) when a selection is active |
+| `Esc` | Clear / Back | Clear bulk selection if any; otherwise pop navigation history |
 
 #### VPC Networks
 

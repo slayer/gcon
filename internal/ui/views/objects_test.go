@@ -30,13 +30,14 @@ func TestObjectToRow(t *testing.T) {
 			IsFolder:    true,
 		}
 
-		row := objectToRow(obj)
+		row := objectToRow(obj, "")
 
-		assert.Contains(t, row.Data[0], "folder1")
-		assert.Contains(t, row.Data[0], symbols.Folder())
-		assert.Equal(t, "-", row.Data[1]) // Size
-		assert.Equal(t, "Folder", row.Data[2])
-		assert.Equal(t, "-", row.Data[3]) // Modified
+		assert.Equal(t, "", row.Data[objectColIndexSel])
+		assert.Contains(t, row.Data[objectColIndexName], "folder1")
+		assert.Contains(t, row.Data[objectColIndexName], symbols.Folder())
+		assert.Equal(t, "-", row.Data[objectColIndexSize])
+		assert.Equal(t, "Folder", row.Data[objectColIndexContentType])
+		assert.Equal(t, "-", row.Data[objectColIndexModified])
 		assert.Equal(t, "folder1/", row.ID)
 	})
 
@@ -50,13 +51,14 @@ func TestObjectToRow(t *testing.T) {
 			IsFolder:    false,
 		}
 
-		row := objectToRow(obj)
+		row := objectToRow(obj, "[✓]")
 
-		assert.Contains(t, row.Data[0], "document.pdf")
-		assert.Contains(t, row.Data[0], symbols.File())
-		assert.Equal(t, "1.5 MB", row.Data[1])
-		assert.Equal(t, "application/pdf", row.Data[2])
-		assert.Equal(t, "2024-01-20", row.Data[3])
+		assert.Equal(t, "[✓]", row.Data[objectColIndexSel])
+		assert.Contains(t, row.Data[objectColIndexName], "document.pdf")
+		assert.Contains(t, row.Data[objectColIndexName], symbols.File())
+		assert.Equal(t, "1.5 MB", row.Data[objectColIndexSize])
+		assert.Equal(t, "application/pdf", row.Data[objectColIndexContentType])
+		assert.Equal(t, "2024-01-20", row.Data[objectColIndexModified])
 		assert.Equal(t, "document.pdf", row.ID)
 	})
 
@@ -67,7 +69,7 @@ func TestObjectToRow(t *testing.T) {
 			ContentType: "image/png",
 		}
 
-		row := objectToRow(obj)
+		row := objectToRow(obj, "")
 
 		assert.Contains(t, row.FilterValue, "image.png")
 		assert.Contains(t, row.FilterValue, "image/png")
@@ -200,6 +202,142 @@ func TestObjectsView_NavigateInto(t *testing.T) {
 	})
 }
 
+func TestObjectsView_BulkSelection(t *testing.T) {
+	makeView := func() *ObjectsView {
+		v := NewObjectsView("test-bucket", nil)
+		v.Update(objectsLoadedMsg{
+			objects: []gcp.StorageObject{
+				{Name: "a.txt", DisplayName: "a.txt"},
+				{Name: "b.txt", DisplayName: "b.txt"},
+				{Name: "c.txt", DisplayName: "c.txt"},
+			},
+			generation: 0,
+		})
+		return v
+	}
+
+	t.Run("toggleSelection adds and removes by ID", func(t *testing.T) {
+		v := makeView()
+		// Cursor starts at row 0 (a.txt). Toggle on, then off.
+		v.toggleSelection()
+		assert.Len(t, v.selectedIDs, 1)
+		assert.Contains(t, v.selectedIDs, "a.txt")
+		v.toggleSelection()
+		assert.Len(t, v.selectedIDs, 0)
+	})
+
+	t.Run("Sel column hidden when selection empty, shown when not", func(t *testing.T) {
+		v := makeView()
+		// Initially hidden.
+		assert.NotContains(t, v.View(), "[ ]")
+		// Toggle one row → column shows.
+		v.toggleSelection()
+		assert.Contains(t, v.View(), "[✓]")
+		// Cleared selection → column hides again.
+		v.clearSelection()
+		assert.NotContains(t, v.View(), "[ ]")
+	})
+
+	t.Run("toggleSelectAll selects every non-.. row, then clears", func(t *testing.T) {
+		v := makeView()
+		v.toggleSelectAll()
+		assert.Len(t, v.selectedIDs, 3)
+		v.toggleSelectAll()
+		assert.Len(t, v.selectedIDs, 0)
+	})
+
+	t.Run("'..' row is never selectable via toggleSelection", func(t *testing.T) {
+		v := NewObjectsView("test-bucket", nil)
+		v.currentPrefix = "folder1/"
+		v.Update(objectsLoadedMsg{
+			objects: []gcp.StorageObject{
+				{Name: "folder1/x.txt", DisplayName: "x.txt"},
+			},
+			generation: 0,
+		})
+		// Cursor starts on the ".." row (it's row 0).
+		changed := v.toggleSelection()
+		assert.False(t, changed, "toggleSelection on .. should be a no-op")
+		assert.Empty(t, v.selectedIDs)
+	})
+
+	t.Run("toggleSelectAll skips '..' row", func(t *testing.T) {
+		v := NewObjectsView("test-bucket", nil)
+		v.currentPrefix = "folder1/"
+		v.Update(objectsLoadedMsg{
+			objects: []gcp.StorageObject{
+				{Name: "folder1/x.txt", DisplayName: "x.txt"},
+				{Name: "folder1/y.txt", DisplayName: "y.txt"},
+			},
+			generation: 0,
+		})
+		v.toggleSelectAll()
+		assert.Len(t, v.selectedIDs, 2)
+		assert.NotContains(t, v.selectedIDs, parentNavRowID)
+	})
+
+	t.Run("HandleBack clears selection before navigating", func(t *testing.T) {
+		v := makeView()
+		v.currentPrefix = "folder1/"
+		v.prefixStack = []string{""}
+		v.toggleSelection() // selects something
+		assert.NotEmpty(t, v.selectedIDs)
+		handled, _ := v.HandleBack()
+		assert.True(t, handled)
+		assert.Empty(t, v.selectedIDs)
+		// Still in folder1/ — HandleBack only cleared the selection.
+		assert.Equal(t, "folder1/", v.currentPrefix)
+	})
+
+	t.Run("navigation clears selection", func(t *testing.T) {
+		v := makeView()
+		v.toggleSelection()
+		assert.NotEmpty(t, v.selectedIDs)
+		_ = v.navigateInto("folder1/")
+		assert.Empty(t, v.selectedIDs)
+	})
+
+	t.Run("status bar shows N selected", func(t *testing.T) {
+		v := makeView()
+		v.toggleSelection()
+		v.toggleSelection() // toggle off (cursor still on a.txt)
+		v.toggleSelectAll()
+		assert.Contains(t, v.scrollInfo(), "[3 selected]")
+	})
+
+	t.Run("selectedObjects returns only files matching selection", func(t *testing.T) {
+		v := makeView()
+		v.selectedIDs = map[string]struct{}{
+			"a.txt": {},
+			"c.txt": {},
+		}
+		got := v.selectedObjects()
+		if assert.Len(t, got, 2) {
+			assert.Equal(t, "a.txt", got[0].Name)
+			assert.Equal(t, "c.txt", got[1].Name)
+		}
+	})
+}
+
+func TestObjectsView_BulkActionMenu(t *testing.T) {
+	t.Run("'.' opens bulk menu when selection is non-empty", func(t *testing.T) {
+		v := NewObjectsView("test-bucket", nil)
+		v.Update(objectsLoadedMsg{
+			objects: []gcp.StorageObject{
+				{Name: "a.txt", DisplayName: "a.txt"},
+				{Name: "b.txt", DisplayName: "b.txt"},
+			},
+			generation: 0,
+		})
+		v.toggleSelectAll()
+		// Simulate '.' key.
+		v.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'.'}})
+		assert.True(t, v.menuOpen)
+		assert.Equal(t, menuKindBulk, v.menuKind)
+		assert.Len(t, v.menuPendingObjects, 2)
+	})
+}
+
 func TestObjectsView_NavigationClearsStaleError(t *testing.T) {
 	t.Run("navigateUp clears stale err", func(t *testing.T) {
 		view := NewObjectsView("test-bucket", nil)
@@ -321,7 +459,7 @@ func TestObjectsViewInfiniteScroll(t *testing.T) {
 		view.objects = []gcp.StorageObject{
 			{Name: "file1.txt", DisplayName: "file1.txt"},
 		}
-		view.table.SetRows([]table.Row{objectToRow(view.objects[0])})
+		view.table.SetRows([]table.Row{objectToRow(view.objects[0], "")})
 
 		// Append more data
 		view.Update(objectsMoreLoadedMsg{
@@ -346,7 +484,7 @@ func TestObjectsViewInfiniteScroll(t *testing.T) {
 		view.SetContext(testContext())
 
 		view.objects = []gcp.StorageObject{{Name: "file1.txt", DisplayName: "file1.txt"}}
-		view.table.SetRows([]table.Row{objectToRow(view.objects[0])})
+		view.table.SetRows([]table.Row{objectToRow(view.objects[0], "")})
 
 		view.Update(objectsMoreLoadedMsg{
 			objects: []gcp.StorageObject{
@@ -995,9 +1133,9 @@ func TestObjectsView_FolderSizesPopulatedAfterDeepScan(t *testing.T) {
 		{Name: "readme.txt", DisplayName: "readme.txt", Size: 100, ContentType: "text/plain"},
 	}
 	rows := []table.Row{
-		objectToRow(v.objects[0]),
-		objectToRow(v.objects[1]),
-		objectToRow(v.objects[2]),
+		objectToRow(v.objects[0], ""),
+		objectToRow(v.objects[1], ""),
+		objectToRow(v.objects[2], ""),
 	}
 	v.table.SetRows(rows)
 	// Scan results: 2024/ has ~745 GB, 2025/ has ~186 GB (1024-based units).
@@ -1015,10 +1153,10 @@ func TestObjectsView_FolderSizesPopulatedAfterDeepScan(t *testing.T) {
 	})
 	got := v.table.Rows()
 	require.Len(t, got, 3)
-	assert.Contains(t, got[0].Data[1], "745.1 GB", "2024/ folder Size cell should show recursive size")
-	assert.Contains(t, got[0].Data[1], "✓", "scanned cell should have ✓ marker")
-	assert.Contains(t, got[1].Data[1], "186.3 GB", "2025/ folder Size cell should show recursive size")
-	assert.Equal(t, "100 B", got[2].Data[1], "file Size cell should NOT change")
+	assert.Contains(t, got[0].Data[objectColIndexSize], "745.1 GB", "2024/ folder Size cell should show recursive size")
+	assert.Contains(t, got[0].Data[objectColIndexSize], "✓", "scanned cell should have ✓ marker")
+	assert.Contains(t, got[1].Data[objectColIndexSize], "186.3 GB", "2025/ folder Size cell should show recursive size")
+	assert.Equal(t, "100 B", got[2].Data[objectColIndexSize], "file Size cell should NOT change")
 }
 
 func TestFolderUsageKey(t *testing.T) {

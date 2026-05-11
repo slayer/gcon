@@ -385,6 +385,26 @@ func (c *StorageClient) DeleteObject(ctx context.Context, bucketName, objectName
 	return nil
 }
 
+// UpdateObjectStorageClass changes the storage class of a single object via
+// an in-place rewrite (copy to self with the desired class). The object's
+// metadata is preserved; the generation changes (rewrite produces a new
+// version). Valid classes are STANDARD, NEARLINE, COLDLINE, and ARCHIVE.
+//
+// GCS does not expose a metadata-only "set storage class" — the class is
+// part of object data placement and changing it requires a server-side
+// rewrite. For most objects this is fast (no bytes leave Google's network)
+// but archive-class transitions can take minutes for very large objects.
+func (c *StorageClient) UpdateObjectStorageClass(ctx context.Context, bucketName, objectName, storageClass string) error {
+	src := c.client.Bucket(bucketName).Object(objectName)
+	dst := src
+	copier := dst.CopierFrom(src)
+	copier.StorageClass = storageClass
+	if _, err := copier.Run(ctx); err != nil {
+		return fmt.Errorf("failed to set storage class on %s: %w", objectName, err)
+	}
+	return nil
+}
+
 // ObjectMetadata contains full metadata for a GCS object
 type ObjectMetadata struct {
 	// Basic info

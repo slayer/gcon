@@ -223,6 +223,11 @@ On developing or updating a new feature keep in mind the following guidelines:
 - [x] Error handling with retry
 - [x] Cloud Storage buckets browser
 - [x] Cloud Storage objects browser with upload/download
+  - Parent-folder navigation: `..` row at the top, `←` / Enter on `..` to go up, `→` to drill into a folder
+  - Multi-select with `Space` (toggle) / `*` (select-all on visible rows)
+  - Bulk **delete** and **download** — folders auto-expanded to recursive members
+  - Bulk **change storage class** — picker (STANDARD/NEARLINE/COLDLINE/ARCHIVE), server-side rewrite per object
+  - Status bar shows `[N selected]` while a bulk selection is active; Esc clears the selection before navigating back
 - [x] Cloud Storage bucket creation with forms UI
   - Location type selection (region/dual-region/multi-region)
   - Storage class selection (STANDARD/NEARLINE/COLDLINE/ARCHIVE)

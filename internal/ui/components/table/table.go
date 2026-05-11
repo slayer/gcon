@@ -311,18 +311,44 @@ func (m *Model) SetRows(rows []Row) {
 	m.recalcColumns()
 }
 
-// Rows returns a copy of the current (unfiltered) rows. Callers may mutate the
-// returned slice safely; the model only updates when SetRows is called.
+// Rows returns a deep copy of the current (unfiltered) rows. Callers may
+// mutate the returned slice — including each row's Data cells — without
+// affecting the model; the model only updates when SetRows is called.
 func (m *Model) Rows() []Row {
-	out := make([]Row, len(m.allRows))
-	copy(out, m.allRows)
+	return cloneRows(m.allRows)
+}
+
+// VisibleRows returns a deep copy of the rows currently visible in the
+// table — i.e., after the active filter (if any) is applied. Use this
+// when you need to iterate over what the user actually sees, e.g. for a
+// "select all visible" gesture. Cells in the returned slice are safe
+// to mutate.
+func (m *Model) VisibleRows() []Row {
+	return cloneRows(m.rows)
+}
+
+// cloneRows produces an independent copy of a Row slice: each row's
+// Data slice is reallocated so mutating returned cells doesn't reach
+// back into the model's storage. FilterValue and ID are immutable
+// strings, so a shallow copy of the Row struct itself is enough — the
+// Data slice is what aliases.
+func cloneRows(in []Row) []Row {
+	out := make([]Row, len(in))
+	for i, r := range in {
+		out[i] = r
+		out[i].Data = append([]string(nil), r.Data...)
+	}
 	return out
 }
 
 // filterSpec represents a parsed filter with field-specific and free-text parts.
 type filterSpec struct {
-	fieldFilters map[int]string // visible column index -> match substring (lowercase)
-	freeText     string         // remaining text for FilterValue match (lowercase)
+	// fieldFilters keys are underlying colDef indices (NOT visible-column
+	// indices). Row.Data is indexed in the same colDef order regardless of
+	// hidden state, so using underlying indices keeps the cell lookup
+	// correct even when columns are hidden.
+	fieldFilters map[int]string
+	freeText     string // remaining text for FilterValue match (lowercase)
 }
 
 // parseFilter splits filter input into field:value pairs and free text.
@@ -336,17 +362,18 @@ func (m *Model) parseFilter(input string) filterSpec {
 		return spec
 	}
 
-	// Build lookup: filter key -> visible column index
-	keyToVisibleIdx := make(map[string]int)
-	visibleIdx := 0
-	for _, col := range m.colDefs {
+	// Build lookup: filter key -> underlying colDef index. Hidden columns
+	// are skipped (you can't filter on a column the user can't see) but
+	// they still occupy a position in row.Data, so we record the colDef
+	// index, not a "visible-only" position.
+	keyToColIdx := make(map[string]int)
+	for i, col := range m.colDefs {
 		if col.Hidden {
 			continue
 		}
 		for _, fk := range col.FilterKeys {
-			keyToVisibleIdx[fk] = visibleIdx
+			keyToColIdx[fk] = i
 		}
-		visibleIdx++
 	}
 
 	tokens := strings.Fields(input)
@@ -357,7 +384,7 @@ func (m *Model) parseFilter(input string) filterSpec {
 		if colonIdx > 0 && colonIdx < len(token)-1 {
 			key := strings.ToLower(token[:colonIdx])
 			value := strings.ToLower(token[colonIdx+1:])
-			if idx, ok := keyToVisibleIdx[key]; ok {
+			if idx, ok := keyToColIdx[key]; ok {
 				spec.fieldFilters[idx] = value
 				continue
 			}
@@ -371,10 +398,11 @@ func (m *Model) parseFilter(input string) filterSpec {
 
 // matchesFilterSpec checks whether a row matches the given filter spec.
 // All field filters must match (AND logic), and free text must match FilterValue.
+// fieldFilter keys are underlying colDef indices, which match row.Data 1:1
+// regardless of which columns are currently hidden.
 func matchesFilterSpec(row Row, spec filterSpec) bool {
-	// Check field-specific filters against row data columns
 	for colIdx, value := range spec.fieldFilters {
-		if colIdx >= len(row.Data) {
+		if colIdx < 0 || colIdx >= len(row.Data) {
 			return false
 		}
 		if !strings.Contains(strings.ToLower(row.Data[colIdx]), value) {
@@ -430,7 +458,7 @@ func (m *Model) applyFilter() {
 	// Convert to table.Row format
 	tableRows := make([]table.Row, len(m.rows))
 	for i, row := range m.rows {
-		tableRows[i] = row.Data
+		tableRows[i] = m.visibleCells(row.Data)
 	}
 	m.table.SetRows(tableRows)
 }
@@ -451,7 +479,7 @@ func (m *Model) SortBy(colIndex int, ascending bool) {
 	// Rebuild table rows
 	tableRows := make([]table.Row, len(m.rows))
 	for i, row := range m.rows {
-		tableRows[i] = row.Data
+		tableRows[i] = m.visibleCells(row.Data)
 	}
 	m.table.SetRows(tableRows)
 
@@ -468,9 +496,15 @@ func (m *Model) ClearSort() {
 
 // recalcColumns forces column width recalculation (e.g. after sort indicator changes).
 func (m *Model) recalcColumns() {
+	m.columnsComputed = false
+	// Always rebuild — even when lastWidth is 0 (i.e., SetSize hasn't run
+	// yet). At width 0 the dynamic distribution is a no-op and columns
+	// keep their static colDef widths, but the *visible-column set* still
+	// gets pushed to the underlying bubbles table. Without this,
+	// SetColumnHidden invoked at construction time would update colDefs
+	// but leave bubbles' column list out of date until the first resize.
+	m.adjustColumnWidths(m.lastWidth)
 	if m.lastWidth > 0 {
-		m.columnsComputed = false
-		m.adjustColumnWidths(m.lastWidth)
 		m.columnsComputed = true
 	}
 }
@@ -493,7 +527,13 @@ func (m *Model) sortRows() {
 		return
 	}
 
-	col := m.sortColumn
+	// m.sortColumn is a visible-column index (the public SortBy contract);
+	// row.Data is indexed by underlying colDef position. Translate so we
+	// read the right cell when hidden columns shift the visible layout.
+	col := m.underlyingColIndex(m.sortColumn)
+	if col < 0 {
+		return
+	}
 	asc := m.sortAscending
 
 	sort.SliceStable(m.rows, func(i, j int) bool {
@@ -509,6 +549,28 @@ func (m *Model) sortRows() {
 		}
 		return cmp > 0
 	})
+}
+
+// underlyingColIndex maps a visible-column index to its position in
+// m.colDefs. Returns -1 if there is no visible column at that position
+// (e.g. visibleIdx == 3 when only 2 columns are visible). When colDefs
+// is empty, the visibleIdx passes through unchanged so legacy callers
+// that don't use enhanced columns continue to work.
+func (m *Model) underlyingColIndex(visibleIdx int) int {
+	if len(m.colDefs) == 0 {
+		return visibleIdx
+	}
+	seen := 0
+	for i := range m.colDefs {
+		if m.colDefs[i].Hidden {
+			continue
+		}
+		if seen == visibleIdx {
+			return i
+		}
+		seen++
+	}
+	return -1
 }
 
 // compareValues compares two cell values. Tries numeric first, then string.
@@ -712,6 +774,21 @@ func (m *Model) SelectedIndex() int {
 	return m.table.Cursor()
 }
 
+// SetCursor moves the cursor to row i in the currently visible (filtered)
+// row list. Out-of-range indices are clamped to a valid value.
+func (m *Model) SetCursor(i int) {
+	if len(m.rows) == 0 {
+		return
+	}
+	if i < 0 {
+		i = 0
+	}
+	if i >= len(m.rows) {
+		i = len(m.rows) - 1
+	}
+	m.table.SetCursor(i)
+}
+
 // SetSize updates the table dimensions
 func (m *Model) SetSize(width, height int) {
 	m.width = width
@@ -871,15 +948,78 @@ func (m *Model) adjustColumnsWithDefs(availableWidth int) {
 }
 
 // SetColumnHidden changes the visibility of a column by title.
-// Triggers a recalculation of column widths.
+// Triggers a recalculation of column widths and re-emits the row data so
+// the underlying bubbles table sees row cells matching its column count.
+//
+// Implementation note: bubbles' `renderRow` iterates over a row's cells
+// and indexes into the column slice, so any transient state where the
+// cell count and column count disagree panics. Unfortunately bubbles has
+// no atomic "set both" API, and either single ordering (rows-first or
+// columns-first) is wrong in one of the two directions. We instead clear
+// bubbles' rows before changing the column set, then re-emit the
+// reshaped rows. The empty intermediate state is safe in either
+// direction.
 func (m *Model) SetColumnHidden(title string, hidden bool) {
 	for i := range m.colDefs {
 		if m.colDefs[i].Title == title {
+			if m.colDefs[i].Hidden == hidden {
+				return
+			}
+			// Snapshot cursor by row ID so we can restore it after the
+			// rebuild — bubbles' SetRows resets the cursor to 0, which
+			// would otherwise jump the user out of their selection mid
+			// multi-select toggle.
+			cursor := m.table.Cursor()
+			var selectedID string
+			if cursor >= 0 && cursor < len(m.rows) {
+				selectedID = m.rows[cursor].ID
+			}
+
 			m.colDefs[i].Hidden = hidden
+			m.table.SetRows(nil)
 			m.recalcColumns()
-			break
+			tableRows := make([]table.Row, len(m.rows))
+			for j, row := range m.rows {
+				tableRows[j] = m.visibleCells(row.Data)
+			}
+			m.table.SetRows(tableRows)
+
+			// Restore cursor: prefer matching by ID (handles a future where
+			// rebuilds reorder rows), fall back to the prior index.
+			if selectedID != "" {
+				for j, row := range m.rows {
+					if row.ID == selectedID {
+						m.table.SetCursor(j)
+						return
+					}
+				}
+			}
+			if cursor >= 0 && cursor < len(m.rows) {
+				m.table.SetCursor(cursor)
+			}
+			return
 		}
 	}
+}
+
+// visibleCells returns a fresh slice containing the cells for visible
+// columns only. The result is always a copy — callers may mutate it
+// without affecting the model's stored row data, including the legacy
+// no-colDefs path.
+func (m *Model) visibleCells(data []string) []string {
+	if len(m.colDefs) == 0 {
+		out := make([]string, len(data))
+		copy(out, data)
+		return out
+	}
+	out := make([]string, 0, len(data))
+	for i := 0; i < len(data) && i < len(m.colDefs); i++ {
+		if m.colDefs[i].Hidden {
+			continue
+		}
+		out = append(out, data[i])
+	}
+	return out
 }
 
 // GetVisibleColumnCount returns the number of visible columns
