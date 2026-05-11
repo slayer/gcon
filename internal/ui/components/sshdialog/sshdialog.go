@@ -4,6 +4,7 @@ package sshdialog
 
 import (
 	"errors"
+	"os/user"
 	"regexp"
 	"strings"
 
@@ -80,22 +81,38 @@ type Dialog struct {
 	width, height int
 }
 
+// defaultUserPlaceholder returns the placeholder text shown in the User
+// field when empty: the local OS username if it can be resolved, otherwise
+// a generic "(default)" hint. gcloud and ssh both fall back to this name
+// when no explicit user is passed (gcloud additionally honors OS Login).
+func defaultUserPlaceholder() string {
+	if u, err := user.Current(); err == nil && u.Username != "" {
+		return u.Username + " (default)"
+	}
+	return "(default)"
+}
+
 // New constructs a Dialog with smart defaults.
 func New(params Params) *Dialog {
-	user := textinput.New()
-	user.Placeholder = "(default)"
-	user.CharLimit = 64
+	const inputWidth = 32
+
+	userInput := textinput.New()
+	userInput.Placeholder = defaultUserPlaceholder()
+	userInput.CharLimit = 64
+	userInput.Width = inputWidth
 
 	host := textinput.New()
 	host.CharLimit = 128
+	host.Width = inputWidth
 
 	pf := textinput.New()
 	pf.Placeholder = "localPort:remoteHost:remotePort"
 	pf.CharLimit = 64
+	pf.Width = inputWidth
 
 	d := &Dialog{
 		params:      params,
-		user:        user,
+		user:        userInput,
 		host:        host,
 		portForward: pf,
 		focus:       fieldUser,
