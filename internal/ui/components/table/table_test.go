@@ -158,6 +158,34 @@ func TestSortRows_RespectsHiddenColumnOffset(t *testing.T) {
 	}
 }
 
+// Regression: Rows() / VisibleRows() must deep-copy each row's Data so
+// callers can mutate cells without reaching back into the model. The
+// previous shallow copy made the doc claim "callers may mutate safely"
+// false — mutating row.Data[i] silently mutated m.allRows[i].Data[i].
+func TestRowsAndVisibleRows_DeepCopyData(t *testing.T) {
+	cols := []Column{
+		{Title: "Name", Width: 20, Grow: true},
+		{Title: "Size", Width: 10},
+	}
+	m := NewWithColumns(cols, "T")
+	m.SetSize(60, 10)
+	m.SetRows([]Row{
+		{ID: "a", Data: []string{"alpha", "1"}},
+		{ID: "b", Data: []string{"beta", "2"}},
+	})
+
+	got := m.Rows()
+	got[0].Data[0] = "MUTATED"
+	got[0].Data = append(got[0].Data, "extra")
+	visible := m.VisibleRows()
+	visible[0].Data[0] = "MUTATED"
+
+	// Internal storage must be untouched.
+	internal := m.Rows() // a fresh copy reads the still-pristine model
+	assert.Equal(t, "alpha", internal[0].Data[0], "Rows() mutation reached back into model")
+	assert.Equal(t, 2, len(internal[0].Data), "appending to Rows() Data grew the model's row")
+}
+
 // VisibleRows reflects the filter, while Rows returns the unfiltered
 // allRows. Bulk-action callers ("select all") rely on this distinction.
 func TestVisibleRows_ReflectsActiveFilter(t *testing.T) {

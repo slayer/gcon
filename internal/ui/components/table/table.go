@@ -311,21 +311,33 @@ func (m *Model) SetRows(rows []Row) {
 	m.recalcColumns()
 }
 
-// Rows returns a copy of the current (unfiltered) rows. Callers may mutate the
-// returned slice safely; the model only updates when SetRows is called.
+// Rows returns a deep copy of the current (unfiltered) rows. Callers may
+// mutate the returned slice — including each row's Data cells — without
+// affecting the model; the model only updates when SetRows is called.
 func (m *Model) Rows() []Row {
-	out := make([]Row, len(m.allRows))
-	copy(out, m.allRows)
-	return out
+	return cloneRows(m.allRows)
 }
 
-// VisibleRows returns a copy of the rows currently visible in the table —
-// i.e., after the active filter (if any) is applied. Use this when you
-// need to iterate over what the user actually sees, e.g. for a
-// "select all visible" gesture.
+// VisibleRows returns a deep copy of the rows currently visible in the
+// table — i.e., after the active filter (if any) is applied. Use this
+// when you need to iterate over what the user actually sees, e.g. for a
+// "select all visible" gesture. Cells in the returned slice are safe
+// to mutate.
 func (m *Model) VisibleRows() []Row {
-	out := make([]Row, len(m.rows))
-	copy(out, m.rows)
+	return cloneRows(m.rows)
+}
+
+// cloneRows produces an independent copy of a Row slice: each row's
+// Data slice is reallocated so mutating returned cells doesn't reach
+// back into the model's storage. FilterValue and ID are immutable
+// strings, so a shallow copy of the Row struct itself is enough — the
+// Data slice is what aliases.
+func cloneRows(in []Row) []Row {
+	out := make([]Row, len(in))
+	for i, r := range in {
+		out[i] = r
+		out[i].Data = append([]string(nil), r.Data...)
+	}
 	return out
 }
 
