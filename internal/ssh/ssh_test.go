@@ -1,7 +1,6 @@
 package ssh
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -134,24 +133,45 @@ func TestBuildSSHArgs(t *testing.T) {
 	}
 }
 
-func TestBuildArgs_NoShellInjection(t *testing.T) {
+func TestBuildGcloudArgs_NoShellInjection(t *testing.T) {
+	// A User value containing shell metacharacters must arrive as one argv
+	// element — not split, not quoted, not interpolated. exec.Command does
+	// not invoke a shell, but a regression here could create one.
 	opts := Options{
 		Method:   MethodGcloud,
 		Project:  "p", Zone: "z", Instance: "vm",
 		User: "alice; rm -rf /",
 	}
 	args := BuildGcloudArgs(opts)
-	found := 0
+	assert.Contains(t, args, "--ssh-flag=alice; rm -rf /",
+		"user value must be carried verbatim as a single argv element")
+	// And it must appear exactly once — no echo, no extra fragments.
+	count := 0
 	for _, a := range args {
 		if a == "--ssh-flag=alice; rm -rf /" {
-			found++
+			count++
 		}
 	}
-	assert.Equal(t, 1, found, "user value must arrive as one argv element")
-	for _, a := range args {
-		assert.False(t, strings.Contains(a, "rm -rf") && a != "--ssh-flag=alice; rm -rf /",
-			"unexpected fragment leaked: %q", a)
+	assert.Equal(t, 1, count)
+}
+
+func TestBuildSSHArgs_NoShellInjection(t *testing.T) {
+	// Same contract for the plain-ssh path.
+	opts := Options{
+		Method: MethodSSH,
+		Host:   "1.2.3.4",
+		User:   "alice; rm -rf /",
 	}
+	args := BuildSSHArgs(opts)
+	assert.Contains(t, args, "alice; rm -rf /@1.2.3.4",
+		"user@host must be carried verbatim as a single argv element")
+	count := 0
+	for _, a := range args {
+		if a == "alice; rm -rf /@1.2.3.4" {
+			count++
+		}
+	}
+	assert.Equal(t, 1, count)
 }
 
 func TestLookupBinary(t *testing.T) {

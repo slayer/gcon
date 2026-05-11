@@ -17,7 +17,9 @@ const (
 
 // Options bundles every choice the SSH dialog can produce.
 type Options struct {
-	Method   Method
+	// Method is used by callers to pick BuildGcloudArgs vs BuildSSHArgs;
+	// the builders themselves do not read it.
+	Method Method
 	Project  string // gcloud only
 	Zone     string // gcloud only
 	Instance string // gcloud only — used as the SSH target
@@ -65,7 +67,7 @@ func BuildSSHArgs(opts Options) []string {
 	if opts.User != "" {
 		target = opts.User + "@" + opts.Host
 	}
-	args := []string{}
+	var args []string
 	if opts.PortForward != "" {
 		args = append(args, "-L", opts.PortForward)
 	}
