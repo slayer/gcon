@@ -57,6 +57,7 @@ description: Keyboard shortcuts reference for all views
 | `Z` | Resume suspended instance |
 | `R` | Reset (hard reboot) |
 | `D` | Delete instance (with type-to-confirm) |
+| `t` | SSH to instance (running only) |
 | `/` | Filter instances |
 | `r` | Refresh list |
 | `Esc` | Go back |
@@ -74,6 +75,7 @@ description: Keyboard shortcuts reference for all views
 | `Z` | Resume instance (if suspended) |
 | `R` | Reset instance |
 | `D` | Delete instance (with type-to-confirm) |
+| `t` | SSH to instance (running only) |
 | `r` | Refresh details |
 | `↑/↓` | Scroll content |
 | `Tab` | Switch focus (tabs/links/content) |

@@ -169,6 +169,7 @@ Without mise, install Go 1.26+ and `golangci-lint` 2.12+ manually.
   - Delete instances with confirmation dialogs
   - Create new instances with guided forms
   - Real-time status updates with visual indicators
+  - **SSH** to running instances via `t` key — options dialog for `gcloud compute ssh` (IAP tunnel, internal IP, user, port forward); falls back to plain `ssh` when gcloud is absent. The session takes over the terminal and returns on exit.
 
 - 📈 **Instance Observability**
   - CPU utilization with sparkline trends
