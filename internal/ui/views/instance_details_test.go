@@ -202,3 +202,19 @@ func TestInstanceDetails_HasTextInputFocused_WhenDialogOpen(t *testing.T) {
 	_ = v.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
 	assert.True(t, v.HasTextInputFocused())
 }
+
+func TestInstanceDetails_IsMenuOpen_TrueWhenSSHDialogOpen(t *testing.T) {
+	v := NewInstanceDetailsView("proj", "us-central1-a", "vm", nil, nil)
+	v.details = &gcp.InstanceDetails{
+		Name:   "vm",
+		Status: "RUNNING",
+		NetworkInterfaces: []gcp.NetworkInterfaceInfo{
+			{InternalIP: "10.0.0.5"},
+		},
+	}
+	// Pre-condition: menu is closed.
+	assert.False(t, v.IsMenuOpen())
+	// Open the SSH dialog via the t key.
+	_ = v.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
+	assert.True(t, v.IsMenuOpen(), "IsMenuOpen must include showSSHDialog so Esc routes to the dialog")
+}

@@ -11,7 +11,6 @@ var (
 	ErrCloudRunClientNotInitialized = errors.New("cloud run client not initialized")
 	ErrGCPClientNotInitialized      = errors.New("GCP client not initialized")
 	ErrDetailsNotAvailable          = errors.New("details not available")
-	ErrSSHNotImplemented            = errors.New("ssh action not yet implemented")
 	ErrUnsupportedOS                = errors.New("unsupported operating system")
 	ErrFolderEmpty                  = errors.New("folder is empty")
 	ErrPartialConfigEditFailed      = errors.New("some configuration changes failed")
