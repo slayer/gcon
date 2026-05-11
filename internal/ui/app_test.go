@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"os"
 	"testing"
 
@@ -490,6 +491,40 @@ func TestEscFromObjectsBackToBucketsClearsSelectedBucket(t *testing.T) {
 
 	assert.Equal(t, ViewBuckets, app.currentView, "should pop back to Buckets")
 	assert.Nil(t, app.selectedBucket, "selectedBucket should be cleared when returning to Buckets list")
+}
+
+// --- SSH routing tests ---
+
+// sentinel errors used only in SSH routing tests
+var (
+	errTestConnectionRefused = errors.New("connection refused")
+	errTestBoom              = errors.New("boom")
+)
+
+func TestApp_RouteSSHExit_RoutesErrorToOriginView(t *testing.T) {
+	a := &App{}
+	detailsView := views.NewInstanceDetailsView("p", "z", "vm", nil, nil)
+	a.routeSSHExit(views.SSHExitedMsg{
+		Err:        errTestConnectionRefused,
+		OriginView: detailsView,
+	})
+	// The error must not also stash on a.err — it was routed to the view.
+	assert.Nil(t, a.err, "errors with a known origin must not also stash on a.err")
+}
+
+func TestApp_RouteSSHExit_NilError_NoOp(t *testing.T) {
+	a := &App{}
+	a.routeSSHExit(views.SSHExitedMsg{Err: nil, OriginView: nil})
+	assert.Nil(t, a.err)
+}
+
+func TestApp_RouteSSHExit_OriginUnknown_StashesOnApp(t *testing.T) {
+	a := &App{}
+	a.routeSSHExit(views.SSHExitedMsg{
+		Err:        errTestBoom,
+		OriginView: "not-a-view",
+	})
+	assert.NotNil(t, a.err, "errors with unknown origin must stash on a.err as a fallback")
 }
 
 // ViewType.String helper for test names
