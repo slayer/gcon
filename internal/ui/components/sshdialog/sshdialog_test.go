@@ -165,3 +165,26 @@ func TestEnterFromTextField_AdvancesFocusNotSubmits(t *testing.T) {
 	assert.Nil(t, cmd, "Enter on a text field must not return a submit cmd")
 	assert.NotEqual(t, startFocus, d.focus, "Enter must advance focus")
 }
+
+func TestOptions_TrimsWhitespace(t *testing.T) {
+	d := newTestDialog(t, Params{
+		Project: "p", Zone: "z", Instance: "vm",
+		InternalIP: "10.0.0.5", ExternalIP: "34.1.2.3",
+	})
+	d.user.SetValue("  alice  ")
+	d.setHost("  34.1.2.3\n")
+	d.setPortForward("\t5432:localhost:5432 ")
+
+	opts := d.options()
+	assert.Equal(t, "alice", opts.User, "User must be trimmed")
+	assert.Equal(t, "34.1.2.3", opts.Host, "Host must be trimmed")
+	assert.Equal(t, "5432:localhost:5432", opts.PortForward, "PortForward must be trimmed")
+}
+
+func TestValidation_PortForward_WhitespaceOnlyTreatedAsEmpty(t *testing.T) {
+	d := newTestDialog(t, Params{Project: "p", Zone: "z", Instance: "vm"})
+	d.setPortForward("   \t  ")
+	// Whitespace-only must validate as empty (no format error).
+	errs := d.validate()
+	assert.Empty(t, errs, "whitespace-only PortForward must validate as empty, not invalid")
+}

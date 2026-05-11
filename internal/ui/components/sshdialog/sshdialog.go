@@ -281,9 +281,11 @@ func (d *Dialog) setHost(h string)        { d.host.SetValue(h) }
 func (d *Dialog) setPortForward(p string) { d.portForward.SetValue(p) }
 
 // validate returns a map of field-id → error message. Empty map means valid.
+// Input values are trimmed before validation so callers cannot bypass checks
+// by submitting whitespace-only values.
 func (d *Dialog) validate() map[string]string {
 	errs := map[string]string{}
-	if pf := d.portForward.Value(); pf != "" && !portForwardRe.MatchString(pf) {
+	if pf := strings.TrimSpace(d.portForward.Value()); pf != "" && !portForwardRe.MatchString(pf) {
 		errs["port_forward"] = "expected L:H:R format, e.g. 5432:localhost:5432"
 	}
 	if d.method == gconssh.MethodSSH && strings.TrimSpace(d.host.Value()) == "" {
@@ -292,18 +294,21 @@ func (d *Dialog) validate() map[string]string {
 	return errs
 }
 
-// options snapshots current state into an ssh.Options struct.
+// options snapshots current state into an ssh.Options struct. User-typed
+// strings are trimmed so stray whitespace doesn't reach gcloud/ssh and
+// produce confusing connection errors (e.g., "alice " resolving to a
+// non-existent OS account).
 func (d *Dialog) options() gconssh.Options {
 	return gconssh.Options{
 		Method:      d.method,
 		Project:     d.params.Project,
 		Zone:        d.params.Zone,
 		Instance:    d.params.Instance,
-		Host:        d.host.Value(),
-		User:        d.user.Value(),
+		Host:        strings.TrimSpace(d.host.Value()),
+		User:        strings.TrimSpace(d.user.Value()),
 		IAPTunnel:   d.iap,
 		InternalIP:  d.internalIP,
-		PortForward: d.portForward.Value(),
+		PortForward: strings.TrimSpace(d.portForward.Value()),
 	}
 }
 
