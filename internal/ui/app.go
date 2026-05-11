@@ -2,8 +2,10 @@ package ui
 
 import (
 	gocontext "context"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -15,6 +17,7 @@ import (
 
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/gcp/usage"
+	gconssh "github.com/slayer/gcon/internal/ssh"
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/commandpalette"
 	"github.com/slayer/gcon/internal/ui/components/projectselector"
@@ -1166,6 +1169,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := a.handleLogsRequest(msg)
 		return a, cmd
 
+	// SSH
+	case views.SSHRequestMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.runSSHSession(msg)
+
+	case views.SSHExitedMsg:
+		a.routeSSHExit(msg)
+		return a, nil
+
 	case components.FooterProjectClickedMsg:
 		// Project section in footer was clicked, show project selector
 		currentProjectID := ""
@@ -1631,4 +1643,59 @@ func (a *App) renderFooter() string {
 	// Sync footer content based on current state
 	a.syncFooter()
 	return a.footer.View()
+}
+
+// --- SSH session helpers ---
+
+// errGcloudNotFound is returned when the gcloud binary is not on $PATH.
+var errGcloudNotFound = errors.New("gcloud not found on $PATH — install gcloud: https://cloud.google.com/sdk/docs/install")
+
+// errSSHNotFound is returned when the ssh binary is not on $PATH.
+var errSSHNotFound = errors.New("ssh not found on $PATH — install openssh-client or equivalent")
+
+// runSSHSession picks the right binary and hands the terminal to it via
+// tea.ExecProcess. On completion (clean exit or error) it emits an
+// SSHExitedMsg that routeSSHExit will dispatch back to the originating view.
+func (a *App) runSSHSession(msg views.SSHRequestMsg) tea.Cmd {
+	binName := "gcloud"
+	args := gconssh.BuildGcloudArgs(msg.Options)
+	notFoundErr := errGcloudNotFound
+	if msg.Options.Method == gconssh.MethodSSH {
+		binName = "ssh"
+		args = gconssh.BuildSSHArgs(msg.Options)
+		notFoundErr = errSSHNotFound
+	}
+
+	path, ok := gconssh.LookupBinary(binName)
+	if !ok {
+		origin := msg.OriginView
+		return func() tea.Msg {
+			return views.SSHExitedMsg{
+				Err:        notFoundErr,
+				OriginView: origin,
+			}
+		}
+	}
+
+	//nolint:gosec // binary path resolved via LookPath; args built from typed Options struct
+	cmd := exec.Command(path, args...)
+	origin := msg.OriginView
+	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+		return views.SSHExitedMsg{Err: err, OriginView: origin}
+	})
+}
+
+// routeSSHExit dispatches the (optional) error from a finished SSH session
+// to whichever view originated the request. Falls back to the app-level
+// error field if the origin is unknown or doesn't expose SetSSHError.
+func (a *App) routeSSHExit(msg views.SSHExitedMsg) {
+	if msg.Err == nil {
+		return
+	}
+	type sshErrSetter interface{ SetSSHError(error) }
+	if setter, ok := msg.OriginView.(sshErrSetter); ok {
+		setter.SetSSHError(msg.Err)
+		return
+	}
+	a.err = msg.Err
 }

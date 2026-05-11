@@ -336,6 +336,9 @@ On developing or updating a new feature keep in mind the following guidelines:
 - [x] Subnets list and management
 - [x] Disk image deletion with confirmation
 - [x] Disk image creation from disks/snapshots
-- [ ] SSH to instance (via gcloud)
+- [x] SSH to running instance
+  - `t` key opens an options dialog (method, user, IAP tunnel, internal IP, port forward)
+  - Hands off via `gcloud compute ssh` by default; falls back to plain `ssh` when gcloud is absent
+  - Returns to the TUI on exit; if the binary cannot launch, the error is shown inline (stderr from a started session is printed to the terminal during the session itself, not captured afterward)
 - [ ] Resource caching
 - [ ] GKE cluster management
