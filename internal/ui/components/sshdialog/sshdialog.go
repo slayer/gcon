@@ -57,6 +57,8 @@ const (
 
 var portForwardRe = regexp.MustCompile(`^\d+:[^:]+:\d+$`)
 
+const errorIndent = "                " // aligns error text under input fields (16 cols)
+
 // Dialog is the modal SSH-options popup.
 type Dialog struct {
 	params Params
@@ -195,8 +197,8 @@ func (d *Dialog) Update(msg tea.Msg) (*Dialog, tea.Cmd) {
 				cmd := d.submit()
 				return d, cmd
 			default:
-				cmd := d.submit()
-				return d, cmd
+				d.advanceFocus(+1)
+				return d, nil
 			}
 		}
 	}
@@ -220,19 +222,32 @@ func (d *Dialog) advanceFocus(delta int) {
 	d.user.Blur()
 	d.host.Blur()
 	d.portForward.Blur()
-	d.focus = field((int(d.focus) + delta + int(fieldCount)) % int(fieldCount))
+	for range int(fieldCount) {
+		d.focus = field((int(d.focus) + delta + int(fieldCount)) % int(fieldCount))
+		if !d.isFieldSkipped() {
+			break
+		}
+	}
 	switch d.focus {
 	case fieldUser:
 		d.user.Focus()
 	case fieldHost:
-		if d.method == gconssh.MethodSSH {
-			d.host.Focus()
-		} else {
-			d.advanceFocus(delta) // skip greyed field
-		}
+		d.host.Focus()
 	case fieldPortForward:
 		d.portForward.Focus()
 	}
+}
+
+// isFieldSkipped reports whether the currently-focused field is greyed out
+// and should be passed over by navigation.
+func (d *Dialog) isFieldSkipped() bool {
+	switch d.focus {
+	case fieldHost:
+		return d.method == gconssh.MethodGcloud
+	case fieldIAP, fieldInternalIP:
+		return d.method == gconssh.MethodSSH
+	}
+	return false
 }
 
 func (d *Dialog) setMethod(m gconssh.Method) {
@@ -242,6 +257,9 @@ func (d *Dialog) setMethod(m gconssh.Method) {
 	d.method = m
 }
 
+// setHost / setPortForward are test-only mutators that bypass the textinput
+// keystroke pipeline. Production code should not call them directly — the
+// dialog's textinputs receive characters through Update.
 func (d *Dialog) setHost(h string)        { d.host.SetValue(h) }
 func (d *Dialog) setPortForward(p string) { d.portForward.SetValue(p) }
 
@@ -344,7 +362,7 @@ func (d *Dialog) View() string {
 		b.WriteString(d.host.View() + "\n")
 	}
 	if e := errs["host"]; e != "" {
-		b.WriteString("                " + errorStyle.Render(e) + "\n")
+		b.WriteString(errorIndent + errorStyle.Render(e) + "\n")
 	}
 
 	iapBox := checkbox(d.iap)
@@ -359,7 +377,7 @@ func (d *Dialog) View() string {
 	b.WriteString(labelStyle.Render("Port forward:   "))
 	b.WriteString(d.portForward.View() + "\n")
 	if e := errs["port_forward"]; e != "" {
-		b.WriteString("                " + errorStyle.Render(e) + "\n")
+		b.WriteString(errorIndent + errorStyle.Render(e) + "\n")
 	}
 
 	connect := "[ Connect ]"

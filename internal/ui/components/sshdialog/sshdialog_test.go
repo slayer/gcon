@@ -18,6 +18,7 @@ func newTestDialog(t *testing.T, params Params) *Dialog {
 	d.gcloudFound = true
 	d.sshFound = true
 	d.binaryErr = nil
+	d.recomputeMethodLock()
 	return d
 }
 
@@ -143,7 +144,20 @@ func TestView_RendersInstanceName(t *testing.T) {
 
 func TestUpdate_AcceptsBlinkMsgs(t *testing.T) {
 	d := newTestDialog(t, Params{Project: "p", Zone: "z", Instance: "vm"})
-	var msg tea.Msg = struct{}{}
-	_, _ = d.Update(msg)
-	// No panic = pass.
+	// An unknown message type must be accepted and produce no command;
+	// this guards the rule that Update takes tea.Msg, not just tea.KeyMsg.
+	_, cmd := d.Update(struct{}{})
+	assert.Nil(t, cmd)
+}
+
+func TestEnterFromTextField_AdvancesFocusNotSubmits(t *testing.T) {
+	d := newTestDialog(t, Params{
+		Project: "p", Zone: "z", Instance: "vm",
+		InternalIP: "10.0.0.5", ExternalIP: "34.1.2.3",
+	})
+	// Focus starts on fieldUser. Press Enter — should advance, not submit.
+	startFocus := d.focus
+	_, cmd := d.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	assert.Nil(t, cmd, "Enter on a text field must not return a submit cmd")
+	assert.NotEqual(t, startFocus, d.focus, "Enter must advance focus")
 }
