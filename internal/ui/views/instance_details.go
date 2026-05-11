@@ -20,6 +20,7 @@ import (
 	"github.com/slayer/gcon/internal/ui/components/confirm"
 	"github.com/slayer/gcon/internal/ui/components/links"
 	"github.com/slayer/gcon/internal/ui/components/metricchart"
+	"github.com/slayer/gcon/internal/ui/components/sshdialog"
 	"github.com/slayer/gcon/internal/ui/components/tabs"
 	"github.com/slayer/gcon/internal/ui/context"
 	uierrors "github.com/slayer/gcon/internal/ui/errors"
@@ -151,6 +152,10 @@ type InstanceDetailsView struct {
 	// Metric charts for observability tab
 	cpuChart    *metricchart.Chart
 	memoryChart *metricchart.Chart
+	// SSH dialog state
+	sshDialog     *sshdialog.Dialog
+	showSSHDialog bool
+	sshErr        error
 }
 
 type instanceDetailsKeyMap struct {
@@ -165,6 +170,7 @@ type instanceDetailsKeyMap struct {
 	Delete     key.Binding
 	Refresh    key.Binding
 	ActionMenu key.Binding
+	SSH        key.Binding
 }
 
 func defaultInstanceDetailsKeyMap() instanceDetailsKeyMap {
@@ -212,6 +218,10 @@ func defaultInstanceDetailsKeyMap() instanceDetailsKeyMap {
 		ActionMenu: key.NewBinding(
 			key.WithKeys("."),
 			key.WithHelp(".", "actions"),
+		),
+		SSH: key.NewBinding(
+			key.WithKeys("t"),
+			key.WithHelp("t", "ssh"),
 		),
 	}
 }
@@ -303,7 +313,31 @@ func (v *InstanceDetailsView) loadDetails() tea.Cmd {
 //
 //nolint:gocognit // Bubble Tea Update pattern - complexity 90
 func (v *InstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
+	// Route all messages through the SSH dialog while it is open, except for
+	// the terminal messages (ConnectMsg / CancelMsg) which this view must
+	// handle itself to close the dialog.
+	if v.showSSHDialog && v.sshDialog != nil {
+		if _, isConnect := msg.(sshdialog.ConnectMsg); !isConnect {
+			if _, isCancel := msg.(sshdialog.CancelMsg); !isCancel {
+				var cmd tea.Cmd
+				v.sshDialog, cmd = v.sshDialog.Update(msg)
+				return cmd
+			}
+		}
+	}
+
 	switch msg := msg.(type) {
+	case sshdialog.ConnectMsg:
+		v.showSSHDialog = false
+		opts := msg.Options
+		return func() tea.Msg {
+			return SSHRequestMsg{Options: opts, OriginView: v}
+		}
+
+	case sshdialog.CancelMsg:
+		v.showSSHDialog = false
+		return nil
+
 	case instanceDetailsLoadedMsg:
 		v.loading = false
 		v.actionLoading = false
@@ -624,6 +658,11 @@ func (v *InstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
 			if v.details != nil {
 				return v.showDeleteConfirmation()
 			}
+
+		case key.Matches(msg, v.keys.SSH):
+			if v.details != nil && v.isInstanceRunning() {
+				return v.openSSHDialog()
+			}
 		}
 	}
 
@@ -647,9 +686,34 @@ func (v *InstanceDetailsView) buildActions() []actionmenu.Action {
 		{Key: 'R', Label: "Reset", Enabled: isRunning, Dangerous: true},
 		{Key: 'D', Label: "Delete" + protectionLabel(isProtected), Enabled: !isProtected, Dangerous: true},
 		{Key: 'l', Label: "Edit Labels", Enabled: true},
-		{Key: 'S', Label: "SSH", Enabled: isRunning},
+		{Key: 't', Label: "SSH", Enabled: isRunning},
 		{Key: 'r', Label: "Refresh", Enabled: true},
 	}
+}
+
+// openSSHDialog constructs and opens the SSH options modal for the current
+// instance. Caller must have verified that v.details is non-nil and the
+// instance is in RUNNING state.
+func (v *InstanceDetailsView) openSSHDialog() tea.Cmd {
+	v.sshErr = nil
+	// Extract primary IPs from the first network interface.
+	var internalIP, externalIP string
+	if len(v.details.NetworkInterfaces) > 0 {
+		nic := v.details.NetworkInterfaces[0]
+		internalIP = nic.InternalIP
+		externalIP = nic.ExternalIP
+	}
+	v.sshDialog = sshdialog.New(sshdialog.Params{
+		Project:    v.projectID,
+		Zone:       v.zone,
+		Instance:   v.instanceName,
+		InternalIP: internalIP,
+		ExternalIP: externalIP,
+		OriginView: v,
+	})
+	v.sshDialog.SetSize(v.width, v.height)
+	v.showSSHDialog = true
+	return v.sshDialog.Init()
 }
 
 // executeAction performs the action selected from the menu
@@ -708,10 +772,9 @@ func (v *InstanceDetailsView) executeAction(actionKey rune) tea.Cmd {
 				EditMode:     "labels",
 			}
 		}
-	case 'S':
+	case 't':
 		if v.isInstanceRunning() {
-			// SSH to instance is a planned feature
-			v.err = fmt.Errorf("%w for instance %s", uierrors.ErrSSHNotImplemented, v.instanceName)
+			return v.openSSHDialog()
 		}
 	case 'r':
 		v.loading = true
@@ -992,6 +1055,15 @@ func (v *InstanceDetailsView) View() string {
 
 	mainContent := header + tabBar + "\n" + viewportContent + help
 
+	if v.sshErr != nil {
+		mainContent += "\n" + components.RenderInlineError(v.sshErr)
+	}
+
+	// Overlay SSH dialog if open — highest priority
+	if v.showSSHDialog && v.sshDialog != nil {
+		return v.renderWithOverlay(mainContent, v.sshDialog.View())
+	}
+
 	// Overlay action menu if open
 	if v.menuOpen && v.actionMenu != nil {
 		return v.renderWithOverlay(mainContent, v.actionMenu.View())
@@ -1025,14 +1097,23 @@ func (v *InstanceDetailsView) SetContext(ctx *context.ProgramContext) {
 	v.applySize(ctx.ContentWidth, ctx.ContentHeight)
 }
 
-// IsMenuOpen returns true if the action menu or delete confirm is open
-func (v *InstanceDetailsView) IsMenuOpen() bool {
-	return v.menuOpen || v.showStopConfirm || v.showDeleteConfirm
+// SetSSHError stores an error from a finished SSH session for inline display.
+// Called by the app after tea.ExecProcess returns.
+func (v *InstanceDetailsView) SetSSHError(err error) {
+	v.sshErr = err
 }
 
-// HasTextInputFocused returns true if the delete confirm input is active.
+// IsMenuOpen returns true if the action menu or delete confirm is open
+func (v *InstanceDetailsView) IsMenuOpen() bool {
+	return v.menuOpen || v.showStopConfirm || v.showDeleteConfirm || v.showSSHDialog
+}
+
+// HasTextInputFocused returns true if the delete confirm input or SSH dialog is active.
 // Used to prevent global hotkeys (like 'q' for quit) from triggering while typing.
 func (v *InstanceDetailsView) HasTextInputFocused() bool {
+	if v.showSSHDialog && v.sshDialog != nil {
+		return true
+	}
 	if v.showDeleteConfirm && v.deleteConfirm != nil {
 		return v.deleteConfirm.HasTextInputFocused()
 	}
