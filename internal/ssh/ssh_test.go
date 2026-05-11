@@ -175,7 +175,8 @@ func TestBuildSSHArgs_NoShellInjection(t *testing.T) {
 }
 
 func TestLookupBinary(t *testing.T) {
-	path, ok := LookupBinary("sh")
+	// "go" is on PATH in any environment running Go tests, including Windows.
+	path, ok := LookupBinary("go")
 	assert.True(t, ok)
 	assert.NotEmpty(t, path)
 

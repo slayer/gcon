@@ -19,6 +19,10 @@ func newTestDialog(t *testing.T, params Params) *Dialog {
 	d.sshFound = true
 	d.binaryErr = nil
 	d.recomputeMethodLock()
+	// Explicitly set method: recomputeMethodLock only sets methodLocked but
+	// does not reset method when both binaries are present.  Without this,
+	// a CI runner that lacks gcloud would leave method=MethodSSH.
+	d.method = gconssh.MethodGcloud
 	return d
 }
 

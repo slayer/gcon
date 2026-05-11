@@ -90,7 +90,9 @@ Greying instead of hiding keeps the dialog height stable as method changes.
 
 The TUI re-renders the originating view exactly as it was. If the SSH process
 exited non-zero, the originating view shows an inline error
-(`components.RenderInlineError`) with the exit code and any captured stderr.
+(`components.RenderInlineError`) with the exit code. Stderr is printed to the
+terminal during the session itself (via `tea.ExecProcess` which attaches stdio
+directly) and is not available afterward.
 On clean exit (Ctrl-D / `exit`), silent return — no banner, no refresh.
 
 ## Architecture
@@ -244,7 +246,7 @@ back to whichever view (details or list) launched the session.
 | Both `gcloud` and `ssh` missing | inline error + Cancel-only | dialog overlay |
 | Validation (bad port forward, empty host in ssh mode) | red message under field | dialog overlay |
 | `tea.ExecProcess` can't start the binary | `SSHExitedMsg{err}` | originating view inline error |
-| Non-zero exit (auth refused, host unreachable, etc.) | `SSHExitedMsg{err: *exec.ExitError}` | originating view inline error, exit code + stderr |
+| Non-zero exit (auth refused, host unreachable, etc.) | `SSHExitedMsg{err: *exec.ExitError}` | originating view inline error (exit code only); stderr was printed to the terminal during the session itself |
 | Clean exit (Ctrl-D / `exit`) | `SSHExitedMsg{err: nil}` | silent return |
 
 ## Concurrency

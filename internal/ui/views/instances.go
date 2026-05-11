@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/charmbracelet/bubbles/cursor"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
@@ -241,15 +242,15 @@ func instanceToRow(inst gcp.Instance) table.Row { //nolint:gocritic // Copying i
 //
 //nolint:gocognit // Bubble Tea Update pattern - complexity 57
 func (v *InstancesView) Update(msg tea.Msg) tea.Cmd {
-	// Route all messages through the SSH dialog while it is open, except for
-	// the dialog's own terminal messages (ConnectMsg / CancelMsg).
+	// Route only key and cursor-blink messages through the SSH dialog while it
+	// is open. ConnectMsg / CancelMsg are emitted by the dialog as tea.Cmd
+	// returns and fall through to the cases below.
 	if v.showSSHDialog && v.sshDialog != nil {
-		if _, isConnect := msg.(sshdialog.ConnectMsg); !isConnect {
-			if _, isCancel := msg.(sshdialog.CancelMsg); !isCancel {
-				var cmd tea.Cmd
-				v.sshDialog, cmd = v.sshDialog.Update(msg)
-				return cmd
-			}
+		switch msg.(type) {
+		case tea.KeyMsg, cursor.BlinkMsg:
+			var cmd tea.Cmd
+			v.sshDialog, cmd = v.sshDialog.Update(msg)
+			return cmd
 		}
 	}
 
@@ -796,7 +797,7 @@ func (v *InstancesView) View() string {
 
 	// Help text for actions - include '.' for action menu
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
-	help := helpStyle.Render("\n  enter: details • c: create • .: actions • s: start • x: stop • z: suspend • Z: resume • S: sort • /: filter • r: refresh")
+	help := helpStyle.Render("\n  enter: details • c: create • .: actions • t: ssh • s: start • x: stop • z: suspend • Z: resume • S: sort • /: filter • r: refresh")
 
 	mainContent := header + v.table.View() + help
 

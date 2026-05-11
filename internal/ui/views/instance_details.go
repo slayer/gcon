@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/cursor"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -314,16 +315,15 @@ func (v *InstanceDetailsView) loadDetails() tea.Cmd {
 //
 //nolint:gocognit // Bubble Tea Update pattern - complexity 90
 func (v *InstanceDetailsView) Update(msg tea.Msg) tea.Cmd {
-	// Route all messages through the SSH dialog while it is open, except for
-	// the terminal messages (ConnectMsg / CancelMsg) which this view must
-	// handle itself to close the dialog.
+	// Route only key and cursor-blink messages through the SSH dialog while it
+	// is open. ConnectMsg / CancelMsg are emitted by the dialog as tea.Cmd
+	// returns and fall through to the cases below.
 	if v.showSSHDialog && v.sshDialog != nil {
-		if _, isConnect := msg.(sshdialog.ConnectMsg); !isConnect {
-			if _, isCancel := msg.(sshdialog.CancelMsg); !isCancel {
-				var cmd tea.Cmd
-				v.sshDialog, cmd = v.sshDialog.Update(msg)
-				return cmd
-			}
+		switch msg.(type) {
+		case tea.KeyMsg, cursor.BlinkMsg:
+			var cmd tea.Cmd
+			v.sshDialog, cmd = v.sshDialog.Update(msg)
+			return cmd
 		}
 	}
 
@@ -1721,9 +1721,9 @@ func (v *InstanceDetailsView) buildHelpText() string {
 	helpStr := focus.FormatHelp(bindings)
 	badge := focus.FormatRegionBadge(v.focusMgr.Active())
 	if badge != "" {
-		return "\n  " + badge + " • " + helpStr + " • .: actions"
+		return "\n  " + badge + " • " + helpStr + " • t: ssh • .: actions"
 	}
-	return "\n  " + helpStr + " • .: actions"
+	return "\n  " + helpStr + " • t: ssh • .: actions"
 }
 
 // getRegionLabel returns a descriptive label for the current focus context
