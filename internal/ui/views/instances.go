@@ -154,6 +154,7 @@ func NewInstancesView(projectID string) *InstancesView {
 
 // Init initializes the view and starts loading instances
 func (v *InstancesView) Init() tea.Cmd {
+	v.sshErr = nil
 	return tea.Batch(
 		v.spinner.Tick,
 		v.initComputeClient(),

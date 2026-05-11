@@ -276,6 +276,7 @@ func NewInstanceDetailsView(projectID, zone, instanceName string, computeClient 
 
 // Init initializes the view and starts loading instance details
 func (v *InstanceDetailsView) Init() tea.Cmd {
+	v.sshErr = nil
 	return tea.Batch(
 		v.spinner.Tick,
 		v.loadDetails(),

@@ -1,6 +1,7 @@
 package views
 
 import (
+	"errors"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -8,6 +9,8 @@ import (
 	"github.com/slayer/gcon/internal/ui/context"
 	"github.com/stretchr/testify/assert"
 )
+
+var errSSHAuthRefused = errors.New("auth refused")
 
 func TestInstancesView_NewInstancesView(t *testing.T) {
 	v := NewInstancesView("test-project")
@@ -61,4 +64,14 @@ func TestInstances_IsMenuOpen_TrueWhenSSHDialogOpen(t *testing.T) {
 	assert.False(t, v.IsMenuOpen())
 	_ = v.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
 	assert.True(t, v.IsMenuOpen())
+}
+
+func TestInstances_SetSSHError_RendersInlineError(t *testing.T) {
+	v := NewInstancesView("proj")
+	v.Update(instancesLoadedMsg{instances: []gcp.Instance{
+		{Name: "vm", Status: "RUNNING", InternalIP: "10.0.0.5", Zone: "us-central1-a"},
+	}})
+	v.SetSSHError(errSSHAuthRefused)
+	out := v.View()
+	assert.Contains(t, out, "auth refused")
 }
