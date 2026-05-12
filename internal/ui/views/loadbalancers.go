@@ -57,7 +57,8 @@ func loadBalancerColumns() []table.Column {
 	}
 }
 
-// NewLoadBalancersView constructs the list view.
+// NewLoadBalancersView constructs the list view. If client is nil the view
+// will initialize one on Init().
 func NewLoadBalancersView(projectID string, client *gcp.ComputeClient) *LoadBalancersView {
 	t := table.NewWithColumns(loadBalancerColumns(), "Load balancers - "+projectID)
 
@@ -77,7 +78,20 @@ func NewLoadBalancersView(projectID string, client *gcp.ComputeClient) *LoadBala
 func (v *LoadBalancersView) Init() tea.Cmd {
 	v.loading = true
 	v.err = nil
+	if v.client == nil {
+		return tea.Batch(v.spinner.Tick, v.initClient())
+	}
 	return tea.Batch(v.spinner.Tick, v.load())
+}
+
+func (v *LoadBalancersView) initClient() tea.Cmd {
+	return func() tea.Msg {
+		client, err := gcp.NewComputeClient(gocontext.Background())
+		if err != nil {
+			return loadBalancersErrorMsg{err: err}
+		}
+		return loadBalancersClientReadyMsg{client: client}
+	}
 }
 
 func (v *LoadBalancersView) load() tea.Cmd {
@@ -119,6 +133,10 @@ func (v *LoadBalancersView) HasTextInputFocused() bool {
 // Update routes messages.
 func (v *LoadBalancersView) Update(msg tea.Msg) tea.Cmd {
 	switch m := msg.(type) {
+	case loadBalancersClientReadyMsg:
+		v.client = m.client
+		return v.load()
+
 	case loadBalancersLoadedMsg:
 		v.loading = false
 		v.err = nil
@@ -234,6 +252,10 @@ func (v *LoadBalancersView) findRule(selfLink string) *gcp.ForwardingRule {
 }
 
 // Internal messages.
+type loadBalancersClientReadyMsg struct {
+	client *gcp.ComputeClient
+}
+
 type loadBalancersLoadedMsg struct {
 	rules []gcp.ForwardingRule
 }

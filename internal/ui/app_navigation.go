@@ -346,6 +346,17 @@ func (a *App) handleSidebarNavigation(msg sidebar.NavigateMsg) tea.Cmd {
 			a.updateViewSizes()
 			cmd = a.logsView.Init()
 		}
+
+	case sidebar.ViewLoadBalancers:
+		if a.currentView != ViewLoadBalancers && a.currentView != ViewLoadBalancerDetails {
+			a.currentView = ViewLoadBalancers
+			a.loadBalancerDetailsView = nil
+			if a.loadBalancersView == nil {
+				a.loadBalancersView = views.NewLoadBalancersView(a.selectedProject.ID, nil)
+				a.updateViewSizes()
+				cmd = a.loadBalancersView.Init()
+			}
+		}
 	}
 
 	a.updateSidebarActiveView()
@@ -395,6 +406,8 @@ func (a *App) updateSidebarActiveView() {
 		a.sidebar.SetActiveView(sidebar.ViewCloudRunServices)
 	case ViewLogs:
 		a.sidebar.SetActiveView(sidebar.ViewLogs)
+	case ViewLoadBalancers, ViewLoadBalancerDetails:
+		a.sidebar.SetActiveView(sidebar.ViewLoadBalancers)
 	}
 }
 
@@ -720,6 +733,8 @@ func (a *App) clearAllViews() {
 		a.logsView.Close()
 	}
 	a.logsView = nil
+	a.loadBalancersView = nil
+	a.loadBalancerDetailsView = nil
 	a.formDemoView = nil
 
 	// Clear view stack
@@ -3572,4 +3587,127 @@ func (a *App) handleBucketDetailsRequest(msg views.BucketDetailsRequestMsg) tea.
 	a.bucketDetailsView = views.NewBucketDetailsView(*found)
 	a.updateViewSizes()
 	return a.bucketDetailsView.Init()
+}
+
+// handleLoadBalancerSelected pushes the details view for the chosen forwarding
+// rule. The compute client (if any) is reused from the list view.
+//
+//nolint:gocritic // hugeParam: message struct passed by value
+func (a *App) handleLoadBalancerSelected(msg views.LoadBalancerSelectedMsg) tea.Cmd {
+	a.viewStack = append(a.viewStack, a.currentView)
+	a.currentView = ViewLoadBalancerDetails
+
+	var client *gcp.ComputeClient
+	if a.loadBalancersView != nil {
+		client = a.loadBalancersView.GetComputeClient()
+	}
+	a.loadBalancerDetailsView = views.NewLoadBalancerDetailsView(
+		a.selectedProject.ID, msg.Scope, msg.Name, client,
+	)
+	a.updateSidebarActiveView()
+	a.updateViewSizes()
+	return a.loadBalancerDetailsView.Init()
+}
+
+// handleLoadBalancerDeleteRequest runs the cascade off-thread and emits
+// LoadBalancerDeletedMsg with the per-resource error map.
+//
+//nolint:gocritic // hugeParam: message struct passed by value
+func (a *App) handleLoadBalancerDeleteRequest(msg views.LoadBalancerDeleteRequestMsg) tea.Cmd {
+	var client *gcp.ComputeClient
+	if a.loadBalancerDetailsView != nil {
+		client = a.loadBalancerDetailsView.GetComputeClient()
+	}
+	if client == nil && a.loadBalancersView != nil {
+		client = a.loadBalancersView.GetComputeClient()
+	}
+	projectID := a.selectedProject.ID
+	cascade := msg.Cascade
+	return func() tea.Msg {
+		return executeLoadBalancerCascade(gocontext.Background(), client, projectID, cascade)
+	}
+}
+
+// executeLoadBalancerCascade runs the cascade in dependency order. Backends
+// and health checks within a step run sequentially (parallelism is a Phase 2
+// optimization). Failures of leaf resources are recorded and surfaced but do
+// not abort sibling leaves.
+func executeLoadBalancerCascade(ctx gocontext.Context, client *gcp.ComputeClient, projectID string, c views.Cascade) views.LoadBalancerDeletedMsg {
+	errs := map[string]error{}
+	if client == nil {
+		errs["__client__"] = uierrors.ErrClientNotInitialized
+		return views.LoadBalancerDeletedMsg{Errs: errs}
+	}
+
+	var fwd, proxy, urlMap views.CascadeItem
+	var backends, checks []views.CascadeItem
+	for _, it := range c.Delete {
+		switch it.Kind {
+		case "forwardingRule":
+			fwd = it
+		case "targetHttpProxies", "targetHttpsProxies", "targetTcpProxies", "targetSslProxies":
+			proxy = it
+		case "urlMap":
+			urlMap = it
+		case "backendService":
+			backends = append(backends, it)
+		case "healthCheck":
+			checks = append(checks, it)
+		}
+	}
+
+	if fwd.URL != "" {
+		if err := client.DeleteForwardingRule(ctx, projectID, fwd.Scope, fwd.Name); err != nil {
+			errs[fwd.URL] = err
+			return views.LoadBalancerDeletedMsg{Errs: errs}
+		}
+	}
+	if proxy.URL != "" {
+		if err := client.DeleteTargetProxy(ctx, projectID, proxy.Scope, proxy.Kind, proxy.Name); err != nil {
+			errs[proxy.URL] = err
+			return views.LoadBalancerDeletedMsg{Errs: errs}
+		}
+	}
+	if urlMap.URL != "" {
+		if err := client.DeleteURLMap(ctx, projectID, urlMap.Scope, urlMap.Name); err != nil {
+			errs[urlMap.URL] = err
+			return views.LoadBalancerDeletedMsg{Errs: errs}
+		}
+	}
+	for _, it := range backends {
+		if err := client.DeleteBackendService(ctx, projectID, it.Scope, it.Name); err != nil {
+			errs[it.URL] = err
+		}
+	}
+	for _, it := range checks {
+		if err := client.DeleteHealthCheck(ctx, projectID, it.Scope, it.Name); err != nil {
+			errs[it.URL] = err
+		}
+	}
+	return views.LoadBalancerDeletedMsg{Errs: errs}
+}
+
+// handleLoadBalancerDeleted reacts to cascade completion: on success, pop back
+// to the list view and refresh it; on failure, surface the error inline on the
+// details view.
+//
+//nolint:gocritic // hugeParam: message struct passed by value
+func (a *App) handleLoadBalancerDeleted(msg views.LoadBalancerDeletedMsg) tea.Cmd {
+	if len(msg.Errs) > 0 {
+		if a.loadBalancerDetailsView != nil {
+			a.loadBalancerDetailsView.SetDeleteResult(msg.Errs)
+		}
+		return nil
+	}
+	if len(a.viewStack) > 0 {
+		lastViewIndex := len(a.viewStack) - 1
+		a.currentView = a.viewStack[lastViewIndex]
+		a.viewStack = a.viewStack[:lastViewIndex]
+	}
+	a.loadBalancerDetailsView = nil
+	a.updateSidebarActiveView()
+	if a.loadBalancersView != nil {
+		return a.loadBalancersView.Init()
+	}
+	return nil
 }

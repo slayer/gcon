@@ -103,7 +103,20 @@ func (v *LoadBalancerDetailsView) Init() tea.Cmd {
 	v.showDeleteConfirm = false
 	v.deleteErrs = nil
 	v.deleting = false
+	if v.client == nil {
+		return tea.Batch(v.spinner.Tick, v.initClient())
+	}
 	return tea.Batch(v.spinner.Tick, v.fetchFwd(), v.fetchSharingInventory())
+}
+
+func (v *LoadBalancerDetailsView) initClient() tea.Cmd {
+	return func() tea.Msg {
+		client, err := gcp.NewComputeClient(gocontext.Background())
+		if err != nil {
+			return lbErrorMsg{err: err}
+		}
+		return lbClientReadyMsg{client: client}
+	}
 }
 
 // SetSize records dimensions.
@@ -134,11 +147,19 @@ func (v *LoadBalancerDetailsView) GetComputeClient() *gcp.ComputeClient {
 	return v.client
 }
 
+// Name returns the forwarding-rule name for breadcrumb rendering.
+func (v *LoadBalancerDetailsView) Name() string {
+	return v.name
+}
+
 // Update routes messages.
 //
 //nolint:gocognit,cyclop // Bubble Tea Update pattern requires centralized message handling
 func (v *LoadBalancerDetailsView) Update(msg tea.Msg) tea.Cmd {
 	switch m := msg.(type) {
+	case lbClientReadyMsg:
+		v.client = m.client
+		return tea.Batch(v.fetchFwd(), v.fetchSharingInventory())
 	case lbFwdLoadedMsg:
 		v.rule = m.rule
 		v.fetchState.fwdLoaded = true
@@ -540,6 +561,7 @@ func collectBackendURLs(um gcp.URLMap) []string {
 }
 
 // Internal messages.
+type lbClientReadyMsg struct{ client *gcp.ComputeClient }
 type lbFwdLoadedMsg struct{ rule *gcp.ForwardingRule }
 type lbProxyLoadedMsg struct{ proxy *gcp.TargetProxy }
 type lbURLMapLoadedMsg struct{ urlMap *gcp.URLMap }
