@@ -48,7 +48,7 @@ func defaultLoadBalancersKeyMap() loadBalancersKeyMap {
 
 func loadBalancerColumns() []table.Column {
 	return []table.Column{
-		{Title: "Name", Width: 24, Sortable: true},
+		{Title: "Name", Width: 32, Sortable: true},
 		{Title: "Type", Width: 24, Sortable: true},
 		{Title: "Scope", Width: 16, Sortable: true},
 		{Title: "IP", Width: 18},
