@@ -33,6 +33,7 @@ const (
 	ViewCustomRoles
 	ViewCloudRunServices
 	ViewLogs
+	ViewLoadBalancers
 )
 
 // Icons for commands
@@ -52,6 +53,7 @@ const (
 	IconRoute          = "→"
 	IconCloudRun       = "▶"
 	IconLogs           = "◆"
+	IconLoadBalancer   = "⊕"
 	IconRefresh        = "↻"
 	IconSidebar        = "☰"
 	IconHelp           = "?"
@@ -209,6 +211,14 @@ func NavigationCommands() []Command {
 			Icon:     IconLogs,
 			Type:     CommandTypeNavigation,
 			ViewType: ViewLogs,
+			Enabled:  true,
+		},
+		{
+			ID:       "nav:load-balancers",
+			Label:    "Network Services: Load balancing",
+			Icon:     IconLoadBalancer,
+			Type:     CommandTypeNavigation,
+			ViewType: ViewLoadBalancers,
 			Enabled:  true,
 		},
 	}

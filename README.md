@@ -274,6 +274,15 @@ Without mise, install Go 1.26+ and `golangci-lint` 2.12+ manually.
   - Browse subnets within each network with IP ranges and regions
   - Navigate between related network resources
 
+- ⚖️ **Load Balancers** (Phase 1)
+  - List forwarding rules across global + all regions, with derived type
+    (HTTPS external / internal, HTTP, TCP/SSL proxy, Network LB)
+  - Details view with three tabs: Overview, Routing (URL map host/path → backend),
+    Backends (instance groups / NEGs, health checks, balancing mode)
+  - Delete with dependency cascade (proxy → URL map → backend services → health
+    checks), preserving shared resources; type-to-confirm dialog shows exactly
+    what will be deleted and what will be kept
+
 - 🔥 **Firewall Rules**
   - List all firewall rules with direction, priority, action, protocols, and status
   - View detailed rule information (allowed/denied entries, source/destination ranges, tags)
@@ -365,7 +374,6 @@ The following features are planned for future releases:
   - Workload viewing
 - [ ] **Cloud Functions** - Function deployment and monitoring
 - [ ] **Subnets** - Standalone subnet list and management
-- [ ] **Load Balancers** - Load balancer configuration and health
 - [ ] **Cost Explorer** - Resource cost analysis and budgets
 
 ## Authentication

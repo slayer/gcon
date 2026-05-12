@@ -39,6 +39,8 @@ func (a *App) renderHeader() string {
 			category = "Cloud Run"
 		case ViewLogs:
 			category = "Logging"
+		case ViewLoadBalancers, ViewLoadBalancerDetails:
+			category = "Network Services"
 		}
 	}
 	a.header.SetCategory(category)
@@ -156,6 +158,13 @@ func (a *App) renderHeader() string {
 	case ViewInstanceConfigEdit:
 		if a.instanceConfigEditView != nil {
 			resources = append(resources, a.instanceConfigEditView.GetInstanceName(), "Edit Configuration")
+		}
+	case ViewLoadBalancers:
+		resources = append(resources, "Load balancing")
+	case ViewLoadBalancerDetails:
+		resources = append(resources, "Load balancing")
+		if a.loadBalancerDetailsView != nil {
+			resources = append(resources, a.loadBalancerDetailsView.Name())
 		}
 	}
 	a.header.SetResources(resources)
@@ -348,6 +357,14 @@ func (a *App) renderCurrentView() string {
 	case ViewLogs:
 		if a.logsView != nil {
 			return a.logsView.View()
+		}
+	case ViewLoadBalancers:
+		if a.loadBalancersView != nil {
+			return a.loadBalancersView.View()
+		}
+	case ViewLoadBalancerDetails:
+		if a.loadBalancerDetailsView != nil {
+			return a.loadBalancerDetailsView.View()
 		}
 	case ViewFormDemo:
 		if a.formDemoView != nil {

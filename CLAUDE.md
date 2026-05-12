@@ -331,6 +331,14 @@ On developing or updating a new feature keep in mind the following guidelines:
   - Open in $PAGER with `p` key (respects color toggle)
   - Export to TXT/CSV/JSONL via action menu
   - ANSI-aware truncation and wrapping (preserves existing log colors)
+- [x] Load Balancers (Phase 1)
+  - List forwarding rules across global + all regions, with type derivation
+    (HTTPS external / internal, HTTP, TCP/SSL proxy, Network LB proxy/passthrough/legacy)
+  - Details view with three tabs: Overview, Routing (URL map host/path → backend),
+    Backends (instance groups / NEGs, health checks, balancing mode)
+  - Delete with dependency cascade: walks proxy → URL map → backend services →
+    health checks, skipping shared resources; type-to-confirm dialog lists every
+    resource that will be deleted and every shared one that will be kept
 
 ## Planned Features
 - [x] Subnets list and management

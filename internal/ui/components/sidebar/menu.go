@@ -29,6 +29,7 @@ const (
 	ViewCustomRoles
 	ViewCloudRunServices
 	ViewLogs
+	ViewLoadBalancers
 )
 
 // Icons for menu items - using simple Unicode box/geometric symbols
@@ -67,6 +68,10 @@ const (
 	// Logging category
 	IconLogging      = "◈" // Logging category
 	IconLogsExplorer = "◆" // Logs Explorer leaf
+
+	// Network Services category
+	IconNetworkServices = "◍" // Network Services category
+	IconLoadBalancer    = "◎" // Load balancing leaf
 )
 
 // MenuItem represents a single menu entry
@@ -129,6 +134,16 @@ func DefaultMenu() []MenuItem {
 				{ID: "subnets", Label: "Subnets", Icon: IconSubnet, Hotkey: 'u', Type: MenuItemLeaf, ViewType: ViewSubnets},
 				{ID: "firewall", Label: "Firewall", Icon: IconFirewall, Hotkey: 'f', Type: MenuItemLeaf, ViewType: ViewFirewall},
 				{ID: "routes", Label: "Routes", Icon: IconRoute, Hotkey: 'o', Type: MenuItemLeaf, ViewType: ViewRoutes},
+			},
+		},
+		{
+			ID:     "network-services",
+			Label:  "Network Services",
+			Icon:   IconNetworkServices,
+			Hotkey: 'N',
+			Type:   MenuItemCategory,
+			Children: []MenuItem{
+				{ID: "load-balancers", Label: "Load balancing", Icon: IconLoadBalancer, Hotkey: 'l', Type: MenuItemLeaf, ViewType: ViewLoadBalancers},
 			},
 		},
 		{

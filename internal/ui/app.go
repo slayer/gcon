@@ -78,6 +78,8 @@ const (
 	ViewInstanceCreate     // Creating a new VM instance
 	ViewInstanceConfigEdit // Editing an existing VM instance configuration
 	ViewLogs
+	ViewLoadBalancers
+	ViewLoadBalancerDetails
 	ViewFormDemo // Demo view for testing form components
 )
 
@@ -154,6 +156,8 @@ type App struct {
 	instanceCreateView         *views.InstanceCreateView
 	instanceConfigEditView     *views.InstanceConfigEditView
 	logsView                   *views.LogsView
+	loadBalancersView          *views.LoadBalancersView
+	loadBalancerDetailsView    *views.LoadBalancerDetailsView
 	formDemoView               *views.FormDemoView
 
 	// Selected context
@@ -442,6 +446,10 @@ func (a *App) getCurrentViewModel() views.View {
 		return a.instanceConfigEditView
 	case ViewLogs:
 		return a.logsView
+	case ViewLoadBalancers:
+		return a.loadBalancersView
+	case ViewLoadBalancerDetails:
+		return a.loadBalancerDetailsView
 	case ViewFormDemo:
 		return a.formDemoView
 	}
@@ -626,7 +634,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// If not handled, fall through to quit
 				fallthrough
 
-			case ViewInstances, ViewDisks, ViewSnapshots, ViewImages, ViewBuckets, ViewNetworks, ViewFirewall, ViewSubnets, ViewRoutes, ViewSQLInstances, ViewServiceAccounts, ViewIAMPolicy, ViewCustomRoles, ViewCloudRunServices, ViewLogs, ViewProjects:
+			case ViewInstances, ViewDisks, ViewSnapshots, ViewImages, ViewBuckets, ViewNetworks, ViewFirewall, ViewSubnets, ViewRoutes, ViewSQLInstances, ViewServiceAccounts, ViewIAMPolicy, ViewCustomRoles, ViewCloudRunServices, ViewLogs, ViewLoadBalancers, ViewProjects:
 				// Quit from top-level views or if stack is empty
 				a.cleanup()
 				return a, tea.Quit
@@ -978,6 +986,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case views.FirewallActionResultMsg:
 		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
 		return a, a.handleFirewallActionResult(msg)
+
+	case views.LoadBalancerSelectedMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleLoadBalancerSelected(msg)
+
+	case views.LoadBalancerDeleteRequestMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleLoadBalancerDeleteRequest(msg)
+
+	case views.LoadBalancerDeletedMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleLoadBalancerDeleted(msg)
 
 	case views.SubnetSelectedMsg:
 		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
@@ -1524,6 +1544,12 @@ func (a *App) updateViewSizes() {
 	}
 	if a.logsView != nil {
 		a.logsView.SetContext(a.ctx)
+	}
+	if a.loadBalancersView != nil {
+		a.loadBalancersView.SetContext(a.ctx)
+	}
+	if a.loadBalancerDetailsView != nil {
+		a.loadBalancerDetailsView.SetContext(a.ctx)
 	}
 }
 
