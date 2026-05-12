@@ -361,6 +361,26 @@ arrow does the same without needing to select the row first.
 | `Enter` | Navigate to VPC network (when link focused) |
 | `Esc` | Go back |
 
+## Load Balancers View
+
+| Key | Action |
+|-----|--------|
+| `Enter` | View load balancer details |
+| `S` | Open sort menu |
+| `/` | Filter load balancers |
+| `r` | Refresh list |
+| `Esc` | Go back |
+
+## Load Balancer Details View
+
+| Key | Action |
+|-----|--------|
+| `D` | Delete LB (with dependency cascade, type-to-confirm) |
+| `r` | Refresh details |
+| `Tab` | Switch focus (tabs / content) |
+| `h/l` or `1/2/3` | Switch tabs (Overview / Routing / Backends) |
+| `Esc` | Cancel delete dialog / Go back |
+
 ## SQL Instances View
 
 | Key | Action |
