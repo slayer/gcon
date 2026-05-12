@@ -11,7 +11,6 @@ func TestDeriveLoadBalancerType(t *testing.T) {
 		name   string
 		target string
 		scheme string
-		proto  string
 		want   string
 	}{
 		{
@@ -48,21 +47,18 @@ func TestDeriveLoadBalancerType(t *testing.T) {
 			name:   "network LB proxy",
 			target: "https://www.googleapis.com/compute/v1/projects/p/regions/us-central1/backendServices/x",
 			scheme: "EXTERNAL_MANAGED",
-			proto:  "TCP",
 			want:   "Network LB (proxy)",
 		},
 		{
 			name:   "network LB passthrough",
 			target: "https://www.googleapis.com/compute/v1/projects/p/regions/us-central1/backendServices/x",
 			scheme: "EXTERNAL",
-			proto:  "TCP",
 			want:   "Network LB (passthrough)",
 		},
 		{
 			name:   "internal passthrough network LB",
 			target: "https://www.googleapis.com/compute/v1/projects/p/regions/us-central1/backendServices/x",
 			scheme: "INTERNAL",
-			proto:  "TCP",
 			want:   "Network LB (passthrough)",
 		},
 		{
@@ -86,7 +82,7 @@ func TestDeriveLoadBalancerType(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := DeriveLoadBalancerType(tc.target, tc.scheme, tc.proto)
+			got := DeriveLoadBalancerType(tc.target, tc.scheme)
 			assert.Equal(t, tc.want, got)
 		})
 	}

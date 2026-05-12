@@ -248,8 +248,8 @@ func (v *LoadBalancerDetailsView) Update(msg tea.Msg) tea.Cmd {
 		case key.Matches(m, v.keys.Refresh):
 			return v.Init()
 		}
-		v.tabs.Update(m)
-		return nil
+		// tabs.Update returns a tea.Cmd that emits TabChangedMsg; propagate it.
+		return v.tabs.Update(m)
 	}
 	return nil
 }

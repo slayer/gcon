@@ -9,10 +9,13 @@ import (
 )
 
 // DeriveLoadBalancerType returns a human-readable load-balancer type label
-// derived from a forwarding rule's Target URL, LoadBalancingScheme, and
-// IPProtocol. See doc/2026-05-11-load-balancers-phase1/Design.md for the
-// full mapping table.
-func DeriveLoadBalancerType(target, scheme, proto string) string {
+// derived from a forwarding rule's Target URL kind and LoadBalancingScheme.
+// IPProtocol is not consulted: the Type column distinguishes architectures
+// (HTTPS / HTTP / TCP-proxy / SSL-proxy / passthrough / legacy), not L4
+// protocol — the underlying protocol is surfaced separately on the row as
+// IPProtocol so users can filter on it. See
+// doc/2026-05-11-load-balancers-phase1/Design.md for the full mapping table.
+func DeriveLoadBalancerType(target, scheme string) string {
 	kind := targetKind(target)
 	if kind == "" {
 		return ""
@@ -163,7 +166,7 @@ func convertForwardingRule(fr *compute.ForwardingRule, scope string) ForwardingR
 		Name:                fr.Name,
 		SelfLink:            fr.SelfLink,
 		Scope:               scope,
-		Type:                DeriveLoadBalancerType(fr.Target, fr.LoadBalancingScheme, fr.IPProtocol),
+		Type:                DeriveLoadBalancerType(fr.Target, fr.LoadBalancingScheme),
 		LoadBalancingScheme: fr.LoadBalancingScheme,
 		IPAddress:           fr.IPAddress,
 		IPProtocol:          fr.IPProtocol,
