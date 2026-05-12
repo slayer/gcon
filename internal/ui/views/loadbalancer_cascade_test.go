@@ -157,6 +157,39 @@ func TestComputeCascade_LegacyTargetPool(t *testing.T) {
 	assert.Equal(t, []string{"forwardingRule"}, kinds)
 }
 
+func TestComputeCascade_CrossRegionNameCollision_StillCascadesProxy(t *testing.T) {
+	// Two forwarding rules share a Name ("frontend") in different scopes,
+	// pointing at *different* proxies. Deleting one must not be tricked into
+	// keeping its proxy alive because of the same-named rule in another scope.
+	proxyURL := "https://example/global/targetHttpsProxies/p1"
+	urlMapURL := "https://example/global/urlMaps/m1"
+	bs1URL := "https://example/global/backendServices/b1"
+
+	rule := mkFwd("frontend", proxyURL)
+	rule.Scope = "global"
+	rule.SelfLink = "https://example/global/forwardingRules/frontend"
+
+	collider := gcp.ForwardingRule{
+		Name:     "frontend",
+		Scope:    "us-central1",
+		SelfLink: "https://example/regions/us-central1/forwardingRules/frontend",
+		Target:   "https://example/regions/us-central1/targetHttpsProxies/p2", // unrelated proxy
+	}
+
+	proxies := []gcp.TargetProxy{mkProxy("p1", urlMapURL)}
+	urlMaps := []gcp.URLMap{mkURLMap("m1", bs1URL)}
+	backends := []gcp.BackendService{mkBackend("b1")}
+
+	c := ComputeCascade(rule, []gcp.ForwardingRule{rule, collider}, proxies, urlMaps, backends)
+
+	kinds := []string{}
+	for _, it := range c.Delete {
+		kinds = append(kinds, it.Kind)
+	}
+	assert.Equal(t, []string{"forwardingRule", "targetHttpsProxies", "urlMap", "backendService"}, kinds,
+		"name collision in another scope must not block proxy cascade")
+}
+
 func TestComputeCascade_MissingReferences_NoPanic(t *testing.T) {
 	proxyURL := "https://example/global/targetHttpsProxies/p1"
 	urlMapURL := "https://example/global/urlMaps/missing"

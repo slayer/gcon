@@ -2,6 +2,7 @@ package views
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/slayer/gcon/internal/gcp"
@@ -82,7 +83,7 @@ func cascadeProxy(
 	proxyURL := rule.Target
 	proxy := findProxy(allProxies, proxyURL)
 
-	otherUsers := otherForwardingRulesUsing(allFwdRules, rule.Name, proxyURL)
+	otherUsers := otherForwardingRulesUsing(allFwdRules, rule.SelfLink, proxyURL)
 	if len(otherUsers) > 0 {
 		c.Keep = append(c.Keep, CascadeKept{
 			Kind:        kind,
@@ -160,7 +161,15 @@ func cascadeBackendsFromURLMap(
 		}
 	}
 
-	for beURL := range beSet {
+	// Sort backend URLs for deterministic cascade order — the confirm dialog
+	// and the delete sequence must be stable across runs.
+	beURLs := make([]string, 0, len(beSet))
+	for u := range beSet {
+		beURLs = append(beURLs, u)
+	}
+	sort.Strings(beURLs)
+
+	for _, beURL := range beURLs {
 		otherMaps := urlMapsReferencingExcept(allURLMaps, beURL, urlMapURL)
 		otherFwds := forwardingRulesUsingBackend(allFwdRules, beURL)
 		reasons := []string{}
@@ -349,11 +358,14 @@ func findBackend(bs []gcp.BackendService, url string) *gcp.BackendService {
 	return nil
 }
 
-func otherForwardingRulesUsing(all []gcp.ForwardingRule, excludeName, target string) []string {
+// otherForwardingRulesUsing returns the names of forwarding rules (other than
+// the one identified by excludeSelfLink) that target the given URL.
+// SelfLink is globally unique; Name is not (it can collide across regions).
+func otherForwardingRulesUsing(all []gcp.ForwardingRule, excludeSelfLink, target string) []string {
 	out := []string{}
 	for i := range all {
 		fr := &all[i]
-		if fr.Name == excludeName {
+		if fr.SelfLink == excludeSelfLink {
 			continue
 		}
 		if fr.Target == target {

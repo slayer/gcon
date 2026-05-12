@@ -499,35 +499,48 @@ func (c *ComputeClient) GetTargetProxy(ctx context.Context, projectID, scope, pr
 	return tp, nil
 }
 
-// ListAllProxies returns every target proxy (http/https/tcp/ssl) in the project.
-// Phase 1 uses this only to populate cascade sharing checks; the global proxy
-// surfaces are sufficient because TCP/SSL proxies are global-only and HTTP/HTTPS
-// regional proxies require per-region queries we don't yet need.
+// ListAllProxies returns every target proxy (http/https/tcp/ssl) in the
+// project, including regional HTTP(S) proxies (internal LBs). TCP/SSL proxies
+// are global-only by API definition. Cascade sharing checks rely on a complete
+// inventory, so missing regional proxies would cause internal-LB cascades to
+// over-delete shared URL maps and backends.
 func (c *ComputeClient) ListAllProxies(ctx context.Context, projectID string) ([]TargetProxy, error) {
 	var out []TargetProxy
 
-	if err := c.service.TargetHttpsProxies.List(projectID).Pages(ctx, func(page *compute.TargetHttpsProxyList) error {
-		for _, p := range page.Items {
-			out = append(out, TargetProxy{
-				Name: p.Name, Kind: "targetHttpsProxies", SelfLink: p.SelfLink, Scope: "global",
-				URLMap: p.UrlMap, SSLCertificates: p.SslCertificates,
-			})
+	if err := c.service.TargetHttpsProxies.AggregatedList(projectID).Pages(ctx, func(page *compute.TargetHttpsProxyAggregatedList) error {
+		for scope, scoped := range page.Items {
+			if scoped.TargetHttpsProxies == nil {
+				continue
+			}
+			region := proxyScopeRegion(scope)
+			for _, p := range scoped.TargetHttpsProxies {
+				out = append(out, TargetProxy{
+					Name: p.Name, Kind: "targetHttpsProxies", SelfLink: p.SelfLink, Scope: region,
+					URLMap: p.UrlMap, SSLCertificates: p.SslCertificates,
+				})
+			}
 		}
 		return nil
 	}); err != nil {
-		return nil, fmt.Errorf("list target https proxies: %w", err)
+		return nil, fmt.Errorf("aggregated list target https proxies: %w", err)
 	}
 
-	if err := c.service.TargetHttpProxies.List(projectID).Pages(ctx, func(page *compute.TargetHttpProxyList) error {
-		for _, p := range page.Items {
-			out = append(out, TargetProxy{
-				Name: p.Name, Kind: "targetHttpProxies", SelfLink: p.SelfLink, Scope: "global",
-				URLMap: p.UrlMap,
-			})
+	if err := c.service.TargetHttpProxies.AggregatedList(projectID).Pages(ctx, func(page *compute.TargetHttpProxyAggregatedList) error {
+		for scope, scoped := range page.Items {
+			if scoped.TargetHttpProxies == nil {
+				continue
+			}
+			region := proxyScopeRegion(scope)
+			for _, p := range scoped.TargetHttpProxies {
+				out = append(out, TargetProxy{
+					Name: p.Name, Kind: "targetHttpProxies", SelfLink: p.SelfLink, Scope: region,
+					URLMap: p.UrlMap,
+				})
+			}
 		}
 		return nil
 	}); err != nil {
-		return nil, fmt.Errorf("list target http proxies: %w", err)
+		return nil, fmt.Errorf("aggregated list target http proxies: %w", err)
 	}
 
 	if err := c.service.TargetTcpProxies.List(projectID).Pages(ctx, func(page *compute.TargetTcpProxyList) error {
@@ -555,6 +568,15 @@ func (c *ComputeClient) ListAllProxies(ctx context.Context, projectID string) ([
 	}
 
 	return out, nil
+}
+
+// proxyScopeRegion decodes the AggregatedList scope key ("global" |
+// "regions/<region>") into our internal scope value ("global" | "<region>").
+func proxyScopeRegion(scope string) string {
+	if i := strings.Index(scope, "/"); i >= 0 {
+		return scope[i+1:]
+	}
+	return scope
 }
 
 // ListAllURLMaps returns every URL map (global + regional).

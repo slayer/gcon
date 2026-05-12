@@ -3,6 +3,7 @@ package views
 import (
 	gocontext "context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -34,7 +35,6 @@ type LoadBalancerDetailsView struct {
 	urlMap   *gcp.URLMap
 	backends []gcp.BackendService
 	checks   []gcp.HealthCheck
-	certs    []gcp.SSLCertificate
 
 	allFwdRules []gcp.ForwardingRule
 	allProxies  []gcp.TargetProxy
@@ -59,7 +59,6 @@ type fetchState struct {
 	urlMapLoaded        bool
 	backendsLoaded      bool
 	checksLoaded        bool
-	certsLoaded         bool
 	sharingChecksLoaded bool
 }
 
@@ -300,8 +299,35 @@ func (v *LoadBalancerDetailsView) View() string {
 		b.WriteString("\n\nDeleting load balancer...\n")
 	}
 
+	if len(v.deleteErrs) > 0 {
+		b.WriteString("\n\n" + v.renderDeleteErrors())
+	}
+
 	if v.showDeleteConfirm && v.cascade != nil {
 		b.WriteString("\n\n" + v.renderConfirmDialog())
+	}
+	return b.String()
+}
+
+// renderDeleteErrors lists each resource whose deletion failed, identified by
+// its self-link path tail so the user can map failures back to the cascade
+// preview.
+func (v *LoadBalancerDetailsView) renderDeleteErrors() string {
+	red := lipgloss.NewStyle().Foreground(lipgloss.Color("#EA4335")).Bold(true)
+	urls := make([]string, 0, len(v.deleteErrs))
+	for u := range v.deleteErrs {
+		urls = append(urls, u)
+	}
+	sort.Strings(urls)
+	var b strings.Builder
+	b.WriteString(red.Render(fmt.Sprintf("Delete cascade had %d failure(s):", len(v.deleteErrs))))
+	b.WriteString("\n")
+	for _, u := range urls {
+		label := u
+		if u != "__client__" {
+			label = shortNameURL(u)
+		}
+		b.WriteString(fmt.Sprintf("  %s: %v\n", label, v.deleteErrs[u]))
 	}
 	return b.String()
 }
@@ -333,10 +359,13 @@ func (v *LoadBalancerDetailsView) renderOverview() string {
 		if v.proxy.SSLPolicy != "" {
 			b.WriteString(fmt.Sprintf("  SSL policy: %s\n", v.proxy.SSLPolicy))
 		}
-	}
-	for i := range v.certs {
-		c := &v.certs[i]
-		b.WriteString(fmt.Sprintf("Cert:    %s (%s) status=%s\n", c.Name, c.Type, c.Status))
+		if len(v.proxy.SSLCertificates) > 0 {
+			names := make([]string, 0, len(v.proxy.SSLCertificates))
+			for _, certURL := range v.proxy.SSLCertificates {
+				names = append(names, shortNameURL(certURL))
+			}
+			b.WriteString(fmt.Sprintf("  Certificates: %s\n", strings.Join(names, ", ")))
+		}
 	}
 	return b.String()
 }
@@ -405,19 +434,13 @@ func (v *LoadBalancerDetailsView) renderConfirmDialog() string {
 }
 
 // SetDeleteResult is called by the app handler after the cascade executor
-// finishes. Errors are surfaced inline; the view returns to non-deleting state.
+// finishes. Per-resource failures are stored on the view and rendered inline
+// inside the details body so the user keeps the cascade context. We do not
+// touch v.err, which is reserved for fetch failures that fully replace the
+// view.
 func (v *LoadBalancerDetailsView) SetDeleteResult(errs map[string]error) {
 	v.deleting = false
 	v.deleteErrs = errs
-	if len(errs) > 0 {
-		// Combine errors into a single rendered message via err.
-		var first error
-		for _, e := range errs {
-			first = e
-			break
-		}
-		v.err = fmt.Errorf("delete cascade had failures: %w", first)
-	}
 }
 
 // --- async fetch helpers ---
