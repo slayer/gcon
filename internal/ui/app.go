@@ -78,6 +78,8 @@ const (
 	ViewInstanceCreate     // Creating a new VM instance
 	ViewInstanceConfigEdit // Editing an existing VM instance configuration
 	ViewLogs
+	ViewLoadBalancers
+	ViewLoadBalancerDetails
 	ViewFormDemo // Demo view for testing form components
 )
 
