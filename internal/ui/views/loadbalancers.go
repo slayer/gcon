@@ -199,6 +199,11 @@ func (v *LoadBalancersView) Update(msg tea.Msg) tea.Cmd {
 		case key.Matches(m, v.keys.Refresh):
 			v.loading = true
 			v.err = nil
+			// If a previous initClient() failed, recover by retrying it on
+			// refresh — otherwise load() would loop on ErrClientNotInitialized.
+			if v.client == nil {
+				return tea.Batch(v.spinner.Tick, v.initClient())
+			}
 			return tea.Batch(v.spinner.Tick, v.load())
 		}
 	}

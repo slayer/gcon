@@ -169,6 +169,16 @@ func cascadeBackendsFromURLMap(
 	}
 	sort.Strings(beURLs)
 
+	// Two-pass: first decide which backends are kept vs deleted, THEN walk
+	// their health checks together. Walking HCs inside the per-backend loop
+	// would make HC-sharing checks see only earlier-added Delete entries,
+	// so two cascaded backends that share an HC would each treat the other
+	// as a live sharer.
+	type pendingBE struct {
+		url string
+		bs  *gcp.BackendService
+	}
+	var toDelete []pendingBE
 	for _, beURL := range beURLs {
 		otherMaps := urlMapsReferencingExcept(allURLMaps, beURL, urlMapURL)
 		otherFwds := forwardingRulesUsingBackend(allFwdRules, beURL)
@@ -194,12 +204,27 @@ func cascadeBackendsFromURLMap(
 			Scope: scopeFromURL(beURL),
 			URL:   beURL,
 		})
+		toDelete = append(toDelete, pendingBE{url: beURL, bs: findBackend(allBackends, beURL)})
+	}
 
-		bs := findBackend(allBackends, beURL)
-		if bs != nil {
-			c = cascadeHealthChecks(c, bs.HealthChecks, beURL, allBackends)
+	// Collect unique HCs referenced by every backend we're about to delete,
+	// in stable order, then evaluate sharing once per HC against the
+	// finalized Delete set.
+	seenHC := map[string]struct{}{}
+	var hcs []string
+	for _, p := range toDelete {
+		if p.bs == nil {
+			continue
+		}
+		for _, h := range p.bs.HealthChecks {
+			if _, ok := seenHC[h]; ok {
+				continue
+			}
+			seenHC[h] = struct{}{}
+			hcs = append(hcs, h)
 		}
 	}
+	c = cascadeHealthChecks(c, hcs, "", allBackends)
 	return c
 }
 
@@ -292,11 +317,21 @@ func cascadeDirectBackend(
 }
 
 func cascadeHealthChecks(c Cascade, hcURLs []string, ownerBackend string, allBackends []gcp.BackendService) Cascade {
+	// A health check is only truly shared if it's referenced by a backend
+	// service that will SURVIVE this cascade. Backends in c.Delete are about
+	// to be deleted, so they don't count as live sharers.
+	deletingBackends := map[string]struct{}{ownerBackend: {}}
+	for _, it := range c.Delete {
+		if it.Kind == "backendService" {
+			deletingBackends[it.URL] = struct{}{}
+		}
+	}
+
 	for _, hcURL := range hcURLs {
 		others := []string{}
 		for i := range allBackends {
 			bs := &allBackends[i]
-			if bs.SelfLink == ownerBackend {
+			if _, beingDeleted := deletingBackends[bs.SelfLink]; beingDeleted {
 				continue
 			}
 			for _, h := range bs.HealthChecks {

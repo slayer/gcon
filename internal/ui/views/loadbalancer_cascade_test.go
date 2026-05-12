@@ -157,6 +157,39 @@ func TestComputeCascade_LegacyTargetPool(t *testing.T) {
 	assert.Equal(t, []string{"forwardingRule"}, kinds)
 }
 
+func TestComputeCascade_SharedHealthCheckBetweenCascadedBackends_StillDeleted(t *testing.T) {
+	// A single LB whose URL map references two backend services that BOTH
+	// share the same health check. Both backends are in the cascade Delete
+	// set, so the health check is orphaned after the cascade — it must be
+	// deleted, not kept.
+	proxyURL := "https://example/global/targetHttpsProxies/p1"
+	urlMapURL := "https://example/global/urlMaps/m1"
+	bs1URL := "https://example/global/backendServices/b1"
+	bs2URL := "https://example/global/backendServices/b2"
+	hcURL := "https://example/global/healthChecks/h1"
+
+	rule := mkFwd("f1", proxyURL)
+	proxies := []gcp.TargetProxy{mkProxy("p1", urlMapURL)}
+	urlMaps := []gcp.URLMap{mkURLMap("m1", bs1URL, bs2URL)} // default→b1, path-rule→b2
+	backends := []gcp.BackendService{
+		{Name: "b1", SelfLink: bs1URL, Scope: "global", HealthChecks: []string{hcURL}},
+		{Name: "b2", SelfLink: bs2URL, Scope: "global", HealthChecks: []string{hcURL}},
+	}
+
+	c := ComputeCascade(rule, []gcp.ForwardingRule{rule}, proxies, urlMaps, backends)
+
+	kinds := []string{}
+	for _, it := range c.Delete {
+		kinds = append(kinds, it.Kind)
+	}
+	// Both backends and the shared health check should be deleted.
+	assert.Contains(t, kinds, "healthCheck", "shared HC must be deleted when all its referencing backends are cascaded")
+	// HC must NOT appear in Keep.
+	for _, k := range c.Keep {
+		assert.NotEqual(t, "healthCheck", k.Kind, "HC referenced only by backends-in-cascade should not be Kept")
+	}
+}
+
 func TestComputeCascade_CrossRegionNameCollision_StillCascadesProxy(t *testing.T) {
 	// Two forwarding rules share a Name ("frontend") in different scopes,
 	// pointing at *different* proxies. Deleting one must not be tricked into

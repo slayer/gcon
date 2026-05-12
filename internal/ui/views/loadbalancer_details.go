@@ -43,6 +43,10 @@ type LoadBalancerDetailsView struct {
 
 	fetchState fetchState
 	err        error
+	// sharingErr is reserved for sharing-inventory fetch failures. Unlike
+	// v.err it does NOT replace the view — it disables delete and shows an
+	// inline warning so the user can still inspect the LB.
+	sharingErr error
 
 	cascade           *Cascade
 	showDeleteConfirm bool
@@ -98,6 +102,7 @@ func NewLoadBalancerDetailsView(projectID, scope, name string, client *gcp.Compu
 func (v *LoadBalancerDetailsView) Init() tea.Cmd {
 	v.fetchState = fetchState{}
 	v.err = nil
+	v.sharingErr = nil
 	v.cascade = nil
 	v.showDeleteConfirm = false
 	v.deleteErrs = nil
@@ -209,6 +214,10 @@ func (v *LoadBalancerDetailsView) Update(msg tea.Msg) tea.Cmd {
 		v.allURLMaps = m.urlMaps
 		v.allBackends = m.backends
 		v.fetchState.sharingChecksLoaded = true
+		v.sharingErr = nil
+		return nil
+	case lbSharingErrorMsg:
+		v.sharingErr = m.err
 		return nil
 	case lbErrorMsg:
 		v.err = m.err
@@ -297,6 +306,15 @@ func (v *LoadBalancerDetailsView) View() string {
 
 	if v.deleting {
 		b.WriteString("\n\nDeleting load balancer...\n")
+	}
+
+	if v.sharingErr != nil {
+		warnStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FBBC04"))
+		b.WriteString("\n\n")
+		b.WriteString(warnStyle.Render(fmt.Sprintf("⚠ Could not load sharing inventory: %v", v.sharingErr)))
+		b.WriteString("\n")
+		b.WriteString(warnStyle.Render("  Delete is disabled (would not be safe without dependency graph)."))
+		b.WriteString("\n")
 	}
 
 	if len(v.deleteErrs) > 0 {
@@ -544,21 +562,24 @@ func (v *LoadBalancerDetailsView) fetchSharingInventory() tea.Cmd {
 	}
 	return func() tea.Msg {
 		ctx := gocontext.Background()
+		// Sharing inventory is only needed for the delete cascade. Errors here
+		// must NOT replace the details view — fall through to lbSharingErrorMsg
+		// so the user can still browse Overview / Routing / Backends.
 		fwds, err := v.client.ListForwardingRules(ctx, v.projectID)
 		if err != nil {
-			return lbErrorMsg{err: err}
+			return lbSharingErrorMsg{err: err}
 		}
 		proxies, err := v.client.ListAllProxies(ctx, v.projectID)
 		if err != nil {
-			return lbErrorMsg{err: err}
+			return lbSharingErrorMsg{err: err}
 		}
 		urlMaps, err := v.client.ListAllURLMaps(ctx, v.projectID)
 		if err != nil {
-			return lbErrorMsg{err: err}
+			return lbSharingErrorMsg{err: err}
 		}
 		backends, err := v.client.ListAllBackendServices(ctx, v.projectID)
 		if err != nil {
-			return lbErrorMsg{err: err}
+			return lbSharingErrorMsg{err: err}
 		}
 		return lbSharingLoadedMsg{fwdRules: fwds, proxies: proxies, urlMaps: urlMaps, backends: backends}
 	}
@@ -600,4 +621,5 @@ type lbSharingLoadedMsg struct {
 	urlMaps  []gcp.URLMap
 	backends []gcp.BackendService
 }
+type lbSharingErrorMsg struct{ err error }
 type lbErrorMsg struct{ err error }
