@@ -498,3 +498,208 @@ func (c *ComputeClient) GetTargetProxy(ctx context.Context, projectID, scope, pr
 
 	return tp, nil
 }
+
+// ListAllProxies returns every target proxy (http/https/tcp/ssl) in the project.
+// Phase 1 uses this only to populate cascade sharing checks; the global proxy
+// surfaces are sufficient because TCP/SSL proxies are global-only and HTTP/HTTPS
+// regional proxies require per-region queries we don't yet need.
+func (c *ComputeClient) ListAllProxies(ctx context.Context, projectID string) ([]TargetProxy, error) {
+	var out []TargetProxy
+
+	if err := c.service.TargetHttpsProxies.List(projectID).Pages(ctx, func(page *compute.TargetHttpsProxyList) error {
+		for _, p := range page.Items {
+			out = append(out, TargetProxy{
+				Name: p.Name, Kind: "targetHttpsProxies", SelfLink: p.SelfLink, Scope: "global",
+				URLMap: p.UrlMap, SSLCertificates: p.SslCertificates,
+			})
+		}
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("list target https proxies: %w", err)
+	}
+
+	if err := c.service.TargetHttpProxies.List(projectID).Pages(ctx, func(page *compute.TargetHttpProxyList) error {
+		for _, p := range page.Items {
+			out = append(out, TargetProxy{
+				Name: p.Name, Kind: "targetHttpProxies", SelfLink: p.SelfLink, Scope: "global",
+				URLMap: p.UrlMap,
+			})
+		}
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("list target http proxies: %w", err)
+	}
+
+	if err := c.service.TargetTcpProxies.List(projectID).Pages(ctx, func(page *compute.TargetTcpProxyList) error {
+		for _, p := range page.Items {
+			out = append(out, TargetProxy{
+				Name: p.Name, Kind: "targetTcpProxies", SelfLink: p.SelfLink, Scope: "global",
+				Service: p.Service,
+			})
+		}
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("list target tcp proxies: %w", err)
+	}
+
+	if err := c.service.TargetSslProxies.List(projectID).Pages(ctx, func(page *compute.TargetSslProxyList) error {
+		for _, p := range page.Items {
+			out = append(out, TargetProxy{
+				Name: p.Name, Kind: "targetSslProxies", SelfLink: p.SelfLink, Scope: "global",
+				Service: p.Service, SSLCertificates: p.SslCertificates,
+			})
+		}
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("list target ssl proxies: %w", err)
+	}
+
+	return out, nil
+}
+
+// ListAllURLMaps returns every URL map (global + regional).
+func (c *ComputeClient) ListAllURLMaps(ctx context.Context, projectID string) ([]URLMap, error) {
+	var out []URLMap
+
+	if err := c.service.UrlMaps.List(projectID).Pages(ctx, func(page *compute.UrlMapList) error {
+		for _, um := range page.Items {
+			out = append(out, *convertURLMap(um, "global"))
+		}
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("list url maps: %w", err)
+	}
+
+	if err := c.service.UrlMaps.AggregatedList(projectID).Pages(ctx, func(page *compute.UrlMapsAggregatedList) error {
+		for scope, scoped := range page.Items {
+			if scoped.UrlMaps == nil {
+				continue
+			}
+			region := scope
+			if i := strings.Index(scope, "/"); i >= 0 {
+				region = scope[i+1:]
+			}
+			if region == "global" {
+				continue
+			}
+			for _, um := range scoped.UrlMaps {
+				out = append(out, *convertURLMap(um, region))
+			}
+		}
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("aggregated list url maps: %w", err)
+	}
+
+	return out, nil
+}
+
+// ListAllBackendServices returns every backend service in the project (global + regional).
+func (c *ComputeClient) ListAllBackendServices(ctx context.Context, projectID string) ([]BackendService, error) {
+	var out []BackendService
+
+	if err := c.service.BackendServices.AggregatedList(projectID).Pages(ctx, func(page *compute.BackendServiceAggregatedList) error {
+		for scope, scoped := range page.Items {
+			if scoped.BackendServices == nil {
+				continue
+			}
+			region := scope
+			if i := strings.Index(scope, "/"); i >= 0 {
+				region = scope[i+1:]
+			}
+			for _, bs := range scoped.BackendServices {
+				out = append(out, *convertBackendService(bs, region))
+			}
+		}
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("aggregated list backend services: %w", err)
+	}
+
+	return out, nil
+}
+
+// DeleteForwardingRule deletes a forwarding rule (global or regional).
+func (c *ComputeClient) DeleteForwardingRule(ctx context.Context, projectID, scope, name string) error {
+	var err error
+	if scope == "global" {
+		_, err = c.service.GlobalForwardingRules.Delete(projectID, name).Context(ctx).Do()
+	} else {
+		_, err = c.service.ForwardingRules.Delete(projectID, scope, name).Context(ctx).Do()
+	}
+	if err != nil {
+		return WrapActionError(err, "delete forwarding rule", name)
+	}
+	return nil
+}
+
+// DeleteTargetProxy deletes a target proxy of the given kind.
+func (c *ComputeClient) DeleteTargetProxy(ctx context.Context, projectID, scope, kind, name string) error {
+	var err error
+	switch kind {
+	case "targetHttpsProxies":
+		if scope == "global" {
+			_, err = c.service.TargetHttpsProxies.Delete(projectID, name).Context(ctx).Do()
+		} else {
+			_, err = c.service.RegionTargetHttpsProxies.Delete(projectID, scope, name).Context(ctx).Do()
+		}
+	case "targetHttpProxies":
+		if scope == "global" {
+			_, err = c.service.TargetHttpProxies.Delete(projectID, name).Context(ctx).Do()
+		} else {
+			_, err = c.service.RegionTargetHttpProxies.Delete(projectID, scope, name).Context(ctx).Do()
+		}
+	case "targetTcpProxies":
+		_, err = c.service.TargetTcpProxies.Delete(projectID, name).Context(ctx).Do()
+	case "targetSslProxies":
+		_, err = c.service.TargetSslProxies.Delete(projectID, name).Context(ctx).Do()
+	default:
+		return fmt.Errorf("%w: %s", errUnsupportedProxyKind, kind)
+	}
+	if err != nil {
+		return WrapActionError(err, "delete target proxy", name)
+	}
+	return nil
+}
+
+// DeleteURLMap deletes a URL map.
+func (c *ComputeClient) DeleteURLMap(ctx context.Context, projectID, scope, name string) error {
+	var err error
+	if scope == "global" {
+		_, err = c.service.UrlMaps.Delete(projectID, name).Context(ctx).Do()
+	} else {
+		_, err = c.service.RegionUrlMaps.Delete(projectID, scope, name).Context(ctx).Do()
+	}
+	if err != nil {
+		return WrapActionError(err, "delete url map", name)
+	}
+	return nil
+}
+
+// DeleteBackendService deletes a backend service.
+func (c *ComputeClient) DeleteBackendService(ctx context.Context, projectID, scope, name string) error {
+	var err error
+	if scope == "global" {
+		_, err = c.service.BackendServices.Delete(projectID, name).Context(ctx).Do()
+	} else {
+		_, err = c.service.RegionBackendServices.Delete(projectID, scope, name).Context(ctx).Do()
+	}
+	if err != nil {
+		return WrapActionError(err, "delete backend service", name)
+	}
+	return nil
+}
+
+// DeleteHealthCheck deletes a health check.
+func (c *ComputeClient) DeleteHealthCheck(ctx context.Context, projectID, scope, name string) error {
+	var err error
+	if scope == "global" {
+		_, err = c.service.HealthChecks.Delete(projectID, name).Context(ctx).Do()
+	} else {
+		_, err = c.service.RegionHealthChecks.Delete(projectID, scope, name).Context(ctx).Do()
+	}
+	if err != nil {
+		return WrapActionError(err, "delete health check", name)
+	}
+	return nil
+}
