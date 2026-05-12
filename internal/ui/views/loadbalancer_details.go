@@ -306,7 +306,11 @@ func (v *LoadBalancerDetailsView) View() string {
 	if v.showDeleteConfirm && v.cascade != nil {
 		b.WriteString("\n\n" + v.renderConfirmDialog())
 	}
-	return b.String()
+
+	// Match the left padding other detail views use (e.g. firewall, network,
+	// instance details all prefix tabs with two spaces and apply Padding(0, 2)
+	// to their viewports).
+	return lipgloss.NewStyle().Padding(0, 2).Render(b.String())
 }
 
 // renderDeleteErrors lists each resource whose deletion failed, identified by
