@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/slayer/gcon/internal/gcp"
 )
@@ -55,4 +56,36 @@ func TestRequestCountChartWiringOnLoad(t *testing.T) {
 	})
 	out := obs.View()
 	assert.Contains(t, out, "Request Count")
+}
+
+func TestPercentRateBasic(t *testing.T) {
+	now := time.Now()
+	total := []gcp.DataPoint{
+		{Timestamp: now.Add(-2 * time.Minute), Value: 100},
+		{Timestamp: now.Add(-1 * time.Minute), Value: 200},
+	}
+	errs := []gcp.DataPoint{
+		{Timestamp: now.Add(-2 * time.Minute), Value: 5},
+		{Timestamp: now.Add(-1 * time.Minute), Value: 10},
+	}
+	got := percentRate(errs, total)
+	require.Len(t, got, 2)
+	assert.InDelta(t, 5.0, got[0].Value, 0.001)
+	assert.InDelta(t, 5.0, got[1].Value, 0.001)
+}
+
+func TestPercentRateZeroTotalIsZero(t *testing.T) {
+	now := time.Now()
+	total := []gcp.DataPoint{{Timestamp: now, Value: 0}}
+	errs := []gcp.DataPoint{{Timestamp: now, Value: 5}}
+	got := percentRate(errs, total)
+	require.Len(t, got, 1)
+	assert.Equal(t, 0.0, got[0].Value)
+}
+
+func TestPercentRateMissingErrs(t *testing.T) {
+	now := time.Now()
+	total := []gcp.DataPoint{{Timestamp: now, Value: 100}}
+	got := percentRate(nil, total)
+	assert.Nil(t, got)
 }

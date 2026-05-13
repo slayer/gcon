@@ -117,6 +117,7 @@ func (o *loadBalancerObservability) View() string {
 	b.WriteString("\n")
 	o.renderRequestCount(&b)
 	o.renderLatency(&b)
+	o.renderErrorRate(&b)
 	return b.String()
 }
 
@@ -163,6 +164,16 @@ func (o *loadBalancerObservability) fetchAllMetrics() tea.Cmd {
 		} else {
 			out.Latency50, out.Latency95, out.Latency99 = p50, p95, p99
 		}
+		if r4, err := mc.GetLBRequestCountByCodeClass(ctx, rule, "4xx", duration); err != nil {
+			warnings = append(warnings, fmt.Sprintf("4xx count: %v", err))
+		} else {
+			out.RequestCount4xx = r4
+		}
+		if r5, err := mc.GetLBRequestCountByCodeClass(ctx, rule, "5xx", duration); err != nil {
+			warnings = append(warnings, fmt.Sprintf("5xx count: %v", err))
+		} else {
+			out.RequestCount5xx = r5
+		}
 		return lbMetricsLoadedMsg{metrics: out, warnings: warnings}
 	}
 }
@@ -192,6 +203,12 @@ func (o *loadBalancerObservability) Update(msg tea.Msg) tea.Cmd {
 				{Name: "p50", Data: o.metrics.Latency50, Color: "#34A853"},
 				{Name: "p95", Data: o.metrics.Latency95, Color: "#FBBC04"},
 				{Name: "p99", Data: o.metrics.Latency99, Color: "#EA4335"},
+			})
+			err4xx := percentRate(o.metrics.RequestCount4xx, o.metrics.RequestCount)
+			err5xx := percentRate(o.metrics.RequestCount5xx, o.metrics.RequestCount)
+			o.errorRateChart.SetDataSets([]metricchart.DataSet{
+				{Name: "4xx", Data: err4xx, Color: "#FBBC04"},
+				{Name: "5xx", Data: err5xx, Color: "#EA4335"},
 			})
 		}
 		return nil
@@ -269,4 +286,45 @@ func (o *loadBalancerObservability) renderRequestCount(b *strings.Builder) {
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")
+}
+
+func (o *loadBalancerObservability) renderErrorRate(b *strings.Builder) {
+	section := lipgloss.NewStyle().Bold(true)
+	muted := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
+	b.WriteString(section.Render("Error Rate (4xx / 5xx)"))
+	b.WriteString("\n")
+	b.WriteString(strings.Repeat("━", max(0, min(o.width-4, 60))))
+	b.WriteString("\n")
+	if o.metrics != nil && (len(o.metrics.RequestCount4xx) > 0 || len(o.metrics.RequestCount5xx) > 0) {
+		b.WriteString(o.errorRateChart.View())
+	} else {
+		b.WriteString(muted.Render("  No error data available"))
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+}
+
+// percentRate divides `errs[i]` by `total[i]` for each timestamp where
+// the timestamps match (within 1 second tolerance). Result is a
+// percentage 0–100. When total is zero, the percentage is zero (not
+// NaN). Mismatched timestamps fall through with zero.
+func percentRate(errs, total []gcp.DataPoint) []gcp.DataPoint {
+	if len(errs) == 0 || len(total) == 0 {
+		return nil
+	}
+	out := make([]gcp.DataPoint, 0, len(total))
+	j := 0
+	for i := range total {
+		for j < len(errs) && errs[j].Timestamp.Before(total[i].Timestamp.Add(-time.Second)) {
+			j++
+		}
+		var pct float64
+		if total[i].Value > 0 && j < len(errs) {
+			if errs[j].Timestamp.Sub(total[i].Timestamp).Abs() <= time.Second {
+				pct = (errs[j].Value / total[i].Value) * 100
+			}
+		}
+		out = append(out, gcp.DataPoint{Timestamp: total[i].Timestamp, Value: pct})
+	}
+	return out
 }
