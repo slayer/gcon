@@ -119,6 +119,7 @@ func (o *loadBalancerObservability) View() string {
 	o.renderLatency(&b)
 	o.renderErrorRate(&b)
 	o.renderBackendLatency(&b)
+	o.renderThroughput(&b)
 	return b.String()
 }
 
@@ -180,6 +181,16 @@ func (o *loadBalancerObservability) fetchAllMetrics() tea.Cmd {
 		} else {
 			out.BackendLat50, out.BackendLat95, out.BackendLat99 = p50, p95, p99
 		}
+		if rb, err := mc.GetLBRequestBytes(ctx, rule, duration); err != nil {
+			warnings = append(warnings, fmt.Sprintf("request bytes: %v", err))
+		} else {
+			out.RequestBytes = rb
+		}
+		if rb, err := mc.GetLBResponseBytes(ctx, rule, duration); err != nil {
+			warnings = append(warnings, fmt.Sprintf("response bytes: %v", err))
+		} else {
+			out.ResponseBytes = rb
+		}
 		return lbMetricsLoadedMsg{metrics: out, warnings: warnings}
 	}
 }
@@ -220,6 +231,10 @@ func (o *loadBalancerObservability) Update(msg tea.Msg) tea.Cmd {
 				{Name: "p50", Data: o.metrics.BackendLat50, Color: "#34A853"},
 				{Name: "p95", Data: o.metrics.BackendLat95, Color: "#FBBC04"},
 				{Name: "p99", Data: o.metrics.BackendLat99, Color: "#EA4335"},
+			})
+			o.throughputChart.SetDataSets([]metricchart.DataSet{
+				{Name: "in", Data: o.metrics.RequestBytes, Color: "#1A73E8"},
+				{Name: "out", Data: o.metrics.ResponseBytes, Color: "#9334E6"},
 			})
 		}
 		return nil
@@ -326,6 +341,22 @@ func (o *loadBalancerObservability) renderBackendLatency(b *strings.Builder) {
 		b.WriteString(o.backendLatChart.View())
 	} else {
 		b.WriteString(muted.Render("  No backend latency data available"))
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+}
+
+func (o *loadBalancerObservability) renderThroughput(b *strings.Builder) {
+	section := lipgloss.NewStyle().Bold(true)
+	muted := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
+	b.WriteString(section.Render("Throughput (bytes in / out)"))
+	b.WriteString("\n")
+	b.WriteString(strings.Repeat("━", max(0, min(o.width-4, 60))))
+	b.WriteString("\n")
+	if o.metrics != nil && (len(o.metrics.RequestBytes) > 0 || len(o.metrics.ResponseBytes) > 0) {
+		b.WriteString(o.throughputChart.View())
+	} else {
+		b.WriteString(muted.Render("  No throughput data available"))
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")

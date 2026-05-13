@@ -101,3 +101,16 @@ func TestBackendLatencyChartWiring(t *testing.T) {
 	out := obs.View()
 	assert.Contains(t, out, "Backend Latency")
 }
+
+func TestThroughputChartWiring(t *testing.T) {
+	obs := newLoadBalancerObservability("p", "rule-x", nil)
+	now := time.Now()
+	obs.Update(lbMetricsLoadedMsg{
+		metrics: &gcp.LBMetrics{
+			RequestBytes:  []gcp.DataPoint{{Timestamp: now, Value: 1024}},
+			ResponseBytes: []gcp.DataPoint{{Timestamp: now, Value: 8192}},
+		},
+	})
+	out := obs.View()
+	assert.Contains(t, out, "Throughput")
+}
