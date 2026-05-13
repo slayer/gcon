@@ -107,11 +107,10 @@ func TestShortName(t *testing.T) {
 	assert.Equal(t, "x", shortName("x"))
 }
 
-func TestInstanceHealthZeroValue(t *testing.T) {
-	h := InstanceHealth{}
-	assert.Empty(t, h.Instance)
-	assert.Empty(t, h.HealthState)
-	assert.Empty(t, h.FailureReason)
+func TestConvertHealthStatusesNil(t *testing.T) {
+	got := convertHealthStatuses(nil)
+	assert.NotNil(t, got)
+	assert.Empty(t, got)
 }
 
 func TestConvertHealthStatuses(t *testing.T) {
