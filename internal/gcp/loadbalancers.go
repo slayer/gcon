@@ -748,3 +748,47 @@ func (c *ComputeClient) DeleteHealthCheck(ctx context.Context, projectID, scope,
 	}
 	return nil
 }
+
+// GetBackendHealth fetches per-instance health for one (backendService, group)
+// pair. scope is "global" or a region. backendServiceName is the short name
+// (no URL). groupURL is the full URL of the instance group or NEG.
+func (c *ComputeClient) GetBackendHealth(ctx context.Context, projectID, scope, backendServiceName, groupURL string) ([]InstanceHealth, error) {
+	ref := &compute.ResourceGroupReference{Group: groupURL}
+	if scope == "global" {
+		resp, err := c.service.BackendServices.GetHealth(projectID, backendServiceName, ref).Context(ctx).Do()
+		if err != nil {
+			return nil, fmt.Errorf("get backend health %s: %w", backendServiceName, err)
+		}
+		return convertHealthStatuses(resp.HealthStatus), nil
+	}
+	resp, err := c.service.RegionBackendServices.GetHealth(projectID, scope, backendServiceName, ref).Context(ctx).Do()
+	if err != nil {
+		return nil, fmt.Errorf("get regional backend health %s/%s: %w", scope, backendServiceName, err)
+	}
+	return convertHealthStatuses(resp.HealthStatus), nil
+}
+
+func convertHealthStatuses(in []*compute.HealthStatus) []InstanceHealth {
+	out := make([]InstanceHealth, 0, len(in))
+	for _, hs := range in {
+		out = append(out, InstanceHealth{
+			Instance:      shortName(hs.Instance),
+			IPAddress:     hs.IpAddress,
+			Port:          hs.Port,
+			HealthState:   hs.HealthState,
+			FailureReason: deriveFailureReason(hs),
+		})
+	}
+	return out
+}
+
+// deriveFailureReason produces a short reason string for an unhealthy member.
+// GCP HealthStatus does not include a dedicated reason field; for v1 we
+// just relabel by state. A follow-up may plumb richer reason text from
+// the health-check log via Cloud Logging.
+func deriveFailureReason(hs *compute.HealthStatus) string {
+	if hs.HealthState == "HEALTHY" || hs.HealthState == "" {
+		return ""
+	}
+	return hs.HealthState
+}
