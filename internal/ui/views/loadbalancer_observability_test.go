@@ -1,0 +1,27 @@
+package views
+
+import (
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+)
+
+func TestNewLoadBalancerObservabilityDefaults(t *testing.T) {
+	obs := newLoadBalancerObservability("p", "rule-x", nil)
+	assert.Equal(t, "rule-x", obs.forwardingRuleName)
+	assert.Equal(t, 24*time.Hour, obs.timeRange)
+	assert.True(t, obs.autoRefresh)
+	assert.NotNil(t, obs.requestCountChart)
+	assert.NotNil(t, obs.latencyChart)
+	assert.NotNil(t, obs.errorRateChart)
+	assert.NotNil(t, obs.backendLatChart)
+	assert.NotNil(t, obs.throughputChart)
+}
+
+func TestLoadBalancerObservabilityViewLoading(t *testing.T) {
+	obs := newLoadBalancerObservability("p", "rule-x", nil)
+	obs.metricsLoading = true
+	out := obs.View()
+	assert.Contains(t, out, "Loading metrics")
+}
