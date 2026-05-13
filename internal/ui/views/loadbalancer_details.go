@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -26,8 +27,10 @@ type LoadBalancerDetailsView struct {
 	client    *gcp.ComputeClient
 	gcpClient *gcp.Client
 
-	tabs    *tabs.Tabs
-	spinner spinner.Model
+	tabs         *tabs.Tabs
+	spinner      spinner.Model
+	viewport     viewport.Model
+	viewportSize bool // true once SetSize has been called
 	width   int
 	height  int
 
@@ -144,8 +147,20 @@ func (v *LoadBalancerDetailsView) SetSize(width, height int) {
 	v.width = width
 	v.height = height
 	v.tabs.SetSize(width)
+	// Reserve rows for the tab strip (1), blank line under tabs (1), the
+	// outer Padding(0, 2) — top/bottom — and a buffer for inline error /
+	// confirm-dialog chrome that occasionally renders below the body.
+	vpW := max(1, width-4)
+	vpH := max(1, height-4)
+	if !v.viewportSize {
+		v.viewport = viewport.New(vpW, vpH)
+		v.viewportSize = true
+	} else {
+		v.viewport.Width = vpW
+		v.viewport.Height = vpH
+	}
 	if v.observability != nil {
-		v.observability.width = max(1, width-4)
+		v.observability.width = vpW
 		v.observability.resizeCharts()
 	}
 }
@@ -277,6 +292,8 @@ func (v *LoadBalancerDetailsView) Update(msg tea.Msg) tea.Cmd {
 		return nil
 
 	case tabs.TabChangedMsg:
+		// Reset scroll when switching tabs so each tab starts at the top.
+		v.viewport.GotoTop()
 		if v.tabs.ActiveTab().ID == "observability" {
 			// If the rule hasn't loaded yet, the sub-view will be created
 			// later by the lbFwdLoadedMsg handler. Until then the
@@ -346,6 +363,11 @@ func (v *LoadBalancerDetailsView) Update(msg tea.Msg) tea.Cmd {
 				return cmd
 			}
 		}
+		if isViewportScrollKey(m) {
+			var cmd tea.Cmd
+			v.viewport, cmd = v.viewport.Update(m)
+			return cmd
+		}
 		// tabs.Update returns a tea.Cmd that emits TabChangedMsg; propagate it.
 		return v.tabs.Update(m)
 	}
@@ -393,15 +415,22 @@ func (v *LoadBalancerDetailsView) View() string {
 	b.WriteString(v.tabs.View())
 	b.WriteString("\n\n")
 
+	var body string
 	switch v.tabs.ActiveTab().ID {
 	case "overview":
-		b.WriteString(v.renderOverview())
+		body = v.renderOverview()
 	case "routing":
-		b.WriteString(v.renderRouting())
+		body = v.renderRouting()
 	case "backends":
-		b.WriteString(v.renderBackends())
+		body = v.renderBackends()
 	case "observability":
-		b.WriteString(v.renderObservability())
+		body = v.renderObservability()
+	}
+	if v.viewportSize {
+		v.viewport.SetContent(body)
+		b.WriteString(v.viewport.View())
+	} else {
+		b.WriteString(body)
 	}
 
 	if v.deleting {
@@ -741,6 +770,18 @@ func collectBackendURLs(um gcp.URLMap) []string {
 // loadbalancing.googleapis.com/https/* metric family.
 func isHTTPSObservabilityCapable(r *gcp.ForwardingRule) bool {
 	return resourceTypeForLB(r) != ""
+}
+
+// isViewportScrollKey identifies keys that should scroll the tab body's
+// viewport when no tab-specific handler has consumed them. PgUp/PgDn and
+// Home/End work on every tab; j/k/up/down work only when the Backends
+// tab's group-focus handler hasn't already taken them.
+func isViewportScrollKey(m tea.KeyMsg) bool {
+	switch m.String() {
+	case "j", "k", "up", "down", "pgup", "pgdown", "home", "end":
+		return true
+	}
+	return false
 }
 
 // resourceTypeForLB maps a forwarding rule's human-readable type label to
