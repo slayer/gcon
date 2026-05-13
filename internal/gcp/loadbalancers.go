@@ -260,10 +260,10 @@ type SSLCertificate struct {
 // regionBackendServices.getHealth. One entry per VM (or NEG endpoint)
 // behind a backend group.
 type InstanceHealth struct {
-	Instance      string // last segment of the instance URL
+	Instance      string // short instance name
 	IPAddress     string
 	Port          int64
-	HealthState   string // "HEALTHY" | "UNHEALTHY" | "UNKNOWN" | "DRAINING"
+	HealthState   string // GCP HealthState (HEALTHY, UNHEALTHY, UNKNOWN, DRAINING, TIMEOUT)
 	FailureReason string // empty when HealthState is HEALTHY
 }
 
