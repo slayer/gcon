@@ -140,6 +140,23 @@ func (c *MonitoringClient) GetLBBackendLatencies(ctx context.Context, forwarding
 	return p50, p95, p99, nil
 }
 
+const (
+	lbMetricRequestBytes  = "loadbalancing.googleapis.com/https/request_bytes_count"
+	lbMetricResponseBytes = "loadbalancing.googleapis.com/https/response_bytes_count"
+)
+
+// GetLBRequestBytes returns request-bytes/sec rate-aligned series.
+func (c *MonitoringClient) GetLBRequestBytes(ctx context.Context, forwardingRuleName string, duration time.Duration) ([]DataPoint, error) {
+	filter := lbFilter(forwardingRuleName, lbMetricRequestBytes)
+	return c.fetchLBMetric(ctx, filter, duration, monitoringpb.Aggregation_ALIGN_RATE, monitoringpb.Aggregation_REDUCE_SUM)
+}
+
+// GetLBResponseBytes returns response-bytes/sec rate-aligned series.
+func (c *MonitoringClient) GetLBResponseBytes(ctx context.Context, forwardingRuleName string, duration time.Duration) ([]DataPoint, error) {
+	filter := lbFilter(forwardingRuleName, lbMetricResponseBytes)
+	return c.fetchLBMetric(ctx, filter, duration, monitoringpb.Aggregation_ALIGN_RATE, monitoringpb.Aggregation_REDUCE_SUM)
+}
+
 // fetchLBPercentile is the percentile aligner variant for distribution metrics.
 func (c *MonitoringClient) fetchLBPercentile(ctx context.Context, filter string, duration time.Duration, aligner monitoringpb.Aggregation_Aligner) ([]DataPoint, error) {
 	endTime := time.Now()
