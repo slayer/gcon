@@ -28,6 +28,20 @@ func TestLoadBalancerObservabilityViewLoading(t *testing.T) {
 	assert.Contains(t, out, "Loading metrics")
 }
 
+func TestLatencyChartWiringOnLoad(t *testing.T) {
+	obs := newLoadBalancerObservability("p", "rule-x", nil)
+	now := time.Now()
+	obs.Update(lbMetricsLoadedMsg{
+		metrics: &gcp.LBMetrics{
+			Latency50: []gcp.DataPoint{{Timestamp: now, Value: 100}},
+			Latency95: []gcp.DataPoint{{Timestamp: now, Value: 200}},
+			Latency99: []gcp.DataPoint{{Timestamp: now, Value: 500}},
+		},
+	})
+	out := obs.View()
+	assert.Contains(t, out, "Request Latency")
+}
+
 func TestRequestCountChartWiringOnLoad(t *testing.T) {
 	obs := newLoadBalancerObservability("p", "rule-x", nil)
 	now := time.Now()

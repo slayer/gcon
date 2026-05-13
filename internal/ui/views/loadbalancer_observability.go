@@ -116,6 +116,7 @@ func (o *loadBalancerObservability) View() string {
 	o.renderTimeRangeSelector(&b)
 	b.WriteString("\n")
 	o.renderRequestCount(&b)
+	o.renderLatency(&b)
 	return b.String()
 }
 
@@ -157,6 +158,11 @@ func (o *loadBalancerObservability) fetchAllMetrics() tea.Cmd {
 		} else {
 			out.RequestCount = rc
 		}
+		if p50, p95, p99, err := mc.GetLBRequestLatencies(ctx, rule, duration); err != nil {
+			warnings = append(warnings, fmt.Sprintf("request latencies: %v", err))
+		} else {
+			out.Latency50, out.Latency95, out.Latency99 = p50, p95, p99
+		}
 		return lbMetricsLoadedMsg{metrics: out, warnings: warnings}
 	}
 }
@@ -182,6 +188,11 @@ func (o *loadBalancerObservability) Update(msg tea.Msg) tea.Cmd {
 		o.metricsError = nil
 		if o.metrics != nil {
 			o.requestCountChart.SetData(o.metrics.RequestCount)
+			o.latencyChart.SetDataSets([]metricchart.DataSet{
+				{Name: "p50", Data: o.metrics.Latency50, Color: "#34A853"},
+				{Name: "p95", Data: o.metrics.Latency95, Color: "#FBBC04"},
+				{Name: "p99", Data: o.metrics.Latency99, Color: "#EA4335"},
+			})
 		}
 		return nil
 	case lbMetricsErrorMsg:
@@ -225,6 +236,22 @@ func (o *loadBalancerObservability) renderTimeRangeSelector(b *strings.Builder) 
 		state = "ON"
 	}
 	b.WriteString(muted.Render(fmt.Sprintf("    auto-refresh %s    r refresh", state)))
+	b.WriteString("\n")
+}
+
+func (o *loadBalancerObservability) renderLatency(b *strings.Builder) {
+	section := lipgloss.NewStyle().Bold(true)
+	muted := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
+	b.WriteString(section.Render("Request Latency (p50 / p95 / p99)"))
+	b.WriteString("\n")
+	b.WriteString(strings.Repeat("━", max(0, min(o.width-4, 60))))
+	b.WriteString("\n")
+	if o.metrics != nil && (len(o.metrics.Latency50) > 0 || len(o.metrics.Latency95) > 0 || len(o.metrics.Latency99) > 0) {
+		b.WriteString(o.latencyChart.View())
+	} else {
+		b.WriteString(muted.Render("  No latency data available"))
+		b.WriteString("\n")
+	}
 	b.WriteString("\n")
 }
 
