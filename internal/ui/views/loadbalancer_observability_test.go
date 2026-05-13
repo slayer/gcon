@@ -143,3 +143,19 @@ func TestObservabilityAutoRefreshToggle(t *testing.T) {
 	obs.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
 	assert.False(t, obs.autoRefresh)
 }
+
+func TestStaleTickIsDropped(t *testing.T) {
+	obs := newLoadBalancerObservability("p", "rule-x", nil)
+	obs.tabActive = false
+	obs.autoRefresh = true
+	cmd := obs.Update(lbObsTickMsg{})
+	assert.Nil(t, cmd, "tick must produce no command when tab inactive")
+}
+
+func TestTickWhenInactiveProducesNoCmd(t *testing.T) {
+	obs := newLoadBalancerObservability("p", "rule-x", nil)
+	obs.autoRefresh = false
+	obs.tabActive = true
+	cmd := obs.tickAutoRefresh()
+	assert.Nil(t, cmd)
+}

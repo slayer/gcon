@@ -195,10 +195,13 @@ func (o *loadBalancerObservability) fetchAllMetrics() tea.Cmd {
 	}
 }
 
-// StartAutoRefresh marks the tab active. Real ticker comes in Task 24.
+// StartAutoRefresh marks the tab active and schedules the first tick.
 func (o *loadBalancerObservability) StartAutoRefresh() tea.Cmd {
 	o.tabActive = true
-	return nil
+	if !o.autoRefresh {
+		return nil
+	}
+	return o.tickAutoRefresh()
 }
 
 // StopAutoRefresh marks the tab inactive.
@@ -242,6 +245,11 @@ func (o *loadBalancerObservability) Update(msg tea.Msg) tea.Cmd {
 		o.metricsError = m.err
 		o.metricsLoading = false
 		return nil
+	case lbObsTickMsg:
+		if !o.autoRefresh || !o.tabActive {
+			return nil
+		}
+		return tea.Batch(o.fetchAllMetrics(), o.tickAutoRefresh())
 	case spinner.TickMsg:
 		if o.metricsLoading {
 			var cmd tea.Cmd
@@ -401,8 +409,18 @@ func (o *loadBalancerObservability) setRange(d time.Duration) tea.Cmd {
 	return tea.Batch(o.spinner.Tick, o.fetchAllMetrics())
 }
 
-// tickAutoRefresh is implemented in Task 24 — stub here.
-func (o *loadBalancerObservability) tickAutoRefresh() tea.Cmd { return nil }
+// tickAutoRefresh schedules a single auto-refresh tick. Per the
+// stale-tick discipline documented in `.claude/rules/bubble-tea-rendering.md`,
+// the handler also guards against ticks delivered after the user
+// navigates away.
+func (o *loadBalancerObservability) tickAutoRefresh() tea.Cmd {
+	if !o.autoRefresh || !o.tabActive {
+		return nil
+	}
+	return tea.Tick(30*time.Second, func(_ time.Time) tea.Msg {
+		return lbObsTickMsg{}
+	})
+}
 
 // percentRate divides `errs[i]` by `total[i]` for each timestamp where
 // the timestamps match (within 1 second tolerance). Result is a
