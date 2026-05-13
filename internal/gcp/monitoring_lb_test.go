@@ -32,3 +32,8 @@ func TestGetLBRequestCountByCodeClassFilter(t *testing.T) {
 	assert.Contains(t, f, `metric.labels.response_code_class = "5xx"`)
 	assert.Contains(t, f, "https/request_count")
 }
+
+func TestGetLBRequestLatenciesFilter(t *testing.T) {
+	f := lbFilter("rule-x", "loadbalancing.googleapis.com/https/total_latencies")
+	assert.Contains(t, f, "https/total_latencies")
+}
