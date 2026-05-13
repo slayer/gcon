@@ -226,6 +226,20 @@ func TestRenderBackendsSkippedBadge(t *testing.T) {
 	assert.Contains(t, out, "serverless NEG")
 }
 
+func TestRenderHealthSummaryAbbreviatesAboveFive(t *testing.T) {
+	statuses := make([]gcp.InstanceHealth, 7)
+	for i := range statuses {
+		statuses[i] = gcp.InstanceHealth{Instance: "vm", HealthState: "HEALTHY"}
+	}
+	statuses[6].HealthState = "UNHEALTHY"
+	v := NewLoadBalancerDetailsView("proj", "global", "front", nil, nil)
+	out := v.renderHealthSummary(statuses)
+	assert.Contains(t, out, "6/7 healthy")
+	// At >5 members the per-instance dot row is suppressed — only one
+	// summary dot precedes the count.
+	assert.NotContains(t, out, "○")
+}
+
 func TestGroupFocusNavigation(t *testing.T) {
 	v := NewLoadBalancerDetailsView("proj", "global", "front", nil, nil)
 	v.fetchState.backendsLoaded = true
