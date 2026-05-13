@@ -376,10 +376,27 @@ arrow does the same without needing to select the row first.
 | Key | Action |
 |-----|--------|
 | `D` | Delete LB (with dependency cascade, type-to-confirm) |
-| `r` | Refresh details |
+| `r` | Refresh details (cascades into health re-fetch and metrics re-fetch) |
 | `Tab` | Switch focus (tabs / content) |
-| `h/l` or `1/2/3` | Switch tabs (Overview / Routing / Backends) |
+| `h/l` or `1/2/3/4` | Switch tabs (Overview / Routing / Backends / Observability) |
 | `Esc` | Cancel delete dialog / Go back |
+
+### Backends tab
+
+| Key | Action |
+|-----|--------|
+| `j` / `↓` | Move group focus down |
+| `k` / `↑` | Move group focus up |
+| `Tab` / `Enter` | Toggle per-instance expansion on focused group |
+| `Esc` | Exit group focus |
+
+### Observability tab (HTTP/HTTPS LBs only)
+
+| Key | Action |
+|-----|--------|
+| `1`–`5` | Time range 1h/6h/24h/7d/30d |
+| `a` | Toggle auto-refresh (30 s, default on) |
+| `r` | Manual refresh metrics + health |
 
 ## SQL Instances View
 

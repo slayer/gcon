@@ -339,6 +339,20 @@ On developing or updating a new feature keep in mind the following guidelines:
   - Delete with dependency cascade: walks proxy → URL map → backend services →
     health checks, skipping shared resources; type-to-confirm dialog lists every
     resource that will be deleted and every shared one that will be kept
+- [x] Load Balancers (Phase 2) — live backend health + Observability tab
+  - Backend health: `backendServices.getHealth` per group, inline `● N/M healthy`
+    badges on the Backends tab, expand with `Tab`/`Enter` for per-instance
+    HEALTHY / UNHEALTHY / DRAINING state and IP:port.
+  - Serverless NEGs (Cloud Run / Cloud Functions / App Engine) are auto-detected
+    via the NEG's `networkEndpointType` and skipped with a labeled placeholder.
+  - Observability tab (HTTP / HTTPS / internal HTTPS only): request count,
+    request latency (p50/p95/p99), error rate (4xx/5xx as a percentage of
+    total requests), backend latency, and throughput (bytes in / out).
+  - Time-range selector (1h/6h/24h/7d/30d), auto-refresh on a 30 s tick,
+    manual `r` refresh.
+  - Network LBs (passthrough / proxy / legacy) render an explicit
+    placeholder on the Observability tab — `l3/*` metric family is on
+    the roadmap.
 
 ## Planned Features
 - [x] Subnets list and management

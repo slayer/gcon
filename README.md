@@ -274,11 +274,18 @@ Without mise, install Go 1.26+ and `golangci-lint` 2.12+ manually.
   - Browse subnets within each network with IP ranges and regions
   - Navigate between related network resources
 
-- ⚖️ **Load Balancers** (Phase 1)
+- ⚖️ **Load Balancers** (Phase 1 + 2)
   - List forwarding rules across global + all regions, with derived type
     (HTTPS external / internal, HTTP, TCP/SSL proxy, Network LB)
-  - Details view with three tabs: Overview, Routing (URL map host/path → backend),
-    Backends (instance groups / NEGs, health checks, balancing mode)
+  - Details view with four tabs: Overview, Routing (URL map host/path → backend),
+    Backends (instance groups / NEGs, health checks, balancing mode), Observability
+  - Live backend health: `● N/M healthy` badges on the Backends tab; expand with
+    Tab/Enter for per-instance HEALTHY / UNHEALTHY / DRAINING state and IP:port
+  - Serverless NEGs (Cloud Run / Cloud Functions / App Engine) auto-detected and
+    shown with a labeled placeholder instead of health polling
+  - Observability tab (HTTP/HTTPS LBs): request count, latency (p50/p95/p99),
+    error rate (4xx/5xx %), backend latency, throughput (bytes in/out);
+    time-range selector (1h–30d), auto-refresh (30 s), manual `r` refresh
   - Delete with dependency cascade (proxy → URL map → backend services → health
     checks), preserving shared resources; type-to-confirm dialog shows exactly
     what will be deleted and what will be kept
