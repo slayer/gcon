@@ -12,7 +12,7 @@ import (
 )
 
 func TestNewLoadBalancerObservabilityDefaults(t *testing.T) {
-	obs := newLoadBalancerObservability("p", "rule-x", nil)
+	obs := newLoadBalancerObservability("p", "rule-x", "https_lb_rule", nil)
 	assert.Equal(t, "rule-x", obs.forwardingRuleName)
 	assert.Equal(t, 24*time.Hour, obs.timeRange)
 	assert.True(t, obs.autoRefresh)
@@ -24,14 +24,14 @@ func TestNewLoadBalancerObservabilityDefaults(t *testing.T) {
 }
 
 func TestLoadBalancerObservabilityViewLoading(t *testing.T) {
-	obs := newLoadBalancerObservability("p", "rule-x", nil)
+	obs := newLoadBalancerObservability("p", "rule-x", "https_lb_rule", nil)
 	obs.metricsLoading = true
 	out := obs.View()
 	assert.Contains(t, out, "Loading metrics")
 }
 
 func TestLatencyChartWiringOnLoad(t *testing.T) {
-	obs := newLoadBalancerObservability("p", "rule-x", nil)
+	obs := newLoadBalancerObservability("p", "rule-x", "https_lb_rule", nil)
 	now := time.Now()
 	obs.Update(lbMetricsLoadedMsg{
 		metrics: &gcp.LBMetrics{
@@ -45,7 +45,7 @@ func TestLatencyChartWiringOnLoad(t *testing.T) {
 }
 
 func TestRequestCountChartWiringOnLoad(t *testing.T) {
-	obs := newLoadBalancerObservability("p", "rule-x", nil)
+	obs := newLoadBalancerObservability("p", "rule-x", "https_lb_rule", nil)
 	now := time.Now()
 	obs.Update(lbMetricsLoadedMsg{
 		metrics: &gcp.LBMetrics{
@@ -92,7 +92,7 @@ func TestPercentRateMissingErrs(t *testing.T) {
 }
 
 func TestBackendLatencyChartWiring(t *testing.T) {
-	obs := newLoadBalancerObservability("p", "rule-x", nil)
+	obs := newLoadBalancerObservability("p", "rule-x", "https_lb_rule", nil)
 	now := time.Now()
 	obs.Update(lbMetricsLoadedMsg{
 		metrics: &gcp.LBMetrics{
@@ -104,7 +104,7 @@ func TestBackendLatencyChartWiring(t *testing.T) {
 }
 
 func TestThroughputChartWiring(t *testing.T) {
-	obs := newLoadBalancerObservability("p", "rule-x", nil)
+	obs := newLoadBalancerObservability("p", "rule-x", "https_lb_rule", nil)
 	now := time.Now()
 	obs.Update(lbMetricsLoadedMsg{
 		metrics: &gcp.LBMetrics{
@@ -117,7 +117,7 @@ func TestThroughputChartWiring(t *testing.T) {
 }
 
 func TestObservabilityTimeRangeKeys(t *testing.T) {
-	obs := newLoadBalancerObservability("p", "rule-x", nil)
+	obs := newLoadBalancerObservability("p", "rule-x", "https_lb_rule", nil)
 	cases := []struct {
 		key  string
 		want time.Duration
@@ -138,14 +138,14 @@ func TestObservabilityTimeRangeKeys(t *testing.T) {
 }
 
 func TestObservabilityAutoRefreshToggle(t *testing.T) {
-	obs := newLoadBalancerObservability("p", "rule-x", nil)
+	obs := newLoadBalancerObservability("p", "rule-x", "https_lb_rule", nil)
 	assert.True(t, obs.autoRefresh) // default on
 	obs.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
 	assert.False(t, obs.autoRefresh)
 }
 
 func TestStaleTickIsDropped(t *testing.T) {
-	obs := newLoadBalancerObservability("p", "rule-x", nil)
+	obs := newLoadBalancerObservability("p", "rule-x", "https_lb_rule", nil)
 	obs.tabActive = false
 	obs.autoRefresh = true
 	cmd := obs.Update(lbObsTickMsg{})
@@ -153,7 +153,7 @@ func TestStaleTickIsDropped(t *testing.T) {
 }
 
 func TestTickWhenInactiveProducesNoCmd(t *testing.T) {
-	obs := newLoadBalancerObservability("p", "rule-x", nil)
+	obs := newLoadBalancerObservability("p", "rule-x", "https_lb_rule", nil)
 	obs.autoRefresh = false
 	obs.tabActive = true
 	cmd := obs.tickAutoRefresh()

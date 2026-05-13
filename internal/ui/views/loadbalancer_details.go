@@ -520,10 +520,11 @@ func (v *LoadBalancerDetailsView) ensureObservability() tea.Cmd {
 	if v.observability != nil {
 		return nil
 	}
-	if !isHTTPSObservabilityCapable(v.rule) {
+	resourceType := resourceTypeForLB(v.rule)
+	if resourceType == "" {
 		return nil
 	}
-	v.observability = newLoadBalancerObservability(v.projectID, v.name, v.gcpClient)
+	v.observability = newLoadBalancerObservability(v.projectID, v.name, resourceType, v.gcpClient)
 	v.observability.width = max(1, v.width-4)
 	v.observability.resizeCharts()
 	return tea.Batch(v.observability.Init(), v.observability.StartAutoRefresh())
@@ -739,12 +740,25 @@ func collectBackendURLs(um gcp.URLMap) []string {
 // HTTP / HTTPS / internal HTTPS LB, which are the types covered by the
 // loadbalancing.googleapis.com/https/* metric family.
 func isHTTPSObservabilityCapable(r *gcp.ForwardingRule) bool {
+	return resourceTypeForLB(r) != ""
+}
+
+// resourceTypeForLB maps a forwarding rule's human-readable type label to
+// the Cloud Monitoring resource type that hosts its metrics. Returns "" if
+// the LB isn't supported by the loadbalancing.googleapis.com/https/*
+// metric family (Network LBs, TCP/SSL proxies, legacy target pools).
+//
+// GCP's filter language disallows OR between resource.type values, so the
+// caller must pick exactly one per fetch — this is the mapping function.
+func resourceTypeForLB(r *gcp.ForwardingRule) string {
 	if r == nil {
-		return false
+		return ""
 	}
 	switch r.Type {
-	case "HTTPS (external)", "HTTPS (internal)", "HTTP (external)", "HTTP (internal)":
-		return true
+	case "HTTPS (external)", "HTTP (external)":
+		return "https_lb_rule"
+	case "HTTPS (internal)", "HTTP (internal)":
+		return "internal_http_lb_rule"
 	}
-	return false
+	return ""
 }

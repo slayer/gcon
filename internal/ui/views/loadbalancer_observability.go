@@ -25,6 +25,8 @@ type loadBalancerObservability struct {
 	forwardingRuleName string
 	gcpClient          *gcp.Client
 
+	resourceType string // Cloud Monitoring resource type, e.g. "https_lb_rule"
+
 	metrics         *gcp.LBMetrics
 	metricsLoading  bool
 	metricsError    error
@@ -44,7 +46,7 @@ type loadBalancerObservability struct {
 	throughputChart   *metricchart.Chart // in/out
 }
 
-func newLoadBalancerObservability(projectID, forwardingRuleName string, gcpClient *gcp.Client) *loadBalancerObservability {
+func newLoadBalancerObservability(projectID, forwardingRuleName, resourceType string, gcpClient *gcp.Client) *loadBalancerObservability {
 	req := metricchart.New(metricchart.HeightStandard)
 	req.SetStatsFormatter(metricchart.FormatCountStats)
 
@@ -64,6 +66,7 @@ func newLoadBalancerObservability(projectID, forwardingRuleName string, gcpClien
 	return &loadBalancerObservability{
 		projectID:          projectID,
 		forwardingRuleName: forwardingRuleName,
+		resourceType:       resourceType,
 		gcpClient:          gcpClient,
 		timeRange:          24 * time.Hour,
 		autoRefresh:        true,
@@ -141,6 +144,7 @@ func (o *loadBalancerObservability) fetchAllMetrics() tea.Cmd {
 		}
 	}
 	rule := o.forwardingRuleName
+	resource := o.resourceType
 	projectID := o.projectID
 	duration := o.timeRange
 	client := o.gcpClient
@@ -153,37 +157,37 @@ func (o *loadBalancerObservability) fetchAllMetrics() tea.Cmd {
 		out := &gcp.LBMetrics{LastFetch: time.Now()}
 		var warnings []string
 
-		if rc, err := mc.GetLBRequestCount(ctx, rule, duration); err != nil {
+		if rc, err := mc.GetLBRequestCount(ctx, resource, rule, duration); err != nil {
 			warnings = append(warnings, fmt.Sprintf("request count: %v", err))
 		} else {
 			out.RequestCount = rc
 		}
-		if p50, p95, p99, err := mc.GetLBRequestLatencies(ctx, rule, duration); err != nil {
+		if p50, p95, p99, err := mc.GetLBRequestLatencies(ctx, resource, rule, duration); err != nil {
 			warnings = append(warnings, fmt.Sprintf("request latencies: %v", err))
 		} else {
 			out.Latency50, out.Latency95, out.Latency99 = p50, p95, p99
 		}
-		if r4, err := mc.GetLBRequestCountByCodeClass(ctx, rule, "4xx", duration); err != nil {
+		if r4, err := mc.GetLBRequestCountByCodeClass(ctx, resource, rule, "4xx", duration); err != nil {
 			warnings = append(warnings, fmt.Sprintf("4xx count: %v", err))
 		} else {
 			out.RequestCount4xx = r4
 		}
-		if r5, err := mc.GetLBRequestCountByCodeClass(ctx, rule, "5xx", duration); err != nil {
+		if r5, err := mc.GetLBRequestCountByCodeClass(ctx, resource, rule, "5xx", duration); err != nil {
 			warnings = append(warnings, fmt.Sprintf("5xx count: %v", err))
 		} else {
 			out.RequestCount5xx = r5
 		}
-		if p50, p95, p99, err := mc.GetLBBackendLatencies(ctx, rule, duration); err != nil {
+		if p50, p95, p99, err := mc.GetLBBackendLatencies(ctx, resource, rule, duration); err != nil {
 			warnings = append(warnings, fmt.Sprintf("backend latencies: %v", err))
 		} else {
 			out.BackendLat50, out.BackendLat95, out.BackendLat99 = p50, p95, p99
 		}
-		if rb, err := mc.GetLBRequestBytes(ctx, rule, duration); err != nil {
+		if rb, err := mc.GetLBRequestBytes(ctx, resource, rule, duration); err != nil {
 			warnings = append(warnings, fmt.Sprintf("request bytes: %v", err))
 		} else {
 			out.RequestBytes = rb
 		}
-		if rb, err := mc.GetLBResponseBytes(ctx, rule, duration); err != nil {
+		if rb, err := mc.GetLBResponseBytes(ctx, resource, rule, duration); err != nil {
 			warnings = append(warnings, fmt.Sprintf("response bytes: %v", err))
 		} else {
 			out.ResponseBytes = rb

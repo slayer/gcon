@@ -28,24 +28,27 @@ type LBMetrics struct {
 	LastFetch       time.Time
 }
 
-// lbFilter builds a Cloud Monitoring filter scoped to a single HTTP(S)
-// load balancer keyed by forwarding-rule name. The filter matches both
-// external (https_lb_rule) and internal (internal_http_lb_rule) resource
-// types so external HTTPS, internal HTTPS, and external HTTP load
-// balancers all resolve through a single helper.
-func lbFilter(forwardingRuleName, metricType string) string {
+// lbFilter builds a Cloud Monitoring filter scoped to a single LB. The
+// resourceType must be a single Cloud Monitoring resource string (e.g.
+// "https_lb_rule" for global external Application LBs or
+// "internal_http_lb_rule" for internal Application LBs). GCP's filter
+// language explicitly disallows `OR` between resource.type values
+// ("Within the 'resource' prefix, OR can only be used to connect a list
+// of 'labels' restrictions"), so callers must pick exactly one resource
+// type per fetch.
+func lbFilter(resourceType, forwardingRuleName, metricType string) string {
 	return fmt.Sprintf( //nolint:gocritic // GCP filter syntax requires double quotes
-		`(resource.type = "https_lb_rule" OR resource.type = "internal_http_lb_rule") AND resource.labels.forwarding_rule_name = "%s" AND metric.type = "%s"`,
-		forwardingRuleName, metricType,
+		`resource.type = "%s" AND resource.labels.forwarding_rule_name = "%s" AND metric.type = "%s"`,
+		resourceType, forwardingRuleName, metricType,
 	)
 }
 
 // lbFilterWithLabel narrows lbFilter by a single metric label (e.g. a
 // response_code_class label for error breakdowns).
-func lbFilterWithLabel(forwardingRuleName, metricType, labelKey, labelValue string) string {
+func lbFilterWithLabel(resourceType, forwardingRuleName, metricType, labelKey, labelValue string) string {
 	return fmt.Sprintf( //nolint:gocritic // GCP filter syntax requires double quotes
 		`%s AND metric.labels.%s = "%s"`,
-		lbFilter(forwardingRuleName, metricType), labelKey, labelValue,
+		lbFilter(resourceType, forwardingRuleName, metricType), labelKey, labelValue,
 	)
 }
 
@@ -83,15 +86,15 @@ const lbMetricRequestCount = "loadbalancing.googleapis.com/https/request_count"
 // GetLBRequestCount fetches per-second request count for an HTTP(S) LB
 // keyed by forwarding-rule name. ALIGN_RATE + REDUCE_SUM aggregate across
 // all per-backend time series into one rate-of-requests series.
-func (c *MonitoringClient) GetLBRequestCount(ctx context.Context, forwardingRuleName string, duration time.Duration) ([]DataPoint, error) {
-	filter := lbFilter(forwardingRuleName, lbMetricRequestCount)
+func (c *MonitoringClient) GetLBRequestCount(ctx context.Context, resourceType, forwardingRuleName string, duration time.Duration) ([]DataPoint, error) {
+	filter := lbFilter(resourceType, forwardingRuleName, lbMetricRequestCount)
 	return c.fetchLBMetric(ctx, filter, duration, monitoringpb.Aggregation_ALIGN_RATE, monitoringpb.Aggregation_REDUCE_SUM)
 }
 
 // GetLBRequestCountByCodeClass narrows request_count by response_code_class
 // label (one of "2xx", "3xx", "4xx", "5xx"). Used to compute error rate.
-func (c *MonitoringClient) GetLBRequestCountByCodeClass(ctx context.Context, forwardingRuleName, codeClass string, duration time.Duration) ([]DataPoint, error) {
-	filter := lbFilterWithLabel(forwardingRuleName, lbMetricRequestCount, "response_code_class", codeClass)
+func (c *MonitoringClient) GetLBRequestCountByCodeClass(ctx context.Context, resourceType, forwardingRuleName, codeClass string, duration time.Duration) ([]DataPoint, error) {
+	filter := lbFilterWithLabel(resourceType, forwardingRuleName, lbMetricRequestCount, "response_code_class", codeClass)
 	return c.fetchLBMetric(ctx, filter, duration, monitoringpb.Aggregation_ALIGN_RATE, monitoringpb.Aggregation_REDUCE_SUM)
 }
 
@@ -100,8 +103,8 @@ const lbMetricRequestLatencies = "loadbalancing.googleapis.com/https/total_laten
 // GetLBRequestLatencies fetches p50, p95, and p99 of total request latency
 // for the LB. Total latency = backend latency + LB overhead. Values are
 // returned in milliseconds (the GCP metric is already in ms — no scale).
-func (c *MonitoringClient) GetLBRequestLatencies(ctx context.Context, forwardingRuleName string, duration time.Duration) (p50, p95, p99 []DataPoint, err error) {
-	filter := lbFilter(forwardingRuleName, lbMetricRequestLatencies)
+func (c *MonitoringClient) GetLBRequestLatencies(ctx context.Context, resourceType, forwardingRuleName string, duration time.Duration) (p50, p95, p99 []DataPoint, err error) {
+	filter := lbFilter(resourceType, forwardingRuleName, lbMetricRequestLatencies)
 
 	p50, err = c.fetchLBPercentile(ctx, filter, duration, monitoringpb.Aggregation_ALIGN_PERCENTILE_50)
 	if err != nil {
@@ -122,8 +125,8 @@ const lbMetricBackendLatencies = "loadbalancing.googleapis.com/https/backend_lat
 
 // GetLBBackendLatencies fetches p50, p95, and p99 of backend-only latency
 // (origin response time, excludes LB-introduced overhead). Values in ms.
-func (c *MonitoringClient) GetLBBackendLatencies(ctx context.Context, forwardingRuleName string, duration time.Duration) (p50, p95, p99 []DataPoint, err error) {
-	filter := lbFilter(forwardingRuleName, lbMetricBackendLatencies)
+func (c *MonitoringClient) GetLBBackendLatencies(ctx context.Context, resourceType, forwardingRuleName string, duration time.Duration) (p50, p95, p99 []DataPoint, err error) {
+	filter := lbFilter(resourceType, forwardingRuleName, lbMetricBackendLatencies)
 
 	p50, err = c.fetchLBPercentile(ctx, filter, duration, monitoringpb.Aggregation_ALIGN_PERCENTILE_50)
 	if err != nil {
@@ -146,14 +149,14 @@ const (
 )
 
 // GetLBRequestBytes returns request-bytes/sec rate-aligned series.
-func (c *MonitoringClient) GetLBRequestBytes(ctx context.Context, forwardingRuleName string, duration time.Duration) ([]DataPoint, error) {
-	filter := lbFilter(forwardingRuleName, lbMetricRequestBytes)
+func (c *MonitoringClient) GetLBRequestBytes(ctx context.Context, resourceType, forwardingRuleName string, duration time.Duration) ([]DataPoint, error) {
+	filter := lbFilter(resourceType, forwardingRuleName, lbMetricRequestBytes)
 	return c.fetchLBMetric(ctx, filter, duration, monitoringpb.Aggregation_ALIGN_RATE, monitoringpb.Aggregation_REDUCE_SUM)
 }
 
 // GetLBResponseBytes returns response-bytes/sec rate-aligned series.
-func (c *MonitoringClient) GetLBResponseBytes(ctx context.Context, forwardingRuleName string, duration time.Duration) ([]DataPoint, error) {
-	filter := lbFilter(forwardingRuleName, lbMetricResponseBytes)
+func (c *MonitoringClient) GetLBResponseBytes(ctx context.Context, resourceType, forwardingRuleName string, duration time.Duration) ([]DataPoint, error) {
+	filter := lbFilter(resourceType, forwardingRuleName, lbMetricResponseBytes)
 	return c.fetchLBMetric(ctx, filter, duration, monitoringpb.Aggregation_ALIGN_RATE, monitoringpb.Aggregation_REDUCE_SUM)
 }
 
