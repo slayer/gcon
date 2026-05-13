@@ -40,3 +40,7 @@ type lbGroupSkippedMsg struct {
 	groupURL string
 	reason   string // human-readable, e.g. "Cloud Storage backend"
 }
+
+// lbHealthRefreshMsg is emitted on the auto-refresh tick to re-run the
+// backend-health fan-out independently of the metrics refresh.
+type lbHealthRefreshMsg struct{}

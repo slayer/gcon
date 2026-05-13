@@ -266,6 +266,8 @@ func (v *LoadBalancerDetailsView) Update(msg tea.Msg) tea.Cmd {
 			reason: m.reason,
 		}
 		return nil
+	case lbHealthRefreshMsg:
+		return v.fetchAllBackendHealth()
 	case lbSharingLoadedMsg:
 		v.allFwdRules = m.fwdRules
 		v.allProxies = m.proxies

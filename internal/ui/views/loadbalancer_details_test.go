@@ -366,3 +366,19 @@ func TestObservabilityChartsForHTTPSLB(t *testing.T) {
 	v.Update(tabs.TabChangedMsg{})
 	require.NotNil(t, v.observability)
 }
+
+func TestHealthRefreshOnAutoRefresh(t *testing.T) {
+	v := NewLoadBalancerDetailsView("proj", "global", "front", nil, nil)
+	v.fetchState.backendsLoaded = true
+	v.backends = []gcp.BackendService{{
+		Name:     "api-backend",
+		Backends: []gcp.Backend{{Group: "https://example/zones/z/instanceGroups/g-1"}},
+	}}
+	// No client → fetchAllBackendHealth returns nil. Just verify the
+	// handler returns without panicking and that the message is wired.
+	cmd := v.Update(lbHealthRefreshMsg{})
+	_ = cmd
+	// Existing groupHealth shouldn't have been wiped (state is only
+	// rewritten on Init or load).
+	assert.NotNil(t, v.groupHealth)
+}

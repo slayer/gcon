@@ -249,7 +249,11 @@ func (o *loadBalancerObservability) Update(msg tea.Msg) tea.Cmd {
 		if !o.autoRefresh || !o.tabActive {
 			return nil
 		}
-		return tea.Batch(o.fetchAllMetrics(), o.tickAutoRefresh())
+		return tea.Batch(
+			o.fetchAllMetrics(),
+			o.tickAutoRefresh(),
+			func() tea.Msg { return lbHealthRefreshMsg{} },
+		)
 	case spinner.TickMsg:
 		if o.metricsLoading {
 			var cmd tea.Cmd
