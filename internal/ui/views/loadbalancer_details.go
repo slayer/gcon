@@ -474,7 +474,7 @@ func (v *LoadBalancerDetailsView) renderBackends() string {
 		b.WriteString(fmt.Sprintf("Backend service: %s\n", bs.Name))
 		b.WriteString(fmt.Sprintf("  Protocol: %s  Timeout: %ds  Affinity: %s\n", bs.Protocol, bs.TimeoutSec, bs.SessionAffinity))
 		for _, be := range bs.Backends {
-			b.WriteString(fmt.Sprintf("    Group: %s  %s\n", shortNameURL(be.Group), v.renderHealthBadge(be.Group)))
+			b.WriteString(fmt.Sprintf("    Group: %s  Mode: %s  Cap: %.2f  %s\n", shortNameURL(be.Group), be.BalancingMode, be.CapacityScaler, v.renderHealthBadge(be.Group)))
 			if v.groupExpanded[be.Group] {
 				b.WriteString(v.renderHealthExpansion(be.Group))
 			}
