@@ -20,3 +20,15 @@ func TestLBFilterWithLabel(t *testing.T) {
 	assert.Contains(t, f, `forwarding_rule_name = "my-rule"`)
 	assert.Contains(t, f, `metric.labels.response_code_class = "4xx"`)
 }
+
+func TestGetLBRequestCountFilter(t *testing.T) {
+	f := lbFilter("rule-x", "loadbalancing.googleapis.com/https/request_count")
+	assert.Contains(t, f, "https/request_count")
+	assert.Contains(t, f, `forwarding_rule_name = "rule-x"`)
+}
+
+func TestGetLBRequestCountByCodeClassFilter(t *testing.T) {
+	f := lbFilterWithLabel("rule-x", "loadbalancing.googleapis.com/https/request_count", "response_code_class", "5xx")
+	assert.Contains(t, f, `metric.labels.response_code_class = "5xx"`)
+	assert.Contains(t, f, "https/request_count")
+}

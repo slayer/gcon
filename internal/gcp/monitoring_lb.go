@@ -78,6 +78,23 @@ func (c *MonitoringClient) fetchLBMetric(ctx context.Context, filter string, dur
 	return points, nil
 }
 
+const lbMetricRequestCount = "loadbalancing.googleapis.com/https/request_count"
+
+// GetLBRequestCount fetches per-second request count for an HTTP(S) LB
+// keyed by forwarding-rule name. ALIGN_RATE + REDUCE_SUM aggregate across
+// all per-backend time series into one rate-of-requests series.
+func (c *MonitoringClient) GetLBRequestCount(ctx context.Context, forwardingRuleName string, duration time.Duration) ([]DataPoint, error) {
+	filter := lbFilter(forwardingRuleName, lbMetricRequestCount)
+	return c.fetchLBMetric(ctx, filter, duration, monitoringpb.Aggregation_ALIGN_RATE, monitoringpb.Aggregation_REDUCE_SUM)
+}
+
+// GetLBRequestCountByCodeClass narrows request_count by response_code_class
+// label (one of "2xx", "3xx", "4xx", "5xx"). Used to compute error rate.
+func (c *MonitoringClient) GetLBRequestCountByCodeClass(ctx context.Context, forwardingRuleName, codeClass string, duration time.Duration) ([]DataPoint, error) {
+	filter := lbFilterWithLabel(forwardingRuleName, lbMetricRequestCount, "response_code_class", codeClass)
+	return c.fetchLBMetric(ctx, filter, duration, monitoringpb.Aggregation_ALIGN_RATE, monitoringpb.Aggregation_REDUCE_SUM)
+}
+
 // fetchLBPercentile is the percentile aligner variant for distribution metrics.
 func (c *MonitoringClient) fetchLBPercentile(ctx context.Context, filter string, duration time.Duration, aligner monitoringpb.Aggregation_Aligner) ([]DataPoint, error) {
 	endTime := time.Now()
