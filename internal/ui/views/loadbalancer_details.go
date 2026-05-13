@@ -552,11 +552,46 @@ func (v *LoadBalancerDetailsView) renderHealthSummary(statuses []gcp.InstanceHea
 	return fmt.Sprintf("%s %d/%d healthy", dots.String(), healthy, total)
 }
 
-// renderHealthExpansion draws the per-instance table for an expanded
-// group. Stubbed empty for Task 13 — Task 15 fills it in.
+// renderHealthExpansion draws the per-instance health table for an
+// expanded group. Each row shows the instance short name, IP:port,
+// state, and (for unhealthy members) the failure reason.
 func (v *LoadBalancerDetailsView) renderHealthExpansion(groupURL string) string {
-	_ = groupURL
-	return ""
+	st, ok := v.groupHealth[groupURL]
+	if !ok || st.phase != groupHealthOK {
+		return ""
+	}
+	var b strings.Builder
+	green := lipgloss.NewStyle().Foreground(lipgloss.Color("#34A853"))
+	red := lipgloss.NewStyle().Foreground(lipgloss.Color("#EA4335"))
+	gray := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
+
+	for _, s := range st.statuses {
+		dot := gray.Render("○")
+		state := s.HealthState
+		switch s.HealthState {
+		case "HEALTHY":
+			dot = green.Render("●")
+		case "UNHEALTHY":
+			dot = red.Render("●")
+		case "DRAINING":
+			dot = lipgloss.NewStyle().Foreground(lipgloss.Color("#FBBC04")).Render("●")
+		}
+		addr := s.Instance
+		if s.IPAddress != "" {
+			if s.Port > 0 {
+				addr = fmt.Sprintf("%s (%s:%d)", s.Instance, s.IPAddress, s.Port)
+			} else {
+				addr = fmt.Sprintf("%s (%s)", s.Instance, s.IPAddress)
+			}
+		}
+		reason := s.FailureReason
+		if reason == "" {
+			b.WriteString(fmt.Sprintf("        %s %-30s %s\n", dot, addr, state))
+		} else {
+			b.WriteString(fmt.Sprintf("        %s %-30s %s — %s\n", dot, addr, state, reason))
+		}
+	}
+	return b.String()
 }
 
 func (v *LoadBalancerDetailsView) renderConfirmDialog() string {
@@ -892,6 +927,13 @@ func (v *LoadBalancerDetailsView) handleBackendsKey(m tea.KeyMsg) (tea.Cmd, bool
 		if v.groupFocus > 0 {
 			v.groupFocus--
 		}
+		return nil, true
+	case "enter", "tab":
+		if v.groupFocus < 0 || v.groupFocus >= len(urls) {
+			return nil, false
+		}
+		url := urls[v.groupFocus]
+		v.groupExpanded[url] = !v.groupExpanded[url]
 		return nil, true
 	case "esc":
 		if v.groupFocus >= 0 {

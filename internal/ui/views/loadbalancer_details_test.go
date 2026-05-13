@@ -271,3 +271,43 @@ func TestRenderBackendsShowsCursor(t *testing.T) {
 	assert.Contains(t, out, "▸")
 	assert.Contains(t, out, "Group: g-2")
 }
+
+func TestExpansionToggle(t *testing.T) {
+	v := NewLoadBalancerDetailsView("proj", "global", "front", nil, nil)
+	v.fetchState.backendsLoaded = true
+	v.backends = []gcp.BackendService{{
+		Name:     "api-backend",
+		Backends: []gcp.Backend{{Group: "https://example/zones/z/instanceGroups/g-1"}},
+	}}
+	v.tabs.SetActiveByID("backends")
+	v.groupFocus = 0
+
+	v.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	assert.True(t, v.groupExpanded["https://example/zones/z/instanceGroups/g-1"])
+
+	v.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	assert.False(t, v.groupExpanded["https://example/zones/z/instanceGroups/g-1"])
+}
+
+func TestRenderHealthExpansionDrawsTable(t *testing.T) {
+	v := NewLoadBalancerDetailsView("proj", "global", "front", nil, nil)
+	v.fetchState.backendsLoaded = true
+	v.backends = []gcp.BackendService{{
+		Name:     "api-backend",
+		Backends: []gcp.Backend{{Group: "https://example/zones/z/instanceGroups/g-1"}},
+	}}
+	v.groupHealth["https://example/zones/z/instanceGroups/g-1"] = groupHealthState{
+		phase: groupHealthOK,
+		statuses: []gcp.InstanceHealth{
+			{Instance: "vm-1", HealthState: "HEALTHY", IPAddress: "10.0.0.5"},
+			{Instance: "vm-2", HealthState: "UNHEALTHY", IPAddress: "10.0.0.6", FailureReason: "HTTP 503"},
+		},
+	}
+	v.groupExpanded["https://example/zones/z/instanceGroups/g-1"] = true
+	out := v.renderBackends()
+	assert.Contains(t, out, "vm-1")
+	assert.Contains(t, out, "HEALTHY")
+	assert.Contains(t, out, "vm-2")
+	assert.Contains(t, out, "UNHEALTHY")
+	assert.Contains(t, out, "HTTP 503")
+}
