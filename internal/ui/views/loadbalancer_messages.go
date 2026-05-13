@@ -1,5 +1,7 @@
 package views
 
+import "github.com/slayer/gcon/internal/gcp"
+
 // LoadBalancerSelectedMsg is emitted by the list view when the user presses
 // Enter on a row. The app routes it to ViewLoadBalancerDetails.
 type LoadBalancerSelectedMsg struct {
@@ -20,4 +22,21 @@ type LoadBalancerDeleteRequestMsg struct {
 // (keyed by its URL) to the error that occurred.
 type LoadBalancerDeletedMsg struct {
 	Errs map[string]error
+}
+
+// Internal messages for backend health fan-out. Lowercase by convention
+// — these never cross the view boundary.
+type lbGroupHealthLoadedMsg struct {
+	groupURL string
+	statuses []gcp.InstanceHealth
+}
+
+type lbGroupHealthErrorMsg struct {
+	groupURL string
+	err      error
+}
+
+type lbGroupSkippedMsg struct {
+	groupURL string
+	reason   string // human-readable, e.g. "Cloud Storage backend"
 }

@@ -37,6 +37,11 @@ type LoadBalancerDetailsView struct {
 	backends []gcp.BackendService
 	checks   []gcp.HealthCheck
 
+	// Backend group health (phase 2).
+	groupHealth   map[string]groupHealthState // keyed on Backend.Group URL
+	groupFocus    int                         // index into the flat list of group rows; -1 = no focus
+	groupExpanded map[string]bool             // group URL -> expanded?
+
 	allFwdRules []gcp.ForwardingRule
 	allProxies  []gcp.TargetProxy
 	allURLMaps  []gcp.URLMap
@@ -67,6 +72,22 @@ type fetchState struct {
 	sharingChecksLoaded bool
 }
 
+type groupHealthPhase int
+
+const (
+	groupHealthLoading groupHealthPhase = iota
+	groupHealthOK
+	groupHealthErrored
+	groupHealthSkipped
+)
+
+type groupHealthState struct {
+	phase    groupHealthPhase
+	statuses []gcp.InstanceHealth
+	err      error
+	reason   string // populated when phase == groupHealthSkipped
+}
+
 type loadBalancerDetailsKeyMap struct {
 	Refresh key.Binding
 	Delete  key.Binding
@@ -89,14 +110,17 @@ func NewLoadBalancerDetailsView(projectID, scope, name string, client *gcp.Compu
 		{ID: "backends", Label: "Backends"},
 	})
 	return &LoadBalancerDetailsView{
-		projectID: projectID,
-		scope:     scope,
-		name:      name,
-		client:    client,
-		gcpClient: gcpClient,
-		tabs:      t,
-		spinner:   components.NewGCPSpinner(),
-		keys:      defaultLoadBalancerDetailsKeyMap(),
+		projectID:     projectID,
+		scope:         scope,
+		name:          name,
+		client:        client,
+		gcpClient:     gcpClient,
+		tabs:          t,
+		spinner:       components.NewGCPSpinner(),
+		keys:          defaultLoadBalancerDetailsKeyMap(),
+		groupHealth:   map[string]groupHealthState{},
+		groupExpanded: map[string]bool{},
+		groupFocus:    -1,
 	}
 }
 
