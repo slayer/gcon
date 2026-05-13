@@ -2,6 +2,7 @@ package views
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -14,6 +15,8 @@ import (
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/metricchart"
 )
+
+var errMonitoringClientUnavailable = errors.New("monitoring client unavailable")
 
 // Internal messages.
 type lbMetricsLoadedMsg struct {
@@ -110,7 +113,9 @@ func (o *loadBalancerObservability) View() string {
 		b.WriteString("  (no metric data)\n")
 		return b.String()
 	}
-	b.WriteString("  (charts pending)\n")
+	o.renderTimeRangeSelector(&b)
+	b.WriteString("\n")
+	o.renderRequestCount(&b)
 	return b.String()
 }
 
@@ -127,10 +132,32 @@ func (o *loadBalancerObservability) resizeCharts() {
 	o.throughputChart.Resize(w)
 }
 
-// fetchAllMetrics is the parallel fetch. Real implementation in Task 18.
+// fetchAllMetrics fetches all LB metrics in parallel.
 func (o *loadBalancerObservability) fetchAllMetrics() tea.Cmd {
+	if o.gcpClient == nil {
+		return func() tea.Msg {
+			return lbMetricsErrorMsg{err: errMonitoringClientUnavailable}
+		}
+	}
+	rule := o.forwardingRuleName
+	projectID := o.projectID
+	duration := o.timeRange
+	client := o.gcpClient
 	return func() tea.Msg {
-		return lbMetricsLoadedMsg{metrics: &gcp.LBMetrics{LastFetch: time.Now()}}
+		mc, err := client.GetMonitoringClient(projectID)
+		if err != nil {
+			return lbMetricsErrorMsg{err: fmt.Errorf("init monitoring client: %w", err)}
+		}
+		ctx := context.Background()
+		out := &gcp.LBMetrics{LastFetch: time.Now()}
+		var warnings []string
+
+		if rc, err := mc.GetLBRequestCount(ctx, rule, duration); err != nil {
+			warnings = append(warnings, fmt.Sprintf("request count: %v", err))
+		} else {
+			out.RequestCount = rc
+		}
+		return lbMetricsLoadedMsg{metrics: out, warnings: warnings}
 	}
 }
 
@@ -153,6 +180,9 @@ func (o *loadBalancerObservability) Update(msg tea.Msg) tea.Cmd {
 		o.metricsWarnings = m.warnings
 		o.metricsLoading = false
 		o.metricsError = nil
+		if o.metrics != nil {
+			o.requestCountChart.SetData(o.metrics.RequestCount)
+		}
 		return nil
 	case lbMetricsErrorMsg:
 		o.metricsError = m.err
@@ -168,6 +198,48 @@ func (o *loadBalancerObservability) Update(msg tea.Msg) tea.Cmd {
 	return nil
 }
 
-// Compile-time use to avoid an unused-import error during the skeleton commit;
-// removed by Task 18 when fetchAllMetrics is rewritten to use context.
-var _ = context.Background
+func (o *loadBalancerObservability) renderTimeRangeSelector(b *strings.Builder) {
+	options := []struct {
+		label string
+		d     time.Duration
+	}{
+		{"1h", 1 * time.Hour},
+		{"6h", 6 * time.Hour},
+		{"24h", 24 * time.Hour},
+		{"7d", 7 * 24 * time.Hour},
+		{"30d", 30 * 24 * time.Hour},
+	}
+	active := lipgloss.NewStyle().Foreground(lipgloss.Color("#1A73E8")).Bold(true)
+	muted := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
+	b.WriteString("  ")
+	for _, opt := range options {
+		if opt.d == o.timeRange {
+			b.WriteString(active.Render("[" + opt.label + "]"))
+		} else {
+			b.WriteString(muted.Render(" " + opt.label + " "))
+		}
+		b.WriteString("  ")
+	}
+	state := "OFF"
+	if o.autoRefresh {
+		state = "ON"
+	}
+	b.WriteString(muted.Render(fmt.Sprintf("    auto-refresh %s    r refresh", state)))
+	b.WriteString("\n")
+}
+
+func (o *loadBalancerObservability) renderRequestCount(b *strings.Builder) {
+	section := lipgloss.NewStyle().Bold(true)
+	muted := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
+	b.WriteString(section.Render("Request Count"))
+	b.WriteString("\n")
+	b.WriteString(strings.Repeat("━", max(0, min(o.width-4, 60))))
+	b.WriteString("\n")
+	if o.metrics != nil && len(o.metrics.RequestCount) > 0 {
+		b.WriteString(o.requestCountChart.View())
+	} else {
+		b.WriteString(muted.Render("  No request data available"))
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+}

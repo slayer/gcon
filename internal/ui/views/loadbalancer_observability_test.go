@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/slayer/gcon/internal/gcp"
 )
 
 func TestNewLoadBalancerObservabilityDefaults(t *testing.T) {
@@ -24,4 +26,19 @@ func TestLoadBalancerObservabilityViewLoading(t *testing.T) {
 	obs.metricsLoading = true
 	out := obs.View()
 	assert.Contains(t, out, "Loading metrics")
+}
+
+func TestRequestCountChartWiringOnLoad(t *testing.T) {
+	obs := newLoadBalancerObservability("p", "rule-x", nil)
+	now := time.Now()
+	obs.Update(lbMetricsLoadedMsg{
+		metrics: &gcp.LBMetrics{
+			RequestCount: []gcp.DataPoint{
+				{Timestamp: now.Add(-2 * time.Minute), Value: 100},
+				{Timestamp: now.Add(-1 * time.Minute), Value: 150},
+			},
+		},
+	})
+	out := obs.View()
+	assert.Contains(t, out, "Request Count")
 }
