@@ -225,3 +225,49 @@ func TestRenderBackendsSkippedBadge(t *testing.T) {
 	assert.Contains(t, out, "no health")
 	assert.Contains(t, out, "serverless NEG")
 }
+
+func TestGroupFocusNavigation(t *testing.T) {
+	v := NewLoadBalancerDetailsView("proj", "global", "front", nil, nil)
+	v.fetchState.backendsLoaded = true
+	v.backends = []gcp.BackendService{{
+		Name: "api-backend",
+		Backends: []gcp.Backend{
+			{Group: "https://example/zones/z/instanceGroups/g-1"},
+			{Group: "https://example/zones/z/instanceGroups/g-2"},
+			{Group: "https://example/zones/z/instanceGroups/g-3"},
+		},
+	}}
+	v.tabs.SetActiveByID("backends")
+
+	v.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	assert.Equal(t, 0, v.groupFocus)
+
+	v.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	assert.Equal(t, 1, v.groupFocus)
+
+	v.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	v.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}}) // clamps at 2
+	assert.Equal(t, 2, v.groupFocus)
+
+	v.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
+	assert.Equal(t, 1, v.groupFocus)
+
+	v.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	assert.Equal(t, -1, v.groupFocus)
+}
+
+func TestRenderBackendsShowsCursor(t *testing.T) {
+	v := NewLoadBalancerDetailsView("proj", "global", "front", nil, nil)
+	v.fetchState.backendsLoaded = true
+	v.backends = []gcp.BackendService{{
+		Name: "api-backend",
+		Backends: []gcp.Backend{
+			{Group: "https://example/zones/z/instanceGroups/g-1"},
+			{Group: "https://example/zones/z/instanceGroups/g-2"},
+		},
+	}}
+	v.groupFocus = 1
+	out := v.renderBackends()
+	assert.Contains(t, out, "▸")
+	assert.Contains(t, out, "Group: g-2")
+}

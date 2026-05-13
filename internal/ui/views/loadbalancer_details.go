@@ -299,6 +299,11 @@ func (v *LoadBalancerDetailsView) Update(msg tea.Msg) tea.Cmd {
 		case key.Matches(m, v.keys.Refresh):
 			return v.Init()
 		}
+		if v.tabs.ActiveTab().ID == "backends" {
+			if cmd, handled := v.handleBackendsKey(m); handled {
+				return cmd
+			}
+		}
 		// tabs.Update returns a tea.Cmd that emits TabChangedMsg; propagate it.
 		return v.tabs.Update(m)
 	}
@@ -468,13 +473,23 @@ func (v *LoadBalancerDetailsView) renderBackends() string {
 	if len(v.backends) == 0 {
 		return "(no backends)"
 	}
+	urls := v.flatGroupURLs()
+	focusedURL := ""
+	if v.groupFocus >= 0 && v.groupFocus < len(urls) {
+		focusedURL = urls[v.groupFocus]
+	}
 	var b strings.Builder
 	for i := range v.backends {
 		bs := &v.backends[i]
 		b.WriteString(fmt.Sprintf("Backend service: %s\n", bs.Name))
 		b.WriteString(fmt.Sprintf("  Protocol: %s  Timeout: %ds  Affinity: %s\n", bs.Protocol, bs.TimeoutSec, bs.SessionAffinity))
 		for _, be := range bs.Backends {
-			b.WriteString(fmt.Sprintf("    Group: %s  Mode: %s  Cap: %.2f  %s\n", shortNameURL(be.Group), be.BalancingMode, be.CapacityScaler, v.renderHealthBadge(be.Group)))
+			cursor := "   "
+			if be.Group == focusedURL {
+				cursor = " ▸ "
+			}
+			b.WriteString(fmt.Sprintf("  %sGroup: %s  Mode: %s  Cap: %.2f  %s\n",
+				cursor, shortNameURL(be.Group), be.BalancingMode, be.CapacityScaler, v.renderHealthBadge(be.Group)))
 			if v.groupExpanded[be.Group] {
 				b.WriteString(v.renderHealthExpansion(be.Group))
 			}
@@ -836,6 +851,55 @@ func (v *LoadBalancerDetailsView) fetchInstanceGroupHealth(backendServiceName, s
 		}
 		return lbGroupHealthLoadedMsg{groupURL: groupURL, statuses: statuses}
 	}
+}
+
+// flatGroupURLs returns every Backend.Group URL across every backend
+// service in display order (deduped). Used to map a groupFocus index to a URL.
+func (v *LoadBalancerDetailsView) flatGroupURLs() []string {
+	urls := make([]string, 0)
+	seen := map[string]struct{}{}
+	for i := range v.backends {
+		for _, be := range v.backends[i].Backends {
+			if be.Group == "" {
+				continue
+			}
+			if _, ok := seen[be.Group]; ok {
+				continue
+			}
+			seen[be.Group] = struct{}{}
+			urls = append(urls, be.Group)
+		}
+	}
+	return urls
+}
+
+// handleBackendsKey processes j/k navigation and Esc on the Backends tab.
+// Returns (cmd, true) when handled, (nil, false) otherwise.
+func (v *LoadBalancerDetailsView) handleBackendsKey(m tea.KeyMsg) (tea.Cmd, bool) {
+	urls := v.flatGroupURLs()
+	if len(urls) == 0 {
+		return nil, false
+	}
+	switch m.String() {
+	case "j", "down":
+		if v.groupFocus < 0 {
+			v.groupFocus = 0
+		} else if v.groupFocus < len(urls)-1 {
+			v.groupFocus++
+		}
+		return nil, true
+	case "k", "up":
+		if v.groupFocus > 0 {
+			v.groupFocus--
+		}
+		return nil, true
+	case "esc":
+		if v.groupFocus >= 0 {
+			v.groupFocus = -1
+			return nil, true
+		}
+	}
+	return nil, false
 }
 
 func (v *LoadBalancerDetailsView) fetchNEGHealth(backendServiceName, scope, groupURL string) tea.Cmd {
