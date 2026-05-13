@@ -24,6 +24,7 @@ type LoadBalancerDetailsView struct {
 	scope     string
 	name      string
 	client    *gcp.ComputeClient
+	gcpClient *gcp.Client
 
 	tabs    *tabs.Tabs
 	spinner spinner.Model
@@ -81,7 +82,7 @@ func defaultLoadBalancerDetailsKeyMap() loadBalancerDetailsKeyMap {
 }
 
 // NewLoadBalancerDetailsView constructs the view.
-func NewLoadBalancerDetailsView(projectID, scope, name string, client *gcp.ComputeClient) *LoadBalancerDetailsView {
+func NewLoadBalancerDetailsView(projectID, scope, name string, client *gcp.ComputeClient, gcpClient *gcp.Client) *LoadBalancerDetailsView {
 	t := tabs.New([]tabs.Tab{
 		{ID: "overview", Label: "Overview"},
 		{ID: "routing", Label: "Routing"},
@@ -92,6 +93,7 @@ func NewLoadBalancerDetailsView(projectID, scope, name string, client *gcp.Compu
 		scope:     scope,
 		name:      name,
 		client:    client,
+		gcpClient: gcpClient,
 		tabs:      t,
 		spinner:   components.NewGCPSpinner(),
 		keys:      defaultLoadBalancerDetailsKeyMap(),

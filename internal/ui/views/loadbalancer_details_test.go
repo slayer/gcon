@@ -10,7 +10,7 @@ import (
 )
 
 func TestLoadBalancerDetailsView_Overview_RendersForwardingRule(t *testing.T) {
-	v := NewLoadBalancerDetailsView("proj", "global", "front", nil)
+	v := NewLoadBalancerDetailsView("proj", "global", "front", nil, nil)
 	v.SetSize(120, 30)
 	v.rule = &gcp.ForwardingRule{
 		Name:                "front",
@@ -28,7 +28,7 @@ func TestLoadBalancerDetailsView_Overview_RendersForwardingRule(t *testing.T) {
 }
 
 func TestLoadBalancerDetailsView_Routing_RendersURLMap(t *testing.T) {
-	v := NewLoadBalancerDetailsView("proj", "global", "front", nil)
+	v := NewLoadBalancerDetailsView("proj", "global", "front", nil, nil)
 	v.SetSize(120, 30)
 	v.rule = &gcp.ForwardingRule{Name: "front", Scope: "global", Type: "HTTPS (external)"}
 	v.urlMap = &gcp.URLMap{
@@ -54,7 +54,7 @@ func TestLoadBalancerDetailsView_Routing_RendersURLMap(t *testing.T) {
 }
 
 func TestLoadBalancerDetailsView_Backends_RendersBackendList(t *testing.T) {
-	v := NewLoadBalancerDetailsView("proj", "global", "front", nil)
+	v := NewLoadBalancerDetailsView("proj", "global", "front", nil, nil)
 	v.SetSize(120, 30)
 	v.rule = &gcp.ForwardingRule{Name: "front", Scope: "global", Type: "HTTPS (external)"}
 	v.backends = []gcp.BackendService{
@@ -75,7 +75,7 @@ func TestLoadBalancerDetailsView_Backends_RendersBackendList(t *testing.T) {
 }
 
 func TestLoadBalancerDetailsView_DKey_OpensConfirmDialog(t *testing.T) {
-	v := NewLoadBalancerDetailsView("proj", "global", "front", nil)
+	v := NewLoadBalancerDetailsView("proj", "global", "front", nil, nil)
 	v.SetSize(120, 30)
 	v.rule = &gcp.ForwardingRule{
 		Name:     "front",
