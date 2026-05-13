@@ -649,3 +649,46 @@ type lbSharingLoadedMsg struct {
 }
 type lbSharingErrorMsg struct{ err error }
 type lbErrorMsg struct{ err error }
+
+type backendGroupKind int
+
+const (
+	backendGroupUnknown backendGroupKind = iota
+	backendGroupInstanceGroup
+	backendGroupNEG
+)
+
+// classifyBackendGroupURL inspects a Backend.Group URL and returns a
+// coarse kind. Distinguishing serverless from VM-backed NEGs requires
+// a separate API GET (see fetchGroupHealth in Task 12).
+func classifyBackendGroupURL(url string) backendGroupKind {
+	if url == "" {
+		return backendGroupUnknown
+	}
+	switch {
+	case strings.Contains(url, "/instanceGroups/"):
+		return backendGroupInstanceGroup
+	case strings.Contains(url, "/networkEndpointGroups/"):
+		return backendGroupNEG
+	default:
+		return backendGroupUnknown
+	}
+}
+
+// groupScope extracts the zone-or-region segment from a Backend.Group
+// URL. Returns "global" if the URL contains "/global/" instead of a
+// zone or region (rare, but possible for global NEGs).
+func groupScope(url string) string {
+	parts := strings.Split(url, "/")
+	for i, p := range parts {
+		switch p {
+		case "zones", "regions":
+			if i+1 < len(parts) {
+				return parts[i+1]
+			}
+		case "global":
+			return "global"
+		}
+	}
+	return ""
+}

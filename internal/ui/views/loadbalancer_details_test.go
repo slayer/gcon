@@ -91,3 +91,61 @@ func TestLoadBalancerDetailsView_DKey_OpensConfirmDialog(t *testing.T) {
 	assert.NotNil(t, v.cascade, "cascade must be computed before showing the dialog")
 	assert.Len(t, v.cascade.Delete, 1, "cascade includes the forwarding rule")
 }
+
+func TestClassifyBackendGroupURL(t *testing.T) {
+	cases := []struct {
+		name string
+		url  string
+		want backendGroupKind
+	}{
+		{
+			name: "zonal instance group",
+			url:  "https://www.googleapis.com/compute/v1/projects/p/zones/us-central1-a/instanceGroups/ig-prod",
+			want: backendGroupInstanceGroup,
+		},
+		{
+			name: "regional instance group",
+			url:  "https://www.googleapis.com/compute/v1/projects/p/regions/us-central1/instanceGroups/ig-prod",
+			want: backendGroupInstanceGroup,
+		},
+		{
+			name: "zonal NEG",
+			url:  "https://www.googleapis.com/compute/v1/projects/p/zones/us-central1-a/networkEndpointGroups/neg-prod",
+			want: backendGroupNEG,
+		},
+		{
+			name: "regional NEG (serverless)",
+			url:  "https://www.googleapis.com/compute/v1/projects/p/regions/us-central1/networkEndpointGroups/cr-neg",
+			want: backendGroupNEG,
+		},
+		{
+			name: "empty url",
+			url:  "",
+			want: backendGroupUnknown,
+		},
+		{
+			name: "random",
+			url:  "https://example.com/foo/bar",
+			want: backendGroupUnknown,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, classifyBackendGroupURL(tc.url))
+		})
+	}
+}
+
+func TestGroupScope(t *testing.T) {
+	cases := map[string]string{
+		"https://www.googleapis.com/compute/v1/projects/p/zones/us-central1-a/instanceGroups/ig-prod":   "us-central1-a",
+		"https://www.googleapis.com/compute/v1/projects/p/regions/us-central1/networkEndpointGroups/neg": "us-central1",
+		"https://www.googleapis.com/compute/v1/projects/p/global/networkEndpointGroups/global-neg":      "global",
+		"": "",
+	}
+	for url, want := range cases {
+		t.Run(url, func(t *testing.T) {
+			assert.Equal(t, want, groupScope(url))
+		})
+	}
+}
