@@ -505,7 +505,7 @@ func (v *LoadBalancerDetailsView) renderObservability() string {
 		return v.renderObservabilityPlaceholder()
 	}
 	if v.observability == nil {
-		return "Loading observability..."
+		return renderLoading(v.spinner, "Loading observability...")
 	}
 	return v.observability.View()
 }
