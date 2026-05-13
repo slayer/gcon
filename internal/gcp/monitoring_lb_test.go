@@ -37,3 +37,8 @@ func TestGetLBRequestLatenciesFilter(t *testing.T) {
 	f := lbFilter("rule-x", "loadbalancing.googleapis.com/https/total_latencies")
 	assert.Contains(t, f, "https/total_latencies")
 }
+
+func TestGetLBBackendLatenciesFilter(t *testing.T) {
+	f := lbFilter("rule-x", "loadbalancing.googleapis.com/https/backend_latencies")
+	assert.Contains(t, f, "https/backend_latencies")
+}

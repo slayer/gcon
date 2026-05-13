@@ -118,6 +118,28 @@ func (c *MonitoringClient) GetLBRequestLatencies(ctx context.Context, forwarding
 	return p50, p95, p99, nil
 }
 
+const lbMetricBackendLatencies = "loadbalancing.googleapis.com/https/backend_latencies"
+
+// GetLBBackendLatencies fetches p50, p95, and p99 of backend-only latency
+// (origin response time, excludes LB-introduced overhead). Values in ms.
+func (c *MonitoringClient) GetLBBackendLatencies(ctx context.Context, forwardingRuleName string, duration time.Duration) (p50, p95, p99 []DataPoint, err error) {
+	filter := lbFilter(forwardingRuleName, lbMetricBackendLatencies)
+
+	p50, err = c.fetchLBPercentile(ctx, filter, duration, monitoringpb.Aggregation_ALIGN_PERCENTILE_50)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("fetch p50 backend latency: %w", err)
+	}
+	p95, err = c.fetchLBPercentile(ctx, filter, duration, monitoringpb.Aggregation_ALIGN_PERCENTILE_95)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("fetch p95 backend latency: %w", err)
+	}
+	p99, err = c.fetchLBPercentile(ctx, filter, duration, monitoringpb.Aggregation_ALIGN_PERCENTILE_99)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("fetch p99 backend latency: %w", err)
+	}
+	return p50, p95, p99, nil
+}
+
 // fetchLBPercentile is the percentile aligner variant for distribution metrics.
 func (c *MonitoringClient) fetchLBPercentile(ctx context.Context, filter string, duration time.Duration, aligner monitoringpb.Aggregation_Aligner) ([]DataPoint, error) {
 	endTime := time.Now()
