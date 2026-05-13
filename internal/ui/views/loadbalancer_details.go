@@ -283,6 +283,9 @@ func (v *LoadBalancerDetailsView) Update(msg tea.Msg) tea.Cmd {
 
 	case tabs.TabChangedMsg:
 		if v.tabs.ActiveTab().ID == "observability" {
+			if !isHTTPSObservabilityCapable(v.rule) {
+				return nil
+			}
 			if v.observability == nil {
 				v.observability = newLoadBalancerObservability(v.projectID, v.name, v.gcpClient)
 				v.observability.width = max(1, v.width-4)
@@ -551,10 +554,34 @@ func (v *LoadBalancerDetailsView) renderBackends() string {
 }
 
 func (v *LoadBalancerDetailsView) renderObservability() string {
+	if !isHTTPSObservabilityCapable(v.rule) {
+		return v.renderObservabilityPlaceholder()
+	}
 	if v.observability == nil {
 		return "Loading observability..."
 	}
 	return v.observability.View()
+}
+
+func (v *LoadBalancerDetailsView) renderObservabilityPlaceholder() string {
+	muted := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
+	kind := "this LB type"
+	if v.rule != nil && v.rule.Type != "" {
+		kind = v.rule.Type
+	}
+	var b strings.Builder
+	b.WriteString("Observability\n")
+	b.WriteString(strings.Repeat("─", 60))
+	b.WriteString("\n\n")
+	b.WriteString(muted.Render(fmt.Sprintf("  Metrics for %s are not yet supported in gcon.", kind)))
+	b.WriteString("\n")
+	b.WriteString(muted.Render("  The l3/* metric family for passthrough/proxy Network LBs is on the roadmap."))
+	b.WriteString("\n\n")
+	b.WriteString(muted.Render("  View metrics in the GCP console:"))
+	b.WriteString("\n")
+	b.WriteString(muted.Render("    https://console.cloud.google.com/net-services/loadbalancing"))
+	b.WriteString("\n")
+	return b.String()
 }
 
 // renderHealthBadge returns the inline summary for one backend group.
@@ -1015,4 +1042,18 @@ func (v *LoadBalancerDetailsView) fetchNEGHealth(backendServiceName, scope, grou
 		}
 		return lbGroupHealthLoadedMsg{groupURL: groupURL, statuses: statuses}
 	}
+}
+
+// isHTTPSObservabilityCapable returns true when the forwarding rule is an
+// HTTP / HTTPS / internal HTTPS LB, which are the types covered by the
+// loadbalancing.googleapis.com/https/* metric family.
+func isHTTPSObservabilityCapable(r *gcp.ForwardingRule) bool {
+	if r == nil {
+		return false
+	}
+	switch r.Type {
+	case "HTTPS (external)", "HTTPS (internal)", "HTTP (external)", "HTTP (internal)":
+		return true
+	}
+	return false
 }

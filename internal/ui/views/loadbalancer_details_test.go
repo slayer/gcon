@@ -329,6 +329,7 @@ func TestRenderHealthExpansionDrawsTable(t *testing.T) {
 
 func TestObservabilityTabLazyInit(t *testing.T) {
 	v := NewLoadBalancerDetailsView("proj", "global", "front", nil, nil)
+	v.rule = &gcp.ForwardingRule{Name: "front", Type: "HTTPS (external)"}
 	v.tabs.SetActiveByID("observability")
 	v.Update(tabs.TabChangedMsg{})
 	require.NotNil(t, v.observability)
@@ -337,6 +338,7 @@ func TestObservabilityTabLazyInit(t *testing.T) {
 
 func TestObservabilityTabLeaveStopsRefresh(t *testing.T) {
 	v := NewLoadBalancerDetailsView("proj", "global", "front", nil, nil)
+	v.rule = &gcp.ForwardingRule{Name: "front", Type: "HTTPS (external)"}
 	v.tabs.SetActiveByID("observability")
 	v.Update(tabs.TabChangedMsg{})
 	require.NotNil(t, v.observability)
@@ -344,4 +346,23 @@ func TestObservabilityTabLeaveStopsRefresh(t *testing.T) {
 	v.tabs.SetActiveByID("overview")
 	v.Update(tabs.TabChangedMsg{})
 	assert.False(t, v.observability.tabActive)
+}
+
+func TestObservabilityPlaceholderForNetworkLB(t *testing.T) {
+	v := NewLoadBalancerDetailsView("proj", "global", "front", nil, nil)
+	v.fetchState.fwdLoaded = true
+	v.rule = &gcp.ForwardingRule{Name: "front", Type: "Network LB (passthrough)"}
+	v.tabs.SetActiveByID("observability")
+	out := v.renderObservability()
+	assert.Contains(t, out, "Network LB (passthrough) are not yet supported")
+	assert.Nil(t, v.observability)
+}
+
+func TestObservabilityChartsForHTTPSLB(t *testing.T) {
+	v := NewLoadBalancerDetailsView("proj", "global", "front", nil, nil)
+	v.fetchState.fwdLoaded = true
+	v.rule = &gcp.ForwardingRule{Name: "front", Type: "HTTPS (external)"}
+	v.tabs.SetActiveByID("observability")
+	v.Update(tabs.TabChangedMsg{})
+	require.NotNil(t, v.observability)
 }
