@@ -43,11 +43,22 @@ func lbFilter(resourceType, forwardingRuleName, metricType string) string {
 	)
 }
 
-// lbFilterWithLabel narrows lbFilter by a single metric label (e.g. a
-// response_code_class label for error breakdowns).
+// lbFilterWithLabel narrows lbFilter by a single string-typed metric label.
 func lbFilterWithLabel(resourceType, forwardingRuleName, metricType, labelKey, labelValue string) string {
 	return fmt.Sprintf( //nolint:gocritic // GCP filter syntax requires double quotes
 		`%s AND metric.labels.%s = "%s"`,
+		lbFilter(resourceType, forwardingRuleName, metricType), labelKey, labelValue,
+	)
+}
+
+// lbFilterWithIntLabel narrows lbFilter by a single integer-typed metric
+// label. The LB metric "response_code_class" is typed as an integer
+// (4, 5, …), not a string ("4xx", "5xx") — Cloud Monitoring rejects
+// quoted values with: "The label is typed as an integer, but the
+// supplied value cannot be parsed as an integer."
+func lbFilterWithIntLabel(resourceType, forwardingRuleName, metricType, labelKey string, labelValue int) string {
+	return fmt.Sprintf( //nolint:gocritic // GCP filter syntax requires double quotes
+		`%s AND metric.labels.%s = %d`,
 		lbFilter(resourceType, forwardingRuleName, metricType), labelKey, labelValue,
 	)
 }
@@ -91,10 +102,11 @@ func (c *MonitoringClient) GetLBRequestCount(ctx context.Context, resourceType, 
 	return c.fetchLBMetric(ctx, filter, duration, monitoringpb.Aggregation_ALIGN_RATE, monitoringpb.Aggregation_REDUCE_SUM)
 }
 
-// GetLBRequestCountByCodeClass narrows request_count by response_code_class
-// label (one of "2xx", "3xx", "4xx", "5xx"). Used to compute error rate.
-func (c *MonitoringClient) GetLBRequestCountByCodeClass(ctx context.Context, resourceType, forwardingRuleName, codeClass string, duration time.Duration) ([]DataPoint, error) {
-	filter := lbFilterWithLabel(resourceType, forwardingRuleName, lbMetricRequestCount, "response_code_class", codeClass)
+// GetLBRequestCountByCodeClass narrows request_count by the integer
+// response_code_class label (2 = 2xx, 3 = 3xx, 4 = 4xx, 5 = 5xx). Used
+// to compute error rate.
+func (c *MonitoringClient) GetLBRequestCountByCodeClass(ctx context.Context, resourceType, forwardingRuleName string, codeClass int, duration time.Duration) ([]DataPoint, error) {
+	filter := lbFilterWithIntLabel(resourceType, forwardingRuleName, lbMetricRequestCount, "response_code_class", codeClass)
 	return c.fetchLBMetric(ctx, filter, duration, monitoringpb.Aggregation_ALIGN_RATE, monitoringpb.Aggregation_REDUCE_SUM)
 }
 

@@ -167,12 +167,12 @@ func (o *loadBalancerObservability) fetchAllMetrics() tea.Cmd {
 		} else {
 			out.Latency50, out.Latency95, out.Latency99 = p50, p95, p99
 		}
-		if r4, err := mc.GetLBRequestCountByCodeClass(ctx, resource, rule, "4xx", duration); err != nil {
+		if r4, err := mc.GetLBRequestCountByCodeClass(ctx, resource, rule, 4, duration); err != nil {
 			warnings = append(warnings, fmt.Sprintf("4xx count: %v", err))
 		} else {
 			out.RequestCount4xx = r4
 		}
-		if r5, err := mc.GetLBRequestCountByCodeClass(ctx, resource, rule, "5xx", duration); err != nil {
+		if r5, err := mc.GetLBRequestCountByCodeClass(ctx, resource, rule, 5, duration); err != nil {
 			warnings = append(warnings, fmt.Sprintf("5xx count: %v", err))
 		} else {
 			out.RequestCount5xx = r5

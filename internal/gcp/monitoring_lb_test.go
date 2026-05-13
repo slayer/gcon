@@ -35,8 +35,12 @@ func TestGetLBRequestCountFilter(t *testing.T) {
 }
 
 func TestGetLBRequestCountByCodeClassFilter(t *testing.T) {
-	f := lbFilterWithLabel("https_lb_rule", "rule-x", "loadbalancing.googleapis.com/https/request_count", "response_code_class", "5xx")
-	assert.Contains(t, f, `metric.labels.response_code_class = "5xx"`)
+	// response_code_class is an INTEGER label on LB metrics — must not be
+	// quoted, otherwise the API rejects with "cannot be parsed as an
+	// integer." Use lbFilterWithIntLabel, not lbFilterWithLabel.
+	f := lbFilterWithIntLabel("https_lb_rule", "rule-x", "loadbalancing.googleapis.com/https/request_count", "response_code_class", 5)
+	assert.Contains(t, f, `metric.labels.response_code_class = 5`)
+	assert.NotContains(t, f, `response_code_class = "5"`)
 	assert.Contains(t, f, "https/request_count")
 }
 
