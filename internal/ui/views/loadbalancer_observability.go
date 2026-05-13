@@ -107,6 +107,11 @@ func (o *loadBalancerObservability) View() string {
 	}
 	o.renderTimeRangeSelector(&b)
 	b.WriteString("\n")
+	if len(o.metricsWarnings) > 0 {
+		warnStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FBBC04"))
+		b.WriteString(warnStyle.Render(fmt.Sprintf("  ⚠ Some metrics unavailable: %s", strings.Join(o.metricsWarnings, "; "))))
+		b.WriteString("\n\n")
+	}
 	o.renderRequestCount(&b)
 	o.renderLatency(&b)
 	o.renderErrorRate(&b)
