@@ -1,10 +1,12 @@
 package views
 
 import (
+	"errors"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/slayer/gcon/internal/gcp"
 )
@@ -148,4 +150,29 @@ func TestGroupScope(t *testing.T) {
 			assert.Equal(t, want, groupScope(url))
 		})
 	}
+}
+
+var errTestBoom = errors.New("boom")
+
+func TestGroupHealthHandlersUpdateState(t *testing.T) {
+	v := NewLoadBalancerDetailsView("proj", "global", "front", nil, nil)
+	v.Update(lbGroupHealthLoadedMsg{
+		groupURL: "ig-1",
+		statuses: []gcp.InstanceHealth{{Instance: "vm-1", HealthState: "HEALTHY"}},
+	})
+	st, ok := v.groupHealth["ig-1"]
+	require.True(t, ok)
+	assert.Equal(t, groupHealthOK, st.phase)
+	require.Len(t, st.statuses, 1)
+	assert.Equal(t, "vm-1", st.statuses[0].Instance)
+
+	v.Update(lbGroupHealthErrorMsg{groupURL: "ig-2", err: errTestBoom})
+	st = v.groupHealth["ig-2"]
+	assert.Equal(t, groupHealthErrored, st.phase)
+	assert.EqualError(t, st.err, "boom")
+
+	v.Update(lbGroupSkippedMsg{groupURL: "neg-1", reason: "serverless NEG"})
+	st = v.groupHealth["neg-1"]
+	assert.Equal(t, groupHealthSkipped, st.phase)
+	assert.Equal(t, "serverless NEG", st.reason)
 }

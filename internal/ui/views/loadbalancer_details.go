@@ -136,6 +136,9 @@ func (v *LoadBalancerDetailsView) Init() tea.Cmd {
 	v.showDeleteConfirm = false
 	v.deleteErrs = nil
 	v.deleting = false
+	v.groupHealth = map[string]groupHealthState{}
+	v.groupExpanded = map[string]bool{}
+	v.groupFocus = -1
 	if v.client == nil {
 		return tea.Batch(v.spinner.Tick, v.initClient())
 	}
@@ -228,14 +231,33 @@ func (v *LoadBalancerDetailsView) Update(msg tea.Msg) tea.Cmd {
 				hcs = append(hcs, h)
 			}
 		}
+		healthCmd := v.fetchAllBackendHealth()
 		if len(hcs) == 0 {
 			v.fetchState.checksLoaded = true
-			return nil
+			return healthCmd
 		}
-		return v.fetchHealthChecks(hcs)
+		return tea.Batch(v.fetchHealthChecks(hcs), healthCmd)
 	case lbHealthChecksLoadedMsg:
 		v.checks = m.checks
 		v.fetchState.checksLoaded = true
+		return nil
+	case lbGroupHealthLoadedMsg:
+		v.groupHealth[m.groupURL] = groupHealthState{
+			phase:    groupHealthOK,
+			statuses: m.statuses,
+		}
+		return nil
+	case lbGroupHealthErrorMsg:
+		v.groupHealth[m.groupURL] = groupHealthState{
+			phase: groupHealthErrored,
+			err:   m.err,
+		}
+		return nil
+	case lbGroupSkippedMsg:
+		v.groupHealth[m.groupURL] = groupHealthState{
+			phase:  groupHealthSkipped,
+			reason: m.reason,
+		}
 		return nil
 	case lbSharingLoadedMsg:
 		v.allFwdRules = m.fwdRules
@@ -694,4 +716,82 @@ func groupScope(url string) string {
 		}
 	}
 	return ""
+}
+
+// fetchAllBackendHealth returns one tea.Cmd per (backend service, group)
+// pair across the freshly-loaded backend services. Each cmd ultimately
+// emits one of: lbGroupHealthLoadedMsg, lbGroupHealthErrorMsg,
+// lbGroupSkippedMsg. The view's groupHealth map is keyed by Backend.Group
+// URL, so duplicate Group URLs (rare — same group referenced by multiple
+// backend services) share state.
+func (v *LoadBalancerDetailsView) fetchAllBackendHealth() tea.Cmd {
+	if v.client == nil {
+		return nil
+	}
+	var cmds []tea.Cmd
+	seen := map[string]struct{}{}
+	for i := range v.backends {
+		bs := &v.backends[i]
+		for _, be := range bs.Backends {
+			if be.Group == "" {
+				continue
+			}
+			if _, ok := seen[be.Group]; ok {
+				continue
+			}
+			seen[be.Group] = struct{}{}
+			v.groupHealth[be.Group] = groupHealthState{phase: groupHealthLoading}
+			cmds = append(cmds, v.fetchGroupHealth(bs.Name, bs.Scope, be.Group))
+		}
+	}
+	if len(cmds) == 0 {
+		return nil
+	}
+	return tea.Batch(cmds...)
+}
+
+// fetchGroupHealth dispatches the health resolution for a single group.
+// Instance groups call GetBackendHealth directly. NEGs first GET the NEG
+// to check for SERVERLESS endpoint type (no per-instance health), then
+// either call GetBackendHealth or emit a skip. Unknown URL kinds skip.
+func (v *LoadBalancerDetailsView) fetchGroupHealth(backendServiceName, scope, groupURL string) tea.Cmd {
+	kind := classifyBackendGroupURL(groupURL)
+	switch kind {
+	case backendGroupInstanceGroup:
+		return v.fetchInstanceGroupHealth(backendServiceName, scope, groupURL)
+	case backendGroupNEG:
+		return v.fetchNEGHealth(backendServiceName, scope, groupURL)
+	default:
+		return func() tea.Msg {
+			return lbGroupSkippedMsg{groupURL: groupURL, reason: "unsupported backend kind"}
+		}
+	}
+}
+
+func (v *LoadBalancerDetailsView) fetchInstanceGroupHealth(backendServiceName, scope, groupURL string) tea.Cmd {
+	return func() tea.Msg {
+		statuses, err := v.client.GetBackendHealth(gocontext.Background(), v.projectID, scope, backendServiceName, groupURL)
+		if err != nil {
+			return lbGroupHealthErrorMsg{groupURL: groupURL, err: err}
+		}
+		return lbGroupHealthLoadedMsg{groupURL: groupURL, statuses: statuses}
+	}
+}
+
+func (v *LoadBalancerDetailsView) fetchNEGHealth(backendServiceName, scope, groupURL string) tea.Cmd {
+	return func() tea.Msg {
+		negScope := groupScope(groupURL)
+		neg, err := v.client.GetNetworkEndpointGroup(gocontext.Background(), v.projectID, negScope, groupURL)
+		if err != nil {
+			return lbGroupHealthErrorMsg{groupURL: groupURL, err: err}
+		}
+		if neg.NetworkEndpointType == "SERVERLESS" {
+			return lbGroupSkippedMsg{groupURL: groupURL, reason: "serverless NEG"}
+		}
+		statuses, err := v.client.GetBackendHealth(gocontext.Background(), v.projectID, scope, backendServiceName, groupURL)
+		if err != nil {
+			return lbGroupHealthErrorMsg{groupURL: groupURL, err: err}
+		}
+		return lbGroupHealthLoadedMsg{groupURL: groupURL, statuses: statuses}
+	}
 }
