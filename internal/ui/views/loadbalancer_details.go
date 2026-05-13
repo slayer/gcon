@@ -474,7 +474,10 @@ func (v *LoadBalancerDetailsView) renderBackends() string {
 		b.WriteString(fmt.Sprintf("Backend service: %s\n", bs.Name))
 		b.WriteString(fmt.Sprintf("  Protocol: %s  Timeout: %ds  Affinity: %s\n", bs.Protocol, bs.TimeoutSec, bs.SessionAffinity))
 		for _, be := range bs.Backends {
-			b.WriteString(fmt.Sprintf("    Group: %s  Mode: %s  Cap: %.2f\n", shortNameURL(be.Group), be.BalancingMode, be.CapacityScaler))
+			b.WriteString(fmt.Sprintf("    Group: %s  %s\n", shortNameURL(be.Group), v.renderHealthBadge(be.Group)))
+			if v.groupExpanded[be.Group] {
+				b.WriteString(v.renderHealthExpansion(be.Group))
+			}
 		}
 		for _, hcURL := range bs.HealthChecks {
 			b.WriteString(fmt.Sprintf("    Health check: %s\n", shortNameURL(hcURL)))
@@ -482,6 +485,63 @@ func (v *LoadBalancerDetailsView) renderBackends() string {
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+// renderHealthBadge returns the inline summary for one backend group.
+// Empty string when no health is known yet (e.g. before fan-out fires).
+func (v *LoadBalancerDetailsView) renderHealthBadge(groupURL string) string {
+	st, ok := v.groupHealth[groupURL]
+	if !ok {
+		return ""
+	}
+	switch st.phase {
+	case groupHealthLoading:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6")).Render("◌◌ loading…")
+	case groupHealthErrored:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#EA4335")).Render(fmt.Sprintf("? error: %v", st.err))
+	case groupHealthSkipped:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6")).Render(fmt.Sprintf("(no health — %s)", st.reason))
+	case groupHealthOK:
+		return v.renderHealthSummary(st.statuses)
+	}
+	return ""
+}
+
+// renderHealthSummary draws the green/red dot row and counts. Up to 5
+// per-instance dots inline; beyond that, abbreviate to "N/M healthy".
+func (v *LoadBalancerDetailsView) renderHealthSummary(statuses []gcp.InstanceHealth) string {
+	total := len(statuses)
+	if total == 0 {
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6")).Render("(no members)")
+	}
+	healthy := 0
+	for _, s := range statuses {
+		if s.HealthState == "HEALTHY" {
+			healthy++
+		}
+	}
+	green := lipgloss.NewStyle().Foreground(lipgloss.Color("#34A853"))
+	red := lipgloss.NewStyle().Foreground(lipgloss.Color("#EA4335"))
+
+	if total > 5 {
+		return fmt.Sprintf("%s %d/%d healthy", green.Render("●"), healthy, total)
+	}
+	var dots strings.Builder
+	for _, s := range statuses {
+		if s.HealthState == "HEALTHY" {
+			dots.WriteString(green.Render("●"))
+		} else {
+			dots.WriteString(red.Render("○"))
+		}
+	}
+	return fmt.Sprintf("%s %d/%d healthy", dots.String(), healthy, total)
+}
+
+// renderHealthExpansion draws the per-instance table for an expanded
+// group. Stubbed empty for Task 13 — Task 15 fills it in.
+func (v *LoadBalancerDetailsView) renderHealthExpansion(groupURL string) string {
+	_ = groupURL
+	return ""
 }
 
 func (v *LoadBalancerDetailsView) renderConfirmDialog() string {

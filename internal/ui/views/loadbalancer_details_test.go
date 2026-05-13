@@ -176,3 +176,52 @@ func TestGroupHealthHandlersUpdateState(t *testing.T) {
 	assert.Equal(t, groupHealthSkipped, st.phase)
 	assert.Equal(t, "serverless NEG", st.reason)
 }
+
+func TestRenderBackendsShowsHealthBadge(t *testing.T) {
+	v := NewLoadBalancerDetailsView("proj", "global", "front", nil, nil)
+	v.fetchState.backendsLoaded = true
+	v.backends = []gcp.BackendService{{
+		Name:     "api-backend",
+		Protocol: "HTTPS",
+		Backends: []gcp.Backend{{Group: "https://example/zones/z/instanceGroups/ig-1"}},
+	}}
+	v.groupHealth["https://example/zones/z/instanceGroups/ig-1"] = groupHealthState{
+		phase: groupHealthOK,
+		statuses: []gcp.InstanceHealth{
+			{Instance: "vm-1", HealthState: "HEALTHY"},
+			{Instance: "vm-2", HealthState: "HEALTHY"},
+			{Instance: "vm-3", HealthState: "UNHEALTHY"},
+		},
+	}
+	out := v.renderBackends()
+	assert.Contains(t, out, "ig-1")
+	assert.Contains(t, out, "2/3 healthy")
+}
+
+func TestRenderBackendsLoadingBadge(t *testing.T) {
+	v := NewLoadBalancerDetailsView("proj", "global", "front", nil, nil)
+	v.fetchState.backendsLoaded = true
+	v.backends = []gcp.BackendService{{
+		Name:     "api-backend",
+		Backends: []gcp.Backend{{Group: "https://example/zones/z/instanceGroups/ig-1"}},
+	}}
+	v.groupHealth["https://example/zones/z/instanceGroups/ig-1"] = groupHealthState{phase: groupHealthLoading}
+	out := v.renderBackends()
+	assert.Contains(t, out, "loading")
+}
+
+func TestRenderBackendsSkippedBadge(t *testing.T) {
+	v := NewLoadBalancerDetailsView("proj", "global", "front", nil, nil)
+	v.fetchState.backendsLoaded = true
+	v.backends = []gcp.BackendService{{
+		Name:     "static-backend",
+		Backends: []gcp.Backend{{Group: "https://example/regions/r/networkEndpointGroups/cr-neg"}},
+	}}
+	v.groupHealth["https://example/regions/r/networkEndpointGroups/cr-neg"] = groupHealthState{
+		phase:  groupHealthSkipped,
+		reason: "serverless NEG",
+	}
+	out := v.renderBackends()
+	assert.Contains(t, out, "no health")
+	assert.Contains(t, out, "serverless NEG")
+}
