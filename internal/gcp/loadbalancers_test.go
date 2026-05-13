@@ -107,6 +107,27 @@ func TestShortName(t *testing.T) {
 	assert.Equal(t, "x", shortName("x"))
 }
 
+func TestConvertNEG(t *testing.T) {
+	in := &compute.NetworkEndpointGroup{
+		Name:                "my-neg",
+		SelfLink:            "https://www.googleapis.com/compute/v1/projects/p/zones/us-central1-a/networkEndpointGroups/my-neg",
+		NetworkEndpointType: "GCE_VM_IP_PORT",
+	}
+	got := convertNEG(in, "us-central1-a")
+	assert.Equal(t, "my-neg", got.Name)
+	assert.Equal(t, "us-central1-a", got.Zone)
+	assert.Equal(t, "GCE_VM_IP_PORT", got.NetworkEndpointType)
+}
+
+func TestConvertNEGServerless(t *testing.T) {
+	in := &compute.NetworkEndpointGroup{
+		Name:                "cr-neg",
+		NetworkEndpointType: "SERVERLESS",
+	}
+	got := convertNEG(in, "us-central1")
+	assert.Equal(t, "SERVERLESS", got.NetworkEndpointType)
+}
+
 func TestConvertHealthStatusesNil(t *testing.T) {
 	got := convertHealthStatuses(nil)
 	assert.NotNil(t, got)

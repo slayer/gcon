@@ -782,6 +782,35 @@ func convertHealthStatuses(in []*compute.HealthStatus) []InstanceHealth {
 	return out
 }
 
+// GetNetworkEndpointGroup fetches a NEG by zone (zonal NEGs) or global
+// scope. scopeOrZone is either "global" or a zone name. groupURL is the
+// full self-link of the NEG; the function extracts the name via
+// shortName(groupURL).
+func (c *ComputeClient) GetNetworkEndpointGroup(ctx context.Context, projectID, scopeOrZone, groupURL string) (*NEG, error) {
+	name := shortName(groupURL)
+	if scopeOrZone == "global" {
+		neg, err := c.service.GlobalNetworkEndpointGroups.Get(projectID, name).Context(ctx).Do()
+		if err != nil {
+			return nil, fmt.Errorf("get global NEG %s: %w", name, err)
+		}
+		return convertNEG(neg, ""), nil
+	}
+	neg, err := c.service.NetworkEndpointGroups.Get(projectID, scopeOrZone, name).Context(ctx).Do()
+	if err != nil {
+		return nil, fmt.Errorf("get NEG %s/%s: %w", scopeOrZone, name, err)
+	}
+	return convertNEG(neg, scopeOrZone), nil
+}
+
+func convertNEG(neg *compute.NetworkEndpointGroup, zone string) *NEG {
+	return &NEG{
+		Name:                neg.Name,
+		SelfLink:            neg.SelfLink,
+		Zone:                zone,
+		NetworkEndpointType: neg.NetworkEndpointType,
+	}
+}
+
 // deriveFailureReason produces a short reason string for an unhealthy member.
 // GCP HealthStatus does not include a dedicated reason field; for v1 we
 // just relabel by state. A follow-up may plumb richer reason text from
