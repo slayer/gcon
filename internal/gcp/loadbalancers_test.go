@@ -128,6 +128,15 @@ func TestConvertNEGServerless(t *testing.T) {
 	assert.Equal(t, "SERVERLESS", got.NetworkEndpointType)
 }
 
+func TestConvertNEGGlobalEmptyZone(t *testing.T) {
+	in := &compute.NetworkEndpointGroup{
+		Name:                "global-neg",
+		NetworkEndpointType: "INTERNET_FQDN_PORT",
+	}
+	got := convertNEG(in, "")
+	assert.Empty(t, got.Zone)
+}
+
 func TestConvertHealthStatusesNil(t *testing.T) {
 	got := convertHealthStatuses(nil)
 	assert.NotNil(t, got)
