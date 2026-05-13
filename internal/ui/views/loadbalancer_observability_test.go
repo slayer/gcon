@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -113,4 +114,32 @@ func TestThroughputChartWiring(t *testing.T) {
 	})
 	out := obs.View()
 	assert.Contains(t, out, "Throughput")
+}
+
+func TestObservabilityTimeRangeKeys(t *testing.T) {
+	obs := newLoadBalancerObservability("p", "rule-x", nil)
+	cases := []struct {
+		key  string
+		want time.Duration
+	}{
+		{"1", 1 * time.Hour},
+		{"2", 6 * time.Hour},
+		{"3", 24 * time.Hour},
+		{"4", 7 * 24 * time.Hour},
+		{"5", 30 * 24 * time.Hour},
+	}
+	for _, tc := range cases {
+		t.Run(tc.key, func(t *testing.T) {
+			_, handled := obs.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(tc.key)})
+			assert.True(t, handled)
+			assert.Equal(t, tc.want, obs.timeRange)
+		})
+	}
+}
+
+func TestObservabilityAutoRefreshToggle(t *testing.T) {
+	obs := newLoadBalancerObservability("p", "rule-x", nil)
+	assert.True(t, obs.autoRefresh) // default on
+	obs.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	assert.False(t, obs.autoRefresh)
 }

@@ -340,6 +340,11 @@ func (v *LoadBalancerDetailsView) Update(msg tea.Msg) tea.Cmd {
 		case key.Matches(m, v.keys.Refresh):
 			return v.Init()
 		}
+		if v.tabs.ActiveTab().ID == "observability" && v.observability != nil {
+			if cmd, handled := v.observability.handleKey(m); handled {
+				return cmd
+			}
+		}
 		if v.tabs.ActiveTab().ID == "backends" {
 			if cmd, handled := v.handleBackendsKey(m); handled {
 				return cmd

@@ -362,6 +362,48 @@ func (o *loadBalancerObservability) renderThroughput(b *strings.Builder) {
 	b.WriteString("\n")
 }
 
+// handleKey processes a tea.KeyMsg when the Observability tab content is
+// focused. Returns (cmd, true) when it handled the key; (nil, false)
+// otherwise — the caller falls through to the tab-strip / view-level
+// handlers.
+func (o *loadBalancerObservability) handleKey(m tea.KeyMsg) (tea.Cmd, bool) {
+	switch m.String() {
+	case "1":
+		return o.setRange(1 * time.Hour), true
+	case "2":
+		return o.setRange(6 * time.Hour), true
+	case "3":
+		return o.setRange(24 * time.Hour), true
+	case "4":
+		return o.setRange(7 * 24 * time.Hour), true
+	case "5":
+		return o.setRange(30 * 24 * time.Hour), true
+	case "a":
+		o.autoRefresh = !o.autoRefresh
+		if o.autoRefresh && o.tabActive {
+			return o.tickAutoRefresh(), true
+		}
+		return nil, true
+	case "r":
+		o.metricsLoading = true
+		o.metricsError = nil
+		return tea.Batch(o.spinner.Tick, o.fetchAllMetrics()), true
+	}
+	return nil, false
+}
+
+func (o *loadBalancerObservability) setRange(d time.Duration) tea.Cmd {
+	if d == o.timeRange {
+		return nil
+	}
+	o.timeRange = d
+	o.metricsLoading = true
+	return tea.Batch(o.spinner.Tick, o.fetchAllMetrics())
+}
+
+// tickAutoRefresh is implemented in Task 24 — stub here.
+func (o *loadBalancerObservability) tickAutoRefresh() tea.Cmd { return nil }
+
 // percentRate divides `errs[i]` by `total[i]` for each timestamp where
 // the timestamps match (within 1 second tolerance). Result is a
 // percentage 0–100. When total is zero, the percentage is zero (not
