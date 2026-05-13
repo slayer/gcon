@@ -706,22 +706,6 @@ func collectBackendURLs(um gcp.URLMap) []string {
 	return out
 }
 
-// Internal messages.
-type lbClientReadyMsg struct{ client *gcp.ComputeClient }
-type lbFwdLoadedMsg struct{ rule *gcp.ForwardingRule }
-type lbProxyLoadedMsg struct{ proxy *gcp.TargetProxy }
-type lbURLMapLoadedMsg struct{ urlMap *gcp.URLMap }
-type lbBackendsLoadedMsg struct{ services []gcp.BackendService }
-type lbHealthChecksLoadedMsg struct{ checks []gcp.HealthCheck }
-type lbSharingLoadedMsg struct {
-	fwdRules []gcp.ForwardingRule
-	proxies  []gcp.TargetProxy
-	urlMaps  []gcp.URLMap
-	backends []gcp.BackendService
-}
-type lbSharingErrorMsg struct{ err error }
-type lbErrorMsg struct{ err error }
-
 // isHTTPSObservabilityCapable returns true when the forwarding rule is an
 // HTTP / HTTPS / internal HTTPS LB, which are the types covered by the
 // loadbalancing.googleapis.com/https/* metric family.

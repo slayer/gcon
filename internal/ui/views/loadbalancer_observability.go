@@ -18,14 +18,6 @@ import (
 
 var errMonitoringClientUnavailable = errors.New("monitoring client unavailable")
 
-// Internal messages.
-type lbMetricsLoadedMsg struct {
-	metrics  *gcp.LBMetrics
-	warnings []string // non-fatal per-metric fetch errors
-}
-type lbMetricsErrorMsg struct{ err error }
-type lbObsTickMsg struct{}
-
 // loadBalancerObservability owns the Observability tab's state for a
 // single LB: metrics, range selection, auto-refresh, and chart instances.
 type loadBalancerObservability struct {
