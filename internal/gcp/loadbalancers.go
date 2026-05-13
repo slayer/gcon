@@ -256,6 +256,26 @@ type SSLCertificate struct {
 	ExpireTime string
 }
 
+// InstanceHealth is the per-member result of backendServices.getHealth /
+// regionBackendServices.getHealth. One entry per VM (or NEG endpoint)
+// behind a backend group.
+type InstanceHealth struct {
+	Instance      string // last segment of the instance URL
+	IPAddress     string
+	Port          int64
+	HealthState   string // "HEALTHY" | "UNHEALTHY" | "UNKNOWN" | "DRAINING"
+	FailureReason string // empty when HealthState is HEALTHY
+}
+
+// NEG is a minimal projection of compute.NetworkEndpointGroup used to
+// detect the SERVERLESS endpoint type during health resolution.
+type NEG struct {
+	Name                string
+	SelfLink            string
+	Zone                string // empty for global NEGs
+	NetworkEndpointType string // "GCE_VM_IP_PORT" | "SERVERLESS" | "INTERNET_FQDN_PORT" | ...
+}
+
 // GetURLMap fetches a URL map. scope is "global" or a region.
 func (c *ComputeClient) GetURLMap(ctx context.Context, projectID, scope, mapURL string) (*URLMap, error) {
 	name := shortName(mapURL)
