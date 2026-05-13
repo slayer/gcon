@@ -54,6 +54,8 @@ type LoadBalancerDetailsView struct {
 	// inline warning so the user can still inspect the LB.
 	sharingErr error
 
+	observability *loadBalancerObservability
+
 	cascade           *Cascade
 	showDeleteConfirm bool
 	confirmInput      string
@@ -111,6 +113,7 @@ func NewLoadBalancerDetailsView(projectID, scope, name string, client *gcp.Compu
 		{ID: "overview", Label: "Overview"},
 		{ID: "routing", Label: "Routing"},
 		{ID: "backends", Label: "Backends"},
+		{ID: "observability", Label: "Observability"},
 	})
 	return &LoadBalancerDetailsView{
 		projectID:     projectID,
@@ -160,6 +163,10 @@ func (v *LoadBalancerDetailsView) SetSize(width, height int) {
 	v.width = width
 	v.height = height
 	v.tabs.SetSize(width)
+	if v.observability != nil {
+		v.observability.width = max(1, width-4)
+		v.observability.resizeCharts()
+	}
 }
 
 // SetContext mirrors other views.
@@ -274,13 +281,47 @@ func (v *LoadBalancerDetailsView) Update(msg tea.Msg) tea.Cmd {
 		v.err = m.err
 		return nil
 
+	case tabs.TabChangedMsg:
+		if v.tabs.ActiveTab().ID == "observability" {
+			if v.observability == nil {
+				v.observability = newLoadBalancerObservability(v.projectID, v.name, v.gcpClient)
+				v.observability.width = max(1, v.width-4)
+				v.observability.resizeCharts()
+			}
+			if v.observability.metrics == nil || v.observability.metricsLoading {
+				return tea.Batch(v.observability.Init(), v.observability.StartAutoRefresh())
+			}
+			return v.observability.StartAutoRefresh()
+		}
+		if v.observability != nil {
+			v.observability.StopAutoRefresh()
+		}
+		return nil
+
+	case lbMetricsLoadedMsg, lbMetricsErrorMsg, lbObsTickMsg:
+		if v.observability != nil {
+			return v.observability.Update(m)
+		}
+		return nil
+
 	case spinner.TickMsg:
+		var cmds []tea.Cmd
 		if !v.fetchState.fwdLoaded {
 			var cmd tea.Cmd
 			v.spinner, cmd = v.spinner.Update(msg)
-			return cmd
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 		}
-		return nil
+		if v.observability != nil && v.observability.metricsLoading {
+			if cmd := v.observability.Update(msg); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+		if len(cmds) == 0 {
+			return nil
+		}
+		return tea.Batch(cmds...)
 
 	case tea.KeyMsg:
 		if v.showDeleteConfirm {
@@ -358,6 +399,8 @@ func (v *LoadBalancerDetailsView) View() string {
 		b.WriteString(v.renderRouting())
 	case "backends":
 		b.WriteString(v.renderBackends())
+	case "observability":
+		b.WriteString(v.renderObservability())
 	}
 
 	if v.deleting {
@@ -500,6 +543,13 @@ func (v *LoadBalancerDetailsView) renderBackends() string {
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+func (v *LoadBalancerDetailsView) renderObservability() string {
+	if v.observability == nil {
+		return "Loading observability..."
+	}
+	return v.observability.View()
 }
 
 // renderHealthBadge returns the inline summary for one backend group.

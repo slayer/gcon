@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/slayer/gcon/internal/gcp"
+	"github.com/slayer/gcon/internal/ui/components/tabs"
 )
 
 func TestLoadBalancerDetailsView_Overview_RendersForwardingRule(t *testing.T) {
@@ -324,4 +325,23 @@ func TestRenderHealthExpansionDrawsTable(t *testing.T) {
 	assert.Contains(t, out, "vm-2")
 	assert.Contains(t, out, "UNHEALTHY")
 	assert.Contains(t, out, "HTTP 503")
+}
+
+func TestObservabilityTabLazyInit(t *testing.T) {
+	v := NewLoadBalancerDetailsView("proj", "global", "front", nil, nil)
+	v.tabs.SetActiveByID("observability")
+	v.Update(tabs.TabChangedMsg{})
+	require.NotNil(t, v.observability)
+	assert.True(t, v.observability.tabActive)
+}
+
+func TestObservabilityTabLeaveStopsRefresh(t *testing.T) {
+	v := NewLoadBalancerDetailsView("proj", "global", "front", nil, nil)
+	v.tabs.SetActiveByID("observability")
+	v.Update(tabs.TabChangedMsg{})
+	require.NotNil(t, v.observability)
+
+	v.tabs.SetActiveByID("overview")
+	v.Update(tabs.TabChangedMsg{})
+	assert.False(t, v.observability.tabActive)
 }
