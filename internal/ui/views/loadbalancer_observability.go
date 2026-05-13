@@ -118,6 +118,7 @@ func (o *loadBalancerObservability) View() string {
 	o.renderRequestCount(&b)
 	o.renderLatency(&b)
 	o.renderErrorRate(&b)
+	o.renderBackendLatency(&b)
 	return b.String()
 }
 
@@ -174,6 +175,11 @@ func (o *loadBalancerObservability) fetchAllMetrics() tea.Cmd {
 		} else {
 			out.RequestCount5xx = r5
 		}
+		if p50, p95, p99, err := mc.GetLBBackendLatencies(ctx, rule, duration); err != nil {
+			warnings = append(warnings, fmt.Sprintf("backend latencies: %v", err))
+		} else {
+			out.BackendLat50, out.BackendLat95, out.BackendLat99 = p50, p95, p99
+		}
 		return lbMetricsLoadedMsg{metrics: out, warnings: warnings}
 	}
 }
@@ -209,6 +215,11 @@ func (o *loadBalancerObservability) Update(msg tea.Msg) tea.Cmd {
 			o.errorRateChart.SetDataSets([]metricchart.DataSet{
 				{Name: "4xx", Data: err4xx, Color: "#FBBC04"},
 				{Name: "5xx", Data: err5xx, Color: "#EA4335"},
+			})
+			o.backendLatChart.SetDataSets([]metricchart.DataSet{
+				{Name: "p50", Data: o.metrics.BackendLat50, Color: "#34A853"},
+				{Name: "p95", Data: o.metrics.BackendLat95, Color: "#FBBC04"},
+				{Name: "p99", Data: o.metrics.BackendLat99, Color: "#EA4335"},
 			})
 		}
 		return nil
@@ -299,6 +310,22 @@ func (o *loadBalancerObservability) renderErrorRate(b *strings.Builder) {
 		b.WriteString(o.errorRateChart.View())
 	} else {
 		b.WriteString(muted.Render("  No error data available"))
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+}
+
+func (o *loadBalancerObservability) renderBackendLatency(b *strings.Builder) {
+	section := lipgloss.NewStyle().Bold(true)
+	muted := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
+	b.WriteString(section.Render("Backend Latency (origin response time)"))
+	b.WriteString("\n")
+	b.WriteString(strings.Repeat("━", max(0, min(o.width-4, 60))))
+	b.WriteString("\n")
+	if o.metrics != nil && (len(o.metrics.BackendLat50) > 0 || len(o.metrics.BackendLat95) > 0 || len(o.metrics.BackendLat99) > 0) {
+		b.WriteString(o.backendLatChart.View())
+	} else {
+		b.WriteString(muted.Render("  No backend latency data available"))
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")

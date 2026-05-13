@@ -89,3 +89,15 @@ func TestPercentRateMissingErrs(t *testing.T) {
 	got := percentRate(nil, total)
 	assert.Nil(t, got)
 }
+
+func TestBackendLatencyChartWiring(t *testing.T) {
+	obs := newLoadBalancerObservability("p", "rule-x", nil)
+	now := time.Now()
+	obs.Update(lbMetricsLoadedMsg{
+		metrics: &gcp.LBMetrics{
+			BackendLat50: []gcp.DataPoint{{Timestamp: now, Value: 30}},
+		},
+	})
+	out := obs.View()
+	assert.Contains(t, out, "Backend Latency")
+}
