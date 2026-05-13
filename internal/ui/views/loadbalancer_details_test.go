@@ -3,6 +3,7 @@ package views
 import (
 	"errors"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/stretchr/testify/assert"
@@ -346,6 +347,37 @@ func TestObservabilityTabLeaveStopsRefresh(t *testing.T) {
 	v.tabs.SetActiveByID("overview")
 	v.Update(tabs.TabChangedMsg{})
 	assert.False(t, v.observability.tabActive)
+}
+
+// Regression: switching to the Observability tab BEFORE the forwarding
+// rule has loaded must still create the sub-view once the rule arrives.
+// Without the lbFwdLoadedMsg hand-off, v.observability stays nil forever
+// and (a) the body is stuck on "Loading observability…" and (b) key "1"
+// falls through to tabs.Update and switches tabs instead of changing the
+// time range.
+func TestObservabilityLazyInitAfterRuleLoadsLate(t *testing.T) {
+	v := NewLoadBalancerDetailsView("proj", "global", "front", nil, nil)
+	v.tabs.SetActiveByID("observability")
+	v.Update(tabs.TabChangedMsg{})
+	require.Nil(t, v.observability, "rule is nil → sub-view gated off")
+
+	v.Update(lbFwdLoadedMsg{rule: &gcp.ForwardingRule{Name: "front", Type: "HTTPS (external)"}})
+	require.NotNil(t, v.observability, "obs sub-view created once rule loads on the active obs tab")
+
+	// And pressing "1" now reaches the obs key handler instead of the
+	// tab-strip's digit-as-tab-switcher path.
+	v.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'1'}})
+	assert.Equal(t, 1*time.Hour, v.observability.timeRange)
+	assert.Equal(t, "observability", v.tabs.ActiveTab().ID, "tab must not have switched")
+}
+
+// Tab change to obs before rule loads: ensure no sub-view created (so the
+// next handler gets a clean slate).
+func TestObservabilityTabClickedWithNilRuleDoesNotCreateSubview(t *testing.T) {
+	v := NewLoadBalancerDetailsView("proj", "global", "front", nil, nil)
+	v.tabs.SetActiveByID("observability")
+	v.Update(tabs.TabChangedMsg{})
+	assert.Nil(t, v.observability)
 }
 
 func TestObservabilityPlaceholderForNetworkLB(t *testing.T) {

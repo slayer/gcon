@@ -187,7 +187,19 @@ func (v *LoadBalancerDetailsView) Update(msg tea.Msg) tea.Cmd {
 	case lbFwdLoadedMsg:
 		v.rule = m.rule
 		v.fetchState.fwdLoaded = true
-		return v.fetchChainCmds()
+		chainCmd := v.fetchChainCmds()
+		// If the user landed on the Observability tab before the rule
+		// loaded, the lazy-init was gated off — kick it now that we know
+		// the LB type.
+		if v.tabs.ActiveTab().ID == "observability" {
+			if obsCmd := v.ensureObservability(); obsCmd != nil {
+				if chainCmd != nil {
+					return tea.Batch(chainCmd, obsCmd)
+				}
+				return obsCmd
+			}
+		}
+		return chainCmd
 	case lbProxyLoadedMsg:
 		v.proxy = m.proxy
 		v.fetchState.proxyLoaded = true
@@ -266,16 +278,14 @@ func (v *LoadBalancerDetailsView) Update(msg tea.Msg) tea.Cmd {
 
 	case tabs.TabChangedMsg:
 		if v.tabs.ActiveTab().ID == "observability" {
-			if !isHTTPSObservabilityCapable(v.rule) {
-				return nil
+			// If the rule hasn't loaded yet, the sub-view will be created
+			// later by the lbFwdLoadedMsg handler. Until then the
+			// placeholder/loading row in renderObservability covers the UI.
+			if obsCmd := v.ensureObservability(); obsCmd != nil {
+				return obsCmd
 			}
 			if v.observability == nil {
-				v.observability = newLoadBalancerObservability(v.projectID, v.name, v.gcpClient)
-				v.observability.width = max(1, v.width-4)
-				v.observability.resizeCharts()
-			}
-			if v.observability.metrics == nil || v.observability.metricsLoading {
-				return tea.Batch(v.observability.Init(), v.observability.StartAutoRefresh())
+				return nil
 			}
 			return v.observability.StartAutoRefresh()
 		}
@@ -498,6 +508,25 @@ func (v *LoadBalancerDetailsView) renderRouting() string {
 		}
 	}
 	return b.String()
+}
+
+// ensureObservability lazy-creates the observability sub-view when the
+// active tab is "observability" and the forwarding rule is metric-capable.
+// Returns the Init+StartAutoRefresh batch on first creation, nil otherwise
+// (rule still loading, or non-capable LB type). Callers in the tab-change
+// path and the rule-loaded path both rely on this to handle the race where
+// the user switches to the tab before the rule arrives.
+func (v *LoadBalancerDetailsView) ensureObservability() tea.Cmd {
+	if v.observability != nil {
+		return nil
+	}
+	if !isHTTPSObservabilityCapable(v.rule) {
+		return nil
+	}
+	v.observability = newLoadBalancerObservability(v.projectID, v.name, v.gcpClient)
+	v.observability.width = max(1, v.width-4)
+	v.observability.resizeCharts()
+	return tea.Batch(v.observability.Init(), v.observability.StartAutoRefresh())
 }
 
 func (v *LoadBalancerDetailsView) renderObservability() string {
