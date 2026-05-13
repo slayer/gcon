@@ -72,6 +72,9 @@ type fetchState struct {
 	sharingChecksLoaded bool
 }
 
+// groupHealthPhase is the lifecycle of one backend group's health-fetch
+// result. The zero value is groupHealthLoading so a freshly-seeded entry
+// in the groupHealth map renders as "loading…" without explicit init.
 type groupHealthPhase int
 
 const (
