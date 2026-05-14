@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -24,9 +25,12 @@ type LoadBalancerDetailsView struct {
 	scope     string
 	name      string
 	client    *gcp.ComputeClient
+	gcpClient *gcp.Client
 
-	tabs    *tabs.Tabs
-	spinner spinner.Model
+	tabs         *tabs.Tabs
+	spinner      spinner.Model
+	viewport     viewport.Model
+	viewportSize bool // true once SetSize has been called
 	width   int
 	height  int
 
@@ -35,6 +39,11 @@ type LoadBalancerDetailsView struct {
 	urlMap   *gcp.URLMap
 	backends []gcp.BackendService
 	checks   []gcp.HealthCheck
+
+	// Backend group health (phase 2).
+	groupHealth   map[string]groupHealthState // keyed on Backend.Group URL
+	groupFocus    int                         // index into the flat list of group rows; -1 = no focus
+	groupExpanded map[string]bool             // group URL -> expanded?
 
 	allFwdRules []gcp.ForwardingRule
 	allProxies  []gcp.TargetProxy
@@ -47,6 +56,8 @@ type LoadBalancerDetailsView struct {
 	// v.err it does NOT replace the view — it disables delete and shows an
 	// inline warning so the user can still inspect the LB.
 	sharingErr error
+
+	observability *loadBalancerObservability
 
 	cascade           *Cascade
 	showDeleteConfirm bool
@@ -81,20 +92,25 @@ func defaultLoadBalancerDetailsKeyMap() loadBalancerDetailsKeyMap {
 }
 
 // NewLoadBalancerDetailsView constructs the view.
-func NewLoadBalancerDetailsView(projectID, scope, name string, client *gcp.ComputeClient) *LoadBalancerDetailsView {
+func NewLoadBalancerDetailsView(projectID, scope, name string, client *gcp.ComputeClient, gcpClient *gcp.Client) *LoadBalancerDetailsView {
 	t := tabs.New([]tabs.Tab{
 		{ID: "overview", Label: "Overview"},
 		{ID: "routing", Label: "Routing"},
 		{ID: "backends", Label: "Backends"},
+		{ID: "observability", Label: "Observability"},
 	})
 	return &LoadBalancerDetailsView{
-		projectID: projectID,
-		scope:     scope,
-		name:      name,
-		client:    client,
-		tabs:      t,
-		spinner:   components.NewGCPSpinner(),
-		keys:      defaultLoadBalancerDetailsKeyMap(),
+		projectID:     projectID,
+		scope:         scope,
+		name:          name,
+		client:        client,
+		gcpClient:     gcpClient,
+		tabs:          t,
+		spinner:       components.NewGCPSpinner(),
+		keys:          defaultLoadBalancerDetailsKeyMap(),
+		groupHealth:   map[string]groupHealthState{},
+		groupExpanded: map[string]bool{},
+		groupFocus:    -1,
 	}
 }
 
@@ -107,6 +123,9 @@ func (v *LoadBalancerDetailsView) Init() tea.Cmd {
 	v.showDeleteConfirm = false
 	v.deleteErrs = nil
 	v.deleting = false
+	v.groupHealth = map[string]groupHealthState{}
+	v.groupExpanded = map[string]bool{}
+	v.groupFocus = -1
 	if v.client == nil {
 		return tea.Batch(v.spinner.Tick, v.initClient())
 	}
@@ -128,6 +147,22 @@ func (v *LoadBalancerDetailsView) SetSize(width, height int) {
 	v.width = width
 	v.height = height
 	v.tabs.SetSize(width)
+	// Reserve rows for the tab strip (1), blank line under tabs (1), the
+	// outer Padding(0, 2) — top/bottom — and a buffer for inline error /
+	// confirm-dialog chrome that occasionally renders below the body.
+	vpW := max(1, width-4)
+	vpH := max(1, height-4)
+	if !v.viewportSize {
+		v.viewport = viewport.New(vpW, vpH)
+		v.viewportSize = true
+	} else {
+		v.viewport.Width = vpW
+		v.viewport.Height = vpH
+	}
+	if v.observability != nil {
+		v.observability.width = vpW
+		v.observability.resizeCharts()
+	}
 }
 
 // SetContext mirrors other views.
@@ -167,7 +202,19 @@ func (v *LoadBalancerDetailsView) Update(msg tea.Msg) tea.Cmd {
 	case lbFwdLoadedMsg:
 		v.rule = m.rule
 		v.fetchState.fwdLoaded = true
-		return v.fetchChainCmds()
+		chainCmd := v.fetchChainCmds()
+		// If the user landed on the Observability tab before the rule
+		// loaded, the lazy-init was gated off — kick it now that we know
+		// the LB type.
+		if v.tabs.ActiveTab().ID == "observability" {
+			if obsCmd := v.ensureObservability(); obsCmd != nil {
+				if chainCmd != nil {
+					return tea.Batch(chainCmd, obsCmd)
+				}
+				return obsCmd
+			}
+		}
+		return chainCmd
 	case lbProxyLoadedMsg:
 		v.proxy = m.proxy
 		v.fetchState.proxyLoaded = true
@@ -199,15 +246,36 @@ func (v *LoadBalancerDetailsView) Update(msg tea.Msg) tea.Cmd {
 				hcs = append(hcs, h)
 			}
 		}
+		healthCmd := v.fetchAllBackendHealth()
 		if len(hcs) == 0 {
 			v.fetchState.checksLoaded = true
-			return nil
+			return healthCmd
 		}
-		return v.fetchHealthChecks(hcs)
+		return tea.Batch(v.fetchHealthChecks(hcs), healthCmd)
 	case lbHealthChecksLoadedMsg:
 		v.checks = m.checks
 		v.fetchState.checksLoaded = true
 		return nil
+	case lbGroupHealthLoadedMsg:
+		v.groupHealth[m.groupURL] = groupHealthState{
+			phase:    groupHealthOK,
+			statuses: m.statuses,
+		}
+		return nil
+	case lbGroupHealthErrorMsg:
+		v.groupHealth[m.groupURL] = groupHealthState{
+			phase: groupHealthErrored,
+			err:   m.err,
+		}
+		return nil
+	case lbGroupSkippedMsg:
+		v.groupHealth[m.groupURL] = groupHealthState{
+			phase:  groupHealthSkipped,
+			reason: m.reason,
+		}
+		return nil
+	case lbHealthRefreshMsg:
+		return v.fetchAllBackendHealth()
 	case lbSharingLoadedMsg:
 		v.allFwdRules = m.fwdRules
 		v.allProxies = m.proxies
@@ -223,13 +291,50 @@ func (v *LoadBalancerDetailsView) Update(msg tea.Msg) tea.Cmd {
 		v.err = m.err
 		return nil
 
+	case tabs.TabChangedMsg:
+		// Reset scroll when switching tabs so each tab starts at the top.
+		v.viewport.GotoTop()
+		if v.tabs.ActiveTab().ID == "observability" {
+			// If the rule hasn't loaded yet, the sub-view will be created
+			// later by the lbFwdLoadedMsg handler. Until then the
+			// placeholder/loading row in renderObservability covers the UI.
+			if obsCmd := v.ensureObservability(); obsCmd != nil {
+				return obsCmd
+			}
+			if v.observability == nil {
+				return nil
+			}
+			return v.observability.StartAutoRefresh()
+		}
+		if v.observability != nil {
+			v.observability.StopAutoRefresh()
+		}
+		return nil
+
+	case lbMetricsLoadedMsg, lbMetricsErrorMsg, lbObsTickMsg:
+		if v.observability != nil {
+			return v.observability.Update(m)
+		}
+		return nil
+
 	case spinner.TickMsg:
+		var cmds []tea.Cmd
 		if !v.fetchState.fwdLoaded {
 			var cmd tea.Cmd
 			v.spinner, cmd = v.spinner.Update(msg)
-			return cmd
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 		}
-		return nil
+		if v.observability != nil && v.observability.metricsLoading {
+			if cmd := v.observability.Update(msg); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+		if len(cmds) == 0 {
+			return nil
+		}
+		return tea.Batch(cmds...)
 
 	case tea.KeyMsg:
 		if v.showDeleteConfirm {
@@ -247,6 +352,21 @@ func (v *LoadBalancerDetailsView) Update(msg tea.Msg) tea.Cmd {
 			return nil
 		case key.Matches(m, v.keys.Refresh):
 			return v.Init()
+		}
+		if v.tabs.ActiveTab().ID == "observability" && v.observability != nil {
+			if cmd, handled := v.observability.handleKey(m); handled {
+				return cmd
+			}
+		}
+		if v.tabs.ActiveTab().ID == "backends" {
+			if cmd, handled := v.handleBackendsKey(m); handled {
+				return cmd
+			}
+		}
+		if isViewportScrollKey(m) {
+			var cmd tea.Cmd
+			v.viewport, cmd = v.viewport.Update(m)
+			return cmd
 		}
 		// tabs.Update returns a tea.Cmd that emits TabChangedMsg; propagate it.
 		return v.tabs.Update(m)
@@ -295,13 +415,22 @@ func (v *LoadBalancerDetailsView) View() string {
 	b.WriteString(v.tabs.View())
 	b.WriteString("\n\n")
 
+	var body string
 	switch v.tabs.ActiveTab().ID {
 	case "overview":
-		b.WriteString(v.renderOverview())
+		body = v.renderOverview()
 	case "routing":
-		b.WriteString(v.renderRouting())
+		body = v.renderRouting()
 	case "backends":
-		b.WriteString(v.renderBackends())
+		body = v.renderBackends()
+	case "observability":
+		body = v.renderObservability()
+	}
+	if v.viewportSize {
+		v.viewport.SetContent(body)
+		b.WriteString(v.viewport.View())
+	} else {
+		b.WriteString(body)
 	}
 
 	if v.deleting {
@@ -410,26 +539,61 @@ func (v *LoadBalancerDetailsView) renderRouting() string {
 	return b.String()
 }
 
-func (v *LoadBalancerDetailsView) renderBackends() string {
-	if !v.fetchState.backendsLoaded {
-		return "Loading backends..."
+// ensureObservability lazy-creates the observability sub-view when the
+// active tab is "observability" and the forwarding rule is metric-capable.
+// Returns the Init+StartAutoRefresh batch on first creation, nil otherwise
+// (rule still loading, or non-capable LB type). Callers in the tab-change
+// path and the rule-loaded path both rely on this to handle the race where
+// the user switches to the tab before the rule arrives.
+func (v *LoadBalancerDetailsView) ensureObservability() tea.Cmd {
+	if v.observability != nil {
+		return nil
 	}
-	if len(v.backends) == 0 {
-		return "(no backends)"
+	resourceType := resourceTypeForLB(v.rule)
+	if resourceType == "" {
+		return nil
+	}
+	v.observability = newLoadBalancerObservability(v.projectID, v.name, resourceType, v.gcpClient)
+	v.observability.width = max(1, v.width-4)
+	v.observability.resizeCharts()
+	return tea.Batch(v.observability.Init(), v.observability.StartAutoRefresh())
+}
+
+func (v *LoadBalancerDetailsView) renderObservability() string {
+	// View() gates the whole tab on fwdLoaded, but if the upstream fetch
+	// returns a nil rule with no error, v.rule can still be nil here.
+	// Show loading rather than the "not supported" placeholder so the
+	// user isn't misled about the LB's capabilities.
+	if !v.fetchState.fwdLoaded || v.rule == nil {
+		return renderLoading(v.spinner, "Loading observability...")
+	}
+	if !isHTTPSObservabilityCapable(v.rule) {
+		return v.renderObservabilityPlaceholder()
+	}
+	if v.observability == nil {
+		return renderLoading(v.spinner, "Loading observability...")
+	}
+	return v.observability.View()
+}
+
+func (v *LoadBalancerDetailsView) renderObservabilityPlaceholder() string {
+	muted := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
+	kind := "this LB type"
+	if v.rule != nil && v.rule.Type != "" {
+		kind = v.rule.Type
 	}
 	var b strings.Builder
-	for i := range v.backends {
-		bs := &v.backends[i]
-		b.WriteString(fmt.Sprintf("Backend service: %s\n", bs.Name))
-		b.WriteString(fmt.Sprintf("  Protocol: %s  Timeout: %ds  Affinity: %s\n", bs.Protocol, bs.TimeoutSec, bs.SessionAffinity))
-		for _, be := range bs.Backends {
-			b.WriteString(fmt.Sprintf("    Group: %s  Mode: %s  Cap: %.2f\n", shortNameURL(be.Group), be.BalancingMode, be.CapacityScaler))
-		}
-		for _, hcURL := range bs.HealthChecks {
-			b.WriteString(fmt.Sprintf("    Health check: %s\n", shortNameURL(hcURL)))
-		}
-		b.WriteString("\n")
-	}
+	b.WriteString("Observability\n")
+	b.WriteString(strings.Repeat("─", 60))
+	b.WriteString("\n\n")
+	b.WriteString(muted.Render(fmt.Sprintf("  Metrics for %s are not yet supported in gcon.", kind)))
+	b.WriteString("\n")
+	b.WriteString(muted.Render("  The l3/* metric family for passthrough/proxy Network LBs is on the roadmap."))
+	b.WriteString("\n\n")
+	b.WriteString(muted.Render("  View metrics in the GCP console:"))
+	b.WriteString("\n")
+	b.WriteString(muted.Render("    https://console.cloud.google.com/net-services/loadbalancing"))
+	b.WriteString("\n")
 	return b.String()
 }
 
@@ -608,18 +772,41 @@ func collectBackendURLs(um gcp.URLMap) []string {
 	return out
 }
 
-// Internal messages.
-type lbClientReadyMsg struct{ client *gcp.ComputeClient }
-type lbFwdLoadedMsg struct{ rule *gcp.ForwardingRule }
-type lbProxyLoadedMsg struct{ proxy *gcp.TargetProxy }
-type lbURLMapLoadedMsg struct{ urlMap *gcp.URLMap }
-type lbBackendsLoadedMsg struct{ services []gcp.BackendService }
-type lbHealthChecksLoadedMsg struct{ checks []gcp.HealthCheck }
-type lbSharingLoadedMsg struct {
-	fwdRules []gcp.ForwardingRule
-	proxies  []gcp.TargetProxy
-	urlMaps  []gcp.URLMap
-	backends []gcp.BackendService
+// isHTTPSObservabilityCapable returns true when the forwarding rule is an
+// HTTP / HTTPS / internal HTTPS LB, which are the types covered by the
+// loadbalancing.googleapis.com/https/* metric family.
+func isHTTPSObservabilityCapable(r *gcp.ForwardingRule) bool {
+	return resourceTypeForLB(r) != ""
 }
-type lbSharingErrorMsg struct{ err error }
-type lbErrorMsg struct{ err error }
+
+// isViewportScrollKey identifies keys that should scroll the tab body's
+// viewport when no tab-specific handler has consumed them. PgUp/PgDn and
+// Home/End work on every tab; j/k/up/down work only when the Backends
+// tab's group-focus handler hasn't already taken them.
+func isViewportScrollKey(m tea.KeyMsg) bool {
+	switch m.String() {
+	case "j", "k", "up", "down", "pgup", "pgdown", "home", "end":
+		return true
+	}
+	return false
+}
+
+// resourceTypeForLB maps a forwarding rule's human-readable type label to
+// the Cloud Monitoring resource type that hosts its metrics. Returns "" if
+// the LB isn't supported by the loadbalancing.googleapis.com/https/*
+// metric family (Network LBs, TCP/SSL proxies, legacy target pools).
+//
+// GCP's filter language disallows OR between resource.type values, so the
+// caller must pick exactly one per fetch — this is the mapping function.
+func resourceTypeForLB(r *gcp.ForwardingRule) string {
+	if r == nil {
+		return ""
+	}
+	switch r.Type {
+	case "HTTPS (external)", "HTTP (external)":
+		return "https_lb_rule"
+	case "HTTPS (internal)", "HTTP (internal)":
+		return "internal_http_lb_rule"
+	}
+	return ""
+}

@@ -3602,7 +3602,7 @@ func (a *App) handleLoadBalancerSelected(msg views.LoadBalancerSelectedMsg) tea.
 		client = a.loadBalancersView.GetComputeClient()
 	}
 	a.loadBalancerDetailsView = views.NewLoadBalancerDetailsView(
-		a.selectedProject.ID, msg.Scope, msg.Name, client,
+		a.selectedProject.ID, msg.Scope, msg.Name, client, a.gcpClient,
 	)
 	a.updateSidebarActiveView()
 	a.updateViewSizes()

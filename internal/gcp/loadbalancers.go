@@ -256,6 +256,26 @@ type SSLCertificate struct {
 	ExpireTime string
 }
 
+// InstanceHealth is the per-member result of backendServices.getHealth /
+// regionBackendServices.getHealth. One entry per VM (or NEG endpoint)
+// behind a backend group.
+type InstanceHealth struct {
+	Instance      string // short instance name
+	IPAddress     string
+	Port          int64
+	HealthState   string // GCP HealthState (HEALTHY, UNHEALTHY, UNKNOWN, DRAINING, TIMEOUT)
+	FailureReason string // empty when HealthState is HEALTHY
+}
+
+// NEG is a minimal projection of compute.NetworkEndpointGroup used to
+// detect the SERVERLESS endpoint type during health resolution.
+type NEG struct {
+	Name                string
+	SelfLink            string
+	Zone                string // empty for global NEGs
+	NetworkEndpointType string // "GCE_VM_IP_PORT" | "SERVERLESS" | "INTERNET_FQDN_PORT" | ...
+}
+
 // GetURLMap fetches a URL map. scope is "global" or a region.
 func (c *ComputeClient) GetURLMap(ctx context.Context, projectID, scope, mapURL string) (*URLMap, error) {
 	name := shortName(mapURL)
@@ -438,7 +458,10 @@ func (c *ComputeClient) GetSSLCertificate(ctx context.Context, projectID, scope,
 	return out, nil
 }
 
-var errUnsupportedProxyKind = fmt.Errorf("unsupported target proxy kind")
+var (
+	errUnsupportedProxyKind = fmt.Errorf("unsupported target proxy kind")
+	errUnknownNEGLocation   = fmt.Errorf("unknown NEG location kind (want global|zone|region)")
+)
 
 // GetTargetProxy fetches a target proxy. The kind (one of targetHttpProxies /
 // targetHttpsProxies / targetTcpProxies / targetSslProxies) is inferred from
@@ -727,4 +750,91 @@ func (c *ComputeClient) DeleteHealthCheck(ctx context.Context, projectID, scope,
 		return WrapActionError(err, "delete health check", name)
 	}
 	return nil
+}
+
+// GetBackendHealth fetches per-instance health for one (backendService, group)
+// pair. scope is "global" or a region. backendServiceName is the short name
+// (no URL). groupURL is the full URL of the instance group or NEG.
+func (c *ComputeClient) GetBackendHealth(ctx context.Context, projectID, scope, backendServiceName, groupURL string) ([]InstanceHealth, error) {
+	ref := &compute.ResourceGroupReference{Group: groupURL}
+	if scope == "global" {
+		resp, err := c.service.BackendServices.GetHealth(projectID, backendServiceName, ref).Context(ctx).Do()
+		if err != nil {
+			return nil, fmt.Errorf("get backend health %s: %w", backendServiceName, err)
+		}
+		return convertHealthStatuses(resp.HealthStatus), nil
+	}
+	resp, err := c.service.RegionBackendServices.GetHealth(projectID, scope, backendServiceName, ref).Context(ctx).Do()
+	if err != nil {
+		return nil, fmt.Errorf("get regional backend health %s/%s: %w", scope, backendServiceName, err)
+	}
+	return convertHealthStatuses(resp.HealthStatus), nil
+}
+
+func convertHealthStatuses(in []*compute.HealthStatus) []InstanceHealth {
+	out := make([]InstanceHealth, 0, len(in))
+	for _, hs := range in {
+		out = append(out, InstanceHealth{
+			Instance:      shortName(hs.Instance),
+			IPAddress:     hs.IpAddress,
+			Port:          hs.Port,
+			HealthState:   hs.HealthState,
+			FailureReason: deriveFailureReason(hs),
+		})
+	}
+	return out
+}
+
+// GetNetworkEndpointGroup fetches a NEG. locationKind must be one of
+// "global", "zone", or "region"; location is the zone or region name
+// (ignored when locationKind == "global"). groupURL is the full self-link
+// of the NEG; the function extracts the name via shortName(groupURL).
+// Regional NEGs are critical for serverless backends (Cloud Run /
+// Cloud Functions / App Engine) — without the regional dispatch, the
+// zonal endpoint would be hit with a region name and fail, masking
+// the SERVERLESS detection that lets fetchNEGHealth skip these groups.
+func (c *ComputeClient) GetNetworkEndpointGroup(ctx context.Context, projectID, locationKind, location, groupURL string) (*NEG, error) {
+	name := shortName(groupURL)
+	switch locationKind {
+	case "global":
+		neg, err := c.service.GlobalNetworkEndpointGroups.Get(projectID, name).Context(ctx).Do()
+		if err != nil {
+			return nil, fmt.Errorf("get global NEG %s: %w", name, err)
+		}
+		return convertNEG(neg, ""), nil
+	case "region":
+		neg, err := c.service.RegionNetworkEndpointGroups.Get(projectID, location, name).Context(ctx).Do()
+		if err != nil {
+			return nil, fmt.Errorf("get regional NEG %s/%s: %w", location, name, err)
+		}
+		return convertNEG(neg, location), nil
+	case "zone":
+		neg, err := c.service.NetworkEndpointGroups.Get(projectID, location, name).Context(ctx).Do()
+		if err != nil {
+			return nil, fmt.Errorf("get zonal NEG %s/%s: %w", location, name, err)
+		}
+		return convertNEG(neg, location), nil
+	default:
+		return nil, fmt.Errorf("%w: %q", errUnknownNEGLocation, locationKind)
+	}
+}
+
+func convertNEG(neg *compute.NetworkEndpointGroup, zone string) *NEG {
+	return &NEG{
+		Name:                neg.Name,
+		SelfLink:            neg.SelfLink,
+		Zone:                zone,
+		NetworkEndpointType: neg.NetworkEndpointType,
+	}
+}
+
+// deriveFailureReason produces a short reason string for an unhealthy member.
+// GCP HealthStatus does not include a dedicated reason field; for v1 we
+// just relabel by state. A follow-up may plumb richer reason text from
+// the health-check log via Cloud Logging.
+func deriveFailureReason(hs *compute.HealthStatus) string {
+	if hs.HealthState == "HEALTHY" || hs.HealthState == "" {
+		return ""
+	}
+	return hs.HealthState
 }
