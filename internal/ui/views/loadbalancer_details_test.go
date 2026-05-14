@@ -141,15 +141,33 @@ func TestClassifyBackendGroupURL(t *testing.T) {
 }
 
 func TestGroupScope(t *testing.T) {
-	cases := map[string]string{
-		"https://www.googleapis.com/compute/v1/projects/p/zones/us-central1-a/instanceGroups/ig-prod":   "us-central1-a",
-		"https://www.googleapis.com/compute/v1/projects/p/regions/us-central1/networkEndpointGroups/neg": "us-central1",
-		"https://www.googleapis.com/compute/v1/projects/p/global/networkEndpointGroups/global-neg":      "global",
-		"": "",
+	cases := []struct {
+		url      string
+		location string
+		kind     string
+	}{
+		{
+			url:      "https://www.googleapis.com/compute/v1/projects/p/zones/us-central1-a/instanceGroups/ig-prod",
+			location: "us-central1-a",
+			kind:     "zone",
+		},
+		{
+			url:      "https://www.googleapis.com/compute/v1/projects/p/regions/us-central1/networkEndpointGroups/neg",
+			location: "us-central1",
+			kind:     "region",
+		},
+		{
+			url:      "https://www.googleapis.com/compute/v1/projects/p/global/networkEndpointGroups/global-neg",
+			location: "global",
+			kind:     "global",
+		},
+		{url: "", location: "", kind: ""},
 	}
-	for url, want := range cases {
-		t.Run(url, func(t *testing.T) {
-			assert.Equal(t, want, groupScope(url))
+	for _, tc := range cases {
+		t.Run(tc.url, func(t *testing.T) {
+			loc, kind := groupScope(tc.url)
+			assert.Equal(t, tc.location, loc)
+			assert.Equal(t, tc.kind, kind)
 		})
 	}
 }
@@ -378,6 +396,19 @@ func TestObservabilityTabClickedWithNilRuleDoesNotCreateSubview(t *testing.T) {
 	v.tabs.SetActiveByID("observability")
 	v.Update(tabs.TabChangedMsg{})
 	assert.Nil(t, v.observability)
+}
+
+func TestObservabilityShowsLoadingWhenRuleIsNil(t *testing.T) {
+	v := NewLoadBalancerDetailsView("proj", "global", "front", nil, nil)
+	// fwdLoaded set but rule is nil (rare upstream edge: fetch returned
+	// nil rule without error). Must show loading, not the "not supported"
+	// placeholder, since the LB type is unknown.
+	v.fetchState.fwdLoaded = true
+	v.rule = nil
+	v.tabs.SetActiveByID("observability")
+	out := v.renderObservability()
+	assert.Contains(t, out, "Loading observability")
+	assert.NotContains(t, out, "are not yet supported")
 }
 
 func TestObservabilityPlaceholderForNetworkLB(t *testing.T) {

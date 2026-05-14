@@ -560,6 +560,13 @@ func (v *LoadBalancerDetailsView) ensureObservability() tea.Cmd {
 }
 
 func (v *LoadBalancerDetailsView) renderObservability() string {
+	// View() gates the whole tab on fwdLoaded, but if the upstream fetch
+	// returns a nil rule with no error, v.rule can still be nil here.
+	// Show loading rather than the "not supported" placeholder so the
+	// user isn't misled about the LB's capabilities.
+	if !v.fetchState.fwdLoaded || v.rule == nil {
+		return renderLoading(v.spinner, "Loading observability...")
+	}
 	if !isHTTPSObservabilityCapable(v.rule) {
 		return v.renderObservabilityPlaceholder()
 	}

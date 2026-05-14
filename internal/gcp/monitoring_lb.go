@@ -43,14 +43,6 @@ func lbFilter(resourceType, forwardingRuleName, metricType string) string {
 	)
 }
 
-// lbFilterWithLabel narrows lbFilter by a single string-typed metric label.
-func lbFilterWithLabel(resourceType, forwardingRuleName, metricType, labelKey, labelValue string) string {
-	return fmt.Sprintf( //nolint:gocritic // GCP filter syntax requires double quotes
-		`%s AND metric.labels.%s = "%s"`,
-		lbFilter(resourceType, forwardingRuleName, metricType), labelKey, labelValue,
-	)
-}
-
 // lbFilterWithIntLabel narrows lbFilter by a single integer-typed metric
 // label. The LB metric "response_code_class" is typed as an integer
 // (4, 5, …), not a string ("4xx", "5xx") — Cloud Monitoring rejects

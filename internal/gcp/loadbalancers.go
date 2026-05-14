@@ -458,7 +458,10 @@ func (c *ComputeClient) GetSSLCertificate(ctx context.Context, projectID, scope,
 	return out, nil
 }
 
-var errUnsupportedProxyKind = fmt.Errorf("unsupported target proxy kind")
+var (
+	errUnsupportedProxyKind = fmt.Errorf("unsupported target proxy kind")
+	errUnknownNEGLocation   = fmt.Errorf("unknown NEG location kind (want global|zone|region)")
+)
 
 // GetTargetProxy fetches a target proxy. The kind (one of targetHttpProxies /
 // targetHttpsProxies / targetTcpProxies / targetSslProxies) is inferred from
@@ -782,24 +785,38 @@ func convertHealthStatuses(in []*compute.HealthStatus) []InstanceHealth {
 	return out
 }
 
-// GetNetworkEndpointGroup fetches a NEG by zone (zonal NEGs) or global
-// scope. scopeOrZone is either "global" or a zone name. groupURL is the
-// full self-link of the NEG; the function extracts the name via
-// shortName(groupURL).
-func (c *ComputeClient) GetNetworkEndpointGroup(ctx context.Context, projectID, scopeOrZone, groupURL string) (*NEG, error) {
+// GetNetworkEndpointGroup fetches a NEG. locationKind must be one of
+// "global", "zone", or "region"; location is the zone or region name
+// (ignored when locationKind == "global"). groupURL is the full self-link
+// of the NEG; the function extracts the name via shortName(groupURL).
+// Regional NEGs are critical for serverless backends (Cloud Run /
+// Cloud Functions / App Engine) — without the regional dispatch, the
+// zonal endpoint would be hit with a region name and fail, masking
+// the SERVERLESS detection that lets fetchNEGHealth skip these groups.
+func (c *ComputeClient) GetNetworkEndpointGroup(ctx context.Context, projectID, locationKind, location, groupURL string) (*NEG, error) {
 	name := shortName(groupURL)
-	if scopeOrZone == "global" {
+	switch locationKind {
+	case "global":
 		neg, err := c.service.GlobalNetworkEndpointGroups.Get(projectID, name).Context(ctx).Do()
 		if err != nil {
 			return nil, fmt.Errorf("get global NEG %s: %w", name, err)
 		}
 		return convertNEG(neg, ""), nil
+	case "region":
+		neg, err := c.service.RegionNetworkEndpointGroups.Get(projectID, location, name).Context(ctx).Do()
+		if err != nil {
+			return nil, fmt.Errorf("get regional NEG %s/%s: %w", location, name, err)
+		}
+		return convertNEG(neg, location), nil
+	case "zone":
+		neg, err := c.service.NetworkEndpointGroups.Get(projectID, location, name).Context(ctx).Do()
+		if err != nil {
+			return nil, fmt.Errorf("get zonal NEG %s/%s: %w", location, name, err)
+		}
+		return convertNEG(neg, location), nil
+	default:
+		return nil, fmt.Errorf("%w: %q", errUnknownNEGLocation, locationKind)
 	}
-	neg, err := c.service.NetworkEndpointGroups.Get(projectID, scopeOrZone, name).Context(ctx).Do()
-	if err != nil {
-		return nil, fmt.Errorf("get NEG %s/%s: %w", scopeOrZone, name, err)
-	}
-	return convertNEG(neg, scopeOrZone), nil
 }
 
 func convertNEG(neg *compute.NetworkEndpointGroup, zone string) *NEG {

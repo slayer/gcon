@@ -284,8 +284,8 @@ func (v *LoadBalancerDetailsView) fetchInstanceGroupHealth(backendServiceName, s
 
 func (v *LoadBalancerDetailsView) fetchNEGHealth(backendServiceName, scope, groupURL string) tea.Cmd {
 	return func() tea.Msg {
-		negScope := groupScope(groupURL)
-		neg, err := v.client.GetNetworkEndpointGroup(gocontext.Background(), v.projectID, negScope, groupURL)
+		negLocation, negKind := groupScope(groupURL)
+		neg, err := v.client.GetNetworkEndpointGroup(gocontext.Background(), v.projectID, negKind, negLocation, groupURL)
 		if err != nil {
 			return lbGroupHealthErrorMsg{groupURL: groupURL, err: err}
 		}
@@ -317,20 +317,25 @@ func classifyBackendGroupURL(url string) backendGroupKind {
 	}
 }
 
-// groupScope extracts the zone-or-region segment from a Backend.Group
-// URL. Returns "global" if the URL contains "/global/" instead of a
-// zone or region (rare, but possible for global NEGs).
-func groupScope(url string) string {
+// groupScope extracts the location segment from a Backend.Group URL and
+// returns it alongside the location kind ("zone", "region", or "global").
+// Regional NEGs are common for serverless backends, so distinguishing
+// region from zone matters — see GetNetworkEndpointGroup.
+func groupScope(url string) (location, kind string) {
 	parts := strings.Split(url, "/")
 	for i, p := range parts {
 		switch p {
-		case "zones", "regions":
+		case "zones":
 			if i+1 < len(parts) {
-				return parts[i+1]
+				return parts[i+1], "zone"
+			}
+		case "regions":
+			if i+1 < len(parts) {
+				return parts[i+1], "region"
 			}
 		case "global":
-			return "global"
+			return "global", "global"
 		}
 	}
-	return ""
+	return "", ""
 }

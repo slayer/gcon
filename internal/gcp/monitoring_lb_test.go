@@ -16,12 +16,6 @@ func TestLBFilterContainsRuleAndMetric(t *testing.T) {
 	assert.False(t, strings.Contains(f, " OR "), "filter must not contain OR between resource types")
 }
 
-func TestLBFilterWithLabel(t *testing.T) {
-	f := lbFilterWithLabel("https_lb_rule", "my-rule", "loadbalancing.googleapis.com/https/request_count", "response_code_class", "4xx")
-	assert.Contains(t, f, `forwarding_rule_name = "my-rule"`)
-	assert.Contains(t, f, `metric.labels.response_code_class = "4xx"`)
-}
-
 func TestLBFilterInternalResourceType(t *testing.T) {
 	f := lbFilter("internal_http_lb_rule", "rule-int", "loadbalancing.googleapis.com/https/request_count")
 	assert.Contains(t, f, `resource.type = "internal_http_lb_rule"`)
