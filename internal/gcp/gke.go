@@ -1,27 +1,26 @@
 package gcp
 
 import (
-	"time"
-
 	"google.golang.org/api/container/v1"
 )
 
 // Cluster is the list-view projection of a GKE cluster.
 type Cluster struct {
-	Name           string
-	Location       string // "us-central1-a" or "us-central1"
-	LocationType   string // "zone" | "region"
-	Mode           string // "AUTOPILOT" | "STANDARD"
-	Status         string // PROVISIONING / RUNNING / RECONCILING / STOPPING / ERROR / DEGRADED
-	MasterVersion  string
-	NodeVersion    string // "(varies)" when non-uniform across pools
-	NodeCount      int    // sum across node pools
-	Network        string
-	Subnetwork     string
-	ReleaseChannel string // RAPID / REGULAR / STABLE / "" (unspecified)
-	Endpoint       string
-	PrivateCluster bool
-	CreatedAt      time.Time
+	Name                string
+	Location            string // "us-central1-a" or "us-central1"
+	LocationType        string // "zone" | "region"
+	Mode                string // "AUTOPILOT" | "STANDARD"
+	Status              string // PROVISIONING / RUNNING / RECONCILING / STOPPING / ERROR / DEGRADED
+	MasterVersion       string
+	NodeVersion         string // version of the first pool ("" if no pools)
+	NodeVersionsUniform bool   // true when all pools share NodeVersion
+	NodeCount           int    // sum across node pools
+	Network             string
+	Subnetwork          string
+	ReleaseChannel      string // RAPID / REGULAR / STABLE / "" (unspecified)
+	Endpoint            string
+	PrivateCluster      bool
+	CreatedAt           string // raw CreationTimestamp pass-through (RFC3339)
 }
 
 // ClusterDetails is the full projection used by the details view.
@@ -33,7 +32,8 @@ type ClusterDetails struct {
 	ServicesIPv4CIDR         string
 	WorkloadIdentityPool     string // "" when disabled
 	MasterAuthorizedNetworks []string
-	DatabaseEncryption       string // "ENCRYPTED (key: name)" | "DECRYPTED"
+	DatabaseEncrypted        bool
+	DatabaseKMSKey           string // full key URI; empty when not encrypted
 }
 
 // AddonsSummary captures the four addons surfaced in Phase 1.
