@@ -357,6 +357,17 @@ func (a *App) handleSidebarNavigation(msg sidebar.NavigateMsg) tea.Cmd {
 				cmd = a.loadBalancersView.Init()
 			}
 		}
+
+	case sidebar.ViewGKEClusters:
+		if a.currentView != ViewGKEClusters && a.currentView != ViewGKEClusterDetails {
+			a.currentView = ViewGKEClusters
+			a.gkeClusterDetailsView = nil
+			if a.gkeClustersView == nil {
+				a.gkeClustersView = views.NewGKEClustersView(a.selectedProject.ID, nil)
+				a.updateViewSizes()
+				cmd = a.gkeClustersView.Init()
+			}
+		}
 	}
 
 	a.updateSidebarActiveView()
@@ -408,6 +419,8 @@ func (a *App) updateSidebarActiveView() {
 		a.sidebar.SetActiveView(sidebar.ViewLogs)
 	case ViewLoadBalancers, ViewLoadBalancerDetails:
 		a.sidebar.SetActiveView(sidebar.ViewLoadBalancers)
+	case ViewGKEClusters, ViewGKEClusterDetails:
+		a.sidebar.SetActiveView(sidebar.ViewGKEClusters)
 	}
 }
 
@@ -942,6 +955,12 @@ func (a *App) handleNetworkSelected(msg views.NetworkSelectedMsg) tea.Cmd {
 		computeClient = a.subnetDetailsView.GetComputeClient()
 	} else if a.routeDetailsView != nil {
 		computeClient = a.routeDetailsView.GetComputeClient()
+	}
+	// Defensive: GKE cluster details renders network/subnet as plain text in
+	// Phase 1, but if a future phase swaps in `links` components the client
+	// chain is already covered (per adding-new-views.md step 16).
+	if computeClient == nil && a.gkeClusterDetailsView != nil {
+		computeClient = a.gkeClusterDetailsView.GetComputeClient()
 	}
 	a.networkDetailsView = views.NewNetworkDetailsView(
 		a.selectedProject.ID,
@@ -1896,6 +1915,12 @@ func (a *App) handleSubnetSelected(msg views.SubnetSelectedMsg) tea.Cmd {
 		computeClient = a.subnetsView.GetComputeClient()
 	} else if a.networkDetailsView != nil {
 		computeClient = a.networkDetailsView.GetComputeClient()
+	}
+	// Defensive: GKE cluster details renders subnet as plain text in Phase 1,
+	// but if a future phase swaps in `links` components the client chain is
+	// already covered (per adding-new-views.md step 16).
+	if computeClient == nil && a.gkeClusterDetailsView != nil {
+		computeClient = a.gkeClusterDetailsView.GetComputeClient()
 	}
 
 	a.subnetDetailsView = views.NewSubnetDetailsView(

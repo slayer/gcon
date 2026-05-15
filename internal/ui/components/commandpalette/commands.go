@@ -34,6 +34,7 @@ const (
 	ViewCloudRunServices
 	ViewLogs
 	ViewLoadBalancers
+	ViewGKEClusters
 )
 
 // Icons for commands
@@ -54,6 +55,7 @@ const (
 	IconCloudRun       = "▶"
 	IconLogs           = "◆"
 	IconLoadBalancer   = "⊕"
+	IconGKECluster     = "⊛"
 	IconRefresh        = "↻"
 	IconSidebar        = "☰"
 	IconHelp           = "?"
@@ -219,6 +221,14 @@ func NavigationCommands() []Command {
 			Icon:     IconLoadBalancer,
 			Type:     CommandTypeNavigation,
 			ViewType: ViewLoadBalancers,
+			Enabled:  true,
+		},
+		{
+			ID:       "nav:gke-clusters",
+			Label:    "Kubernetes Engine: Clusters",
+			Icon:     IconGKECluster,
+			Type:     CommandTypeNavigation,
+			ViewType: ViewGKEClusters,
 			Enabled:  true,
 		},
 	}
