@@ -242,6 +242,31 @@ func databaseEncryption(c *container.Cluster) (encrypted bool, keyName string) {
 	return true, c.DatabaseEncryption.KeyName
 }
 
+// ListNodePools returns the node pools for a single cluster. Phase 2 uses
+// this for per-tab refresh; Phase 1 reads pools from GetCluster instead.
+func (c *ContainerClient) ListNodePools(ctx context.Context, projectID, location, clusterName string) ([]NodePool, error) {
+	parent := fmt.Sprintf("projects/%s/locations/%s/clusters/%s", projectID, location, clusterName)
+	resp, err := c.service.Projects.Locations.Clusters.NodePools.List(parent).Context(ctx).Do()
+	if err != nil {
+		return nil, fmt.Errorf("list node pools %s/%s: %w", location, clusterName, err)
+	}
+	out := make([]NodePool, 0, len(resp.NodePools))
+	for _, raw := range resp.NodePools {
+		out = append(out, convertNodePool(raw))
+	}
+	return out, nil
+}
+
+// DeleteCluster kicks off a cluster delete. Returns when the API accepts
+// the request; the resulting Operation runs server-side and is not polled.
+func (c *ContainerClient) DeleteCluster(ctx context.Context, projectID, location, name string) error {
+	fqn := fmt.Sprintf("projects/%s/locations/%s/clusters/%s", projectID, location, name)
+	if _, err := c.service.Projects.Locations.Clusters.Delete(fqn).Context(ctx).Do(); err != nil {
+		return fmt.Errorf("delete cluster %s/%s: %w", location, name, err)
+	}
+	return nil
+}
+
 func uniformNodeVersion(pools []NodePool) bool {
 	if len(pools) <= 1 {
 		return true
