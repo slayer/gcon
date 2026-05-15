@@ -113,3 +113,32 @@ func convertCluster(c *container.Cluster) Cluster {
 		CreatedAt:           c.CreateTime,
 	}
 }
+
+// convertNodePool maps a raw container.NodePool into our per-pool projection.
+// AutoscalingOn is only true when the Autoscaling block is present and
+// explicitly enabled; min/max stay zero when autoscaling is off. AutoUpgrade
+// and AutoRepair default to false when the Management block is absent.
+func convertNodePool(p *container.NodePool) NodePool {
+	out := NodePool{
+		Name:        p.Name,
+		NodeCount:   int(p.InitialNodeCount),
+		NodeVersion: p.Version,
+		Status:      p.Status,
+		Locations:   p.Locations,
+	}
+	if p.Config != nil {
+		out.MachineType = p.Config.MachineType
+		out.DiskSizeGB = p.Config.DiskSizeGb
+		out.DiskType = p.Config.DiskType
+	}
+	if p.Autoscaling != nil && p.Autoscaling.Enabled {
+		out.AutoscalingOn = true
+		out.AutoscalingMin = int(p.Autoscaling.MinNodeCount)
+		out.AutoscalingMax = int(p.Autoscaling.MaxNodeCount)
+	}
+	if p.Management != nil {
+		out.AutoUpgrade = p.Management.AutoUpgrade
+		out.AutoRepair = p.Management.AutoRepair
+	}
+	return out
+}

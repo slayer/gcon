@@ -73,3 +73,56 @@ func TestConvertCluster_StandardZonal_MinimalFields(t *testing.T) {
 	assert.Equal(t, "", got.ReleaseChannel)
 	assert.False(t, got.PrivateCluster)
 }
+
+func TestConvertNodePool_AutoscalingOn(t *testing.T) {
+	raw := &container.NodePool{
+		Name:             "default",
+		InitialNodeCount: 3,
+		Locations:        []string{"us-central1-a", "us-central1-b"},
+		Version:          "1.30.5-gke.1014001",
+		Status:           "RUNNING",
+		Config: &container.NodeConfig{
+			MachineType: "e2-medium",
+			DiskSizeGb:  100,
+			DiskType:    "pd-balanced",
+		},
+		Autoscaling: &container.NodePoolAutoscaling{
+			Enabled:      true,
+			MinNodeCount: 1,
+			MaxNodeCount: 10,
+		},
+		Management: &container.NodeManagement{AutoUpgrade: true, AutoRepair: true},
+	}
+	got := convertNodePool(raw)
+
+	assert.Equal(t, "default", got.Name)
+	assert.Equal(t, "e2-medium", got.MachineType)
+	assert.Equal(t, int64(100), got.DiskSizeGB)
+	assert.Equal(t, "pd-balanced", got.DiskType)
+	assert.Equal(t, 3, got.NodeCount)
+	assert.True(t, got.AutoscalingOn)
+	assert.Equal(t, 1, got.AutoscalingMin)
+	assert.Equal(t, 10, got.AutoscalingMax)
+	assert.Equal(t, "1.30.5-gke.1014001", got.NodeVersion)
+	assert.Equal(t, "RUNNING", got.Status)
+	assert.True(t, got.AutoUpgrade)
+	assert.True(t, got.AutoRepair)
+	assert.Equal(t, []string{"us-central1-a", "us-central1-b"}, got.Locations)
+}
+
+func TestConvertNodePool_AutoscalingOff_NoManagement(t *testing.T) {
+	raw := &container.NodePool{
+		Name:             "gpu-pool",
+		InitialNodeCount: 2,
+		Status:           "RUNNING",
+		Config:           &container.NodeConfig{MachineType: "g2-standard-4"},
+		// No Autoscaling, no Management
+	}
+	got := convertNodePool(raw)
+
+	assert.False(t, got.AutoscalingOn)
+	assert.Equal(t, 0, got.AutoscalingMin)
+	assert.Equal(t, 0, got.AutoscalingMax)
+	assert.False(t, got.AutoUpgrade)
+	assert.False(t, got.AutoRepair)
+}
