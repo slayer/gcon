@@ -180,6 +180,93 @@ if !instance.IsStopped() {
 
 Both `Instance` and `InstanceDetails` have `IsStopped()` which checks for `TERMINATED || STOPPED`.
 
+## Cloud Monitoring: No `OR` between `resource.type` values in filters
+
+GCP's filter language allows `OR` between `metric.labels.*` or `metadata.*` restrictions but **not** between resource types. Building a filter like:
+
+```
+(resource.type = "https_lb_rule" OR resource.type = "internal_http_lb_rule") AND ...
+```
+
+fails with: *"Within the 'resource' prefix, OR can only be used to connect a list of 'labels' restrictions or a list of 'metadata' restrictions."* The query returns empty data with no obvious error in the UI — every chart looks "empty but loaded" until you log the API response.
+
+**Rule**: pick exactly one `resource.type` per fetch. If a feature can be backed by multiple resource types (e.g. external vs. internal HTTPS LBs use `https_lb_rule` vs `internal_http_lb_rule`), pick the right one at the call site and thread it through:
+
+```go
+// One filter per resource type — dispatch from caller, not inside the helper
+func resourceTypeForLB(r *gcp.ForwardingRule) string {
+    switch r.Type {
+    case "HTTPS (external)", "HTTP (external)":
+        return "https_lb_rule"
+    case "HTTPS (internal)", "HTTP (internal)":
+        return "internal_http_lb_rule"
+    }
+    return ""
+}
+
+filter := fmt.Sprintf(
+    `resource.type = "%s" AND resource.labels.forwarding_rule_name = "%s" AND metric.type = "%s"`,
+    resourceType, ruleName, metricType,
+)
+```
+
+## Cloud Monitoring: `response_code_class` is INTEGER on LB metrics, STRING on Cloud Run
+
+The same label name carries different types across metric families. On `loadbalancing.googleapis.com/https/*` metrics, `response_code_class` is **integer** (`4`, `5`); on `run.googleapis.com/request_count`, it's **string** (`"4xx"`, `"5xx"`).
+
+Sending the wrong syntax gets rejected with: *"The label 'response_code_class' is typed as an integer, but the supplied value '4xx' cannot be parsed as an integer."*
+
+```go
+// Wrong on LB metrics — quoted value fails the integer-type check
+filter := `... AND metric.labels.response_code_class = "4xx"`
+
+// Correct on LB metrics — unquoted integer
+filter := `... AND metric.labels.response_code_class = 4`
+
+// Correct on Cloud Run metrics — quoted string
+filter := `... AND metric.labels.response_code_class = "4xx"`
+```
+
+**Rule**: keep separate filter helpers for string-typed vs integer-typed labels. Don't reuse Cloud Run patterns when adding LB metrics (or vice-versa) — the label name is a false friend.
+
+## Compute Engine: Regional NEGs need `RegionNetworkEndpointGroups`, not `NetworkEndpointGroups`
+
+The Compute SDK exposes three sibling services for network endpoint groups:
+
+- `GlobalNetworkEndpointGroups` — global scope
+- `NetworkEndpointGroups` — **zonal** (`projects/X/zones/{zone}/networkEndpointGroups/...`)
+- `RegionNetworkEndpointGroups` — **regional** (`projects/X/regions/{region}/networkEndpointGroups/...`)
+
+Treating "non-global" as a single bucket and always calling `NetworkEndpointGroups.Get(projectID, location, name)` works for zonal NEGs but fails for regional ones with a 404 — masking any downstream logic that depends on the NEG metadata (e.g. `NetworkEndpointType == "SERVERLESS"` detection).
+
+This matters: **serverless backends (Cloud Run / Cloud Functions / App Engine) are typically regional NEGs.**
+
+```go
+// Parse the kind from the URL path (/zones/, /regions/, /global/), not from
+// the location string format — zone vs region can't be reliably distinguished
+// by suffix.
+func groupScope(url string) (location, kind string) {
+    parts := strings.Split(url, "/")
+    for i, p := range parts {
+        switch p {
+        case "zones":   if i+1 < len(parts) { return parts[i+1], "zone" }
+        case "regions": if i+1 < len(parts) { return parts[i+1], "region" }
+        case "global":  return "global", "global"
+        }
+    }
+    return "", ""
+}
+
+// Dispatch to the right service per kind
+switch locationKind {
+case "global": c.service.GlobalNetworkEndpointGroups.Get(projectID, name)
+case "region": c.service.RegionNetworkEndpointGroups.Get(projectID, location, name)
+case "zone":   c.service.NetworkEndpointGroups.Get(projectID, location, name)
+}
+```
+
+**Rule**: when adding any NEG-related call, always check whether the resource can be regional. A `zones/regions` split in the URL is the authoritative source.
+
 ## ForceSendFields required for Create operations too
 
 `ForceSendFields` is needed not just for Patch but also for Create when intentionally setting zero values. Common case: `MinInstanceCount = 0` (scale-to-zero) is omitted from JSON because `int64(0)` is a zero value.

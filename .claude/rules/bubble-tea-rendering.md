@@ -264,3 +264,82 @@ if v.showOverlay {
 **Symptom**: Keys work (state changes correctly, tests pass) but nothing visible happens on screen. If tests pass but runtime appears broken, check the `View()` rendering order.
 
 **Debugging tip**: When state-level tests all pass but the UI doesn't respond, the bug is likely in `View()` (rendering), not `Update()` (state). Add a rendering test that checks `View()` output contains expected dialog content.
+
+## Wrap Tall Tab Bodies in `bubbles/viewport.Model`
+
+Details views with multiple tabs (Overview / Routing / Backends / Observability) often have one tab whose content exceeds the terminal height — e.g. an observability tab with 5+ stacked charts. Without a viewport, anything past the bottom edge of the terminal is clipped and unreachable; users see only the top charts.
+
+The fix is to render the tab body into a string, hand it to a `viewport.Model`, and route scroll keys to it:
+
+```go
+type DetailsView struct {
+    viewport     viewport.Model
+    viewportSize bool // set once SetSize fires
+    // ...
+}
+
+func (v *DetailsView) SetSize(width, height int) {
+    v.width = width
+    v.height = height
+    if !v.viewportSize {
+        v.viewport = viewport.New(width-4, height-4) // leave room for tab bar + status
+        v.viewportSize = true
+    } else {
+        v.viewport.Width = width - 4
+        v.viewport.Height = height - 4
+    }
+}
+
+func (v *DetailsView) View() string {
+    var b strings.Builder
+    b.WriteString(v.tabs.View())
+    b.WriteString("\n\n")
+
+    var body string
+    switch v.tabs.ActiveTab().ID {
+    case "observability":
+        body = v.renderObservability()
+    // ...
+    }
+    if v.viewportSize {
+        v.viewport.SetContent(body)
+        b.WriteString(v.viewport.View())
+    } else {
+        b.WriteString(body)
+    }
+    return b.String()
+}
+```
+
+**Scroll key routing** — pick which keys go to the viewport based on what the tab itself consumes:
+
+```go
+func isViewportScrollKey(m tea.KeyMsg) bool {
+    switch m.String() {
+    case "j", "k", "up", "down", "pgup", "pgdown", "home", "end":
+        return true
+    }
+    return false
+}
+
+// In Update() — after tab-specific handlers, before delegating to tabs:
+if isViewportScrollKey(m) {
+    var cmd tea.Cmd
+    v.viewport, cmd = v.viewport.Update(m)
+    return cmd
+}
+```
+
+If a specific tab (e.g. Backends) consumes `j/k` for its own focus navigation, route those keys to the tab handler first and fall through to the viewport only when the tab doesn't handle them. `PgUp/PgDn/Home/End` are usually safe everywhere.
+
+**Reset scroll on tab change** so each tab opens at the top:
+
+```go
+case tabs.TabChangedMsg:
+    v.viewport.GotoTop()
+    // ...
+```
+
+**Symptom**: User reports "I cannot scroll page — some charts are not visible." Tab renders a tall body that ends up taller than the terminal frame.
+
+**Rule**: any tab whose body can plausibly exceed terminal height (multi-chart observability, long forms, long log lists) needs a viewport. List views with their own scroll (tables, log viewer) are exempt — they already manage scrolling internally.
