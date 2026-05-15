@@ -1,9 +1,13 @@
 package gcp
 
 import (
+	"context"
+	"fmt"
+	"sort"
 	"strings"
 
 	"google.golang.org/api/container/v1"
+	"google.golang.org/api/option"
 )
 
 // locationType returns "zone" for fully-qualified zones (us-central1-a) and
@@ -141,4 +145,29 @@ func convertNodePool(p *container.NodePool) NodePool {
 		out.AutoRepair = p.Management.AutoRepair
 	}
 	return out
+}
+
+// NewContainerClient creates a GKE container API client using ADC.
+func NewContainerClient(ctx context.Context) (*ContainerClient, error) {
+	svc, err := container.NewService(ctx, option.WithScopes(container.CloudPlatformScope))
+	if err != nil {
+		return nil, fmt.Errorf("create container client: %w", err)
+	}
+	return &ContainerClient{service: svc}, nil
+}
+
+// ListClusters returns all clusters across all locations for the project.
+// Location "-" is the GKE wildcard for "any location".
+func (c *ContainerClient) ListClusters(ctx context.Context, projectID string) ([]Cluster, error) {
+	parent := fmt.Sprintf("projects/%s/locations/-", projectID)
+	resp, err := c.service.Projects.Locations.Clusters.List(parent).Context(ctx).Do()
+	if err != nil {
+		return nil, fmt.Errorf("list clusters: %w", err)
+	}
+	out := make([]Cluster, 0, len(resp.Clusters))
+	for _, raw := range resp.Clusters {
+		out = append(out, convertCluster(raw))
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
 }
