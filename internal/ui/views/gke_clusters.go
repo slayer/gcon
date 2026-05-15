@@ -3,9 +3,12 @@ package views
 
 import (
 	gocontext "context"
+	"fmt"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components"
@@ -39,7 +42,7 @@ func NewGKEClustersView(projectID string, client *gcp.ContainerClient) *GKEClust
 		{Title: "Type", Width: 8, Sortable: true},
 		{Title: "Mode", Width: 10, Sortable: true},
 		{Title: "Master version", Width: 22},
-		{Title: "Nodes", Width: 8},
+		{Title: "Nodes", Width: 10},
 		{Title: "Status", Width: 14, Sortable: true},
 	}
 	t := table.NewWithColumns(columns, "Kubernetes Engine - Clusters")
@@ -104,8 +107,173 @@ func (v *GKEClustersView) SetContext(_ *context.ProgramContext) {}
 // HasTextInputFocused delegates to the table's filter input.
 func (v *GKEClustersView) HasTextInputFocused() bool { return v.table.HasTextInputFocused() }
 
-// TODO: Task 10 — replace these stubs with real Update / View / refreshTable.
-func (v *GKEClustersView) Update(msg tea.Msg) tea.Cmd { _ = msg; return nil }
+// Update routes messages for the list view.
+func (v *GKEClustersView) Update(msg tea.Msg) tea.Cmd {
+	switch m := msg.(type) {
+	case gkeClustersClientReadyMsg:
+		v.client = m.client
+		return v.load()
+	case gkeClustersLoadedMsg:
+		v.loading = false
+		v.err = nil
+		v.clusters = m.clusters
+		v.refreshTable()
+		return nil
+	case gkeClustersErrorMsg:
+		v.loading = false
+		v.err = m.err
+		return nil
+	case spinner.TickMsg:
+		if v.loading {
+			var cmd tea.Cmd
+			v.spinner, cmd = v.spinner.Update(m)
+			return cmd
+		}
+		return nil
+	case tea.KeyMsg:
+		return v.handleKey(m)
+	}
+	return nil
+}
 
-// TODO: Task 10 — replace with real rendering.
-func (v *GKEClustersView) View() string { return "" }
+func (v *GKEClustersView) handleKey(m tea.KeyMsg) tea.Cmd {
+	if v.loading {
+		return nil
+	}
+	// Let the table own its filter / sort menu input.
+	if v.table.IsSortMenuOpen() || v.table.IsFiltering() {
+		var cmd tea.Cmd
+		v.table, cmd = v.table.Update(m)
+		return cmd
+	}
+	switch m.String() {
+	case "enter":
+		c := v.cursorCluster()
+		if c == nil {
+			return nil
+		}
+		selected := *c
+		return func() tea.Msg {
+			return GKEClusterSelectedMsg{
+				ProjectID: v.projectID,
+				Location:  selected.Location,
+				Name:      selected.Name,
+			}
+		}
+	case "D":
+		// Phase 1: list view's D navigates to details, where the delete
+		// dialog lives. This keeps the dialog code in one place.
+		c := v.cursorCluster()
+		if c == nil {
+			return nil
+		}
+		selected := *c
+		return func() tea.Msg {
+			return GKEClusterSelectedMsg{
+				ProjectID: v.projectID,
+				Location:  selected.Location,
+				Name:      selected.Name,
+			}
+		}
+	case "r":
+		v.loading = true
+		v.err = nil
+		if v.client == nil {
+			return tea.Batch(v.spinner.Tick, v.initClient())
+		}
+		return tea.Batch(v.spinner.Tick, v.load())
+	}
+	// Defer remaining keys (j/k, sort menu open, filter open, mouse) to the table.
+	var cmd tea.Cmd
+	v.table, cmd = v.table.Update(m)
+	return cmd
+}
+
+// View renders the list view.
+func (v *GKEClustersView) View() string {
+	if v.loading && len(v.clusters) == 0 {
+		return renderLoading(v.spinner, "Loading clusters...")
+	}
+	if v.err != nil && len(v.clusters) == 0 {
+		return "\n" + components.RenderError(v.err)
+	}
+	return v.table.View()
+}
+
+// refreshTable rebuilds the table rows from the current cluster slice.
+func (v *GKEClustersView) refreshTable() {
+	rows := make([]table.Row, 0, len(v.clusters))
+	for i := range v.clusters {
+		c := &v.clusters[i]
+		nodes := fmt.Sprintf("%d", c.NodeCount)
+		if c.Mode == "AUTOPILOT" {
+			nodes = "(managed)"
+		}
+		mode := modeBadge(c.Mode)
+		locType := locationBadge(c.LocationType)
+		status := statusBadge(c.Status)
+		rows = append(rows, table.Row{
+			ID: c.Location + "/" + c.Name,
+			Data: []string{
+				c.Name,
+				c.Location,
+				locType,
+				mode,
+				c.MasterVersion,
+				nodes,
+				status,
+			},
+			FilterValue: strings.Join([]string{
+				c.Name, c.Location, locType, mode, c.MasterVersion, nodes, c.Status,
+			}, " "),
+		})
+	}
+	v.table.SetRows(rows)
+}
+
+// cursorCluster returns the cluster under the table cursor, or nil if no
+// row is selected or the index is out of range.
+func (v *GKEClustersView) cursorCluster() *gcp.Cluster {
+	idx := v.table.SelectedIndex()
+	if idx < 0 || idx >= len(v.clusters) {
+		return nil
+	}
+	return &v.clusters[idx]
+}
+
+// locationBadge converts the raw location-type string ("zone" / "region")
+// into a slightly more readable badge for the Type column.
+func locationBadge(kind string) string {
+	switch kind {
+	case "zone":
+		return "zonal"
+	case "region":
+		return "regional"
+	}
+	return ""
+}
+
+// modeBadge formats the cluster mode (STANDARD / AUTOPILOT) for display.
+func modeBadge(mode string) string {
+	switch mode {
+	case "AUTOPILOT":
+		return "Autopilot"
+	case "STANDARD":
+		return "Standard"
+	}
+	return mode
+}
+
+// statusBadge colors the cluster status string with a leading dot to match
+// the conventions used by other GCP list views (LB, Cloud Run, etc.).
+func statusBadge(status string) string {
+	switch strings.ToUpper(status) {
+	case "RUNNING", "RECONCILING":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#34A853")).Render("●") + " " + status
+	case "PROVISIONING", "STOPPING":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#FBBC04")).Render("●") + " " + status
+	case "ERROR", "DEGRADED":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#EA4335")).Render("●") + " " + status
+	}
+	return status
+}

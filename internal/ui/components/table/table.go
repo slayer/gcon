@@ -1059,6 +1059,14 @@ func (m *Model) FilterValue() string {
 	return m.filter.Value()
 }
 
+// SetFilter programmatically sets the filter text and re-applies it.
+// Supports the same field:value syntax as the interactive filter input.
+// Pass an empty string to clear the filter.
+func (m *Model) SetFilter(value string) {
+	m.filter.SetValue(value)
+	m.applyFilter()
+}
+
 // RowCount returns the number of visible rows
 func (m *Model) RowCount() int {
 	return len(m.rows)
