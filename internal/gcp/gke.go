@@ -171,3 +171,86 @@ func (c *ContainerClient) ListClusters(ctx context.Context, projectID string) ([
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
 }
+
+// GetCluster fetches a single cluster and projects it to ClusterDetails.
+// Node pools come from the response's NodePools field — no separate list call.
+func (c *ContainerClient) GetCluster(ctx context.Context, projectID, location, name string) (*ClusterDetails, error) {
+	fqn := fmt.Sprintf("projects/%s/locations/%s/clusters/%s", projectID, location, name)
+	raw, err := c.service.Projects.Locations.Clusters.Get(fqn).Context(ctx).Do()
+	if err != nil {
+		return nil, fmt.Errorf("get cluster %s/%s: %w", location, name, err)
+	}
+	out := &ClusterDetails{
+		Cluster:                  convertCluster(raw),
+		ClusterIPv4CIDR:          raw.ClusterIpv4Cidr,
+		Addons:                   convertAddons(raw.AddonsConfig),
+		WorkloadIdentityPool:     workloadIdentityPool(raw),
+		MasterAuthorizedNetworks: authorizedNetworks(raw),
+	}
+	out.DatabaseEncrypted, out.DatabaseKMSKey = databaseEncryption(raw)
+	if raw.IpAllocationPolicy != nil {
+		out.ServicesIPv4CIDR = raw.IpAllocationPolicy.ServicesIpv4CidrBlock
+	}
+	for _, np := range raw.NodePools {
+		out.NodePools = append(out.NodePools, convertNodePool(np))
+	}
+	// The list-view convertCluster set NodeVersion from CurrentNodeVersion and
+	// NodeVersionsUniform=true. Override authoritatively from the per-pool data.
+	if len(out.NodePools) > 0 {
+		out.NodeVersion = out.NodePools[0].NodeVersion
+		out.NodeVersionsUniform = uniformNodeVersion(out.NodePools)
+	}
+	return out, nil
+}
+
+func convertAddons(a *container.AddonsConfig) AddonsSummary {
+	if a == nil {
+		return AddonsSummary{}
+	}
+	return AddonsSummary{
+		HTTPLoadBalancing: a.HttpLoadBalancing != nil && !a.HttpLoadBalancing.Disabled,
+		NetworkPolicy:     a.NetworkPolicyConfig != nil && !a.NetworkPolicyConfig.Disabled,
+		PersistentDiskCSI: a.GcePersistentDiskCsiDriverConfig != nil && a.GcePersistentDiskCsiDriverConfig.Enabled,
+		DNSCache:          a.DnsCacheConfig != nil && a.DnsCacheConfig.Enabled,
+	}
+}
+
+func workloadIdentityPool(c *container.Cluster) string {
+	if c.WorkloadIdentityConfig == nil {
+		return ""
+	}
+	return c.WorkloadIdentityConfig.WorkloadPool
+}
+
+func authorizedNetworks(c *container.Cluster) []string {
+	if c.MasterAuthorizedNetworksConfig == nil || !c.MasterAuthorizedNetworksConfig.Enabled {
+		return nil
+	}
+	out := make([]string, 0, len(c.MasterAuthorizedNetworksConfig.CidrBlocks))
+	for _, b := range c.MasterAuthorizedNetworksConfig.CidrBlocks {
+		out = append(out, b.CidrBlock)
+	}
+	return out
+}
+
+// databaseEncryption returns whether the cluster has DB encryption enabled and
+// (if so) the full KMS key resource URI. Empty key URI when not encrypted.
+func databaseEncryption(c *container.Cluster) (encrypted bool, keyName string) {
+	if c.DatabaseEncryption == nil || c.DatabaseEncryption.State != "ENCRYPTED" {
+		return false, ""
+	}
+	return true, c.DatabaseEncryption.KeyName
+}
+
+func uniformNodeVersion(pools []NodePool) bool {
+	if len(pools) <= 1 {
+		return true
+	}
+	v := pools[0].NodeVersion
+	for i := 1; i < len(pools); i++ {
+		if pools[i].NodeVersion != v {
+			return false
+		}
+	}
+	return true
+}

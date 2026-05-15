@@ -126,3 +126,31 @@ func TestConvertNodePool_AutoscalingOff_NoManagement(t *testing.T) {
 	assert.False(t, got.AutoUpgrade)
 	assert.False(t, got.AutoRepair)
 }
+
+func TestDatabaseEncryption(t *testing.T) {
+	cases := []struct {
+		name    string
+		in      *container.Cluster
+		wantOn  bool
+		wantKey string
+	}{
+		{"nil", &container.Cluster{}, false, ""},
+		{"decrypted-state", &container.Cluster{DatabaseEncryption: &container.DatabaseEncryption{State: "DECRYPTED"}}, false, ""},
+		{"encrypted-no-key", &container.Cluster{DatabaseEncryption: &container.DatabaseEncryption{State: "ENCRYPTED"}}, true, ""},
+		{"encrypted-with-key", &container.Cluster{DatabaseEncryption: &container.DatabaseEncryption{State: "ENCRYPTED", KeyName: "projects/p/locations/global/keyRings/r/cryptoKeys/my-key"}}, true, "projects/p/locations/global/keyRings/r/cryptoKeys/my-key"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotOn, gotKey := databaseEncryption(tc.in)
+			assert.Equal(t, tc.wantOn, gotOn)
+			assert.Equal(t, tc.wantKey, gotKey)
+		})
+	}
+}
+
+func TestUniformNodeVersion(t *testing.T) {
+	assert.True(t, uniformNodeVersion(nil))
+	assert.True(t, uniformNodeVersion([]NodePool{{NodeVersion: "1.30"}}))
+	assert.True(t, uniformNodeVersion([]NodePool{{NodeVersion: "1.30"}, {NodeVersion: "1.30"}}))
+	assert.False(t, uniformNodeVersion([]NodePool{{NodeVersion: "1.30"}, {NodeVersion: "1.29"}}))
+}
