@@ -13,11 +13,12 @@ import (
 
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components"
-	// "github.com/slayer/gcon/internal/ui/components/confirmdialog"  // add when Task 14 needs it
+	"github.com/slayer/gcon/internal/ui/components/confirm"
 	// "github.com/slayer/gcon/internal/ui/components/links"           // add when Task 12 needs it
 	"github.com/slayer/gcon/internal/ui/components/table"
 	"github.com/slayer/gcon/internal/ui/components/tabs"
 	"github.com/slayer/gcon/internal/ui/context"
+	"github.com/slayer/gcon/internal/ui/overlay"
 )
 
 // GKEClusterDetailsView shows a single GKE cluster's overview and node pools.
@@ -39,8 +40,10 @@ type GKEClusterDetailsView struct {
 	// Node Pools tab
 	poolsTable table.Model
 
-	// Delete dialog (wired in Task 14)
-	deleting bool
+	// Delete dialog
+	confirmDialog *confirm.TypeConfirmDialog
+	showConfirm   bool
+	deleting      bool
 
 	err     error
 	loading bool
@@ -129,10 +132,20 @@ func (v *GKEClusterDetailsView) SetSize(width, height int) {
 func (v *GKEClusterDetailsView) SetContext(_ *context.ProgramContext) {}
 
 // HasTextInputFocused reports whether a text input owns the keyboard.
-// Task 14 will return v.confirmDialog.HasTextInputFocused() when the dialog
-// is open.
+// Returns true when the delete confirmation dialog is open so the global
+// 'q'-to-quit binding can't fire while the user is typing the cluster name.
 func (v *GKEClusterDetailsView) HasTextInputFocused() bool {
+	if v.showConfirm && v.confirmDialog != nil {
+		return v.confirmDialog.HasTextInputFocused()
+	}
 	return false
+}
+
+// IsMenuOpen reports whether a dialog is open so the app's Esc handler
+// routes Esc back to the view (which then closes the dialog) instead of
+// navigating back.
+func (v *GKEClusterDetailsView) IsMenuOpen() bool {
+	return v.showConfirm
 }
 
 // SetError lets the app propagate async errors (e.g. delete failures) back
@@ -163,6 +176,34 @@ func (v *GKEClusterDetailsView) Update(msg tea.Msg) tea.Cmd {
 			v.err = m.Error
 		}
 		return nil
+	case tabs.TabChangedMsg:
+		// Reset scroll so each tab opens at the top.
+		if v.viewportSize {
+			v.viewport.GotoTop()
+		}
+		return nil
+	case confirm.TypeConfirmMsg:
+		// User typed the cluster name and pressed Enter. Close the dialog,
+		// flip into deleting state, and emit the request for the app handler.
+		v.showConfirm = false
+		if v.details == nil {
+			return nil
+		}
+		v.deleting = true
+		name := v.details.Name
+		location := v.details.Location
+		projectID := v.projectID
+		return func() tea.Msg {
+			return GKEClusterDeleteRequestMsg{
+				ProjectID: projectID,
+				Location:  location,
+				Name:      name,
+			}
+		}
+	case confirm.TypeCancelMsg:
+		v.showConfirm = false
+		v.confirmDialog = nil
+		return nil
 	case spinner.TickMsg:
 		var cmd tea.Cmd
 		v.spinner, cmd = v.spinner.Update(m)
@@ -173,9 +214,65 @@ func (v *GKEClusterDetailsView) Update(msg tea.Msg) tea.Cmd {
 	return nil
 }
 
-func (v *GKEClusterDetailsView) handleKey(_ tea.KeyMsg) tea.Cmd {
-	// Task 14 implements real key handling (delete dialog, refresh, tab switch).
+func (v *GKEClusterDetailsView) handleKey(m tea.KeyMsg) tea.Cmd {
+	// Route keys to the delete dialog while it's open.
+	if v.showConfirm && v.confirmDialog != nil {
+		return v.confirmDialog.Update(m)
+	}
+	switch m.String() {
+	case "D":
+		v.openDeleteDialog()
+		if v.confirmDialog != nil {
+			return v.confirmDialog.Init()
+		}
+		return nil
+	case "r":
+		v.loading = true
+		v.err = nil
+		return tea.Batch(v.spinner.Tick, v.load())
+	case "tab", "shift+tab", "h", "l", "left", "right", "1", "2":
+		// Delegate tab navigation to the embedded tabs widget; it emits
+		// TabChangedMsg which the view's Update handles to reset scroll.
+		return v.tabs.Update(m)
+	}
+	if isViewportScrollKey(m) {
+		var cmd tea.Cmd
+		v.viewport, cmd = v.viewport.Update(m)
+		return cmd
+	}
 	return nil
+}
+
+// openDeleteDialog constructs and shows the type-to-confirm delete dialog.
+// Body text spells out the side-effects that GKE does NOT auto-clean (PVs
+// with reclaimPolicy=Retain, external load balancers, Cloud DNS entries).
+func (v *GKEClusterDetailsView) openDeleteDialog() {
+	if v.details == nil {
+		return
+	}
+	d := v.details
+	detailLines := []string{
+		fmt.Sprintf("Location: %s (%sal)", d.Location, d.LocationType),
+		fmt.Sprintf("Mode: %s", humanMode(d.Mode)),
+		fmt.Sprintf("Node pools: %d", len(d.NodePools)),
+		"",
+		"This will permanently delete the cluster, its node pools,",
+		"and all workloads running in it. The operation takes 2–5",
+		"minutes and runs server-side after this call returns.",
+		"",
+		"NOT auto-deleted by GKE:",
+		"  • Persistent volumes from dynamic provisioning unless",
+		"    the StorageClass uses reclaimPolicy=Delete",
+		"  • External load balancers created by Service of type",
+		"    LoadBalancer (deleted only if cluster removal succeeds)",
+		"  • Cloud DNS entries managed by the cluster",
+	}
+	v.confirmDialog = confirm.NewTypeConfirmDialog(
+		"Delete GKE Cluster",
+		d.Name,
+		detailLines,
+	)
+	v.showConfirm = true
 }
 
 func (v *GKEClusterDetailsView) View() string {
@@ -204,7 +301,21 @@ func (v *GKEClusterDetailsView) View() string {
 	if v.deleting {
 		b.WriteString("\n\nDeleting cluster...\n")
 	}
-	return b.String()
+	// Inline action error (e.g. delete failure) — renders below the body.
+	if v.err != nil && v.details != nil {
+		b.WriteString("\n")
+		b.WriteString(components.RenderInlineError(v.err))
+	}
+	mainContent := b.String()
+
+	// Overlay the delete dialog on top of the main content. Per the
+	// bubble-tea-rendering rule on dialog z-order, dialogs must render
+	// ABOVE the parent body.
+	if v.showConfirm && v.confirmDialog != nil {
+		contentHeight := lipgloss.Height(mainContent)
+		return overlay.Center(mainContent, v.confirmDialog.View(), v.width, contentHeight)
+	}
+	return mainContent
 }
 
 func (v *GKEClusterDetailsView) renderOverview() string {

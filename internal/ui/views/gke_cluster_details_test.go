@@ -1,11 +1,14 @@
 package views
 
 import (
+	"errors"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/slayer/gcon/internal/gcp"
+	"github.com/slayer/gcon/internal/ui/components/confirm"
 )
 
 func gkeDetailsFixture(mode string) *GKEClusterDetailsView {
@@ -86,4 +89,92 @@ func TestGKEClusterDetails_NodePoolsRendersAutopilotSuffix(t *testing.T) {
 	out := v.View()
 	assert.Contains(t, out, "default-pool [managed by Autopilot]")
 	assert.Contains(t, out, "—") // autoscale / version cells
+}
+
+// typeStringIntoDialog feeds each rune in s as an individual tea.KeyMsg.
+// Mirrors what bubbletea does for character input.
+func typeStringIntoDialog(d *confirm.TypeConfirmDialog, s string) {
+	for _, r := range s {
+		d.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+}
+
+func TestGKEClusterDetails_DeleteDialogGatesOnName(t *testing.T) {
+	v := gkeDetailsFixture("STANDARD")
+
+	// User presses D to open the dialog
+	cmd := v.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'D'}})
+	_ = cmd
+	assert.True(t, v.showConfirm, "expected delete dialog to open on D")
+	assert.NotNil(t, v.confirmDialog)
+	assert.True(t, v.HasTextInputFocused(), "dialog's text input should report focus")
+
+	// Pressing Enter with no input should be a no-op (returns nil cmd)
+	noOpCmd := v.confirmDialog.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	assert.Nil(t, noOpCmd, "empty input must not confirm")
+
+	// Type the WRONG name: still no submit
+	typeStringIntoDialog(v.confirmDialog, "not-prod")
+	wrongCmd := v.confirmDialog.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	assert.Nil(t, wrongCmd, "wrong name must not confirm")
+
+	// Reset the dialog by re-opening it for a clean text input
+	v.showConfirm = false
+	v.confirmDialog = nil
+	v.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'D'}})
+	assert.NotNil(t, v.confirmDialog)
+
+	// Type the CORRECT cluster name and submit
+	typeStringIntoDialog(v.confirmDialog, "prod")
+	submitCmd := v.confirmDialog.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	assert.NotNil(t, submitCmd, "correct name + Enter should emit a cmd")
+
+	// The cmd returns confirm.TypeConfirmMsg{}; the view's Update routes it
+	// to GKEClusterDeleteRequestMsg with project / location / name.
+	msg := submitCmd()
+	_, isConfirm := msg.(confirm.TypeConfirmMsg)
+	assert.True(t, isConfirm, "expected confirm.TypeConfirmMsg, got %T", msg)
+
+	// Feed the confirm msg back through the view's Update; the view should
+	// close the dialog and emit GKEClusterDeleteRequestMsg.
+	cmd2 := v.Update(msg)
+	assert.False(t, v.showConfirm, "dialog should close after confirm")
+	assert.NotNil(t, cmd2, "view should return a request cmd")
+	reqMsg := cmd2()
+	req, ok := reqMsg.(GKEClusterDeleteRequestMsg)
+	assert.True(t, ok, "expected GKEClusterDeleteRequestMsg, got %T", reqMsg)
+	assert.Equal(t, "proj", req.ProjectID)
+	assert.Equal(t, "us-central1", req.Location)
+	assert.Equal(t, "prod", req.Name)
+	assert.True(t, v.deleting, "view should be in deleting state after request")
+}
+
+func TestGKEClusterDetails_DeleteDialogCancel(t *testing.T) {
+	v := gkeDetailsFixture("STANDARD")
+	v.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'D'}})
+	assert.True(t, v.showConfirm)
+
+	cancelCmd := v.confirmDialog.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	assert.NotNil(t, cancelCmd, "esc should emit cancel cmd")
+	msg := cancelCmd()
+	_, isCancel := msg.(confirm.TypeCancelMsg)
+	assert.True(t, isCancel)
+
+	// Feed cancel into the view; dialog should close.
+	v.Update(msg)
+	assert.False(t, v.showConfirm)
+	assert.False(t, v.deleting)
+}
+
+func TestGKEClusterDetails_SetErrorClearsDeleting(t *testing.T) {
+	v := gkeDetailsFixture("STANDARD")
+	v.deleting = true
+	v.SetError(errors.New("api: insufficient permission")) //nolint:err113 // test fixture
+	assert.False(t, v.deleting)
+	assert.NotNil(t, v.err)
+}
+
+func TestGKEClusterDetails_HasTextInputFocusedWhenDialogClosed(t *testing.T) {
+	v := gkeDetailsFixture("STANDARD")
+	assert.False(t, v.HasTextInputFocused(), "no text input when dialog is closed")
 }
