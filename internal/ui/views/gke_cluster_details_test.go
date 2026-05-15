@@ -63,3 +63,27 @@ func TestGKEClusterDetails_OverviewRendersAutopilot(t *testing.T) {
 	out := v.View()
 	assert.Contains(t, out, "Autopilot")
 }
+
+func TestGKEClusterDetails_NodePoolsRendersStandard(t *testing.T) {
+	v := gkeDetailsFixture("STANDARD")
+	v.tabs.SetActiveByID("nodepools")
+	v.refreshNodePoolsTable()
+	out := v.View()
+	assert.Contains(t, out, "default")
+	assert.Contains(t, out, "e2-medium")
+	assert.Contains(t, out, "on (1–10)")
+	assert.Contains(t, out, "1.30.5-gke.1014001")
+}
+
+func TestGKEClusterDetails_NodePoolsRendersAutopilotSuffix(t *testing.T) {
+	v := gkeDetailsFixture("AUTOPILOT")
+	// Inject a system-managed pool
+	v.details.NodePools = []gcp.NodePool{
+		{Name: "default-pool", MachineType: "e2-medium", NodeCount: 1, Status: "RUNNING"},
+	}
+	v.tabs.SetActiveByID("nodepools")
+	v.refreshNodePoolsTable()
+	out := v.View()
+	assert.Contains(t, out, "default-pool [managed by Autopilot]")
+	assert.Contains(t, out, "—") // autoscale / version cells
+}

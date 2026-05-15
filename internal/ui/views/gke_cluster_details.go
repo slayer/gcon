@@ -62,7 +62,7 @@ func NewGKEClusterDetailsView(projectID, location, name string, container *gcp.C
 		}),
 	}
 	v.poolsTable = table.NewWithColumns([]table.Column{
-		{Title: "Name", Width: 18},
+		{Title: "Name", Width: 40},
 		{Title: "Machine type", Width: 18},
 		{Title: "Nodes", Width: 8},
 		{Title: "Autoscale", Width: 14},
@@ -266,12 +266,62 @@ func (v *GKEClusterDetailsView) renderOverview() string {
 }
 
 func (v *GKEClusterDetailsView) renderNodePools() string {
-	// Real implementation in Task 13.
-	return ""
+	if v.details == nil {
+		return ""
+	}
+	if len(v.details.NodePools) == 0 {
+		return "(no node pools)"
+	}
+	return v.poolsTable.View()
 }
 
 func (v *GKEClusterDetailsView) refreshNodePoolsTable() {
-	// Real implementation in Task 13.
+	if v.details == nil {
+		return
+	}
+	autopilot := v.details.Mode == "AUTOPILOT"
+	rows := make([]table.Row, 0, len(v.details.NodePools))
+	for i := range v.details.NodePools {
+		p := &v.details.NodePools[i]
+		nameCell := p.Name
+		autoscale := "off"
+		version := p.NodeVersion
+		if p.AutoscalingOn {
+			autoscale = fmt.Sprintf("on (%d–%d)", p.AutoscalingMin, p.AutoscalingMax)
+		}
+		if autopilot {
+			// Plain (unstyled) suffix: ANSI bytes inflate the cell's byte
+			// length and trip bubbles/table's column-width truncation, which
+			// would clip the "[managed by Autopilot]" marker mid-word.
+			nameCell = p.Name + " [managed by Autopilot]"
+			autoscale = "—"
+			version = "—"
+		}
+		rows = append(rows, table.Row{
+			ID: p.Name,
+			Data: []string{
+				nameCell,
+				p.MachineType,
+				fmt.Sprintf("%d", p.NodeCount),
+				autoscale,
+				version,
+				statusBadge(p.Status),
+				checkmark(p.AutoUpgrade),
+				checkmark(p.AutoRepair),
+			},
+			FilterValue: strings.Join([]string{
+				p.Name, p.MachineType, autoscale, version, p.Status,
+			}, " "),
+		})
+	}
+	v.poolsTable.SetRows(rows)
+}
+
+func checkmark(b bool) string {
+	if b {
+		return "✓"
+	}
+	return ""
 }
 
 func humanMode(m string) string {
