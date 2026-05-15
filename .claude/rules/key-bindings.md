@@ -398,6 +398,28 @@ arrow does the same without needing to select the row first.
 | `a` | Toggle auto-refresh (30 s, default on) |
 | `r` | Manual refresh metrics + health |
 
+## GKE Clusters View
+
+| Key | Action |
+|-----|--------|
+| `Enter` | View cluster details |
+| `D` | View cluster details (delete dialog opens in details view) |
+| `S` | Open sort menu |
+| `/` | Filter clusters (supports `mode:`, `status:`, `location:`) |
+| `r` | Refresh list |
+| `Esc` | Go back |
+
+## GKE Cluster Details View
+
+| Key | Action |
+|-----|--------|
+| `D` | Delete cluster (type-to-confirm) |
+| `r` | Refresh details and node pools |
+| `Tab` / `Shift+Tab` | Switch tabs (Overview / Node Pools) |
+| `h/l` or `1/2` | Switch tabs (Overview / Node Pools) |
+| `j/k` or `↑/↓` or `PgUp/PgDn` | Scroll content |
+| `Esc` | Go back |
+
 ## SQL Instances View
 
 | Key | Action |
