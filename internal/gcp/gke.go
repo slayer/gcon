@@ -1,8 +1,20 @@
 package gcp
 
 import (
+	"strings"
+
 	"google.golang.org/api/container/v1"
 )
+
+// locationType returns "zone" for fully-qualified zones (us-central1-a) and
+// "region" otherwise. A GKE location with two or more "-" segments is a
+// zone; with one or zero segments it is a region.
+func locationType(location string) string {
+	if strings.Count(location, "-") >= 2 {
+		return "zone"
+	}
+	return "region"
+}
 
 // Cluster is the list-view projection of a GKE cluster.
 type Cluster struct {
