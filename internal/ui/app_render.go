@@ -168,10 +168,7 @@ func (a *App) renderHeader() string {
 		if a.loadBalancerDetailsView != nil {
 			resources = append(resources, a.loadBalancerDetailsView.Name())
 		}
-	case ViewGKEClusters:
-		resources = append(resources, "Kubernetes Engine")
 	case ViewGKEClusterDetails:
-		resources = append(resources, "Kubernetes Engine")
 		if a.gkeClusterDetailsView != nil {
 			resources = append(resources, a.gkeClusterDetailsView.Name())
 		}

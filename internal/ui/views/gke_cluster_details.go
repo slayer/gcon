@@ -320,14 +320,14 @@ func (v *GKEClusterDetailsView) View() string {
 
 func (v *GKEClusterDetailsView) renderOverview() string {
 	d := v.details
-	muted := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
-	label := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
-	value := lipgloss.NewStyle()
+	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6")).Width(24)
+	valueStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF"))
+	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#6B6B6B"))
 	var b strings.Builder
 	fmt.Fprintf(&b, "Cluster: %s\n", d.Name)
 	b.WriteString(strings.Repeat("─", 60) + "\n")
 	row := func(k, val string) {
-		fmt.Fprintf(&b, "  %-22s%s\n", label.Render(k+":"), value.Render(val))
+		b.WriteString(renderRow(labelStyle, valueStyle, mutedStyle, k, val))
 	}
 	row("Mode", humanMode(d.Mode))
 	row("Status", statusBadge(d.Status))
@@ -367,7 +367,7 @@ func (v *GKEClusterDetailsView) renderOverview() string {
 		if on {
 			state = "Enabled"
 		}
-		fmt.Fprintf(&b, "  %s\n", muted.Render(fmt.Sprintf("%s: %s", k, state)))
+		fmt.Fprintf(&b, "  %s\n", mutedStyle.Render(fmt.Sprintf("%s: %s", k, state)))
 	}
 	addon("HTTP load balancing", d.Addons.HTTPLoadBalancing)
 	addon("Network policy", d.Addons.NetworkPolicy)
