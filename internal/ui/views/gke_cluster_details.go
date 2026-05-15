@@ -3,10 +3,13 @@ package views
 
 import (
 	gocontext "context"
+	"fmt"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components"
@@ -139,5 +142,168 @@ func (v *GKEClusterDetailsView) SetError(err error) {
 	v.err = err
 }
 
-func (v *GKEClusterDetailsView) Update(msg tea.Msg) tea.Cmd { _ = msg; return nil } // TODO: Task 12
-func (v *GKEClusterDetailsView) View() string               { return "" }           // TODO: Task 12
+func (v *GKEClusterDetailsView) Update(msg tea.Msg) tea.Cmd {
+	switch m := msg.(type) {
+	case gkeClusterClientReadyMsg:
+		v.client = m.client
+		return v.load()
+	case gkeClusterLoadedMsg:
+		v.loading = false
+		v.details = m.details
+		// Refresh the node pools table now that data is loaded.
+		v.refreshNodePoolsTable()
+		return nil
+	case gkeClusterErrorMsg:
+		v.loading = false
+		v.err = m.err
+		return nil
+	case GKEClusterActionResultMsg:
+		v.deleting = false
+		if m.Error != nil {
+			v.err = m.Error
+		}
+		return nil
+	case spinner.TickMsg:
+		var cmd tea.Cmd
+		v.spinner, cmd = v.spinner.Update(m)
+		return cmd
+	case tea.KeyMsg:
+		return v.handleKey(m)
+	}
+	return nil
+}
+
+func (v *GKEClusterDetailsView) handleKey(_ tea.KeyMsg) tea.Cmd {
+	// Task 14 implements real key handling (delete dialog, refresh, tab switch).
+	return nil
+}
+
+func (v *GKEClusterDetailsView) View() string {
+	if v.loading && v.details == nil {
+		return renderLoading(v.spinner, "Loading cluster...")
+	}
+	if v.err != nil && v.details == nil {
+		return components.RenderError(v.err)
+	}
+	var b strings.Builder
+	b.WriteString(v.tabs.View())
+	b.WriteString("\n\n")
+	var body string
+	switch v.tabs.ActiveTab().ID {
+	case "overview":
+		body = v.renderOverview()
+	case "nodepools":
+		body = v.renderNodePools()
+	}
+	if v.viewportSize {
+		v.viewport.SetContent(body)
+		b.WriteString(v.viewport.View())
+	} else {
+		b.WriteString(body)
+	}
+	if v.deleting {
+		b.WriteString("\n\nDeleting cluster...\n")
+	}
+	return b.String()
+}
+
+func (v *GKEClusterDetailsView) renderOverview() string {
+	d := v.details
+	muted := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
+	label := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
+	value := lipgloss.NewStyle()
+	var b strings.Builder
+	fmt.Fprintf(&b, "Cluster: %s\n", d.Name)
+	b.WriteString(strings.Repeat("─", 60) + "\n")
+	row := func(k, val string) {
+		fmt.Fprintf(&b, "  %-22s%s\n", label.Render(k+":"), value.Render(val))
+	}
+	row("Mode", humanMode(d.Mode))
+	row("Status", statusBadge(d.Status))
+	row("Location", fmt.Sprintf("%s (%sal)", d.Location, d.LocationType))
+	row("Master version", d.MasterVersion)
+	nv := d.NodeVersion
+	if !d.NodeVersionsUniform {
+		nv = "(varies)"
+	}
+	row("Node version", nv)
+	row("Release channel", defaultIfEmpty(d.ReleaseChannel, "(unspecified)"))
+	row("Created", d.CreatedAt)
+
+	b.WriteString("\nNetworking\n")
+	b.WriteString(strings.Repeat("─", 60) + "\n")
+	row("Network", d.Network)
+	row("Subnetwork", d.Subnetwork)
+	row("Cluster IPv4 CIDR", d.ClusterIPv4CIDR)
+	row("Services IPv4 CIDR", d.ServicesIPv4CIDR)
+	row("Endpoint", d.Endpoint)
+	row("Private cluster", yesNo(d.PrivateCluster))
+
+	b.WriteString("\nSecurity\n")
+	b.WriteString(strings.Repeat("─", 60) + "\n")
+	row("Workload Identity", defaultIfEmpty(d.WorkloadIdentityPool, "(off)"))
+	row("Database encryption", formatDatabaseEncryption(d.DatabaseEncrypted, d.DatabaseKMSKey))
+	authNets := "(none)"
+	if len(d.MasterAuthorizedNetworks) > 0 {
+		authNets = strings.Join(d.MasterAuthorizedNetworks, ", ")
+	}
+	row("Authorized networks", authNets)
+
+	b.WriteString("\nAdd-ons\n")
+	b.WriteString(strings.Repeat("─", 60) + "\n")
+	addon := func(k string, on bool) {
+		state := "Disabled"
+		if on {
+			state = "Enabled"
+		}
+		fmt.Fprintf(&b, "  %s\n", muted.Render(fmt.Sprintf("%s: %s", k, state)))
+	}
+	addon("HTTP load balancing", d.Addons.HTTPLoadBalancing)
+	addon("Network policy", d.Addons.NetworkPolicy)
+	addon("Persistent disk CSI", d.Addons.PersistentDiskCSI)
+	addon("DNS cache", d.Addons.DNSCache)
+	return b.String()
+}
+
+func (v *GKEClusterDetailsView) renderNodePools() string {
+	// Real implementation in Task 13.
+	return ""
+}
+
+func (v *GKEClusterDetailsView) refreshNodePoolsTable() {
+	// Real implementation in Task 13.
+}
+
+func humanMode(m string) string {
+	switch m {
+	case "AUTOPILOT":
+		return "Autopilot"
+	case "STANDARD":
+		return "Standard"
+	}
+	return m
+}
+
+func yesNo(b bool) string {
+	if b {
+		return "Yes"
+	}
+	return "No"
+}
+
+// formatDatabaseEncryption composes the human-readable encryption label.
+// keyURI is the full KMS resource URI; only the last segment is shown.
+func formatDatabaseEncryption(encrypted bool, keyURI string) string {
+	if !encrypted {
+		return "DECRYPTED"
+	}
+	if keyURI == "" {
+		return "ENCRYPTED"
+	}
+	// Extract the last "/"-segment as the short key name.
+	idx := strings.LastIndex(keyURI, "/")
+	if idx == -1 {
+		return fmt.Sprintf("ENCRYPTED (key: %s)", keyURI)
+	}
+	return fmt.Sprintf("ENCRYPTED (key: %s)", keyURI[idx+1:])
+}
