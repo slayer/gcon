@@ -1007,6 +1007,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
 		return a, a.handleLoadBalancerDeleted(msg)
 
+	case views.GKEClusterSelectedMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleGKEClusterSelected(msg)
+
+	case views.GKEClusterDeleteRequestMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleGKEClusterDeleteRequest(msg)
+
+	case views.GKEClusterActionResultMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleGKEClusterActionResult(msg)
+
 	case views.SubnetSelectedMsg:
 		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
 		return a, a.handleSubnetSelected(msg)

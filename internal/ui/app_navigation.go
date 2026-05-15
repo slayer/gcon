@@ -735,6 +735,8 @@ func (a *App) clearAllViews() {
 	a.logsView = nil
 	a.loadBalancersView = nil
 	a.loadBalancerDetailsView = nil
+	a.gkeClustersView = nil
+	a.gkeClusterDetailsView = nil
 	a.formDemoView = nil
 
 	// Clear view stack
@@ -3708,6 +3710,105 @@ func (a *App) handleLoadBalancerDeleted(msg views.LoadBalancerDeletedMsg) tea.Cm
 	a.updateSidebarActiveView()
 	if a.loadBalancersView != nil {
 		return a.loadBalancersView.Init()
+	}
+	return nil
+}
+
+// handleGKEClusterSelected pushes the GKE cluster details view for the chosen
+// cluster. The container client (if any) is reused from the list view.
+//
+//nolint:gocritic // hugeParam: message struct passed by value
+func (a *App) handleGKEClusterSelected(msg views.GKEClusterSelectedMsg) tea.Cmd {
+	a.viewStack = append(a.viewStack, a.currentView)
+	a.currentView = ViewGKEClusterDetails
+
+	var container *gcp.ContainerClient
+	if a.gkeClustersView != nil {
+		container = a.gkeClustersView.GetContainerClient()
+	}
+	// Compute client is optional on the details view; it will be lazily
+	// constructed by the view if needed for any compute-related lookups.
+	a.gkeClusterDetailsView = views.NewGKEClusterDetailsView(
+		msg.ProjectID, msg.Location, msg.Name, container, nil,
+	)
+	a.updateSidebarActiveView()
+	a.updateViewSizes()
+	return a.gkeClusterDetailsView.Init()
+}
+
+// handleGKEClusterDeleteRequest runs the delete API call off-thread and emits
+// GKEClusterActionResultMsg with the outcome.
+//
+//nolint:gocritic // hugeParam: message struct passed by value
+func (a *App) handleGKEClusterDeleteRequest(msg views.GKEClusterDeleteRequestMsg) tea.Cmd {
+	a.registerRunningTask("gke-cluster-delete", fmt.Sprintf("Deleting cluster %s...", msg.Name))
+
+	var client *gcp.ContainerClient
+	if a.gkeClustersView != nil {
+		// Reuse the list view's container client; details view shares it.
+		client = a.gkeClustersView.GetContainerClient()
+	}
+
+	projectID := msg.ProjectID
+	location := msg.Location
+	name := msg.Name
+
+	return func() tea.Msg {
+		c := client
+		if c == nil {
+			newClient, err := gcp.NewContainerClient(a.gcpClient.Context())
+			if err != nil {
+				return views.GKEClusterActionResultMsg{Action: "delete", Error: err}
+			}
+			c = newClient
+		}
+		if err := c.DeleteCluster(a.gcpClient.Context(), projectID, location, name); err != nil {
+			return views.GKEClusterActionResultMsg{Action: "delete", Error: err}
+		}
+		return views.GKEClusterActionResultMsg{Action: "delete"}
+	}
+}
+
+// handleGKEClusterActionResult reacts to cluster action completion. On error,
+// surface the message inline on the details view (per async-operations rule);
+// on success, pop back to the clusters list and refresh it.
+//
+//nolint:gocritic // hugeParam: message struct passed by value
+func (a *App) handleGKEClusterActionResult(msg views.GKEClusterActionResultMsg) tea.Cmd {
+	var cmds []tea.Cmd
+	if cmd := a.finishTask("gke-cluster-delete", msg.Error); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+
+	if msg.Error != nil {
+		a.err = msg.Error
+		// Propagate to active view per the async-operations rule so the
+		// details view can clear its saving state and show the error inline.
+		if a.currentView == ViewGKEClusterDetails && a.gkeClusterDetailsView != nil {
+			a.gkeClusterDetailsView.SetError(msg.Error)
+		}
+		if len(cmds) > 0 {
+			return tea.Batch(cmds...)
+		}
+		return nil
+	}
+
+	// Success: navigate back to the clusters list and refresh.
+	if a.currentView == ViewGKEClusterDetails {
+		if len(a.viewStack) > 0 {
+			a.currentView = a.viewStack[len(a.viewStack)-1]
+			a.viewStack = a.viewStack[:len(a.viewStack)-1]
+		} else {
+			a.currentView = ViewGKEClusters
+		}
+		a.gkeClusterDetailsView = nil
+		a.updateSidebarActiveView()
+	}
+	if a.gkeClustersView != nil {
+		cmds = append(cmds, a.gkeClustersView.Init())
+	}
+	if len(cmds) > 0 {
+		return tea.Batch(cmds...)
 	}
 	return nil
 }
