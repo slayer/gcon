@@ -65,27 +65,26 @@ Expected: dep added; `go.sum` updated.
 package gcp
 
 import (
-	"time"
-
 	"google.golang.org/api/container/v1"
 )
 
 // Cluster is the list-view projection of a GKE cluster.
 type Cluster struct {
-	Name           string
-	Location       string // "us-central1-a" or "us-central1"
-	LocationType   string // "zone" | "region"
-	Mode           string // "AUTOPILOT" | "STANDARD"
-	Status         string // PROVISIONING / RUNNING / RECONCILING / STOPPING / ERROR / DEGRADED
-	MasterVersion  string
-	NodeVersion    string // "(varies)" when non-uniform across pools
-	NodeCount      int    // sum across node pools
-	Network        string
-	Subnetwork     string
-	ReleaseChannel string // RAPID / REGULAR / STABLE / "" (unspecified)
-	Endpoint       string
-	PrivateCluster bool
-	CreatedAt      time.Time
+	Name                string
+	Location            string // "us-central1-a" or "us-central1"
+	LocationType        string // "zone" | "region"
+	Mode                string // "AUTOPILOT" | "STANDARD"
+	Status              string // PROVISIONING / RUNNING / RECONCILING / STOPPING / ERROR / DEGRADED
+	MasterVersion       string
+	NodeVersion         string // version of the first pool ("" if no pools)
+	NodeVersionsUniform bool   // true when all pools share NodeVersion
+	NodeCount           int    // sum across node pools
+	Network             string
+	Subnetwork          string
+	ReleaseChannel      string // RAPID / REGULAR / STABLE / "" (unspecified)
+	Endpoint            string
+	PrivateCluster      bool
+	CreatedAt           string // raw CreationTimestamp pass-through (RFC3339)
 }
 
 // ClusterDetails is the full projection used by the details view.
@@ -97,7 +96,8 @@ type ClusterDetails struct {
 	ServicesIPv4CIDR         string
 	WorkloadIdentityPool     string // "" when disabled
 	MasterAuthorizedNetworks []string
-	DatabaseEncryption       string // "ENCRYPTED (key: name)" | "DECRYPTED"
+	DatabaseEncrypted        bool
+	DatabaseKMSKey           string // full key URI; empty when not encrypted
 }
 
 // AddonsSummary captures the four addons surfaced in Phase 1.
@@ -228,8 +228,6 @@ Add to `internal/gcp/gke_test.go`:
 
 ```go
 import (
-	"time"
-
 	"google.golang.org/api/container/v1"
 )
 
@@ -264,7 +262,7 @@ func TestConvertCluster_AutopilotRegional(t *testing.T) {
 	assert.Equal(t, "REGULAR", got.ReleaseChannel)
 	assert.Equal(t, "34.123.45.67", got.Endpoint)
 	assert.True(t, got.PrivateCluster)
-	assert.Equal(t, 2025, got.CreatedAt.Year())
+	assert.Equal(t, "2025-08-12T14:03:00Z", got.CreatedAt)
 }
 
 func TestConvertCluster_StandardZonal_MinimalFields(t *testing.T) {
@@ -310,22 +308,22 @@ func convertCluster(c *container.Cluster) Cluster {
 	if c.PrivateClusterConfig != nil {
 		private = c.PrivateClusterConfig.EnablePrivateNodes
 	}
-	created, _ := time.Parse(time.RFC3339, c.CreateTime) //nolint:errcheck // zero-value on parse failure is acceptable
 	return Cluster{
-		Name:           c.Name,
-		Location:       c.Location,
-		LocationType:   locationType(c.Location),
-		Mode:           mode,
-		Status:         c.Status,
-		MasterVersion:  c.CurrentMasterVersion,
-		NodeVersion:    c.CurrentNodeVersion,
-		NodeCount:      int(c.CurrentNodeCount),
-		Network:        c.Network,
-		Subnetwork:     c.Subnetwork,
-		ReleaseChannel: releaseChannel,
-		Endpoint:       c.Endpoint,
-		PrivateCluster: private,
-		CreatedAt:      created,
+		Name:                c.Name,
+		Location:            c.Location,
+		LocationType:        locationType(c.Location),
+		Mode:                mode,
+		Status:              c.Status,
+		MasterVersion:       c.CurrentMasterVersion,
+		NodeVersion:         c.CurrentNodeVersion,
+		NodeVersionsUniform: true, // Task 6's GetCluster reconciles this against pools
+		NodeCount:           int(c.CurrentNodeCount),
+		Network:             c.Network,
+		Subnetwork:          c.Subnetwork,
+		ReleaseChannel:      releaseChannel,
+		Endpoint:            c.Endpoint,
+		PrivateCluster:      private,
+		CreatedAt:           c.CreateTime,
 	}
 }
 ```
@@ -526,13 +524,15 @@ func (c *ContainerClient) GetCluster(ctx context.Context, projectID, location, n
 	if err != nil {
 		return nil, fmt.Errorf("get cluster %s/%s: %w", location, name, err)
 	}
+	encrypted, kmsKey := databaseEncryption(raw)
 	out := &ClusterDetails{
 		Cluster:                  convertCluster(raw),
 		ClusterIPv4CIDR:          raw.ClusterIpv4Cidr,
 		Addons:                   convertAddons(raw.AddonsConfig),
 		WorkloadIdentityPool:     workloadIdentityPool(raw),
 		MasterAuthorizedNetworks: authorizedNetworks(raw),
-		DatabaseEncryption:       databaseEncryption(raw),
+		DatabaseEncrypted:        encrypted,
+		DatabaseKMSKey:           kmsKey,
 	}
 	if raw.IpAllocationPolicy != nil {
 		out.ServicesIPv4CIDR = raw.IpAllocationPolicy.ServicesIpv4CidrBlock
@@ -540,9 +540,12 @@ func (c *ContainerClient) GetCluster(ctx context.Context, projectID, location, n
 	for _, np := range raw.NodePools {
 		out.NodePools = append(out.NodePools, convertNodePool(np))
 	}
-	// Reconcile NodeVersion to "(varies)" when pools disagree.
-	if !uniformNodeVersion(out.NodePools) {
-		out.NodeVersion = "(varies)"
+	// Reconcile NodeVersion against pools. The list-view convertCluster sets it
+	// from CurrentNodeVersion with NodeVersionsUniform=true; here we override
+	// using actual pool data, which is authoritative for the details view.
+	if len(out.NodePools) > 0 {
+		out.NodeVersion = out.NodePools[0].NodeVersion
+		out.NodeVersionsUniform = uniformNodeVersion(out.NodePools)
 	}
 	return out, nil
 }
@@ -577,14 +580,14 @@ func authorizedNetworks(c *container.Cluster) []string {
 	return out
 }
 
-func databaseEncryption(c *container.Cluster) string {
+// databaseEncryption returns (encrypted, kmsKey). kmsKey is the full key URI
+// (empty when not encrypted). The UI is responsible for composing any human
+// label like "ENCRYPTED (key: foo)".
+func databaseEncryption(c *container.Cluster) (bool, string) {
 	if c.DatabaseEncryption == nil || c.DatabaseEncryption.State != "ENCRYPTED" {
-		return "DECRYPTED"
+		return false, ""
 	}
-	if c.DatabaseEncryption.KeyName == "" {
-		return "ENCRYPTED"
-	}
-	return fmt.Sprintf("ENCRYPTED (key: %s)", shortName(c.DatabaseEncryption.KeyName))
+	return true, c.DatabaseEncryption.KeyName
 }
 
 func uniformNodeVersion(pools []NodePool) bool {
@@ -601,25 +604,29 @@ func uniformNodeVersion(pools []NodePool) bool {
 }
 ```
 
-`shortName` already exists in `internal/gcp/` (used by LB code) — re-use it.
+`shortName` already exists in `internal/gcp/` (used by LB code) — re-use it from
+the UI renderer (Task 12) when composing the display string, not here.
 
 - [ ] **Step 2: Add a small test for `databaseEncryption` and `uniformNodeVersion`**
 
 ```go
 func TestDatabaseEncryption(t *testing.T) {
 	cases := []struct {
-		name string
-		in   *container.Cluster
-		want string
+		name          string
+		in            *container.Cluster
+		wantEncrypted bool
+		wantKey       string
 	}{
-		{"nil", &container.Cluster{}, "DECRYPTED"},
-		{"decrypted-state", &container.Cluster{DatabaseEncryption: &container.DatabaseEncryption{State: "DECRYPTED"}}, "DECRYPTED"},
-		{"encrypted-no-key", &container.Cluster{DatabaseEncryption: &container.DatabaseEncryption{State: "ENCRYPTED"}}, "ENCRYPTED"},
-		{"encrypted-with-key", &container.Cluster{DatabaseEncryption: &container.DatabaseEncryption{State: "ENCRYPTED", KeyName: "projects/p/locations/global/keyRings/r/cryptoKeys/my-key"}}, "ENCRYPTED (key: my-key)"},
+		{"nil", &container.Cluster{}, false, ""},
+		{"decrypted-state", &container.Cluster{DatabaseEncryption: &container.DatabaseEncryption{State: "DECRYPTED"}}, false, ""},
+		{"encrypted-no-key", &container.Cluster{DatabaseEncryption: &container.DatabaseEncryption{State: "ENCRYPTED"}}, true, ""},
+		{"encrypted-with-key", &container.Cluster{DatabaseEncryption: &container.DatabaseEncryption{State: "ENCRYPTED", KeyName: "projects/p/locations/global/keyRings/r/cryptoKeys/my-key"}}, true, "projects/p/locations/global/keyRings/r/cryptoKeys/my-key"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, databaseEncryption(tc.in))
+			gotEncrypted, gotKey := databaseEncryption(tc.in)
+			assert.Equal(t, tc.wantEncrypted, gotEncrypted)
+			assert.Equal(t, tc.wantKey, gotKey)
 		})
 	}
 }
@@ -887,7 +894,6 @@ package views
 
 import (
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 
@@ -898,8 +904,8 @@ func gkeListWithFixtures() *GKEClustersView {
 	v := NewGKEClustersView("proj", nil)
 	v.SetSize(160, 40)
 	v.clusters = []gcp.Cluster{
-		{Name: "prod", Location: "us-central1", LocationType: "region", Mode: "STANDARD", MasterVersion: "1.30.5", NodeCount: 12, Status: "RUNNING", CreatedAt: time.Now()},
-		{Name: "stage", Location: "us-central1-a", LocationType: "zone", Mode: "AUTOPILOT", MasterVersion: "1.30.5", NodeCount: 0, Status: "RUNNING", CreatedAt: time.Now()},
+		{Name: "prod", Location: "us-central1", LocationType: "region", Mode: "STANDARD", MasterVersion: "1.30.5", NodeVersion: "1.30.5", NodeVersionsUniform: true, NodeCount: 12, Status: "RUNNING", CreatedAt: "2025-08-12T14:03:00Z"},
+		{Name: "stage", Location: "us-central1-a", LocationType: "zone", Mode: "AUTOPILOT", MasterVersion: "1.30.5", NodeVersion: "1.30.5", NodeVersionsUniform: true, NodeCount: 0, Status: "RUNNING", CreatedAt: "2025-08-12T14:03:00Z"},
 	}
 	v.refreshTable()
 	return v
@@ -1278,18 +1284,20 @@ func gkeDetailsFixture(mode string) *GKEClusterDetailsView {
 	v.loading = false
 	v.details = &gcp.ClusterDetails{
 		Cluster: gcp.Cluster{
-			Name:          "prod",
-			Location:      "us-central1",
-			LocationType:  "region",
-			Mode:          mode,
-			Status:        "RUNNING",
-			MasterVersion: "1.30.5-gke.1014001",
-			NodeVersion:   "1.30.5-gke.1014001",
-			Network:       "default",
-			Subnetwork:    "default-uscent1",
-			ReleaseChannel: "REGULAR",
-			Endpoint:       "34.123.45.67",
-			PrivateCluster: false,
+			Name:                "prod",
+			Location:            "us-central1",
+			LocationType:        "region",
+			Mode:                mode,
+			Status:              "RUNNING",
+			MasterVersion:       "1.30.5-gke.1014001",
+			NodeVersion:         "1.30.5-gke.1014001",
+			NodeVersionsUniform: true,
+			Network:             "default",
+			Subnetwork:          "default-uscent1",
+			ReleaseChannel:      "REGULAR",
+			Endpoint:            "34.123.45.67",
+			PrivateCluster:      false,
+			CreatedAt:           "2025-08-12T14:03:00Z",
 		},
 		ClusterIPv4CIDR: "10.4.0.0/14",
 		ServicesIPv4CIDR: "10.8.0.0/20",
@@ -1298,7 +1306,8 @@ func gkeDetailsFixture(mode string) *GKEClusterDetailsView {
 			PersistentDiskCSI: true,
 		},
 		WorkloadIdentityPool: "prod.svc.id.goog",
-		DatabaseEncryption:   "ENCRYPTED (key: my-key)",
+		DatabaseEncrypted:    true,
+		DatabaseKMSKey:       "projects/p/locations/global/keyRings/r/cryptoKeys/my-key",
 		NodePools: []gcp.NodePool{
 			{Name: "default", MachineType: "e2-medium", NodeCount: 3, AutoscalingOn: true, AutoscalingMin: 1, AutoscalingMax: 10, NodeVersion: "1.30.5-gke.1014001", Status: "RUNNING", AutoUpgrade: true, AutoRepair: true},
 		},
@@ -1420,9 +1429,13 @@ func (v *GKEClusterDetailsView) renderOverview() string {
 	row("Status", statusBadge(d.Status))
 	row("Location", fmt.Sprintf("%s (%s)", d.Location, d.LocationType+"al"))
 	row("Master version", d.MasterVersion)
-	row("Node version", d.NodeVersion)
+	nodeVer := d.NodeVersion
+	if !d.NodeVersionsUniform {
+		nodeVer = "(varies)"
+	}
+	row("Node version", nodeVer)
 	row("Release channel", defaultIfEmpty(d.ReleaseChannel, "(unspecified)"))
-	row("Created", d.CreatedAt.UTC().Format("2006-01-02 15:04 MST"))
+	row("Created", d.CreatedAt) // raw RFC3339 timestamp pass-through
 
 	b.WriteString("\nNetworking\n")
 	b.WriteString(strings.Repeat("─", 60) + "\n")
@@ -1436,7 +1449,7 @@ func (v *GKEClusterDetailsView) renderOverview() string {
 	b.WriteString("\nSecurity\n")
 	b.WriteString(strings.Repeat("─", 60) + "\n")
 	row("Workload Identity", defaultIfEmpty(d.WorkloadIdentityPool, "(off)"))
-	row("Database encryption", d.DatabaseEncryption)
+	row("Database encryption", formatDatabaseEncryption(d.DatabaseEncrypted, d.DatabaseKMSKey))
 	authNets := "(none)"
 	if len(d.MasterAuthorizedNetworks) > 0 {
 		authNets = strings.Join(d.MasterAuthorizedNetworks, ", ")
@@ -1475,7 +1488,26 @@ func yesNo(b bool) string {
 	}
 	return "No"
 }
+
+// formatDatabaseEncryption composes the human label for the Security section.
+// Data layer carries (encrypted, kmsKey URI); UI decides presentation here.
+// shortName strips the "projects/.../cryptoKeys/" prefix down to the bare key
+// name; re-use the helper already defined in internal/gcp/.
+func formatDatabaseEncryption(encrypted bool, kmsKey string) string {
+	if !encrypted {
+		return "DECRYPTED"
+	}
+	if kmsKey == "" {
+		return "ENCRYPTED"
+	}
+	return fmt.Sprintf("ENCRYPTED (key: %s)", gcp.ShortName(kmsKey))
+}
 ```
+
+Note: if `shortName` is currently unexported in `internal/gcp/`, export it (or add a
+public wrapper) when this task runs. The render assertion in Step 1
+(`assert.Contains(t, out, "ENCRYPTED (key: my-key)")`) verifies the composition
+end-to-end against the fixture's full key URI.
 
 `defaultIfEmpty` already exists in `internal/ui/views/helpers.go` — re-use.
 
