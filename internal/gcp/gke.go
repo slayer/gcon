@@ -77,3 +77,39 @@ type NodePool struct {
 type ContainerClient struct {
 	service *container.Service
 }
+
+// convertCluster maps the raw container.Cluster into our list-view Cluster.
+// Mode is derived from the Autopilot block, never from the raw API in the UI.
+// The list view doesn't have authoritative per-pool versions, so
+// NodeVersionsUniform defaults to true (overridden in GetCluster).
+func convertCluster(c *container.Cluster) Cluster {
+	mode := "STANDARD"
+	if c.Autopilot != nil && c.Autopilot.Enabled {
+		mode = "AUTOPILOT"
+	}
+	releaseChannel := ""
+	if c.ReleaseChannel != nil {
+		releaseChannel = c.ReleaseChannel.Channel
+	}
+	private := false
+	if c.PrivateClusterConfig != nil {
+		private = c.PrivateClusterConfig.EnablePrivateNodes
+	}
+	return Cluster{
+		Name:                c.Name,
+		Location:            c.Location,
+		LocationType:        locationType(c.Location),
+		Mode:                mode,
+		Status:              c.Status,
+		MasterVersion:       c.CurrentMasterVersion,
+		NodeVersion:         c.CurrentNodeVersion,
+		NodeVersionsUniform: true,
+		NodeCount:           int(c.CurrentNodeCount),
+		Network:             c.Network,
+		Subnetwork:          c.Subnetwork,
+		ReleaseChannel:      releaseChannel,
+		Endpoint:            c.Endpoint,
+		PrivateCluster:      private,
+		CreatedAt:           c.CreateTime,
+	}
+}
