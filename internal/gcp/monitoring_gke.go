@@ -74,6 +74,8 @@ const (
 	gkeMetricClusterMemory = "kubernetes.io/cluster/memory/allocatable_utilization"
 	gkeMetricNodeCount     = "kubernetes.io/cluster/node_count"
 	gkeMetricPodCount      = "kubernetes.io/cluster/pod_count"
+	gkeMetricNodeNetworkRx = "kubernetes.io/node/network/received_bytes_count"
+	gkeMetricNodeNetworkTx = "kubernetes.io/node/network/sent_bytes_count"
 )
 
 // GetGKEClusterCPUUtilization fetches cluster-scope CPU as a 0–100
@@ -115,4 +117,21 @@ func (c *MonitoringClient) GetGKEClusterNodeCount(ctx context.Context, location,
 func (c *MonitoringClient) GetGKEClusterPodCount(ctx context.Context, location, clusterName string, duration time.Duration) ([]DataPoint, error) {
 	filter := gkeClusterFilter(clusterName, location, gkeMetricPodCount)
 	return c.fetchGKEMetric(ctx, filter, duration, monitoringpb.Aggregation_ALIGN_MEAN, monitoringpb.Aggregation_REDUCE_SUM)
+}
+
+// GetGKEClusterNetworkBytes returns aggregate rx/tx bytes-per-second across
+// every node in the cluster. Uses the k8s_node resource type with REDUCE_SUM
+// so a single time series surfaces total cluster network throughput.
+func (c *MonitoringClient) GetGKEClusterNetworkBytes(ctx context.Context, location, clusterName string, duration time.Duration) (rx, tx []DataPoint, err error) {
+	rxFilter := gkeNodeFilter(clusterName, location, gkeMetricNodeNetworkRx)
+	rx, err = c.fetchGKEMetric(ctx, rxFilter, duration, monitoringpb.Aggregation_ALIGN_RATE, monitoringpb.Aggregation_REDUCE_SUM)
+	if err != nil {
+		return nil, nil, fmt.Errorf("fetch network rx: %w", err)
+	}
+	txFilter := gkeNodeFilter(clusterName, location, gkeMetricNodeNetworkTx)
+	tx, err = c.fetchGKEMetric(ctx, txFilter, duration, monitoringpb.Aggregation_ALIGN_RATE, monitoringpb.Aggregation_REDUCE_SUM)
+	if err != nil {
+		return nil, nil, fmt.Errorf("fetch network tx: %w", err)
+	}
+	return rx, tx, nil
 }
