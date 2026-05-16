@@ -28,6 +28,9 @@ func TestGKEClustersView_RendersRows(t *testing.T) {
 	assert.Contains(t, out, "Autopilot")
 	// Autopilot shows "(managed)" rather than 0 in the Nodes column.
 	assert.Contains(t, out, "(managed)")
+	// Status column must render — regression: bubbles/table byte-truncates
+	// ANSI-styled cells mid-escape, stripping the visible text.
+	assert.Contains(t, out, "RUNNING")
 }
 
 func TestGKEClustersView_AutopilotFilter(t *testing.T) {

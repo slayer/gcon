@@ -8,7 +8,6 @@ import (
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components"
@@ -271,16 +270,16 @@ func modeBadge(mode string) string {
 	return mode
 }
 
-// statusBadge colors the cluster status string with a leading dot to match
-// the conventions used by other GCP list views (LB, Cloud Run, etc.).
+// statusBadge prefixes the cluster status with a status dot. The dot is
+// intentionally NOT lipgloss-styled: bubbles/table truncates cells by
+// byte length rather than visual width, so embedding ANSI escapes here
+// causes the table to slice through the escape sequence mid-cell and
+// strip the visible content. Color is sacrificed so the column renders.
+// If the status is empty (some GKE responses omit it for active
+// clusters), fall back to "—" so the column still has content.
 func statusBadge(status string) string {
-	switch strings.ToUpper(status) {
-	case "RUNNING", "RECONCILING":
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("#34A853")).Render("●") + " " + status
-	case "PROVISIONING", "STOPPING":
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("#FBBC04")).Render("●") + " " + status
-	case "ERROR", "DEGRADED":
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("#EA4335")).Render("●") + " " + status
+	if status == "" {
+		return "—"
 	}
-	return status
+	return "● " + status
 }

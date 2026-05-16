@@ -76,6 +76,9 @@ func TestGKEClusterDetails_NodePoolsRendersStandard(t *testing.T) {
 	assert.Contains(t, out, "e2-medium")
 	assert.Contains(t, out, "on (1–10)")
 	assert.Contains(t, out, "1.30.5-gke.1014001")
+	// Status cell must render — regression: bubbles/table byte-truncates
+	// ANSI-styled cells mid-escape, stripping the visible text.
+	assert.Contains(t, out, "RUNNING")
 }
 
 func TestGKEClusterDetails_NodePoolsRendersAutopilotSuffix(t *testing.T) {
