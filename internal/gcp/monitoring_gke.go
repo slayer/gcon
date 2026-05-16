@@ -22,22 +22,27 @@ type GKEMetrics struct {
 	LastFetch         time.Time
 }
 
-// gkeClusterFilter builds a Cloud Monitoring filter scoped to one cluster
-// at the k8s_cluster resource level (CPU, memory, node count, pod count).
-// GCP rejects OR between resource.type values (see .claude/rules/gcp-api-gotchas.md),
-// so we pick one resource type per fetch and dispatch from the caller.
-func gkeClusterFilter(clusterName, location, metricType string) string {
+// gkeNodeFilter builds a Cloud Monitoring filter scoped to all nodes of
+// one cluster. Used for CPU/memory utilization (REDUCE_MEAN), node count
+// (REDUCE_COUNT), and network rx/tx (REDUCE_SUM).
+//
+// GCP has no `kubernetes.io/cluster/*` metric family for CPU/memory aggregates
+// — those metrics live under `kubernetes.io/node/*` and are aggregated across
+// nodes via cross-series reduction. GCP rejects OR between resource.type
+// values (see .claude/rules/gcp-api-gotchas.md), so we pick one resource
+// type per fetch.
+func gkeNodeFilter(clusterName, location, metricType string) string {
 	return fmt.Sprintf( //nolint:gocritic // GCP filter syntax requires double quotes
-		`resource.type = "k8s_cluster" AND resource.labels.cluster_name = "%s" AND resource.labels.location = "%s" AND metric.type = "%s"`,
+		`resource.type = "k8s_node" AND resource.labels.cluster_name = "%s" AND resource.labels.location = "%s" AND metric.type = "%s"`,
 		clusterName, location, metricType,
 	)
 }
 
-// gkeNodeFilter builds a Cloud Monitoring filter scoped to all nodes of
-// one cluster (network rx/tx aggregated via REDUCE_SUM).
-func gkeNodeFilter(clusterName, location, metricType string) string {
+// gkePodFilter builds a Cloud Monitoring filter scoped to all pods of one
+// cluster. Used for pod count via REDUCE_COUNT against a pod-level metric.
+func gkePodFilter(clusterName, location, metricType string) string {
 	return fmt.Sprintf( //nolint:gocritic // GCP filter syntax requires double quotes
-		`resource.type = "k8s_node" AND resource.labels.cluster_name = "%s" AND resource.labels.location = "%s" AND metric.type = "%s"`,
+		`resource.type = "k8s_pod" AND resource.labels.cluster_name = "%s" AND resource.labels.location = "%s" AND metric.type = "%s"`,
 		clusterName, location, metricType,
 	)
 }
@@ -70,19 +75,27 @@ func (c *MonitoringClient) fetchGKEMetric(ctx context.Context, filter string, du
 }
 
 const (
-	gkeMetricClusterCPU    = "kubernetes.io/cluster/cpu/allocatable_utilization"
-	gkeMetricClusterMemory = "kubernetes.io/cluster/memory/allocatable_utilization"
-	gkeMetricNodeCount     = "kubernetes.io/cluster/node_count"
-	gkeMetricPodCount      = "kubernetes.io/cluster/pod_count"
+	// CPU / memory: per-node allocatable utilization (0–1 ratio per node),
+	// reduced across nodes with REDUCE_MEAN to give cluster-average %.
+	gkeMetricNodeCPU    = "kubernetes.io/node/cpu/allocatable_utilization"
+	gkeMetricNodeMemory = "kubernetes.io/node/memory/allocatable_utilization"
+	// Node count: each running node emits one series for allocatable_cores
+	// (a gauge); REDUCE_COUNT cross-series counts nodes.
+	gkeMetricNodeCores = "kubernetes.io/node/cpu/allocatable_cores"
+	// Pod count: each running pod emits one series for received_bytes_count
+	// (a cumulative counter, even at rate=0); REDUCE_COUNT cross-series
+	// counts pods. Network rx/tx use the node-level equivalents below.
+	gkeMetricPodNetworkRx  = "kubernetes.io/pod/network/received_bytes_count"
 	gkeMetricNodeNetworkRx = "kubernetes.io/node/network/received_bytes_count"
 	gkeMetricNodeNetworkTx = "kubernetes.io/node/network/sent_bytes_count"
 )
 
-// GetGKEClusterCPUUtilization fetches cluster-scope CPU as a 0–100
-// percentage. The raw GCP metric is a 0–1 ratio; we scale at the data
-// layer so chart consumers can use SetYRange(0, 100) directly.
+// GetGKEClusterCPUUtilization returns cluster-average CPU utilization as a
+// 0–100 percentage. The raw per-node metric is a 0–1 ratio; REDUCE_MEAN
+// across nodes gives the cluster average, which we scale ×100 so chart
+// consumers can use SetYRange(0, 100) directly.
 func (c *MonitoringClient) GetGKEClusterCPUUtilization(ctx context.Context, location, clusterName string, duration time.Duration) ([]DataPoint, error) {
-	filter := gkeClusterFilter(clusterName, location, gkeMetricClusterCPU)
+	filter := gkeNodeFilter(clusterName, location, gkeMetricNodeCPU)
 	points, err := c.fetchGKEMetric(ctx, filter, duration, monitoringpb.Aggregation_ALIGN_MEAN, monitoringpb.Aggregation_REDUCE_MEAN)
 	if err != nil {
 		return nil, err
@@ -93,10 +106,10 @@ func (c *MonitoringClient) GetGKEClusterCPUUtilization(ctx context.Context, loca
 	return points, nil
 }
 
-// GetGKEClusterMemoryUtilization fetches cluster-scope memory as a 0–100
-// percentage (scaled from the API's 0–1 ratio).
+// GetGKEClusterMemoryUtilization returns cluster-average memory utilization
+// as a 0–100 percentage (per-node 0–1 ratio, REDUCE_MEAN across nodes).
 func (c *MonitoringClient) GetGKEClusterMemoryUtilization(ctx context.Context, location, clusterName string, duration time.Duration) ([]DataPoint, error) {
-	filter := gkeClusterFilter(clusterName, location, gkeMetricClusterMemory)
+	filter := gkeNodeFilter(clusterName, location, gkeMetricNodeMemory)
 	points, err := c.fetchGKEMetric(ctx, filter, duration, monitoringpb.Aggregation_ALIGN_MEAN, monitoringpb.Aggregation_REDUCE_MEAN)
 	if err != nil {
 		return nil, err
@@ -107,16 +120,19 @@ func (c *MonitoringClient) GetGKEClusterMemoryUtilization(ctx context.Context, l
 	return points, nil
 }
 
-// GetGKEClusterNodeCount fetches current node count over time.
+// GetGKEClusterNodeCount returns node count over time. Each running node
+// has one allocatable_cores series; REDUCE_COUNT cross-series counts them.
 func (c *MonitoringClient) GetGKEClusterNodeCount(ctx context.Context, location, clusterName string, duration time.Duration) ([]DataPoint, error) {
-	filter := gkeClusterFilter(clusterName, location, gkeMetricNodeCount)
-	return c.fetchGKEMetric(ctx, filter, duration, monitoringpb.Aggregation_ALIGN_MEAN, monitoringpb.Aggregation_REDUCE_SUM)
+	filter := gkeNodeFilter(clusterName, location, gkeMetricNodeCores)
+	return c.fetchGKEMetric(ctx, filter, duration, monitoringpb.Aggregation_ALIGN_MEAN, monitoringpb.Aggregation_REDUCE_COUNT)
 }
 
-// GetGKEClusterPodCount fetches running pod count over time.
+// GetGKEClusterPodCount returns running pod count over time. Each running
+// pod emits one received_bytes_count series (cumulative, kept even at
+// rate=0); REDUCE_COUNT cross-series counts them.
 func (c *MonitoringClient) GetGKEClusterPodCount(ctx context.Context, location, clusterName string, duration time.Duration) ([]DataPoint, error) {
-	filter := gkeClusterFilter(clusterName, location, gkeMetricPodCount)
-	return c.fetchGKEMetric(ctx, filter, duration, monitoringpb.Aggregation_ALIGN_MEAN, monitoringpb.Aggregation_REDUCE_SUM)
+	filter := gkePodFilter(clusterName, location, gkeMetricPodNetworkRx)
+	return c.fetchGKEMetric(ctx, filter, duration, monitoringpb.Aggregation_ALIGN_RATE, monitoringpb.Aggregation_REDUCE_COUNT)
 }
 
 // GetGKEClusterNetworkBytes returns aggregate rx/tx bytes-per-second across

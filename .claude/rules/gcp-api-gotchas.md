@@ -1,5 +1,44 @@
 # GCP API Gotchas
 
+## GKE: No `kubernetes.io/cluster/*` metric family exists
+
+GKE has no cluster-aggregate metrics under `kubernetes.io/cluster/*`. Querying for
+`kubernetes.io/cluster/cpu/allocatable_utilization`, `.../memory/allocatable_utilization`,
+`.../node_count`, or `.../pod_count` returns:
+
+> `NotFound: Cannot find metric(s) that match type = "kubernetes.io/cluster/..."`
+
+The actual metric families are scoped per-resource:
+
+- `kubernetes.io/node/*` — k8s_node resource (CPU, memory, network, allocatable cores)
+- `kubernetes.io/pod/*` — k8s_pod resource (network, volume)
+- `kubernetes.io/container/*` — k8s_container resource
+- `kubernetes.io/anthos/*` — Anthos-only
+
+To get cluster-level numbers, reduce node/pod series cross-series:
+
+```go
+// Cluster average CPU: per-node 0–1 ratio, REDUCE_MEAN across nodes, ×100
+filter := `resource.type = "k8s_node" AND resource.labels.cluster_name = "..." AND
+           metric.type = "kubernetes.io/node/cpu/allocatable_utilization"`
+// Aligner: ALIGN_MEAN, Reducer: REDUCE_MEAN
+
+// Node count: each running node has one allocatable_cores series; count them
+filter := `resource.type = "k8s_node" AND ... AND
+           metric.type = "kubernetes.io/node/cpu/allocatable_cores"`
+// Aligner: ALIGN_MEAN, Reducer: REDUCE_COUNT
+
+// Pod count: each running pod emits received_bytes_count (cumulative, even at rate 0)
+filter := `resource.type = "k8s_pod" AND ... AND
+           metric.type = "kubernetes.io/pod/network/received_bytes_count"`
+// Aligner: ALIGN_RATE, Reducer: REDUCE_COUNT
+```
+
+**Rule**: when adding GKE metrics, verify the metric exists in
+[GCP's Kubernetes metric catalog](https://cloud.google.com/monitoring/api/metrics_kubernetes)
+before using it. If the design says "cluster-level X", the implementation
+will almost always be "node-level X with REDUCE_MEAN/REDUCE_SUM/REDUCE_COUNT".
+
 ## Cloud Monitoring: Data points returned newest-first
 
 `ListTimeSeries` returns points in **descending** timestamp order (newest first). UI code that treats `values[len-1]` as "current" will be inverted — sparklines render backwards and stats show the oldest value as current.
