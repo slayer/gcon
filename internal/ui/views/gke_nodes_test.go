@@ -69,3 +69,21 @@ func TestGKENodes_EnterEmitsInstanceSelected(t *testing.T) {
 	assert.Equal(t, "gke-prod-default-7f3a-abcd", selected.Instance.Name)
 	assert.Equal(t, "us-central1-a", selected.Instance.Zone)
 }
+
+// TestGKENodes_CursorMovementPersists guards against a regression where
+// handleKey discarded the new table.Model returned by table.Update (value
+// receiver), so cursor movement was applied and immediately thrown away.
+// Symptom in the live UI: j/k didn't move the cursor and Enter always
+// selected the first row.
+func TestGKENodes_CursorMovementPersists(t *testing.T) {
+	s := gkeNodesWithFixtures()
+	// Sorted order: abcd, efgh, gpu-pool-...xyz1. Cursor starts at row 0.
+	s.Update(tea.KeyMsg{Type: tea.KeyDown})
+	cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	require.NotNil(t, cmd)
+	msg := cmd()
+	selected, ok := msg.(InstanceSelectedMsg)
+	require.True(t, ok)
+	assert.Equal(t, "gke-prod-default-7f3a-efgh", selected.Instance.Name,
+		"Down then Enter must select the second row, not the first")
+}

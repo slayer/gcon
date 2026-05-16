@@ -215,7 +215,11 @@ func (s *gkeNodes) handleKey(m tea.KeyMsg) tea.Cmd {
 			}}
 		}
 	}
-	_, cmd := s.table.Update(m)
+	// table.Update is a VALUE receiver — it returns a new Model. Assigning
+	// it back is required, otherwise the cursor move / filter input / sort
+	// state is discarded on every keypress and navigation appears frozen.
+	var cmd tea.Cmd
+	s.table, cmd = s.table.Update(m)
 	return cmd
 }
 
