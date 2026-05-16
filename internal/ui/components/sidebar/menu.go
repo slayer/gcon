@@ -30,6 +30,7 @@ const (
 	ViewCloudRunServices
 	ViewLogs
 	ViewLoadBalancers
+	ViewGKEClusters
 )
 
 // Icons for menu items - using simple Unicode box/geometric symbols
@@ -72,6 +73,10 @@ const (
 	// Network Services category
 	IconNetworkServices = "◍" // Network Services category
 	IconLoadBalancer    = "◎" // Load balancing leaf
+
+	// Kubernetes Engine category
+	IconKubernetes = "⊙" // Kubernetes Engine category (circled dot, single-width)
+	IconGKECluster = "⊛" // Clusters leaf (circled asterisk, single-width)
 )
 
 // MenuItem represents a single menu entry
@@ -101,6 +106,16 @@ func DefaultMenu() []MenuItem {
 				{ID: "snapshots", Label: "Snapshots", Icon: IconDisk, Hotkey: 'S', Type: MenuItemLeaf, ViewType: ViewSnapshots},
 				{ID: "images", Label: "Images", Icon: IconImage, Hotkey: 'I', Type: MenuItemLeaf, ViewType: ViewImages},
 				{ID: "metadata", Label: "Metadata", Icon: IconMetadata, Hotkey: 'M', Type: MenuItemLeaf, ViewType: ViewProjectMetadata},
+			},
+		},
+		{
+			ID:     "kubernetes",
+			Label:  "Kubernetes Engine",
+			Icon:   IconKubernetes,
+			Hotkey: 'K',
+			Type:   MenuItemCategory,
+			Children: []MenuItem{
+				{ID: "gke-clusters", Label: "Clusters", Icon: IconGKECluster, Hotkey: 'k', Type: MenuItemLeaf, ViewType: ViewGKEClusters},
 			},
 		},
 		{

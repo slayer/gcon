@@ -353,6 +353,14 @@ On developing or updating a new feature keep in mind the following guidelines:
   - Network LBs (passthrough / proxy / legacy) render an explicit
     placeholder on the Observability tab — `l3/*` metric family is on
     the roadmap.
+- [x] GKE cluster management (Phase 1)
+  - Clusters list across all locations (zonal + regional, Autopilot + Standard)
+  - Cluster details view with Overview and Node Pools tabs
+  - Network and Subnetwork displayed as plain rows in the Overview tab
+    (clickable cross-link to existing VPC/subnet views is on the Phase 2 roadmap)
+  - Type-to-confirm cluster delete with explicit warning about non-auto-deleted
+    resources (dynamic-provisioned PVs, LB Services, Cloud DNS)
+  - Fire-and-forget delete: API call returns immediately; refresh shows status
 
 ## Planned Features
 - [x] Subnets list and management
@@ -363,4 +371,5 @@ On developing or updating a new feature keep in mind the following guidelines:
   - Hands off via `gcloud compute ssh` by default; falls back to plain `ssh` when gcloud is absent
   - Returns to the TUI on exit; if the binary cannot launch, the error is shown inline (stderr from a started session is printed to the terminal during the session itself, not captured afterward)
 - [ ] Resource caching
-- [ ] GKE cluster management
+- [ ] GKE Phase 2: cluster observability tab, node pool create/delete, resize, upgrade
+- [ ] GKE Phase 3: cluster create wizard

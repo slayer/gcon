@@ -80,6 +80,8 @@ const (
 	ViewLogs
 	ViewLoadBalancers
 	ViewLoadBalancerDetails
+	ViewGKEClusters
+	ViewGKEClusterDetails
 	ViewFormDemo // Demo view for testing form components
 )
 
@@ -158,6 +160,8 @@ type App struct {
 	logsView                   *views.LogsView
 	loadBalancersView          *views.LoadBalancersView
 	loadBalancerDetailsView    *views.LoadBalancerDetailsView
+	gkeClustersView            *views.GKEClustersView
+	gkeClusterDetailsView      *views.GKEClusterDetailsView
 	formDemoView               *views.FormDemoView
 
 	// Selected context
@@ -450,6 +454,10 @@ func (a *App) getCurrentViewModel() views.View {
 		return a.loadBalancersView
 	case ViewLoadBalancerDetails:
 		return a.loadBalancerDetailsView
+	case ViewGKEClusters:
+		return a.gkeClustersView
+	case ViewGKEClusterDetails:
+		return a.gkeClusterDetailsView
 	case ViewFormDemo:
 		return a.formDemoView
 	}
@@ -634,7 +642,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// If not handled, fall through to quit
 				fallthrough
 
-			case ViewInstances, ViewDisks, ViewSnapshots, ViewImages, ViewBuckets, ViewNetworks, ViewFirewall, ViewSubnets, ViewRoutes, ViewSQLInstances, ViewServiceAccounts, ViewIAMPolicy, ViewCustomRoles, ViewCloudRunServices, ViewLogs, ViewLoadBalancers, ViewProjects:
+			case ViewInstances, ViewDisks, ViewSnapshots, ViewImages, ViewBuckets, ViewNetworks, ViewFirewall, ViewSubnets, ViewRoutes, ViewSQLInstances, ViewServiceAccounts, ViewIAMPolicy, ViewCustomRoles, ViewCloudRunServices, ViewLogs, ViewLoadBalancers, ViewGKEClusters, ViewProjects:
 				// Quit from top-level views or if stack is empty
 				a.cleanup()
 				return a, tea.Quit
@@ -998,6 +1006,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case views.LoadBalancerDeletedMsg:
 		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
 		return a, a.handleLoadBalancerDeleted(msg)
+
+	case views.GKEClusterSelectedMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleGKEClusterSelected(msg)
+
+	case views.GKEClusterDeleteRequestMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleGKEClusterDeleteRequest(msg)
+
+	case views.GKEClusterActionResultMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleGKEClusterActionResult(msg)
 
 	case views.SubnetSelectedMsg:
 		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
@@ -1550,6 +1570,12 @@ func (a *App) updateViewSizes() {
 	}
 	if a.loadBalancerDetailsView != nil {
 		a.loadBalancerDetailsView.SetContext(a.ctx)
+	}
+	if a.gkeClustersView != nil {
+		a.gkeClustersView.SetContext(a.ctx)
+	}
+	if a.gkeClusterDetailsView != nil {
+		a.gkeClusterDetailsView.SetContext(a.ctx)
 	}
 }
 

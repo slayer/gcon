@@ -41,6 +41,8 @@ func (a *App) renderHeader() string {
 			category = "Logging"
 		case ViewLoadBalancers, ViewLoadBalancerDetails:
 			category = "Network Services"
+		case ViewGKEClusters, ViewGKEClusterDetails:
+			category = "Kubernetes Engine"
 		}
 	}
 	a.header.SetCategory(category)
@@ -165,6 +167,10 @@ func (a *App) renderHeader() string {
 		resources = append(resources, "Load balancing")
 		if a.loadBalancerDetailsView != nil {
 			resources = append(resources, a.loadBalancerDetailsView.Name())
+		}
+	case ViewGKEClusterDetails:
+		if a.gkeClusterDetailsView != nil {
+			resources = append(resources, a.gkeClusterDetailsView.Name())
 		}
 	}
 	a.header.SetResources(resources)
@@ -365,6 +371,14 @@ func (a *App) renderCurrentView() string {
 	case ViewLoadBalancerDetails:
 		if a.loadBalancerDetailsView != nil {
 			return a.loadBalancerDetailsView.View()
+		}
+	case ViewGKEClusters:
+		if a.gkeClustersView != nil {
+			return a.gkeClustersView.View()
+		}
+	case ViewGKEClusterDetails:
+		if a.gkeClusterDetailsView != nil {
+			return a.gkeClusterDetailsView.View()
 		}
 	case ViewFormDemo:
 		if a.formDemoView != nil {
