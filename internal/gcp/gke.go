@@ -75,6 +75,10 @@ type NodePool struct {
 	AutoUpgrade    bool
 	AutoRepair     bool
 	Locations      []string // zones the pool spans
+	// InstanceGroupUrls is the list of MIG URLs backing this pool,
+	// one per zone the pool spans. Used by the Nodes sub-view to fan
+	// out ListManagedInstances calls.
+	InstanceGroupUrls []string
 }
 
 // ContainerClient wraps the GKE container API.
@@ -124,11 +128,12 @@ func convertCluster(c *container.Cluster) Cluster {
 // and AutoRepair default to false when the Management block is absent.
 func convertNodePool(p *container.NodePool) NodePool {
 	out := NodePool{
-		Name:        p.Name,
-		NodeCount:   int(p.InitialNodeCount),
-		NodeVersion: p.Version,
-		Status:      p.Status,
-		Locations:   p.Locations,
+		Name:              p.Name,
+		NodeCount:         int(p.InitialNodeCount),
+		NodeVersion:       p.Version,
+		Status:            p.Status,
+		Locations:         p.Locations,
+		InstanceGroupUrls: p.InstanceGroupUrls,
 	}
 	if p.Config != nil {
 		out.MachineType = p.Config.MachineType
