@@ -22,6 +22,15 @@ type gkeNodesPoolErrorMsg struct {
 	err      error
 }
 
+// gkeNodesComputeClientReadyMsg carries a lazily-constructed compute client
+// back to the Nodes sub-view. Emitted by gkeNodes.initComputeClient when
+// the parent details view wasn't seeded with a compute client (e.g. the
+// user navigated straight to GKE from the sidebar). The sub-view stitches
+// the client into its state and proceeds with fanOut.
+type gkeNodesComputeClientReadyMsg struct {
+	client *gcp.ComputeClient
+}
+
 // === Observability tab ===
 
 // gkeObsMetricsLoadedMsg carries the result of one full metric fan-out.

@@ -3761,10 +3761,26 @@ func (a *App) handleGKEClusterSelected(msg views.GKEClusterSelectedMsg) tea.Cmd 
 	if a.gkeClustersView != nil {
 		container = a.gkeClustersView.GetContainerClient()
 	}
-	// Compute client is optional on the details view; it will be lazily
-	// constructed by the view if needed for any compute-related lookups.
+	// Borrow a compute client from any view that has already initialized
+	// one. The Nodes tab depends on it for ListManagedInstances; without
+	// a client the sub-view stays on "Loading nodes..." indefinitely.
+	// Note: when this resolves to nil (no compute view has been visited),
+	// the Nodes sub-view surfaces an inline error instead of hanging.
+	var compute *gcp.ComputeClient
+	switch {
+	case a.instancesView != nil:
+		compute = a.instancesView.GetComputeClient()
+	case a.disksView != nil:
+		compute = a.disksView.GetComputeClient()
+	case a.networksView != nil:
+		compute = a.networksView.GetComputeClient()
+	case a.snapshotsView != nil:
+		compute = a.snapshotsView.GetComputeClient()
+	case a.imagesView != nil:
+		compute = a.imagesView.GetComputeClient()
+	}
 	a.gkeClusterDetailsView = views.NewGKEClusterDetailsView(
-		msg.ProjectID, msg.Location, msg.Name, container, nil, a.gcpClient,
+		msg.ProjectID, msg.Location, msg.Name, container, compute, a.gcpClient,
 	)
 	a.updateSidebarActiveView()
 	a.updateViewSizes()

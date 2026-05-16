@@ -323,7 +323,11 @@ func (v *GKEClusterDetailsView) handleKey(m tea.KeyMsg) tea.Cmd {
 	if v.showConfirm && v.confirmDialog != nil {
 		return v.confirmDialog.Update(m)
 	}
-	switch m.String() {
+	key := m.String()
+	activeID := v.tabs.ActiveTab().ID
+
+	// Cross-cutting actions (delete dialog, per-tab refresh).
+	switch key {
 	case "D":
 		v.openDeleteDialog()
 		if v.confirmDialog != nil {
@@ -331,8 +335,7 @@ func (v *GKEClusterDetailsView) handleKey(m tea.KeyMsg) tea.Cmd {
 		}
 		return nil
 	case "r":
-		// Dispatch refresh to the active sub-view first.
-		switch v.tabs.ActiveTab().ID {
+		switch activeID {
 		case "nodes":
 			if v.nodes != nil {
 				return v.nodes.Refresh()
@@ -346,38 +349,75 @@ func (v *GKEClusterDetailsView) handleKey(m tea.KeyMsg) tea.Cmd {
 				return v.logs.Refresh()
 			}
 		}
-		// Overview / Node Pools fallback: reload cluster details.
 		v.loading = true
 		v.err = nil
 		if v.client == nil {
 			return tea.Batch(v.spinner.Tick, v.initClient())
 		}
 		return tea.Batch(v.spinner.Tick, v.load())
-	case "tab", "shift+tab", "h", "l", "left", "right", "1", "2", "3", "4", "5":
-		// Delegate tab navigation to the embedded tabs widget; it emits
-		// TabChangedMsg which the view's Update handles to reset scroll.
-		return v.tabs.Update(m)
 	}
-	// Node Pools tab consumes j/k/up/down/enter for its own cursor; the
-	// viewport only scrolls on keys the table doesn't handle.
-	if v.tabs.ActiveTab().ID == "nodepools" && isPoolsTableKey(m) {
-		var cmd tea.Cmd
-		v.poolsTable, cmd = v.poolsTable.Update(m)
-		return cmd
-	}
-	// Route the key to the active sub-view (nodes/observability/logs).
-	// Sub-views own their key handling for time-range, toggles, table
-	// navigation, etc.
-	switch v.tabs.ActiveTab().ID {
-	case "nodes", "observability", "logs":
+
+	// Sub-view-owned action keys: route to sub-view before parent tab
+	// navigation can claim them. Observability uses 1–5 for time range and
+	// `a` for auto-refresh; Logs uses I/W/E/a/L. Without this pre-emption
+	// the parent's "1"–"5" tab-switch case fires first and steals the keys.
+	if isGKESubViewActionKey(activeID, key) {
 		return v.routeToActiveSubView(m)
 	}
+
+	// Tab navigation. 1–5 falls here only when the active sub-view didn't
+	// claim them above (i.e. on overview / nodepools / nodes).
+	switch key {
+	case "tab", "shift+tab", "h", "l", "left", "right",
+		"1", "2", "3", "4", "5":
+		return v.tabs.Update(m)
+	}
+
+	// Per-tab cursor / table input.
+	switch activeID {
+	case "nodepools":
+		if isPoolsTableKey(m) {
+			var cmd tea.Cmd
+			v.poolsTable, cmd = v.poolsTable.Update(m)
+			return cmd
+		}
+	case "nodes":
+		// Nodes embeds its own table; forward everything that's not a
+		// parent shortcut so the table widget can handle j/k/up/down/enter,
+		// `/` (filter), `S` (sort menu), and friends.
+		return v.routeToActiveSubView(m)
+	}
+
+	// Viewport scroll fallback. Observability / Logs / Overview have no
+	// embedded table — j/k/up/down/pgup/pgdown/home/end scroll the parent
+	// viewport instead of getting swallowed by the sub-view.
 	if isViewportScrollKey(m) {
 		var cmd tea.Cmd
 		v.viewport, cmd = v.viewport.Update(m)
 		return cmd
 	}
 	return nil
+}
+
+// isGKESubViewActionKey reports whether the key belongs to a sub-view's own
+// keymap and must be delivered to it before the parent tab-switching layer
+// gets a chance. Observability and Logs both claim `a` (auto-refresh) and a
+// short list of bespoke keys; Nodes is handled separately because it forwards
+// the entire keystream.
+func isGKESubViewActionKey(tabID, key string) bool {
+	switch tabID {
+	case "observability":
+		switch key {
+		case "1", "2", "3", "4", "5", "a":
+			return true
+		}
+	case "logs":
+		switch key {
+		case "I", "W", "E", "a", "L":
+			return true
+		}
+	}
+	return false
 }
 
 // isPoolsTableKey reports whether a key should be routed to the Node Pools

@@ -14,6 +14,7 @@ import (
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/table"
+	uierrors "github.com/slayer/gcon/internal/ui/errors"
 	"github.com/slayer/gcon/internal/ui/symbols"
 )
 
@@ -65,14 +66,49 @@ func (s *gkeNodes) Init() tea.Cmd {
 	s.nodes = nil
 	s.pendingMIGs = 0
 	s.warnings = map[string]error{}
+	// Lazy-construct the compute client when the parent details view
+	// wasn't seeded with one (e.g. the user navigated straight from the
+	// sidebar to GKE without visiting Compute Engine views first).
+	if s.computeClient == nil {
+		return tea.Batch(s.spinner.Tick, s.initComputeClient())
+	}
 	return tea.Batch(s.spinner.Tick, s.fanOut())
+}
+
+// initComputeClient builds a ComputeClient off-thread so the Nodes tab
+// can fan out ListManagedInstances calls. On success the resulting client
+// is stitched back via gkeNodesComputeClientReadyMsg, which fanOut then
+// consumes.
+func (s *gkeNodes) initComputeClient() tea.Cmd {
+	return func() tea.Msg {
+		c, err := gcp.NewComputeClient(gocontext.Background())
+		if err != nil {
+			return gkeNodesPoolErrorMsg{
+				poolName: "compute",
+				err:      fmt.Errorf("init compute client: %w", err),
+			}
+		}
+		return gkeNodesComputeClientReadyMsg{client: c}
+	}
 }
 
 // fanOut emits one tea.Cmd per (pool, zone, migURL) tuple. Each cmd
 // returns gkeNodesPoolLoadedMsg with that MIG's nodes (pool name stamped
 // from loop context) or gkeNodesPoolErrorMsg on failure.
+//
+// If the sub-view is missing prerequisites (no details, no compute client,
+// or no MIG URLs to fan out over) we set loading=false and surface an
+// error rather than returning nil silently — otherwise the view hangs on
+// "Loading nodes..." with no async work in flight.
 func (s *gkeNodes) fanOut() tea.Cmd {
-	if s.details == nil || s.computeClient == nil {
+	if s.details == nil {
+		s.loading = false
+		s.err = uierrors.ErrDetailsNotAvailable
+		return nil
+	}
+	if s.computeClient == nil {
+		s.loading = false
+		s.err = uierrors.ErrClientNotInitialized
 		return nil
 	}
 	var cmds []tea.Cmd
@@ -131,6 +167,9 @@ func parseMIGURL(url string) (zone, name string) {
 
 func (s *gkeNodes) Update(msg tea.Msg) tea.Cmd {
 	switch m := msg.(type) {
+	case gkeNodesComputeClientReadyMsg:
+		s.computeClient = m.client
+		return s.fanOut()
 	case gkeNodesPoolLoadedMsg:
 		s.pendingMIGs--
 		s.nodes = append(s.nodes, m.nodes...)

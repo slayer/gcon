@@ -244,3 +244,40 @@ func TestGKEClusterDetails_SetContextPropagatesSize(t *testing.T) {
 	assert.GreaterOrEqual(t, v.observability.width, 100,
 		"observability width must reflect the propagated context, not the 10-col clamp")
 }
+
+// TestGKEClusterDetails_ObsRangeKeysGoToSubView guards against a regression
+// where the parent's `1`–`5` tab-switch case stole the range-selector keys
+// from the Observability sub-view.
+func TestGKEClusterDetails_ObsRangeKeysGoToSubView(t *testing.T) {
+	v := gkeDetailsFixture("STANDARD")
+	v.SetContext(&context.ProgramContext{ContentWidth: 180, ContentHeight: 60})
+	v.tabs.SetActiveByID("observability")
+	v.Update(tabs.TabChangedMsg{})
+	require.NotNil(t, v.observability)
+
+	// Press '3' → should set range to 24h (index 2), NOT switch parent tab.
+	startIdx := v.observability.rangeIdx
+	v.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'3'}})
+	assert.NotEqual(t, startIdx, v.observability.rangeIdx,
+		"'3' on observability must update rangeIdx in the sub-view")
+	assert.Equal(t, "observability", v.tabs.ActiveTab().ID,
+		"'3' on observability must NOT switch parent tabs")
+}
+
+// TestGKEClusterDetails_LogsViewportScrollKeysFallToViewport guards against a
+// regression where j/k on the Logs tab got routed into the (no-op) sub-view
+// instead of scrolling the parent viewport that contains the log body.
+func TestGKEClusterDetails_LogsViewportScrollKeysFallToViewport(t *testing.T) {
+	v := gkeDetailsFixture("STANDARD")
+	v.SetContext(&context.ProgramContext{ContentWidth: 180, ContentHeight: 60})
+	v.tabs.SetActiveByID("logs")
+	v.Update(tabs.TabChangedMsg{})
+	require.NotNil(t, v.logs)
+
+	// 'j' should not be claimed by isGKESubViewActionKey for logs.
+	assert.False(t, isGKESubViewActionKey("logs", "j"),
+		"j is a viewport scroll key, not a logs action — must fall through to viewport")
+	// 'I' is a logs-owned severity toggle, must NOT fall through.
+	assert.True(t, isGKESubViewActionKey("logs", "I"),
+		"I (info toggle) must be routed to logs sub-view, not viewport")
+}
