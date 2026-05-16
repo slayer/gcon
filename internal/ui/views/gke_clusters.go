@@ -197,7 +197,14 @@ func (v *GKEClustersView) View() string {
 	if v.err != nil && len(v.clusters) == 0 {
 		return "\n" + components.RenderError(v.err)
 	}
-	return v.table.View()
+	out := v.table.View()
+	// If a refresh failed after a successful first load, surface the
+	// error inline below the table so the user knows the visible data
+	// is stale.
+	if v.err != nil {
+		out += components.RenderInlineError(v.err)
+	}
+	return out
 }
 
 // refreshTable rebuilds the table rows from the current cluster slice.

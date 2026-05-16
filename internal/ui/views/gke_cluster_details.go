@@ -18,6 +18,7 @@ import (
 	"github.com/slayer/gcon/internal/ui/components/table"
 	"github.com/slayer/gcon/internal/ui/components/tabs"
 	"github.com/slayer/gcon/internal/ui/context"
+	uierrors "github.com/slayer/gcon/internal/ui/errors"
 	"github.com/slayer/gcon/internal/ui/overlay"
 )
 
@@ -99,6 +100,9 @@ func (v *GKEClusterDetailsView) initClient() tea.Cmd {
 
 func (v *GKEClusterDetailsView) load() tea.Cmd {
 	return func() tea.Msg {
+		if v.client == nil {
+			return gkeClusterErrorMsg{err: uierrors.ErrClientNotInitialized}
+		}
 		d, err := v.client.GetCluster(gocontext.Background(), v.projectID, v.location, v.name)
 		if err != nil {
 			return gkeClusterErrorMsg{err: err}
@@ -205,6 +209,12 @@ func (v *GKEClusterDetailsView) Update(msg tea.Msg) tea.Cmd {
 		v.confirmDialog = nil
 		return nil
 	case spinner.TickMsg:
+		// Suppress ticks when no async work is in flight — otherwise the
+		// spinner keeps re-emitting ticks forever and drives continuous
+		// redraws even when nothing is loading or deleting.
+		if !v.loading && !v.deleting {
+			return nil
+		}
 		var cmd tea.Cmd
 		v.spinner, cmd = v.spinner.Update(m)
 		return cmd
@@ -229,6 +239,9 @@ func (v *GKEClusterDetailsView) handleKey(m tea.KeyMsg) tea.Cmd {
 	case "r":
 		v.loading = true
 		v.err = nil
+		if v.client == nil {
+			return tea.Batch(v.spinner.Tick, v.initClient())
+		}
 		return tea.Batch(v.spinner.Tick, v.load())
 	case "tab", "shift+tab", "h", "l", "left", "right", "1", "2":
 		// Delegate tab navigation to the embedded tabs widget; it emits
@@ -270,7 +283,7 @@ func (v *GKEClusterDetailsView) openDeleteDialog() {
 	}
 	d := v.details
 	detailLines := []string{
-		fmt.Sprintf("Location: %s (%sal)", d.Location, d.LocationType),
+		fmt.Sprintf("Location: %s (%s)", d.Location, humanLocationType(d.LocationType)),
 		fmt.Sprintf("Mode: %s", humanMode(d.Mode)),
 		fmt.Sprintf("Node pools: %d", len(d.NodePools)),
 		"",
@@ -349,7 +362,7 @@ func (v *GKEClusterDetailsView) renderOverview() string {
 	}
 	row("Mode", humanMode(d.Mode))
 	row("Status", statusBadge(d.Status))
-	row("Location", fmt.Sprintf("%s (%sal)", d.Location, d.LocationType))
+	row("Location", fmt.Sprintf("%s (%s)", d.Location, humanLocationType(d.LocationType)))
 	row("Master version", d.MasterVersion)
 	nv := d.NodeVersion
 	if !d.NodeVersionsUniform {
@@ -461,6 +474,18 @@ func humanMode(m string) string {
 		return "Standard"
 	}
 	return m
+}
+
+// humanLocationType converts the raw LocationType ("zone" / "region")
+// into its adjectival form ("zonal" / "regional") for display.
+func humanLocationType(t string) string {
+	switch t {
+	case "zone":
+		return "zonal"
+	case "region":
+		return "regional"
+	}
+	return t
 }
 
 func yesNo(b bool) string {
