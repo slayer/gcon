@@ -453,12 +453,22 @@ func (a *App) handleInstanceSelected(msg views.InstanceSelectedMsg) tea.Cmd {
 	if a.instanceDetailsView != nil {
 		a.instanceDetailsView.Close()
 	}
-	// Pass compute client from instances view to avoid re-initialization
+	// Resolve compute client from any view that can emit InstanceSelectedMsg
+	// (per adding-new-views.md step 16). Phase 1 emitter: instances list.
+	// Phase 2a adds the GKE cluster details view's Nodes tab as an emitter,
+	// which may fire when the user has never visited the instances list.
+	var computeClient *gcp.ComputeClient
+	if a.instancesView != nil {
+		computeClient = a.instancesView.GetComputeClient()
+	}
+	if computeClient == nil && a.gkeClusterDetailsView != nil {
+		computeClient = a.gkeClusterDetailsView.GetComputeClient()
+	}
 	a.instanceDetailsView = views.NewInstanceDetailsView(
 		a.selectedProject.ID,
 		inst.Zone,
 		inst.Name,
-		a.instancesView.GetComputeClient(),
+		computeClient,
 		a.gcpClient,
 	)
 	a.updateSidebarActiveView()
