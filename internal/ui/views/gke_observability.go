@@ -2,10 +2,12 @@ package views
 
 import (
 	gocontext "context"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components"
@@ -153,8 +155,150 @@ func (s *gkeObservability) tickAutoRefresh() tea.Cmd {
 	return tea.Tick(30*time.Second, func(_ time.Time) tea.Msg { return gkeObsRefreshTickMsg{} })
 }
 
-// Stub Update/View/SetSize/HasTextInputFocused — replaced in Task 9.
-func (s *gkeObservability) Update(msg tea.Msg) tea.Cmd { _ = msg; return nil } // TODO: Task 9
-func (s *gkeObservability) View() string               { return "" }           // TODO: Task 9
-func (s *gkeObservability) SetSize(w, h int)           { s.width = w; _ = h }
-func (s *gkeObservability) HasTextInputFocused() bool  { return false }
+// SetSize updates the rendering width and propagates it to all charts.
+func (s *gkeObservability) SetSize(w, h int) {
+	s.width = w
+	_ = h
+	cw := w - 2
+	if cw < 10 {
+		cw = 10
+	}
+	s.cpuChart.Resize(cw)
+	s.memoryChart.Resize(cw)
+	s.nodeChart.Resize(cw)
+	s.podChart.Resize(cw)
+	s.netChart.Resize(cw)
+}
+
+// HasTextInputFocused reports whether the sub-view owns a focused text input.
+// The Observability tab has no text inputs.
+func (s *gkeObservability) HasTextInputFocused() bool { return false }
+
+// Update routes messages.
+func (s *gkeObservability) Update(msg tea.Msg) tea.Cmd {
+	switch m := msg.(type) {
+	case gkeObsMetricsLoadedMsg:
+		s.loading = false
+		s.metrics = m.metrics
+		s.warnings = m.warnings
+		if s.warnings == nil {
+			s.warnings = map[string]error{}
+		}
+		s.applyDataToCharts()
+		return nil
+	case gkeObsRefreshTickMsg:
+		if !s.autoRefresh || !s.tabActive {
+			return nil
+		}
+		return tea.Batch(s.fetchAllMetrics(), s.tickAutoRefresh())
+	case spinner.TickMsg:
+		if !s.loading {
+			return nil
+		}
+		var cmd tea.Cmd
+		s.spinner, cmd = s.spinner.Update(m)
+		return cmd
+	case tea.KeyMsg:
+		return s.handleKey(m)
+	}
+	return nil
+}
+
+// handleKey processes keyboard input scoped to the Observability tab.
+func (s *gkeObservability) handleKey(m tea.KeyMsg) tea.Cmd {
+	switch m.String() {
+	case "1", "2", "3", "4", "5":
+		idx := int(m.String()[0] - '1')
+		if idx < 0 || idx >= len(gkeObsRanges) {
+			return nil
+		}
+		if idx != s.rangeIdx {
+			s.rangeIdx = idx
+			return s.Refresh()
+		}
+		// Same range pressed — keep rangeIdx unchanged.
+		s.rangeIdx = idx
+	case "a":
+		s.autoRefresh = !s.autoRefresh
+		if s.autoRefresh {
+			return s.tickAutoRefresh()
+		}
+	case "r":
+		return s.Refresh()
+	}
+	return nil
+}
+
+// applyDataToCharts pushes the latest metric data into each chart's
+// internal state. Called after every successful fan-out.
+func (s *gkeObservability) applyDataToCharts() {
+	s.cpuChart.SetData(s.metrics.CPUUtilization)
+	s.memoryChart.SetData(s.metrics.MemoryUtilization)
+	s.nodeChart.SetData(s.metrics.NodeCount)
+	s.podChart.SetData(s.metrics.PodCount)
+	s.netChart.SetDataSets([]metricchart.DataSet{
+		{Name: "rx", Data: s.metrics.NetworkRxBytes, Color: "#34A853"},
+		{Name: "tx", Data: s.metrics.NetworkTxBytes, Color: "#FBBC04"},
+	})
+}
+
+// View renders the Observability tab.
+func (s *gkeObservability) View() string {
+	if s.loading && len(s.metrics.CPUUtilization) == 0 && len(s.metrics.MemoryUtilization) == 0 {
+		return renderLoading(s.spinner, "Loading metrics...")
+	}
+	var b strings.Builder
+	b.WriteString(s.renderRangeBar())
+	b.WriteString("\n\n")
+	b.WriteString(s.renderChart("Cluster CPU utilization", "cpu", s.cpuChart))
+	b.WriteString("\n")
+	b.WriteString(s.renderChart("Cluster Memory utilization", "memory", s.memoryChart))
+	b.WriteString("\n")
+	b.WriteString(s.renderChart("Node count", "nodecount", s.nodeChart))
+	b.WriteString("\n")
+	b.WriteString(s.renderChart("Pod count", "podcount", s.podChart))
+	b.WriteString("\n")
+	b.WriteString(s.renderChart("Network traffic", "network", s.netChart))
+	return b.String()
+}
+
+// renderRangeBar draws the [1h] [6h] [24h] [7d] [30d] strip with the
+// active range highlighted, followed by the auto-refresh indicator.
+func (s *gkeObservability) renderRangeBar() string {
+	muted := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
+	active := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#4285F4"))
+	var b strings.Builder
+	for i, label := range gkeObsRangeLabels {
+		if i == s.rangeIdx {
+			b.WriteString(active.Render("[" + label + "]"))
+		} else {
+			b.WriteString(muted.Render("[" + label + "]"))
+		}
+		b.WriteString(" ")
+	}
+	autoState := "off"
+	if s.autoRefresh {
+		autoState = "on"
+	}
+	b.WriteString(muted.Render("    auto-refresh: " + autoState + " (a to toggle)"))
+	return b.String()
+}
+
+// renderChart renders a single chart with its title. When a warning is
+// present for the chart's metric key, the chart is replaced by an
+// inline error message (mirrors loadbalancer_observability's pattern).
+func (s *gkeObservability) renderChart(title, warnKey string, chart *metricchart.Chart) string {
+	var b strings.Builder
+	section := lipgloss.NewStyle().Bold(true)
+	b.WriteString(section.Render(title))
+	b.WriteString("\n")
+	if err, ok := s.warnings[warnKey]; ok {
+		errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#EA4335"))
+		b.WriteString(errStyle.Render("  ⚠ " + warnKey + ": " + err.Error()))
+		b.WriteString("\n")
+		return b.String()
+	}
+	b.WriteString(chart.View())
+	b.WriteString("\n")
+	return b.String()
+}
