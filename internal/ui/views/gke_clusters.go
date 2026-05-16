@@ -14,6 +14,7 @@ import (
 	"github.com/slayer/gcon/internal/ui/components/table"
 	"github.com/slayer/gcon/internal/ui/context"
 	uierrors "github.com/slayer/gcon/internal/ui/errors"
+	"github.com/slayer/gcon/internal/ui/symbols"
 )
 
 // GKEClustersView is the project-wide list of GKE clusters. It mirrors the
@@ -270,16 +271,32 @@ func modeBadge(mode string) string {
 	return mode
 }
 
-// statusBadge prefixes the cluster status with a status dot. The dot is
-// intentionally NOT lipgloss-styled: bubbles/table truncates cells by
-// byte length rather than visual width, so embedding ANSI escapes here
-// causes the table to slice through the escape sequence mid-cell and
-// strip the visible content. Color is sacrificed so the column renders.
-// If the status is empty (some GKE responses omit it for active
-// clusters), fall back to "—" so the column still has content.
+// statusBadge prefixes the cluster status with a colored indicator. We use
+// the symbols package (which emits emoji glyphs like 🟢 in default mode)
+// rather than wrapping a `●` in lipgloss styling. Reason: bubbles/table
+// truncates cells by visual width via runewidth, but ANSI escape sequences
+// inflate the perceived width and cause the table to slice mid-escape,
+// stripping the visible content. Emoji glyphs carry their color in the
+// glyph itself with no ANSI bytes, so they survive truncation.
+// Empty status (rare but possible) falls back to "—".
 func statusBadge(status string) string {
 	if status == "" {
 		return "—"
 	}
-	return "● " + status
+	return gkeStatusSymbol(status) + " " + status
+}
+
+// gkeStatusSymbol maps a GKE cluster/node-pool status string to the shared
+// status symbol set. GKE has DEGRADED and RECONCILING states that the
+// generic GetStatusSymbol helper doesn't cover, hence the custom mapping.
+func gkeStatusSymbol(status string) string {
+	switch status {
+	case "RUNNING":
+		return symbols.StatusRunning()
+	case "ERROR", "DEGRADED":
+		return symbols.StatusStopped()
+	case "PROVISIONING", "STOPPING", "RECONCILING":
+		return symbols.StatusTransitioning()
+	}
+	return symbols.StatusUnknown()
 }
