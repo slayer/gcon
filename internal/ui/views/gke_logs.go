@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components"
@@ -93,9 +94,9 @@ func (s *gkeLogs) fetchLogs() tea.Cmd {
 // filtering (Task 11) hides individual rows when only a higher level is on.
 func (s *gkeLogs) buildLQL() string {
 	parts := []string{
-		fmt.Sprintf(`resource.type = "%s"`, s.resourceType),
-		fmt.Sprintf(`resource.labels.cluster_name = "%s"`, s.clusterName),
-		fmt.Sprintf(`resource.labels.location = "%s"`, s.location),
+		fmt.Sprintf(`resource.type = %q`, s.resourceType),
+		fmt.Sprintf(`resource.labels.cluster_name = %q`, s.clusterName),
+		fmt.Sprintf(`resource.labels.location = %q`, s.location),
 	}
 	switch {
 	case s.infoOn:
@@ -123,8 +124,154 @@ func (s *gkeLogs) tickAutoRefresh() tea.Cmd {
 	return tea.Tick(15*time.Second, func(_ time.Time) tea.Msg { return gkeLogsRefreshTickMsg{} })
 }
 
-// Update / View / SetSize / HasTextInputFocused are filled in by Task 11.
-func (s *gkeLogs) Update(msg tea.Msg) tea.Cmd { _ = msg; return nil } // TODO: Task 11
-func (s *gkeLogs) View() string                { return "" }          // TODO: Task 11
-func (s *gkeLogs) SetSize(w, h int)            { s.width = w; _ = h }
-func (s *gkeLogs) HasTextInputFocused() bool   { return false }
+func (s *gkeLogs) Update(msg tea.Msg) tea.Cmd {
+	switch m := msg.(type) {
+	case gkeLogsLoadedMsg:
+		s.loading = false
+		s.entries = m.entries
+		return nil
+	case gkeLogsErrorMsg:
+		s.loading = false
+		s.err = m.err
+		return nil
+	case gkeLogsRefreshTickMsg:
+		if !s.autoRefresh || !s.tabActive {
+			return nil
+		}
+		return tea.Batch(s.fetchLogs(), s.tickAutoRefresh())
+	case tea.KeyMsg:
+		return s.handleKey(m)
+	}
+	return nil
+}
+
+func (s *gkeLogs) handleKey(m tea.KeyMsg) tea.Cmd {
+	switch m.String() {
+	case "I":
+		s.infoOn = !s.infoOn
+		return s.Refresh()
+	case "W":
+		s.warnOn = !s.warnOn
+		return s.Refresh()
+	case "E":
+		s.errOn = !s.errOn
+		return s.Refresh()
+	case "a":
+		s.autoRefresh = !s.autoRefresh
+		if s.autoRefresh {
+			return s.tickAutoRefresh()
+		}
+	case "r":
+		return s.Refresh()
+	case "L":
+		// Hand the cluster-scoped filter off to the dedicated Logs
+		// Explorer. LogsViewRequestMsg is already wired by the Cloud Run
+		// observability tab — Phase 2a reuses the same plumbing rather
+		// than introducing a redundant message type.
+		severities := s.enabledSeverities()
+		query := s.buildLQL()
+		return func() tea.Msg {
+			return LogsViewRequestMsg{Query: query, Severities: severities}
+		}
+	}
+	return nil
+}
+
+// enabledSeverities lists severity tokens for any toggle currently on.
+// The dedicated Logs Explorer accepts these to pre-check its severity
+// filter dropdown.
+func (s *gkeLogs) enabledSeverities() []string {
+	var out []string
+	if s.infoOn {
+		out = append(out, "INFO")
+	}
+	if s.warnOn {
+		out = append(out, "WARNING")
+	}
+	if s.errOn {
+		out = append(out, "ERROR")
+	}
+	return out
+}
+
+func (s *gkeLogs) View() string {
+	if s.loading && len(s.entries) == 0 {
+		return renderLoading(components.NewGCPSpinner(), "Loading logs...")
+	}
+	if s.err != nil && len(s.entries) == 0 {
+		return components.RenderError(s.err)
+	}
+	var b strings.Builder
+	b.WriteString(s.renderToolbar())
+	b.WriteString("\n\n")
+	if len(s.entries) == 0 {
+		muted := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
+		b.WriteString(muted.Render("  (no log entries match the current filters)"))
+		return b.String()
+	}
+	for i := range s.entries {
+		b.WriteString(formatGKELogEntry(&s.entries[i]))
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+func (s *gkeLogs) renderToolbar() string {
+	muted := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
+	active := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#4285F4"))
+	toggle := func(label string, on bool) string {
+		if on {
+			return active.Render("[x " + label + "]")
+		}
+		return muted.Render("[  " + label + "]")
+	}
+	autoState := "off"
+	if s.autoRefresh {
+		autoState = "on"
+	}
+	return fmt.Sprintf("Severity: %s %s %s    Resource: %s    Auto-refresh: %s (a)",
+		toggle("INFO", s.infoOn),
+		toggle("WARNING", s.warnOn),
+		toggle("ERROR", s.errOn),
+		s.resourceType,
+		autoState,
+	)
+}
+
+// formatGKELogEntry renders one entry as a single line: timestamp + severity
+// + message (truncated to fit). Multi-line / structured payload rendering
+// can be added in a later phase.
+func formatGKELogEntry(e *gcp.LogEntry) string {
+	ts := e.Timestamp.UTC().Format("2006-01-02 15:04:05")
+	msg := e.TextPayload
+	if msg == "" {
+		msg = e.Message
+	}
+	if msg == "" {
+		// Best-effort fallback if the entry uses JSON payload.
+		if v, ok := e.JSONPayload["message"]; ok {
+			msg = fmt.Sprint(v)
+		}
+	}
+	sev := e.Severity
+	if sev == "" {
+		sev = "DEFAULT"
+	}
+	color := severityColorForGKE(sev)
+	return fmt.Sprintf("  %s %s  %s", ts, color.Render(fmt.Sprintf("%-8s", sev)), msg)
+}
+
+func severityColorForGKE(sev string) lipgloss.Style {
+	switch sev {
+	case "ERROR", "CRITICAL", "ALERT", "EMERGENCY":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#EA4335"))
+	case "WARNING":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#FBBC04"))
+	case "INFO", "NOTICE":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#34A853"))
+	}
+	return lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
+}
+
+func (s *gkeLogs) SetSize(w, h int)          { s.width = w; _ = h }
+func (s *gkeLogs) HasTextInputFocused() bool { return false }
