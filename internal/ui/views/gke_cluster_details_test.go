@@ -6,9 +6,11 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components/confirm"
+	"github.com/slayer/gcon/internal/ui/components/tabs"
 )
 
 func gkeDetailsFixture(mode string) *GKEClusterDetailsView {
@@ -180,4 +182,44 @@ func TestGKEClusterDetails_SetErrorClearsDeleting(t *testing.T) {
 func TestGKEClusterDetails_HasTextInputFocusedWhenDialogClosed(t *testing.T) {
 	v := gkeDetailsFixture("STANDARD")
 	assert.False(t, v.HasTextInputFocused(), "no text input when dialog is closed")
+}
+
+func TestGKEClusterDetails_AllFiveTabs(t *testing.T) {
+	v := gkeDetailsFixture("STANDARD")
+	ids := []string{"overview", "nodepools", "nodes", "observability", "logs"}
+	for _, id := range ids {
+		v.tabs.SetActiveByID(id)
+		out := v.View()
+		assert.NotEmpty(t, out, "tab %s should render non-empty content", id)
+	}
+}
+
+func TestGKEClusterDetails_LazyObservability(t *testing.T) {
+	v := gkeDetailsFixture("STANDARD")
+	assert.Nil(t, v.observability, "observability should be nil before first visit")
+	v.tabs.SetActiveByID("observability")
+	v.Update(tabs.TabChangedMsg{})
+	assert.NotNil(t, v.observability, "observability should be lazy-created on first visit")
+}
+
+func TestGKEClusterDetails_TabActiveToggling(t *testing.T) {
+	v := gkeDetailsFixture("STANDARD")
+	v.tabs.SetActiveByID("observability")
+	v.Update(tabs.TabChangedMsg{})
+	assert.True(t, v.observability.tabActive)
+
+	v.tabs.SetActiveByID("logs")
+	v.Update(tabs.TabChangedMsg{})
+	assert.False(t, v.observability.tabActive, "leaving observability must clear its tabActive flag")
+	assert.True(t, v.logs.tabActive)
+}
+
+func TestGKEClusterDetails_RefreshOnObservability(t *testing.T) {
+	v := gkeDetailsFixture("STANDARD")
+	v.tabs.SetActiveByID("observability")
+	v.Update(tabs.TabChangedMsg{})
+	require.NotNil(t, v.observability)
+	v.observability.loading = false
+	v.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	assert.True(t, v.observability.loading, "r on observability tab should kick a refresh (loading=true)")
 }
