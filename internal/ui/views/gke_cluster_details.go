@@ -153,8 +153,14 @@ func (v *GKEClusterDetailsView) SetSize(width, height int) {
 	}
 }
 
-// SetContext is a no-op for now; details views don't need ProgramContext.
-func (v *GKEClusterDetailsView) SetContext(_ *context.ProgramContext) {}
+// SetContext forwards content-area dimensions to SetSize. Without this,
+// v.width / v.height stay at zero (the app routes sizing via SetContext,
+// not SetSize), and the Observability sub-view ends up with SetSize(-4, -8)
+// which clamps every chart to the 10-col minimum — the symptom is a tiny
+// data line crammed against the Y axis.
+func (v *GKEClusterDetailsView) SetContext(ctx *context.ProgramContext) {
+	v.SetSize(ctx.ContentWidth, ctx.ContentHeight)
+}
 
 // HasTextInputFocused reports whether a text input owns the keyboard.
 // Returns true when the delete confirmation dialog is open so the global

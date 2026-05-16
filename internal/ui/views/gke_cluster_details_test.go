@@ -11,6 +11,7 @@ import (
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components/confirm"
 	"github.com/slayer/gcon/internal/ui/components/tabs"
+	"github.com/slayer/gcon/internal/ui/context"
 )
 
 func gkeDetailsFixture(mode string) *GKEClusterDetailsView {
@@ -222,4 +223,24 @@ func TestGKEClusterDetails_RefreshOnObservability(t *testing.T) {
 	v.observability.loading = false
 	v.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
 	assert.True(t, v.observability.loading, "r on observability tab should kick a refresh (loading=true)")
+}
+
+// TestGKEClusterDetails_SetContextPropagatesSize guards against a regression
+// where SetContext was a no-op. The app routes sizing through SetContext —
+// without forwarding to SetSize, v.width / v.height stay at zero and the
+// Observability sub-view's charts clamp to the 10-column minimum.
+func TestGKEClusterDetails_SetContextPropagatesSize(t *testing.T) {
+	v := gkeDetailsFixture("STANDARD")
+	v.width = 0
+	v.height = 0
+	v.SetContext(&context.ProgramContext{ContentWidth: 180, ContentHeight: 60})
+	assert.Equal(t, 180, v.width, "SetContext must forward ContentWidth into SetSize")
+	assert.Equal(t, 60, v.height, "SetContext must forward ContentHeight into SetSize")
+
+	v.tabs.SetActiveByID("observability")
+	v.Update(tabs.TabChangedMsg{})
+	require.NotNil(t, v.observability)
+	// observability.SetSize is called with v.width-4. width=180-4=176 → cw=174.
+	assert.GreaterOrEqual(t, v.observability.width, 100,
+		"observability width must reflect the propagated context, not the 10-col clamp")
 }
