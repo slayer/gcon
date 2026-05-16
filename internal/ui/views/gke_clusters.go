@@ -239,13 +239,22 @@ func (v *GKEClustersView) refreshTable() {
 }
 
 // cursorCluster returns the cluster under the table cursor, or nil if no
-// row is selected or the index is out of range.
+// row is selected. The lookup uses the row's ID (location/name) rather
+// than the raw cursor index — sort and filter reorder the table's row
+// slice independently of v.clusters, so an index-based lookup would
+// return the wrong cluster after either operation.
 func (v *GKEClustersView) cursorCluster() *gcp.Cluster {
-	idx := v.table.SelectedIndex()
-	if idx < 0 || idx >= len(v.clusters) {
+	row := v.table.SelectedRow()
+	if row == nil {
 		return nil
 	}
-	return &v.clusters[idx]
+	for i := range v.clusters {
+		c := &v.clusters[i]
+		if c.Location+"/"+c.Name == row.ID {
+			return c
+		}
+	}
+	return nil
 }
 
 // locationBadge converts the raw location-type string ("zone" / "region")
@@ -287,16 +296,18 @@ func statusBadge(status string) string {
 }
 
 // gkeStatusSymbol maps a GKE cluster/node-pool status string to the shared
-// status symbol set. GKE has DEGRADED and RECONCILING states that the
-// generic GetStatusSymbol helper doesn't cover, hence the custom mapping.
+// status symbol set. The design spec specifies green for RECONCILING (the
+// cluster is fully usable while a background operation runs) and yellow
+// for DEGRADED (requires user action but not a hard failure). ERROR is
+// the only truly broken state and gets the red indicator.
 func gkeStatusSymbol(status string) string {
 	switch status {
-	case "RUNNING":
+	case "RUNNING", "RECONCILING":
 		return symbols.StatusRunning()
-	case "ERROR", "DEGRADED":
-		return symbols.StatusStopped()
-	case "PROVISIONING", "STOPPING", "RECONCILING":
+	case "PROVISIONING", "STOPPING", "DEGRADED":
 		return symbols.StatusTransitioning()
+	case "ERROR":
+		return symbols.StatusStopped()
 	}
 	return symbols.StatusUnknown()
 }

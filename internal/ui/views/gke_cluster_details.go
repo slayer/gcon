@@ -14,7 +14,6 @@ import (
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/confirm"
-	// "github.com/slayer/gcon/internal/ui/components/links"           // add when Task 12 needs it
 	"github.com/slayer/gcon/internal/ui/components/table"
 	"github.com/slayer/gcon/internal/ui/components/tabs"
 	"github.com/slayer/gcon/internal/ui/context"
