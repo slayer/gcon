@@ -1695,26 +1695,33 @@ type MIGInstance struct {
 // ListManagedInstances enumerates the VMs in a Managed Instance Group
 // via instanceGroupManagers.listManagedInstances + a follow-up batch
 // instances.get for the metadata. Returns MIGInstance projections.
+//
+// Walks every page via Pages(); large pools (>500 nodes) span multiple
+// pages and a single .Do() would silently truncate the result.
 func (c *ComputeClient) ListManagedInstances(ctx context.Context, projectID, zone, migName string) ([]MIGInstance, error) {
-	resp, err := c.service.InstanceGroupManagers.ListManagedInstances(projectID, zone, migName).Context(ctx).Do()
+	var out []MIGInstance
+	req := c.service.InstanceGroupManagers.ListManagedInstances(projectID, zone, migName).Context(ctx)
+	err := req.Pages(ctx, func(page *compute.InstanceGroupManagersListManagedInstancesResponse) error {
+		for _, mi := range page.ManagedInstances {
+			name := shortName(mi.Instance)
+			inst, err := c.service.Instances.Get(projectID, zone, name).Context(ctx).Do()
+			if err != nil {
+				// Instance may be mid-creation/deletion — surface a stub
+				// with what we know rather than failing the whole pool
+				// fetch.
+				out = append(out, MIGInstance{
+					Name:   name,
+					Zone:   zone,
+					Status: instanceStatusOrTransient(mi),
+				})
+				continue
+			}
+			out = append(out, projectMIGInstance(inst, zone))
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, fmt.Errorf("list managed instances %s/%s: %w", zone, migName, err)
-	}
-	out := make([]MIGInstance, 0, len(resp.ManagedInstances))
-	for _, mi := range resp.ManagedInstances {
-		name := shortName(mi.Instance)
-		inst, err := c.service.Instances.Get(projectID, zone, name).Context(ctx).Do()
-		if err != nil {
-			// Instance may be mid-creation/deletion — surface a stub with what
-			// we know rather than failing the whole pool fetch.
-			out = append(out, MIGInstance{
-				Name:   name,
-				Zone:   zone,
-				Status: instanceStatusOrTransient(mi),
-			})
-			continue
-		}
-		out = append(out, projectMIGInstance(inst, zone))
 	}
 	return out, nil
 }

@@ -250,6 +250,15 @@ func (s *gkeObservability) View() string {
 	var b strings.Builder
 	b.WriteString(s.renderRangeBar())
 	b.WriteString("\n\n")
+	// If Monitoring client construction itself failed, every metric is
+	// unrenderable and the per-chart warnings won't fire. Surface it once
+	// at the top so the user sees the auth/API error instead of five
+	// empty charts.
+	if clientErr, ok := s.warnings["client"]; ok {
+		errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#EA4335"))
+		b.WriteString(errStyle.Render("  ⚠ Monitoring client: " + clientErr.Error()))
+		b.WriteString("\n\n")
+	}
 	b.WriteString(s.renderChart("Cluster CPU utilization", "cpu", s.cpuChart))
 	b.WriteString("\n")
 	b.WriteString(s.renderChart("Cluster Memory utilization", "memory", s.memoryChart))

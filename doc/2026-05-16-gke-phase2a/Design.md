@@ -208,14 +208,14 @@ node name.
 
 **Columns:**
 
-| Column      | Source                                | Notes                            |
-|-------------|---------------------------------------|----------------------------------|
-| Name        | `Instance.Name`                       | Full GKE-mangled name.           |
-| Pool        | Derived from MIG name                 | `parsePoolFromMIG`.              |
-| Zone        | From MIG `zone` field                 |                                  |
-| Status      | `Instance.Status`                     | RUNNING / PROVISIONING / etc.    |
-| Internal IP | `Instance.NetworkInterfaces[0].NetworkIP` | Empty during PROVISIONING.   |
-| Age         | `Instance.CreationTimestamp`          | Render via `formatAge` helper.   |
+| Column      | Source                                | Notes                                                                                                |
+|-------------|---------------------------------------|------------------------------------------------------------------------------------------------------|
+| Name        | `Instance.Name`                       | Full GKE-mangled name.                                                                               |
+| Pool        | Stamped from loop context             | Pool name is the `NodePool.Name` of the iterator emitting this MIG — never parsed from the MIG name, since pool names can contain hyphens. |
+| Zone        | From the MIG URL's `/zones/{zone}/` segment | Parsed in `parseMIGURL` (see `gke_nodes.go`).                                                  |
+| Status      | `Instance.Status`                     | RUNNING / PROVISIONING / etc.                                                                        |
+| Internal IP | `Instance.NetworkInterfaces[0].NetworkIP` | Empty during PROVISIONING.                                                                       |
+| Age         | `Instance.CreationTimestamp`          | Render via `formatAge` helper.                                                                       |
 
 **Keys** (see `key-bindings.md` update below):
 

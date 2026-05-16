@@ -121,25 +121,35 @@ func (s *gkeLogs) LoadMore() tea.Cmd {
 }
 
 // buildLQL composes the Cloud Logging filter from the sub-view's toggle state.
-// Severity uses the lowest enabled level so the LQL stays simple — client-side
-// filtering (Task 11) hides individual rows when only a higher level is on.
+// Severity toggles are INDEPENDENT — each selected severity contributes a
+// disjunct to a single bucket. Disabling a level genuinely excludes it
+// server-side; enabling only ERROR no longer leaks WARNING/INFO into the
+// response. When every toggle is off we emit an impossible filter so the
+// API returns no rows (matches the View()'s "no toggles selected" state).
 func (s *gkeLogs) buildLQL() string {
 	parts := []string{
 		fmt.Sprintf(`resource.type = %q`, s.resourceType),
 		fmt.Sprintf(`resource.labels.cluster_name = %q`, s.clusterName),
 		fmt.Sprintf(`resource.labels.location = %q`, s.location),
 	}
-	switch {
-	case s.infoOn:
-		parts = append(parts, `severity >= INFO`)
-	case s.warnOn:
-		parts = append(parts, `severity >= WARNING`)
-	case s.errOn:
-		parts = append(parts, `severity >= ERROR`)
-	default:
-		// All toggles off — fall back to all severities; the View layer
-		// renders an empty body when no toggles are on.
-		parts = append(parts, `severity >= INFO`)
+	var sevPredicates []string
+	if s.infoOn {
+		// INFO bucket also captures NOTICE / DEBUG / DEFAULT — anything
+		// non-warning, non-error. `severity < WARNING` is the cleanest
+		// expression and matches what Cloud Logging's own UI dropdown does.
+		sevPredicates = append(sevPredicates, `severity < WARNING`)
+	}
+	if s.warnOn {
+		sevPredicates = append(sevPredicates, `severity = WARNING`)
+	}
+	if s.errOn {
+		sevPredicates = append(sevPredicates, `severity >= ERROR`)
+	}
+	if len(sevPredicates) == 0 {
+		// All toggles off — match nothing.
+		parts = append(parts, `severity = "NEVERMATCH"`)
+	} else {
+		parts = append(parts, "("+strings.Join(sevPredicates, " OR ")+")")
 	}
 	return strings.Join(parts, " AND ")
 }
@@ -194,6 +204,12 @@ func (s *gkeLogs) handleKey(m tea.KeyMsg) tea.Cmd {
 	case "E":
 		s.errOn = !s.errOn
 		return s.Refresh()
+	case "R":
+		// Cycle through the Kubernetes resource types. A full popover-style
+		// dropdown isn't worth the wiring for four options — cycling lets
+		// the user mash R until they hit the scope they want.
+		s.resourceType = nextGKELogsResourceType(s.resourceType)
+		return s.Refresh()
 	case "a":
 		s.autoRefresh = !s.autoRefresh
 		if s.autoRefresh {
@@ -213,6 +229,30 @@ func (s *gkeLogs) handleKey(m tea.KeyMsg) tea.Cmd {
 		}
 	}
 	return nil
+}
+
+// gkeLogsResourceTypes is the ordered list cycled through by the `R` key.
+// k8s_cluster is the broadest scope (cluster-level events like autoscaler
+// decisions); each subsequent type narrows down to a finer-grained
+// resource. After k8s_container the cycle wraps back to k8s_cluster.
+var gkeLogsResourceTypes = []string{
+	"k8s_cluster",
+	"k8s_node",
+	"k8s_pod",
+	"k8s_container",
+}
+
+// nextGKELogsResourceType returns the next resource type in the cycle,
+// wrapping after the last entry. Returns the first entry if the current
+// value isn't in the list (defensive — happens only if a future caller
+// stores an unrecognized type).
+func nextGKELogsResourceType(current string) string {
+	for i, rt := range gkeLogsResourceTypes {
+		if rt == current {
+			return gkeLogsResourceTypes[(i+1)%len(gkeLogsResourceTypes)]
+		}
+	}
+	return gkeLogsResourceTypes[0]
 }
 
 // enabledSeverities lists severity tokens for any toggle currently on.

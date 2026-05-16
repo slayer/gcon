@@ -15,7 +15,11 @@ func TestGKELogs_DefaultLQL(t *testing.T) {
 	assert.Contains(t, q, `resource.type = "k8s_cluster"`)
 	assert.Contains(t, q, `resource.labels.cluster_name = "prod"`)
 	assert.Contains(t, q, `resource.labels.location = "us-central1"`)
-	assert.Contains(t, q, `severity >= INFO`)
+	// Default state has all severity toggles on, producing three OR'd
+	// predicates rather than a single `severity >= INFO`.
+	assert.Contains(t, q, `severity < WARNING`)
+	assert.Contains(t, q, `severity = WARNING`)
+	assert.Contains(t, q, `severity >= ERROR`)
 }
 
 func TestGKELogs_SeverityToggle(t *testing.T) {
@@ -93,4 +97,57 @@ func TestGKELogs_LoadMoreNoOpWithoutToken(t *testing.T) {
 	s.nextPageToken = "page-2"
 	s.loadingMore = true
 	assert.Nil(t, s.LoadMore(), "already loading → no duplicate fetch")
+}
+
+// TestGKELogs_SeverityIndependent confirms that severity toggles produce
+// per-level predicates joined by OR rather than the previous "lowest
+// threshold wins" shortcut (which leaked higher-severity rows when the
+// user wanted INFO-only and dropped INFO when only WARNING was selected).
+func TestGKELogs_SeverityIndependent(t *testing.T) {
+	s := newGKELogs("proj", "us-central1", "prod", nil)
+	// INFO only — must EXCLUDE WARNING and ERROR.
+	s.infoOn = true
+	s.warnOn = false
+	s.errOn = false
+	q := s.buildLQL()
+	assert.Contains(t, q, "severity < WARNING")
+	assert.NotContains(t, q, "severity = WARNING")
+	assert.NotContains(t, q, "severity >= ERROR")
+
+	// ERROR only — must NOT match INFO/WARNING.
+	s.infoOn = false
+	s.errOn = true
+	q = s.buildLQL()
+	assert.Contains(t, q, "severity >= ERROR")
+	assert.NotContains(t, q, "severity < WARNING")
+
+	// WARNING + ERROR — both predicates present, joined by OR.
+	s.warnOn = true
+	q = s.buildLQL()
+	assert.Contains(t, q, "severity = WARNING")
+	assert.Contains(t, q, "severity >= ERROR")
+	assert.Contains(t, q, " OR ")
+
+	// All toggles off — must emit an impossible filter so nothing matches.
+	s.infoOn = false
+	s.warnOn = false
+	s.errOn = false
+	q = s.buildLQL()
+	assert.Contains(t, q, "NEVERMATCH")
+}
+
+// TestGKELogs_RCyclesResourceType verifies the R-key handler advances
+// through the resource-type cycle and wraps after the last entry.
+func TestGKELogs_RCyclesResourceType(t *testing.T) {
+	s := newGKELogs("proj", "us-central1", "prod", nil)
+	assert.Equal(t, "k8s_cluster", s.resourceType)
+	s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'R'}})
+	assert.Equal(t, "k8s_node", s.resourceType)
+	s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'R'}})
+	assert.Equal(t, "k8s_pod", s.resourceType)
+	s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'R'}})
+	assert.Equal(t, "k8s_container", s.resourceType)
+	// Wraps back to the first entry.
+	s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'R'}})
+	assert.Equal(t, "k8s_cluster", s.resourceType)
 }

@@ -422,7 +422,7 @@ func isGKESubViewActionKey(tabID, key string) bool {
 		}
 	case "logs":
 		switch key {
-		case "I", "W", "E", "a", "L":
+		case "I", "W", "E", "R", "a", "L":
 			return true
 		}
 	}

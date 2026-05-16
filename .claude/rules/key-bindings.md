@@ -443,7 +443,7 @@ arrow does the same without needing to select the row first.
 | Key | Action |
 |-----|--------|
 | `I` / `W` / `E` | Toggle severity (INFO / WARNING / ERROR) |
-| `R` | Open resource-type dropdown (cluster / node / pod / container) |
+| `R` | Cycle resource type (k8s_cluster → k8s_node → k8s_pod → k8s_container, wraps) |
 | `a` | Toggle auto-refresh (default off, 15 s) |
 | `L` | Open full Logs Explorer pre-filtered for this cluster |
 | `r` | Manual refresh |
