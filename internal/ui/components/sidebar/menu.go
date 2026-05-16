@@ -109,6 +109,16 @@ func DefaultMenu() []MenuItem {
 			},
 		},
 		{
+			ID:     "kubernetes",
+			Label:  "Kubernetes Engine",
+			Icon:   IconKubernetes,
+			Hotkey: 'K',
+			Type:   MenuItemCategory,
+			Children: []MenuItem{
+				{ID: "gke-clusters", Label: "Clusters", Icon: IconGKECluster, Hotkey: 'k', Type: MenuItemLeaf, ViewType: ViewGKEClusters},
+			},
+		},
+		{
 			ID:     "storage",
 			Label:  "Cloud Storage",
 			Icon:   IconStorage,
@@ -171,16 +181,6 @@ func DefaultMenu() []MenuItem {
 			Type:   MenuItemCategory,
 			Children: []MenuItem{
 				{ID: "cloudrun-services", Label: "Services", Icon: IconCloudRunService, Hotkey: 'r', Type: MenuItemLeaf, ViewType: ViewCloudRunServices},
-			},
-		},
-		{
-			ID:     "kubernetes",
-			Label:  "Kubernetes Engine",
-			Icon:   IconKubernetes,
-			Hotkey: 'K',
-			Type:   MenuItemCategory,
-			Children: []MenuItem{
-				{ID: "gke-clusters", Label: "Clusters", Icon: IconGKECluster, Hotkey: 'k', Type: MenuItemLeaf, ViewType: ViewGKEClusters},
 			},
 		},
 		{

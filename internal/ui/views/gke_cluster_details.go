@@ -235,12 +235,30 @@ func (v *GKEClusterDetailsView) handleKey(m tea.KeyMsg) tea.Cmd {
 		// TabChangedMsg which the view's Update handles to reset scroll.
 		return v.tabs.Update(m)
 	}
+	// Node Pools tab consumes j/k/up/down/enter for its own cursor; the
+	// viewport only scrolls on keys the table doesn't handle.
+	if v.tabs.ActiveTab().ID == "nodepools" && isPoolsTableKey(m) {
+		var cmd tea.Cmd
+		v.poolsTable, cmd = v.poolsTable.Update(m)
+		return cmd
+	}
 	if isViewportScrollKey(m) {
 		var cmd tea.Cmd
 		v.viewport, cmd = v.viewport.Update(m)
 		return cmd
 	}
 	return nil
+}
+
+// isPoolsTableKey reports whether a key should be routed to the Node Pools
+// table for cursor movement instead of scrolling the surrounding viewport.
+// PgUp/PgDn/Home/End keep going to the viewport (the table is short).
+func isPoolsTableKey(m tea.KeyMsg) bool {
+	switch m.String() {
+	case "j", "k", "up", "down", "enter":
+		return true
+	}
+	return false
 }
 
 // openDeleteDialog constructs and shows the type-to-confirm delete dialog.
