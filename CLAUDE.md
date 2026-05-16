@@ -353,14 +353,18 @@ On developing or updating a new feature keep in mind the following guidelines:
   - Network LBs (passthrough / proxy / legacy) render an explicit
     placeholder on the Observability tab — `l3/*` metric family is on
     the roadmap.
-- [x] GKE cluster management (Phase 1)
+- [x] GKE cluster management (Phase 1 + 2a)
   - Clusters list across all locations (zonal + regional, Autopilot + Standard)
-  - Cluster details view with Overview and Node Pools tabs
-  - Network and Subnetwork displayed as plain rows in the Overview tab
-    (clickable cross-link to existing VPC/subnet views is on the Phase 2 roadmap)
+  - Cluster details with Overview, Node Pools, Nodes, Observability, and Logs tabs
   - Type-to-confirm cluster delete with explicit warning about non-auto-deleted
     resources (dynamic-provisioned PVs, LB Services, Cloud DNS)
   - Fire-and-forget delete: API call returns immediately; refresh shows status
+  - Nodes tab: flat list across all pools derived from MIG enumeration; Enter
+    opens Compute Engine instance details
+  - Observability tab: five cluster-scope charts (CPU%, Memory%, Node count,
+    Pod count, Network rx/tx) with time range selector and 30s auto-refresh
+  - Logs tab: filterable embedded log viewer with severity toggles
+    (INFO/WARNING/ERROR) and resource-type dropdown (cluster/node/pod/container)
 
 ## Planned Features
 - [x] Subnets list and management
@@ -371,5 +375,5 @@ On developing or updating a new feature keep in mind the following guidelines:
   - Hands off via `gcloud compute ssh` by default; falls back to plain `ssh` when gcloud is absent
   - Returns to the TUI on exit; if the binary cannot launch, the error is shown inline (stderr from a started session is printed to the terminal during the session itself, not captured afterward)
 - [ ] Resource caching
-- [ ] GKE Phase 2: cluster observability tab, node pool create/delete, resize, upgrade
+- [ ] GKE cluster management (Phase 2b) — node pool create/delete, cluster/pool resize, master + node-pool upgrade
 - [ ] GKE Phase 3: cluster create wizard

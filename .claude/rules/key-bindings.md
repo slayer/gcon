@@ -414,11 +414,40 @@ arrow does the same without needing to select the row first.
 | Key | Action |
 |-----|--------|
 | `D` | Delete cluster (type-to-confirm) |
-| `r` | Refresh details and node pools |
-| `Tab` / `Shift+Tab` | Switch tabs (Overview / Node Pools) |
-| `h/l` or `1/2` | Switch tabs (Overview / Node Pools) |
+| `r` | Refresh active tab (Observability re-fetches metrics; Logs re-runs query; Nodes re-lists; Overview/Node Pools reload cluster) |
+| `Tab` | Switch focus (tabs / content) |
+| `h/l` or `1/2/3/4/5` | Switch tabs (Overview / Node Pools / Nodes / Observability / Logs) |
+| `Enter` | Navigate via focused link (Network, Subnetwork, or — on Nodes tab — open instance details) |
 | `j/k` or `↑/↓` or `PgUp/PgDn` | Scroll content |
 | `Esc` | Go back |
+
+### GKE Cluster Details — Nodes tab
+
+| Key | Action |
+|-----|--------|
+| `Enter` | Open instance details for the focused node |
+| `S` | Open sort menu |
+| `/` | Filter (`pool:`, `status:`, `zone:`) |
+| `r` | Refresh node list |
+
+### GKE Cluster Details — Observability tab
+
+| Key | Action |
+|-----|--------|
+| `1`–`5` | Time range (1h / 6h / 24h / 7d / 30d) |
+| `a` | Toggle auto-refresh (default on, 30 s) |
+| `r` | Manual refresh |
+
+### GKE Cluster Details — Logs tab
+
+| Key | Action |
+|-----|--------|
+| `I` / `W` / `E` | Toggle severity (INFO / WARNING / ERROR) |
+| `R` | Open resource-type dropdown (cluster / node / pod / container) |
+| `a` | Toggle auto-refresh (default off, 15 s) |
+| `L` | Open full Logs Explorer pre-filtered for this cluster |
+| `r` | Manual refresh |
+| `Enter` | Expand the focused log entry |
 
 ## SQL Instances View
 
