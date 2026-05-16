@@ -69,7 +69,12 @@ func (c *MonitoringClient) fetchGKEMetric(ctx context.Context, filter string, du
 	return points, nil
 }
 
-const gkeMetricClusterCPU = "kubernetes.io/cluster/cpu/allocatable_utilization"
+const (
+	gkeMetricClusterCPU    = "kubernetes.io/cluster/cpu/allocatable_utilization"
+	gkeMetricClusterMemory = "kubernetes.io/cluster/memory/allocatable_utilization"
+	gkeMetricNodeCount     = "kubernetes.io/cluster/node_count"
+	gkeMetricPodCount      = "kubernetes.io/cluster/pod_count"
+)
 
 // GetGKEClusterCPUUtilization fetches cluster-scope CPU as a 0–100
 // percentage. The raw GCP metric is a 0–1 ratio; we scale at the data
@@ -84,4 +89,30 @@ func (c *MonitoringClient) GetGKEClusterCPUUtilization(ctx context.Context, loca
 		points[i].Value *= 100
 	}
 	return points, nil
+}
+
+// GetGKEClusterMemoryUtilization fetches cluster-scope memory as a 0–100
+// percentage (scaled from the API's 0–1 ratio).
+func (c *MonitoringClient) GetGKEClusterMemoryUtilization(ctx context.Context, location, clusterName string, duration time.Duration) ([]DataPoint, error) {
+	filter := gkeClusterFilter(clusterName, location, gkeMetricClusterMemory)
+	points, err := c.fetchGKEMetric(ctx, filter, duration, monitoringpb.Aggregation_ALIGN_MEAN, monitoringpb.Aggregation_REDUCE_MEAN)
+	if err != nil {
+		return nil, err
+	}
+	for i := range points {
+		points[i].Value *= 100
+	}
+	return points, nil
+}
+
+// GetGKEClusterNodeCount fetches current node count over time.
+func (c *MonitoringClient) GetGKEClusterNodeCount(ctx context.Context, location, clusterName string, duration time.Duration) ([]DataPoint, error) {
+	filter := gkeClusterFilter(clusterName, location, gkeMetricNodeCount)
+	return c.fetchGKEMetric(ctx, filter, duration, monitoringpb.Aggregation_ALIGN_MEAN, monitoringpb.Aggregation_REDUCE_SUM)
+}
+
+// GetGKEClusterPodCount fetches running pod count over time.
+func (c *MonitoringClient) GetGKEClusterPodCount(ctx context.Context, location, clusterName string, duration time.Duration) ([]DataPoint, error) {
+	filter := gkeClusterFilter(clusterName, location, gkeMetricPodCount)
+	return c.fetchGKEMetric(ctx, filter, duration, monitoringpb.Aggregation_ALIGN_MEAN, monitoringpb.Aggregation_REDUCE_SUM)
 }
