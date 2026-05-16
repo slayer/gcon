@@ -258,28 +258,47 @@ Five charts stacked vertically. The tab body is rendered into a
 `viewport.Model`-wrapped container (Phase 1 already wired the viewport
 on the details view; this tab gains scrollability for free).
 
-**Charts:**
+**Charts** — each chart uses `metricchart.New(metricchart.HeightStandard)`
+(8 rows of braille-time-series, matching the VM Instances Observability
+tab). NOT compact single-line sparklines. The tab body scrolls inside
+the existing `bubbles/viewport` wrap, so multiple full-height charts
+stack cleanly:
 
 ```
-[1h] [6h] [24h] [7d] [30d]                            ● auto-refresh (a toggles)
+[1h] [6h] [24h] [7d] [30d]                                            ● auto-refresh (a)
 
-Cluster CPU utilization                                (allocatable)
-   ▁▁▂▂▂▃▄▄▄▄▃▃▃▃▂▂▂▂▂▂▂▂                  current: 38.4%  avg: 31.2%  max: 47.1%
+Cluster CPU utilization                                                (allocatable)
+ 100% ┤
+  75% ┤                              ⢀⣀⡀
+  50% ┤                  ⢀⡠⠤⠒⠉⠁         ⠉⠒⠤⢄⡀
+  25% ┤    ⡠⠔⠊⠉⠒⠤⢄⣀⡀⢀⡠⠊                       ⠉⠒⠤⢀⣀⡀
+   0% ┴─────────────────────────────────────────────────────
+        1h ago                                              now
+   current: 38.4%   avg: 31.2%   max: 47.1%
 
-Cluster Memory utilization                             (allocatable)
-   ▂▂▂▂▃▃▃▃▄▄▄▄▄▄▄▄▄▄▃▃▃▃                  current: 54.7%  avg: 51.8%  max: 58.2%
+Cluster Memory utilization                                             (allocatable)
+ 100% ┤
+  75% ┤
+  50% ┤              ⡠⠔⠉⠉⠉⠉⠒⠤⠤⠤⠤⠤⠤⠒⠉⠉⠉⠒⠤⢄
+  25% ┤  ⡠⠔⠉⠉⠒⠒⠊⠁                            ⠉⠉⠉⠉⠉⠒⠤
+   0% ┴─────────────────────────────────────────────────────
+        1h ago                                              now
+   current: 54.7%   avg: 51.8%   max: 58.2%
 
 Node count
-   ──── 12 ────                              current: 12
+                                                ⢀⡀⡀⢀⡀
+   12 ┤  ⡠⠔⠉⠉⠒⠒⠒⠉⠉⠉⠒⠒⠊⠉⠉⠒⠊⠉⠁
+   …
+   current: 12   avg: 12   max: 12
 
-Pod count
-   ▁▂▃▃▄▅▅▅▆▆▆▇▇▇▇▇▇▇▆▆▅▅                   current: 142  avg: 118  max: 158
+Pod count                                                              (running)
+   ⋯ 8-row braille chart, same formatters as VM instance details ⋯
+   current: 142   avg: 118   max: 158
 
-Network traffic                                       (rx green, tx yellow)
-   ▁▂▂▃▃▄▅▅▅▅▄▄▃▃▂▂▂▂▁▁▁▁                   rx 142 MB/s  tx 89 MB/s
+Network traffic                                                        (rx green, tx yellow)
+   ⋯ 8-row braille chart, 2-series overlay via SetDataSets() ⋯
+   rx 142 MB/s   tx 89 MB/s
 ```
-
-Each chart constructed via `metricchart.New(metricchart.HeightStandard)`.
 - CPU & Memory: `SetYRange(0, 100)`, `PercentYLabel`, percentage stats formatter.
 - Node count, Pod count: integer-display, default formatter.
 - Network: 2-series overlay (`SetDataSets`) — `rx` (green `#34A853`) and `tx` (yellow `#FBBC04`), `humanYLabel`.
