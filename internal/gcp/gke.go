@@ -279,3 +279,12 @@ func uniformNodeVersion(pools []NodePool) bool {
 	}
 	return true
 }
+
+// GKENode is a cluster-aware view of a MIG instance. The Pool field is
+// set by the caller in views/gke_nodes.go from loop context (we iterate
+// each NodePool's InstanceGroupUrls), not parsed from the MIG name —
+// pool names can contain hyphens, making MIG-name parsing ambiguous.
+type GKENode struct {
+	MIGInstance
+	Pool string
+}

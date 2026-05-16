@@ -1680,3 +1680,66 @@ func lastSegment(url string) string {
 	parts := strings.Split(url, "/")
 	return parts[len(parts)-1]
 }
+
+// MIGInstance is the subset of compute.Instance fields needed for
+// Managed Instance Group enumeration (GKE node listing, in particular).
+type MIGInstance struct {
+	Name       string
+	Zone       string
+	Status     string // PROVISIONING / STAGING / RUNNING / STOPPING / TERMINATED
+	InternalIP string
+	ExternalIP string // "" when no external NIC
+	CreatedAt  string // raw CreationTimestamp pass-through
+}
+
+// ListManagedInstances enumerates the VMs in a Managed Instance Group
+// via instanceGroupManagers.listManagedInstances + a follow-up batch
+// instances.get for the metadata. Returns MIGInstance projections.
+func (c *ComputeClient) ListManagedInstances(ctx context.Context, projectID, zone, migName string) ([]MIGInstance, error) {
+	resp, err := c.service.InstanceGroupManagers.ListManagedInstances(projectID, zone, migName).Context(ctx).Do()
+	if err != nil {
+		return nil, fmt.Errorf("list managed instances %s/%s: %w", zone, migName, err)
+	}
+	out := make([]MIGInstance, 0, len(resp.ManagedInstances))
+	for _, mi := range resp.ManagedInstances {
+		name := shortName(mi.Instance)
+		inst, err := c.service.Instances.Get(projectID, zone, name).Context(ctx).Do()
+		if err != nil {
+			// Instance may be mid-creation/deletion — surface a stub with what
+			// we know rather than failing the whole pool fetch.
+			out = append(out, MIGInstance{
+				Name:   name,
+				Zone:   zone,
+				Status: instanceStatusOrTransient(mi),
+			})
+			continue
+		}
+		out = append(out, projectMIGInstance(inst, zone))
+	}
+	return out, nil
+}
+
+func instanceStatusOrTransient(mi *compute.ManagedInstance) string {
+	if mi.InstanceStatus != "" {
+		return mi.InstanceStatus
+	}
+	// CurrentAction is "CREATING" / "DELETING" / "RESTARTING" / etc.
+	return mi.CurrentAction
+}
+
+func projectMIGInstance(inst *compute.Instance, zone string) MIGInstance {
+	out := MIGInstance{
+		Name:      inst.Name,
+		Zone:      zone,
+		Status:    inst.Status,
+		CreatedAt: inst.CreationTimestamp,
+	}
+	if len(inst.NetworkInterfaces) > 0 {
+		nic := inst.NetworkInterfaces[0]
+		out.InternalIP = nic.NetworkIP
+		if len(nic.AccessConfigs) > 0 {
+			out.ExternalIP = nic.AccessConfigs[0].NatIP
+		}
+	}
+	return out
+}
