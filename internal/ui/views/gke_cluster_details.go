@@ -394,6 +394,15 @@ func (v *GKEClusterDetailsView) handleKey(m tea.KeyMsg) tea.Cmd {
 	if isViewportScrollKey(m) {
 		var cmd tea.Cmd
 		v.viewport, cmd = v.viewport.Update(m)
+		// Infinite scroll on the Logs tab: when the viewport reaches the
+		// bottom and the sub-view still has a pagination token, kick a
+		// follow-up fetch. LoadMore() no-ops when a fetch is already in
+		// flight or when no more pages are available.
+		if activeID == "logs" && v.logs != nil && v.viewport.AtBottom() {
+			if more := v.logs.LoadMore(); more != nil {
+				return tea.Batch(cmd, more)
+			}
+		}
 		return cmd
 	}
 	return nil

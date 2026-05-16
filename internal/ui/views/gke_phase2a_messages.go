@@ -49,11 +49,20 @@ type gkeObsRefreshTickMsg struct{}
 
 // === Logs tab ===
 
-// gkeLogsLoadedMsg carries one page of log entries back to the Logs
-// sub-view. The gcp.LogEntry type is shared with the dedicated Logs
-// Explorer view.
+// gkeLogsLoadedMsg carries the first page of log entries back to the Logs
+// sub-view (replaces existing entries). The gcp.LogEntry type is shared
+// with the dedicated Logs Explorer view. nextPageToken seeds the
+// infinite-scroll LoadMore loop.
 type gkeLogsLoadedMsg struct {
-	entries []gcp.LogEntry
+	entries       []gcp.LogEntry
+	nextPageToken string
+}
+
+// gkeLogsMoreLoadedMsg carries a follow-up page from LoadMore — entries
+// are APPENDED to whatever is already showing, not replaced.
+type gkeLogsMoreLoadedMsg struct {
+	entries       []gcp.LogEntry
+	nextPageToken string
 }
 
 type gkeLogsErrorMsg struct {

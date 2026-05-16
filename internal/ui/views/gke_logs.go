@@ -29,9 +29,11 @@ type gkeLogs struct {
 	autoRefresh           bool
 	tabActive             bool
 
-	entries []gcp.LogEntry
-	err     error
-	loading bool
+	entries       []gcp.LogEntry
+	nextPageToken string // seeded by the first fetch; empty when no more pages
+	loadingMore   bool   // gate to dedupe infinite-scroll triggers
+	err           error
+	loading       bool
 
 	width int
 }
@@ -59,10 +61,13 @@ func (s *gkeLogs) Init() tea.Cmd {
 	return tea.Batch(components.NewGCPSpinner().Tick, s.fetchLogs(), s.tickAutoRefresh())
 }
 
-// Refresh re-runs the current filter without touching toggle state.
+// Refresh re-runs the current filter without touching toggle state. Resets
+// the pagination token so scrolling fetches a fresh page chain.
 func (s *gkeLogs) Refresh() tea.Cmd {
 	s.loading = true
 	s.err = nil
+	s.nextPageToken = ""
+	s.loadingMore = false
 	return s.fetchLogs()
 }
 
@@ -79,13 +84,39 @@ func (s *gkeLogs) fetchLogs() tea.Cmd {
 		if err != nil {
 			return gkeLogsErrorMsg{err: fmt.Errorf("logging client: %w", err)}
 		}
-		// ListLogEntries returns (entries, nextPageToken, error). Phase 2a
-		// fetches the first page only; pagination wiring lands later.
-		entries, _, err := lc.ListLogEntries(ctx, query, 100, "")
+		entries, nextToken, err := lc.ListLogEntries(ctx, query, 100, "")
 		if err != nil {
 			return gkeLogsErrorMsg{err: err}
 		}
-		return gkeLogsLoadedMsg{entries: entries}
+		return gkeLogsLoadedMsg{entries: entries, nextPageToken: nextToken}
+	}
+}
+
+// LoadMore fetches the next page of log entries using the pagination
+// token from the previous fetch and APPENDS them to s.entries. Called by
+// the parent details view when the user scrolls the viewport to the
+// bottom. Returns nil when no more pages exist or a fetch is already in
+// flight.
+func (s *gkeLogs) LoadMore() tea.Cmd {
+	if s.loadingMore || s.nextPageToken == "" || s.gcpClient == nil {
+		return nil
+	}
+	s.loadingMore = true
+	query := s.buildLQL()
+	token := s.nextPageToken
+	projectID := s.projectID
+	return func() tea.Msg {
+		ctx, cancel := gocontext.WithTimeout(gocontext.Background(), 30*time.Second)
+		defer cancel()
+		lc, err := s.gcpClient.GetLoggingClient(projectID)
+		if err != nil {
+			return gkeLogsErrorMsg{err: fmt.Errorf("logging client: %w", err)}
+		}
+		entries, nextToken, err := lc.ListLogEntries(ctx, query, 100, token)
+		if err != nil {
+			return gkeLogsErrorMsg{err: err}
+		}
+		return gkeLogsMoreLoadedMsg{entries: entries, nextPageToken: nextToken}
 	}
 }
 
@@ -129,9 +160,16 @@ func (s *gkeLogs) Update(msg tea.Msg) tea.Cmd {
 	case gkeLogsLoadedMsg:
 		s.loading = false
 		s.entries = m.entries
+		s.nextPageToken = m.nextPageToken
+		return nil
+	case gkeLogsMoreLoadedMsg:
+		s.loadingMore = false
+		s.entries = append(s.entries, m.entries...)
+		s.nextPageToken = m.nextPageToken
 		return nil
 	case gkeLogsErrorMsg:
 		s.loading = false
+		s.loadingMore = false
 		s.err = m.err
 		return nil
 	case gkeLogsRefreshTickMsg:
@@ -212,6 +250,16 @@ func (s *gkeLogs) View() string {
 	for i := range s.entries {
 		b.WriteString(formatGKELogEntry(&s.entries[i]))
 		b.WriteString("\n")
+	}
+	// Footer hint so the user knows whether scrolling further fetches more.
+	muted := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
+	switch {
+	case s.loadingMore:
+		b.WriteString(muted.Render("  Loading more entries..."))
+	case s.nextPageToken != "":
+		b.WriteString(muted.Render("  (scroll to load more)"))
+	default:
+		b.WriteString(muted.Render("  (end of results)"))
 	}
 	return b.String()
 }
