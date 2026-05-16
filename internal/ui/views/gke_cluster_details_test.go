@@ -12,7 +12,7 @@ import (
 )
 
 func gkeDetailsFixture(mode string) *GKEClusterDetailsView {
-	v := NewGKEClusterDetailsView("proj", "us-central1", "prod", nil, nil)
+	v := NewGKEClusterDetailsView("proj", "us-central1", "prod", nil, nil, nil)
 	v.SetSize(160, 40)
 	v.loading = false
 	v.details = &gcp.ClusterDetails{

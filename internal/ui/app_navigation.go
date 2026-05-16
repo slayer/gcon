@@ -3754,7 +3754,7 @@ func (a *App) handleGKEClusterSelected(msg views.GKEClusterSelectedMsg) tea.Cmd 
 	// Compute client is optional on the details view; it will be lazily
 	// constructed by the view if needed for any compute-related lookups.
 	a.gkeClusterDetailsView = views.NewGKEClusterDetailsView(
-		msg.ProjectID, msg.Location, msg.Name, container, nil,
+		msg.ProjectID, msg.Location, msg.Name, container, nil, a.gcpClient,
 	)
 	a.updateSidebarActiveView()
 	a.updateViewSizes()
