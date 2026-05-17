@@ -144,16 +144,16 @@ func (v *GKENodePoolCreateView) handleSubmit() tea.Cmd {
 		return nil
 	}
 
-	// Transition to saving state; spinner tick is handled by HandleBaseUpdate.
-	v.BeginSaving()
-	return func() tea.Msg {
+	// Transition to saving state; BeginSaving returns the first spinner tick cmd.
+	beginCmd := v.BeginSaving()
+	return tea.Batch(beginCmd, func() tea.Msg {
 		return GKENodePoolCreateRequestMsg{
 			ProjectID:   v.projectID,
 			Location:    v.location,
 			ClusterName: v.clusterName,
 			Pool:        pool,
 		}
-	}
+	})
 }
 
 // buildNodePoolFromForm constructs a container.NodePool from form data.

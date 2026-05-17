@@ -3,6 +3,7 @@ package views
 import (
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -28,9 +29,24 @@ func TestGKENodePoolCreate_SubmitEmitsRequest(t *testing.T) {
 	})
 	cmd := v.handleSubmit()
 	require.NotNil(t, cmd)
-	msg := cmd()
-	req, ok := msg.(GKENodePoolCreateRequestMsg)
-	require.True(t, ok)
+
+	// handleSubmit returns tea.Batch(spinnerTick, requestCmd) — unwrap to find the request msg.
+	batchMsg, ok := cmd().(tea.BatchMsg)
+	require.True(t, ok, "expected tea.BatchMsg")
+
+	var req GKENodePoolCreateRequestMsg
+	found := false
+	for _, c := range batchMsg {
+		if c == nil {
+			continue
+		}
+		if r, ok := c().(GKENodePoolCreateRequestMsg); ok {
+			req = r
+			found = true
+			break
+		}
+	}
+	require.True(t, found, "batch must contain a GKENodePoolCreateRequestMsg")
 	assert.Equal(t, "gpu-pool", req.Pool.Name)
 	assert.Equal(t, int64(2), req.Pool.InitialNodeCount)
 }
