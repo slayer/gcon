@@ -372,6 +372,7 @@ func (s *gkeLogs) View() string {
 
 func (s *gkeLogs) renderToolbar() string {
 	muted := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
+	dim := lipgloss.NewStyle().Foreground(lipgloss.Color("#5F6368")).Faint(true)
 	active := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#4285F4"))
 	toggle := func(label string, on bool) string {
 		if on {
@@ -383,13 +384,20 @@ func (s *gkeLogs) renderToolbar() string {
 	if s.autoRefresh {
 		autoState = "on"
 	}
-	return fmt.Sprintf("Severity: %s %s %s    Resource: %s    Auto-refresh: %s (a)",
+	state := fmt.Sprintf("Severity: %s %s %s    Resource: %s    Auto-refresh: %s",
 		toggle("INFO", s.infoOn),
 		toggle("WARNING", s.warnOn),
 		toggle("ERROR", s.errOn),
 		s.resourceType,
 		autoState,
 	)
+	// Second line: keybinding hints. Dimmed so they sit below the live
+	// state without competing for attention. New users discover the
+	// toggles without having to leave the tab to check key-bindings.md.
+	help := dim.Render(
+		"  I/W/E toggle severity   R cycle resource   a auto-refresh   r refresh   L open Logs Explorer",
+	)
+	return state + "\n" + help
 }
 
 // formatGKELogEntry renders one entry as a single line: timestamp + severity

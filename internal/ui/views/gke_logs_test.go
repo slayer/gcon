@@ -206,6 +206,17 @@ func TestGKELogs_ToolbarVisibleWhileLoading(t *testing.T) {
 	assert.Contains(t, out, "ERROR")
 }
 
+// TestGKELogs_ToolbarShowsKeyHints verifies the keybinding help line
+// renders so new users can discover the toggles without leaving the tab.
+func TestGKELogs_ToolbarShowsKeyHints(t *testing.T) {
+	s := newGKELogs("proj", "us-central1", "prod", nil)
+	out := s.renderToolbar()
+	assert.Contains(t, out, "I/W/E", "must hint severity toggle keys")
+	assert.Contains(t, out, "R", "must hint resource cycle key")
+	assert.Contains(t, out, "auto-refresh")
+	assert.Contains(t, out, "L", "must hint Logs Explorer hand-off key")
+}
+
 // TestGKELogs_RCyclesResourceType verifies the R-key handler advances
 // through the resource-type cycle and wraps after the last entry.
 func TestGKELogs_RCyclesResourceType(t *testing.T) {
