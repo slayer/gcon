@@ -14,7 +14,6 @@ func nodePoolFQN(projectID, location, clusterName, poolName string) string {
 		projectID, location, clusterName, poolName)
 }
 
-//nolint:unused // used by Task 4 (UpgradeControlPlane)
 func clusterFQN(projectID, location, clusterName string) string {
 	return fmt.Sprintf("projects/%s/locations/%s/clusters/%s",
 		projectID, location, clusterName)
@@ -76,4 +75,37 @@ func buildUpdateNodePoolAutoscalingRequest(enabled bool, minCount, maxCount int6
 	return &container.SetNodePoolAutoscalingRequest{
 		Autoscaling: as,
 	}
+}
+
+// UpgradeControlPlane triggers a master version change. masterVersion
+// must be one of the values returned by GetServerConfig.ValidMasterVersions
+// (or "-" to pick the default for the channel). Fails with HTTP 400 on
+// clusters with an active release channel — gate at the UI layer.
+func (c *ContainerClient) UpgradeControlPlane(ctx context.Context, projectID, location, clusterName, masterVersion string) (Operation, error) {
+	req := &container.UpdateMasterRequest{
+		MasterVersion: masterVersion,
+	}
+	raw, err := c.service.Projects.Locations.Clusters.
+		UpdateMaster(clusterFQN(projectID, location, clusterName), req).
+		Context(ctx).Do()
+	if err != nil {
+		return Operation{}, fmt.Errorf("upgrade control plane to %s: %w", masterVersion, err)
+	}
+	return projectOperation(raw), nil
+}
+
+// UpgradeNodePool triggers a node-pool version upgrade. nodeVersion
+// must be from GetServerConfig.ValidNodeVersions. Master must be at
+// the same or newer version; GCP rejects otherwise (4xx).
+func (c *ContainerClient) UpgradeNodePool(ctx context.Context, projectID, location, clusterName, poolName, nodeVersion string) (Operation, error) {
+	req := &container.UpdateNodePoolRequest{
+		NodeVersion: nodeVersion,
+	}
+	raw, err := c.service.Projects.Locations.Clusters.NodePools.
+		Update(nodePoolFQN(projectID, location, clusterName, poolName), req).
+		Context(ctx).Do()
+	if err != nil {
+		return Operation{}, fmt.Errorf("upgrade node pool %s to %s: %w", poolName, nodeVersion, err)
+	}
+	return projectOperation(raw), nil
 }
