@@ -132,19 +132,14 @@ func (d *GKENodePoolResizeDialog) handleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 		return func() tea.Msg { return GKENodePoolResizeCanceledMsg{} }, true
 
 	case "tab":
-		return d.cycleMode(), true
+		return d.advance(), true
 
 	case "enter":
 		cmd, consumed := d.submit()
 		return cmd, consumed
 
 	case "shift+tab":
-		// In autoscale mode, cycle backward through inputs; ignore in manual.
-		if d.mode == GKENodePoolResizeAutoscale {
-			d.cycleFocusBackward()
-			return nil, true
-		}
-		return nil, true
+		return d.retreat(), true
 	}
 
 	// Delegate character input to the focused input.
@@ -157,55 +152,54 @@ func (d *GKENodePoolResizeDialog) handleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 }
 
 // cycleMode toggles between Manual and Autoscale, adjusting focus state.
-func (d *GKENodePoolResizeDialog) cycleMode() tea.Cmd {
-	if d.mode == GKENodePoolResizeManual {
+// advance walks the unified focus chain forward:
+//   Manual → Autoscale[toggle] → Autoscale[min] → Autoscale[max] → Manual …
+// Tab in the test case (Manual → Autoscale) is satisfied by the first step.
+func (d *GKENodePoolResizeDialog) advance() tea.Cmd {
+	d.err = ""
+	switch {
+	case d.mode == GKENodePoolResizeManual:
 		d.mode = GKENodePoolResizeAutoscale
 		d.manualInput.Blur()
-		// Start focus on the toggle in autoscale mode.
 		d.focus = focusToggle
+	case d.focus == focusToggle:
+		d.focus = focusMin
+		d.minInput.Focus()
+	case d.focus == focusMin:
+		d.focus = focusMax
 		d.minInput.Blur()
-		d.maxInput.Blur()
-	} else {
+		d.maxInput.Focus()
+	case d.focus == focusMax:
 		d.mode = GKENodePoolResizeManual
 		d.focus = focusManual
-		d.manualInput.Focus()
-		d.minInput.Blur()
 		d.maxInput.Blur()
+		d.manualInput.Focus()
 	}
-	d.err = ""
 	return textinput.Blink
 }
 
-// cycleFocusForward advances focus within autoscale mode: toggle → min → max → toggle.
-func (d *GKENodePoolResizeDialog) cycleFocusForward() {
-	switch d.focus {
-	case focusToggle:
-		d.focus = focusMin
-		d.minInput.Focus()
-	case focusMin:
-		d.focus = focusMax
-		d.minInput.Blur()
-		d.maxInput.Focus()
-	case focusMax:
-		d.focus = focusToggle
-		d.maxInput.Blur()
-	}
-}
-
-// cycleFocusBackward reverses focus within autoscale mode.
-func (d *GKENodePoolResizeDialog) cycleFocusBackward() {
-	switch d.focus {
-	case focusToggle:
+// retreat walks the unified focus chain backward.
+func (d *GKENodePoolResizeDialog) retreat() tea.Cmd {
+	d.err = ""
+	switch {
+	case d.mode == GKENodePoolResizeManual:
+		d.mode = GKENodePoolResizeAutoscale
+		d.manualInput.Blur()
 		d.focus = focusMax
 		d.maxInput.Focus()
-	case focusMin:
-		d.focus = focusToggle
-		d.minInput.Blur()
-	case focusMax:
+	case d.focus == focusMax:
 		d.focus = focusMin
 		d.maxInput.Blur()
 		d.minInput.Focus()
+	case d.focus == focusMin:
+		d.focus = focusToggle
+		d.minInput.Blur()
+	case d.focus == focusToggle:
+		d.mode = GKENodePoolResizeManual
+		d.focus = focusManual
+		d.manualInput.Focus()
 	}
+	return textinput.Blink
 }
 
 // updateFocusedInput forwards msg to whichever text input is active.
