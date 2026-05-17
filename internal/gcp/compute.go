@@ -1680,3 +1680,109 @@ func lastSegment(url string) string {
 	parts := strings.Split(url, "/")
 	return parts[len(parts)-1]
 }
+
+// MIGInstance is the subset of compute.Instance fields needed for
+// Managed Instance Group enumeration (GKE node listing, in particular).
+type MIGInstance struct {
+	Name       string
+	Zone       string
+	Status     string // PROVISIONING / STAGING / RUNNING / STOPPING / TERMINATED
+	InternalIP string
+	ExternalIP string // "" when no external NIC
+	CreatedAt  string // raw CreationTimestamp pass-through
+}
+
+// ListManagedInstances enumerates the VMs in a Managed Instance Group
+// via instanceGroupManagers.listManagedInstances and joins the metadata
+// from ONE zone-level instances.list call. Returns MIGInstance projections.
+//
+// Walks every page via Pages(); large pools (>500 nodes) span multiple
+// pages and a single .Do() would silently truncate the result.
+//
+// Why one zone list instead of N per-instance gets: the previous
+// implementation called Instances.Get sequentially per managed instance,
+// so opening the Nodes tab on a 500-node MIG fired 500 serial round
+// trips. One zone list returns every instance in the zone in a single
+// (paginated) call, and we hash by name for O(1) lookup. The trade is a
+// slightly larger response payload, but Compute API quotas are
+// per-call, not per-byte, so the savings are real.
+func (c *ComputeClient) ListManagedInstances(ctx context.Context, projectID, zone, migName string) ([]MIGInstance, error) {
+	var mis []*compute.ManagedInstance
+	listReq := c.service.InstanceGroupManagers.ListManagedInstances(projectID, zone, migName).Context(ctx)
+	err := listReq.Pages(ctx, func(page *compute.InstanceGroupManagersListManagedInstancesResponse) error {
+		mis = append(mis, page.ManagedInstances...)
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list managed instances %s/%s: %w", zone, migName, err)
+	}
+
+	// Fetch every instance in the zone once, keyed by name. Cheaper than
+	// per-instance Get even on zones with hundreds of unrelated VMs.
+	byName, err := c.zoneInstanceMap(ctx, projectID, zone)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]MIGInstance, 0, len(mis))
+	for _, mi := range mis {
+		name := shortName(mi.Instance)
+		if inst, ok := byName[name]; ok {
+			out = append(out, projectMIGInstance(inst, zone))
+			continue
+		}
+		// Instance not in the zone list — usually mid-creation /
+		// mid-deletion (the MIG knows it should exist, the Compute layer
+		// doesn't show it yet). Surface a stub with the status the MIG
+		// reports so the user sees PROVISIONING / DELETING / etc.
+		out = append(out, MIGInstance{
+			Name:   name,
+			Zone:   zone,
+			Status: instanceStatusOrTransient(mi),
+		})
+	}
+	return out, nil
+}
+
+// zoneInstanceMap fetches every instance in a zone and returns a
+// name-keyed map for O(1) lookup. Used by ListManagedInstances to avoid
+// the N+1 per-instance Get pattern.
+func (c *ComputeClient) zoneInstanceMap(ctx context.Context, projectID, zone string) (map[string]*compute.Instance, error) {
+	out := map[string]*compute.Instance{}
+	req := c.service.Instances.List(projectID, zone).Context(ctx)
+	err := req.Pages(ctx, func(page *compute.InstanceList) error {
+		for _, inst := range page.Items {
+			out[inst.Name] = inst
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list instances in zone %s: %w", zone, err)
+	}
+	return out, nil
+}
+
+func instanceStatusOrTransient(mi *compute.ManagedInstance) string {
+	if mi.InstanceStatus != "" {
+		return mi.InstanceStatus
+	}
+	// CurrentAction is "CREATING" / "DELETING" / "RESTARTING" / etc.
+	return mi.CurrentAction
+}
+
+func projectMIGInstance(inst *compute.Instance, zone string) MIGInstance {
+	out := MIGInstance{
+		Name:      inst.Name,
+		Zone:      zone,
+		Status:    inst.Status,
+		CreatedAt: inst.CreationTimestamp,
+	}
+	if len(inst.NetworkInterfaces) > 0 {
+		nic := inst.NetworkInterfaces[0]
+		out.InternalIP = nic.NetworkIP
+		if len(nic.AccessConfigs) > 0 {
+			out.ExternalIP = nic.AccessConfigs[0].NatIP
+		}
+	}
+	return out
+}

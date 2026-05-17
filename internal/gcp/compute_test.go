@@ -1327,3 +1327,39 @@ func TestSnapshotDetailsFromAPI(t *testing.T) {
 		})
 	}
 }
+
+func TestProjectMIGInstance(t *testing.T) {
+	raw := &compute.Instance{
+		Name:              "gke-prod-default-7f3a-abcd",
+		Status:            "RUNNING",
+		CreationTimestamp: "2026-05-01T12:00:00Z",
+		NetworkInterfaces: []*compute.NetworkInterface{
+			{
+				NetworkIP: "10.128.0.12",
+				AccessConfigs: []*compute.AccessConfig{
+					{NatIP: "34.1.2.3"},
+				},
+			},
+		},
+	}
+	got := projectMIGInstance(raw, "us-central1-a")
+	assert.Equal(t, "gke-prod-default-7f3a-abcd", got.Name)
+	assert.Equal(t, "us-central1-a", got.Zone)
+	assert.Equal(t, "RUNNING", got.Status)
+	assert.Equal(t, "10.128.0.12", got.InternalIP)
+	assert.Equal(t, "34.1.2.3", got.ExternalIP)
+	assert.Equal(t, "2026-05-01T12:00:00Z", got.CreatedAt)
+}
+
+func TestProjectMIGInstance_NoExternalIP(t *testing.T) {
+	raw := &compute.Instance{
+		Name:   "gke-prod-private-pool-aaaa-bbbb",
+		Status: "RUNNING",
+		NetworkInterfaces: []*compute.NetworkInterface{
+			{NetworkIP: "10.128.0.99"},
+		},
+	}
+	got := projectMIGInstance(raw, "us-central1-b")
+	assert.Equal(t, "10.128.0.99", got.InternalIP)
+	assert.Equal(t, "", got.ExternalIP)
+}

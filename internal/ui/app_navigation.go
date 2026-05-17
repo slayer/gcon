@@ -453,12 +453,22 @@ func (a *App) handleInstanceSelected(msg views.InstanceSelectedMsg) tea.Cmd {
 	if a.instanceDetailsView != nil {
 		a.instanceDetailsView.Close()
 	}
-	// Pass compute client from instances view to avoid re-initialization
+	// Resolve compute client from any view that can emit InstanceSelectedMsg
+	// (per adding-new-views.md step 16). Phase 1 emitter: instances list.
+	// Phase 2a adds the GKE cluster details view's Nodes tab as an emitter,
+	// which may fire when the user has never visited the instances list.
+	var computeClient *gcp.ComputeClient
+	if a.instancesView != nil {
+		computeClient = a.instancesView.GetComputeClient()
+	}
+	if computeClient == nil && a.gkeClusterDetailsView != nil {
+		computeClient = a.gkeClusterDetailsView.GetComputeClient()
+	}
 	a.instanceDetailsView = views.NewInstanceDetailsView(
 		a.selectedProject.ID,
 		inst.Zone,
 		inst.Name,
-		a.instancesView.GetComputeClient(),
+		computeClient,
 		a.gcpClient,
 	)
 	a.updateSidebarActiveView()
@@ -3751,10 +3761,26 @@ func (a *App) handleGKEClusterSelected(msg views.GKEClusterSelectedMsg) tea.Cmd 
 	if a.gkeClustersView != nil {
 		container = a.gkeClustersView.GetContainerClient()
 	}
-	// Compute client is optional on the details view; it will be lazily
-	// constructed by the view if needed for any compute-related lookups.
+	// Borrow a compute client from any view that has already initialized
+	// one. The Nodes tab depends on it for ListManagedInstances; without
+	// a client the sub-view stays on "Loading nodes..." indefinitely.
+	// Note: when this resolves to nil (no compute view has been visited),
+	// the Nodes sub-view surfaces an inline error instead of hanging.
+	var compute *gcp.ComputeClient
+	switch {
+	case a.instancesView != nil:
+		compute = a.instancesView.GetComputeClient()
+	case a.disksView != nil:
+		compute = a.disksView.GetComputeClient()
+	case a.networksView != nil:
+		compute = a.networksView.GetComputeClient()
+	case a.snapshotsView != nil:
+		compute = a.snapshotsView.GetComputeClient()
+	case a.imagesView != nil:
+		compute = a.imagesView.GetComputeClient()
+	}
 	a.gkeClusterDetailsView = views.NewGKEClusterDetailsView(
-		msg.ProjectID, msg.Location, msg.Name, container, nil,
+		msg.ProjectID, msg.Location, msg.Name, container, compute, a.gcpClient,
 	)
 	a.updateSidebarActiveView()
 	a.updateViewSizes()

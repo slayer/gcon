@@ -157,6 +157,51 @@ func TestTimezoneRespected(t *testing.T) {
 	assert.Contains(t, result, "EST")
 }
 
+func TestHumanAge(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    time.Duration
+		expected string
+	}{
+		{"sub-second", 500 * time.Millisecond, "just now"},
+		{"one second", time.Second, "1 second"},
+		{"42 seconds", 42 * time.Second, "42 seconds"},
+		{"one minute", time.Minute, "1 minute"},
+		{"5 minutes", 5 * time.Minute, "5 minutes"},
+		{"one hour exactly", time.Hour, "1 hour"},
+		{"1 hour 1 minute", time.Hour + time.Minute, "1 hour 1 minute"},
+		{"5 hours 12 minutes", 5*time.Hour + 12*time.Minute, "5 hours 12 minutes"},
+		{"one day exactly", 24 * time.Hour, "1 day"},
+		{"1 day 1 hour", 24*time.Hour + time.Hour, "1 day 1 hour"},
+		{"3 days 2 hours", 3*24*time.Hour + 2*time.Hour, "3 days 2 hours"},
+		{"7 days flat", 7 * 24 * time.Hour, "7 days"},
+		{"future", -time.Hour - 30*time.Minute, "in 1 hour 30 minutes"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, HumanAge(tt.input))
+		})
+	}
+}
+
+func TestFormatTimestampWithAge(t *testing.T) {
+	t.Run("empty returns dash", func(t *testing.T) {
+		assert.Equal(t, "—", FormatTimestampWithAge(""))
+	})
+	t.Run("invalid returns original", func(t *testing.T) {
+		assert.Equal(t, "garbage", FormatTimestampWithAge("garbage"))
+	})
+	t.Run("valid timestamp includes both absolute and relative", func(t *testing.T) {
+		// Use a timestamp ~2 days in the past relative to "now".
+		ts := time.Now().Add(-(2*24*time.Hour + 3*time.Hour)).UTC().Format(time.RFC3339)
+		got := FormatTimestampWithAge(ts)
+		assert.Contains(t, got, "2 days 3 hours",
+			"output must include the parenthetical relative age")
+		assert.Contains(t, got, "(")
+		assert.Contains(t, got, ")")
+	})
+}
+
 func mustLoadLocation(name string) *time.Location {
 	loc, err := time.LoadLocation(name)
 	if err != nil {

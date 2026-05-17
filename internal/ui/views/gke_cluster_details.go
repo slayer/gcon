@@ -22,14 +22,16 @@ import (
 )
 
 // GKEClusterDetailsView shows a single GKE cluster's overview and node pools.
-// Phase 1 surface: read-only Overview + Node Pools tabs and a Delete action
-// (wired in Task 14).
+// Phase 2a surface: 5 tabs — Overview, Node Pools, Nodes, Observability, Logs.
+// The latter three are lazy-loaded on first visit; sub-views own their state
+// and message routing.
 type GKEClusterDetailsView struct {
 	projectID     string
 	location      string
 	name          string
 	client        *gcp.ContainerClient
 	computeClient *gcp.ComputeClient // for cross-view nav (Network / Subnet links)
+	gcpClient     *gcp.Client        // for Observability (Monitoring) and Logs (Logging)
 	details       *gcp.ClusterDetails
 	tabs          *tabs.Tabs
 	viewport      viewport.Model
@@ -39,6 +41,11 @@ type GKEClusterDetailsView struct {
 
 	// Node Pools tab
 	poolsTable table.Model
+
+	// Phase 2a sub-views — lazy-instantiated on first tab visit.
+	nodes         *gkeNodes
+	observability *gkeObservability
+	logs          *gkeLogs
 
 	// Delete dialog
 	confirmDialog *confirm.TypeConfirmDialog
@@ -50,18 +57,23 @@ type GKEClusterDetailsView struct {
 }
 
 // NewGKEClusterDetailsView constructs the details view. The container client
-// may be nil; it will be lazily created on Init.
-func NewGKEClusterDetailsView(projectID, location, name string, container *gcp.ContainerClient, compute *gcp.ComputeClient) *GKEClusterDetailsView {
+// may be nil; it will be lazily created on Init. gcpClient is required for the
+// Phase 2a Observability and Logs tabs (Monitoring / Logging sub-clients).
+func NewGKEClusterDetailsView(projectID, location, name string, container *gcp.ContainerClient, compute *gcp.ComputeClient, gcpClient *gcp.Client) *GKEClusterDetailsView {
 	v := &GKEClusterDetailsView{
 		projectID:     projectID,
 		location:      location,
 		name:          name,
 		client:        container,
 		computeClient: compute,
+		gcpClient:     gcpClient,
 		spinner:       components.NewGCPSpinner(),
 		tabs: tabs.New([]tabs.Tab{
 			{ID: "overview", Label: "Overview"},
 			{ID: "nodepools", Label: "Node Pools"},
+			{ID: "nodes", Label: "Nodes"},
+			{ID: "observability", Label: "Observability"},
+			{ID: "logs", Label: "Logs"},
 		}),
 	}
 	v.poolsTable = table.NewWithColumns([]table.Column{
@@ -118,6 +130,7 @@ func (v *GKEClusterDetailsView) GetComputeClient() *gcp.ComputeClient { return v
 
 // SetSize updates the inner viewport and node pools table to match the
 // available content area. Leaves 4 rows for the tab bar + status line.
+// Sub-views (nodes/observability/logs) receive their own propagated size.
 func (v *GKEClusterDetailsView) SetSize(width, height int) {
 	v.width = width
 	v.height = height
@@ -129,17 +142,47 @@ func (v *GKEClusterDetailsView) SetSize(width, height int) {
 		v.viewport.Width = width - 4
 		v.viewport.Height = height - 4
 	}
+	if v.nodes != nil {
+		v.nodes.SetSize(width-4, height-8)
+	}
+	if v.observability != nil {
+		v.observability.SetSize(width-4, height-8)
+	}
+	if v.logs != nil {
+		v.logs.SetSize(width-4, height-8)
+	}
 }
 
-// SetContext is a no-op for now; details views don't need ProgramContext.
-func (v *GKEClusterDetailsView) SetContext(_ *context.ProgramContext) {}
+// SetContext forwards content-area dimensions to SetSize. Without this,
+// v.width / v.height stay at zero (the app routes sizing via SetContext,
+// not SetSize), and the Observability sub-view ends up with SetSize(-4, -8)
+// which clamps every chart to the 10-col minimum — the symptom is a tiny
+// data line crammed against the Y axis.
+func (v *GKEClusterDetailsView) SetContext(ctx *context.ProgramContext) {
+	v.SetSize(ctx.ContentWidth, ctx.ContentHeight)
+}
 
 // HasTextInputFocused reports whether a text input owns the keyboard.
 // Returns true when the delete confirmation dialog is open so the global
 // 'q'-to-quit binding can't fire while the user is typing the cluster name.
+// Also forwards to sub-views with their own text inputs (Nodes table filter,
+// Logs filter input if any).
 func (v *GKEClusterDetailsView) HasTextInputFocused() bool {
 	if v.showConfirm && v.confirmDialog != nil {
 		return v.confirmDialog.HasTextInputFocused()
+	}
+	return v.subViewHasTextInputFocused()
+}
+
+// subViewHasTextInputFocused is the sub-view-only check used to gate
+// parent shortcut handling. The dialog check is intentionally excluded
+// here — dialog input routing happens via showConfirm + confirmDialog.Update.
+func (v *GKEClusterDetailsView) subViewHasTextInputFocused() bool {
+	if v.nodes != nil && v.nodes.HasTextInputFocused() {
+		return true
+	}
+	if v.logs != nil && v.logs.HasTextInputFocused() {
+		return true
 	}
 	return false
 }
@@ -168,7 +211,22 @@ func (v *GKEClusterDetailsView) Update(msg tea.Msg) tea.Cmd {
 		v.details = m.details
 		// Refresh the node pools table now that data is loaded.
 		v.refreshNodePoolsTable()
+		// Propagate the fresh ClusterDetails pointer to any sub-views
+		// that captured the previous one at construction time. Without
+		// this, refreshing from Overview/Node Pools leaves the Nodes
+		// sub-view holding a stale pointer (with possibly stale pool
+		// list / MIG URLs).
+		if v.nodes != nil {
+			v.nodes.SetDetails(m.details)
+		}
 		return nil
+	case gkeNodesComputeClientReadyMsg:
+		// The Nodes sub-view lazy-constructed a ComputeClient. Stitch it
+		// back onto the parent too so handleInstanceSelected's
+		// GetComputeClient() chain can return it for cross-view nav, then
+		// forward to the sub-view so it can proceed with fanOut.
+		v.computeClient = m.client
+		return v.routeToActiveSubView(msg)
 	case gkeClusterErrorMsg:
 		v.loading = false
 		v.err = m.err
@@ -180,9 +238,43 @@ func (v *GKEClusterDetailsView) Update(msg tea.Msg) tea.Cmd {
 		}
 		return nil
 	case tabs.TabChangedMsg:
+		// Toggle tabActive off on all sub-views first so any in-flight ticks
+		// are dropped at delivery time (tea.Tick messages survive switches).
+		if v.nodes != nil {
+			v.nodes.SetTabActive(false)
+		}
+		if v.observability != nil {
+			v.observability.SetTabActive(false)
+		}
+		if v.logs != nil {
+			v.logs.SetTabActive(false)
+		}
 		// Reset scroll so each tab opens at the top.
 		if v.viewportSize {
 			v.viewport.GotoTop()
+		}
+		switch v.tabs.ActiveTab().ID {
+		case "nodes":
+			if v.nodes == nil {
+				v.nodes = newGKENodes(v.projectID, v.details, v.computeClient)
+				v.nodes.SetSize(v.width-4, v.height-8)
+			}
+			v.nodes.SetTabActive(true)
+			return v.nodes.Init()
+		case "observability":
+			if v.observability == nil {
+				v.observability = newGKEObservability(v.projectID, v.location, v.name, v.gcpClient)
+				v.observability.SetSize(v.width-4, v.height-8)
+			}
+			v.observability.SetTabActive(true)
+			return v.observability.Init()
+		case "logs":
+			if v.logs == nil {
+				v.logs = newGKELogs(v.projectID, v.location, v.name, v.gcpClient)
+				v.logs.SetSize(v.width-4, v.height-8)
+			}
+			v.logs.SetTabActive(true)
+			return v.logs.Init()
 		}
 		return nil
 	case confirm.TypeConfirmMsg:
@@ -208,17 +300,43 @@ func (v *GKEClusterDetailsView) Update(msg tea.Msg) tea.Cmd {
 		v.confirmDialog = nil
 		return nil
 	case spinner.TickMsg:
-		// Suppress ticks when no async work is in flight — otherwise the
-		// spinner keeps re-emitting ticks forever and drives continuous
-		// redraws even when nothing is loading or deleting.
-		if !v.loading && !v.deleting {
-			return nil
+		// Advance the parent spinner when the parent owns the in-flight
+		// work, AND always forward the tick to the active sub-view so
+		// its own spinner can animate. Without the forward, sub-view
+		// spinners freeze on whatever frame they started on.
+		var parentCmd tea.Cmd
+		if v.loading || v.deleting {
+			v.spinner, parentCmd = v.spinner.Update(m)
 		}
-		var cmd tea.Cmd
-		v.spinner, cmd = v.spinner.Update(m)
-		return cmd
+		subCmd := v.routeToActiveSubView(msg)
+		return tea.Batch(parentCmd, subCmd)
 	case tea.KeyMsg:
 		return v.handleKey(m)
+	}
+	// Fallthrough: route the message to the active sub-view so its async
+	// messages (fan-out results, metric loads, log loads, refresh ticks) get
+	// processed. Parent-specific messages above run FIRST so they aren't
+	// hijacked.
+	return v.routeToActiveSubView(msg)
+}
+
+// routeToActiveSubView dispatches a message to the currently-visible
+// sub-view, if any. Returns nil when no sub-view is active or when the
+// sub-view doesn't produce a command for this message.
+func (v *GKEClusterDetailsView) routeToActiveSubView(msg tea.Msg) tea.Cmd {
+	switch v.tabs.ActiveTab().ID {
+	case "nodes":
+		if v.nodes != nil {
+			return v.nodes.Update(msg)
+		}
+	case "observability":
+		if v.observability != nil {
+			return v.observability.Update(msg)
+		}
+	case "logs":
+		if v.logs != nil {
+			return v.logs.Update(msg)
+		}
 	}
 	return nil
 }
@@ -228,7 +346,17 @@ func (v *GKEClusterDetailsView) handleKey(m tea.KeyMsg) tea.Cmd {
 	if v.showConfirm && v.confirmDialog != nil {
 		return v.confirmDialog.Update(m)
 	}
-	switch m.String() {
+	// If a sub-view text input is focused (e.g. the Nodes table filter
+	// input), all keystrokes belong to it — don't let global shortcuts
+	// like `r` / `D` / `1`–`5` swallow letters the user is typing.
+	if v.subViewHasTextInputFocused() {
+		return v.routeToActiveSubView(m)
+	}
+	key := m.String()
+	activeID := v.tabs.ActiveTab().ID
+
+	// Cross-cutting actions (delete dialog, per-tab refresh).
+	switch key {
 	case "D":
 		v.openDeleteDialog()
 		if v.confirmDialog != nil {
@@ -236,30 +364,98 @@ func (v *GKEClusterDetailsView) handleKey(m tea.KeyMsg) tea.Cmd {
 		}
 		return nil
 	case "r":
+		switch activeID {
+		case "nodes":
+			if v.nodes != nil {
+				return v.nodes.Refresh()
+			}
+		case "observability":
+			if v.observability != nil {
+				return v.observability.Refresh()
+			}
+		case "logs":
+			if v.logs != nil {
+				return v.logs.Refresh()
+			}
+		}
 		v.loading = true
 		v.err = nil
 		if v.client == nil {
 			return tea.Batch(v.spinner.Tick, v.initClient())
 		}
 		return tea.Batch(v.spinner.Tick, v.load())
-	case "tab", "shift+tab", "h", "l", "left", "right", "1", "2":
-		// Delegate tab navigation to the embedded tabs widget; it emits
-		// TabChangedMsg which the view's Update handles to reset scroll.
+	}
+
+	// Sub-view-owned action keys: route to sub-view before parent tab
+	// navigation can claim them. Observability uses 1–5 for time range and
+	// `a` for auto-refresh; Logs uses I/W/E/a/L. Without this pre-emption
+	// the parent's "1"–"5" tab-switch case fires first and steals the keys.
+	if isGKESubViewActionKey(activeID, key) {
+		return v.routeToActiveSubView(m)
+	}
+
+	// Tab navigation. 1–5 falls here only when the active sub-view didn't
+	// claim them above (i.e. on overview / nodepools / nodes).
+	switch key {
+	case "tab", "shift+tab", "h", "l", "left", "right",
+		"1", "2", "3", "4", "5":
 		return v.tabs.Update(m)
 	}
-	// Node Pools tab consumes j/k/up/down/enter for its own cursor; the
-	// viewport only scrolls on keys the table doesn't handle.
-	if v.tabs.ActiveTab().ID == "nodepools" && isPoolsTableKey(m) {
-		var cmd tea.Cmd
-		v.poolsTable, cmd = v.poolsTable.Update(m)
-		return cmd
+
+	// Per-tab cursor / table input.
+	switch activeID {
+	case "nodepools":
+		if isPoolsTableKey(m) {
+			var cmd tea.Cmd
+			v.poolsTable, cmd = v.poolsTable.Update(m)
+			return cmd
+		}
+	case "nodes":
+		// Nodes embeds its own table; forward everything that's not a
+		// parent shortcut so the table widget can handle j/k/up/down/enter,
+		// `/` (filter), `S` (sort menu), and friends.
+		return v.routeToActiveSubView(m)
 	}
+
+	// Viewport scroll fallback. Observability / Logs / Overview have no
+	// embedded table — j/k/up/down/pgup/pgdown/home/end scroll the parent
+	// viewport instead of getting swallowed by the sub-view.
 	if isViewportScrollKey(m) {
 		var cmd tea.Cmd
 		v.viewport, cmd = v.viewport.Update(m)
+		// Infinite scroll on the Logs tab: when the viewport reaches the
+		// bottom and the sub-view still has a pagination token, kick a
+		// follow-up fetch. LoadMore() no-ops when a fetch is already in
+		// flight or when no more pages are available.
+		if activeID == "logs" && v.logs != nil && v.viewport.AtBottom() {
+			if more := v.logs.LoadMore(); more != nil {
+				return tea.Batch(cmd, more)
+			}
+		}
 		return cmd
 	}
 	return nil
+}
+
+// isGKESubViewActionKey reports whether the key belongs to a sub-view's own
+// keymap and must be delivered to it before the parent tab-switching layer
+// gets a chance. Observability and Logs both claim `a` (auto-refresh) and a
+// short list of bespoke keys; Nodes is handled separately because it forwards
+// the entire keystream.
+func isGKESubViewActionKey(tabID, key string) bool {
+	switch tabID {
+	case "observability":
+		switch key {
+		case "1", "2", "3", "4", "5", "a":
+			return true
+		}
+	case "logs":
+		switch key {
+		case "I", "W", "E", "R", "a", "L":
+			return true
+		}
+	}
+	return false
 }
 
 // isPoolsTableKey reports whether a key should be routed to the Node Pools
@@ -321,6 +517,24 @@ func (v *GKEClusterDetailsView) View() string {
 		body = v.renderOverview()
 	case "nodepools":
 		body = v.renderNodePools()
+	case "nodes":
+		if v.nodes != nil {
+			body = v.nodes.View()
+		} else {
+			body = renderLoading(v.spinner, "Loading nodes...")
+		}
+	case "observability":
+		if v.observability != nil {
+			body = v.observability.View()
+		} else {
+			body = renderLoading(v.spinner, "Loading observability...")
+		}
+	case "logs":
+		if v.logs != nil {
+			body = v.logs.View()
+		} else {
+			body = renderLoading(v.spinner, "Loading logs...")
+		}
 	}
 	if v.viewportSize {
 		v.viewport.SetContent(body)
