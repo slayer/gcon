@@ -56,13 +56,13 @@ func (d *GKEUpgradeDialog) Update(msg tea.Msg) (tea.Cmd, bool) {
 		if d.cursor+1 < len(d.versions) {
 			d.cursor++
 		}
-		return nil, false
+		return nil, true
 
 	case "k", "up":
 		if d.cursor > 0 {
 			d.cursor--
 		}
-		return nil, false
+		return nil, true
 
 	case "enter":
 		if d.cursor < 0 || d.cursor >= len(d.versions) {
@@ -100,7 +100,7 @@ func (d *GKEUpgradeDialog) View() string {
 		if i == d.cursor {
 			b.WriteString(highlight.Render("▶ " + label))
 		} else {
-			b.WriteString("  " + label)
+			b.WriteString("   " + label)
 		}
 
 		b.WriteString("\n")
