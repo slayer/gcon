@@ -322,3 +322,62 @@ scaling := &run.GoogleCloudRunV2RevisionScaling{
     ForceSendFields:  []string{"MinInstanceCount"},
 }
 ```
+
+## Prefer one zone/region list over N per-resource `Get` calls
+
+GCP "list things in a group" patterns (managed instance groups, target
+pools, instance group memberships, etc.) often return only resource
+URLs / names + status. Building a full projection by calling
+`Resource.Get(name)` per item is the natural shape — and it's the
+common N+1 trap. On a 500-node MIG that's 500 sequential round trips
+(~30s of unnecessary latency, and an easy way to hit per-second
+Compute quotas) just to render one tab.
+
+The cheaper shape: list every resource in the surrounding scope (zone
+or region) **once**, then join by name in a map.
+
+```go
+// Wrong — N+1: one Get per managed instance, sequentially inside the
+// page callback. 500 nodes = 500 round trips before the user sees
+// anything.
+err := req.Pages(ctx, func(page *compute.InstanceGroupManagersListManagedInstancesResponse) error {
+    for _, mi := range page.ManagedInstances {
+        inst, err := c.service.Instances.Get(projectID, zone, shortName(mi.Instance)).Do()
+        // ... project inst ...
+    }
+    return nil
+})
+
+// Correct — list every instance in the zone once, hash by name.
+// Two paginated calls total regardless of MIG size; trades response
+// payload for round trips, which is the right call since Compute
+// quotas are per-call, not per-byte.
+byName := map[string]*compute.Instance{}
+err := c.service.Instances.List(projectID, zone).Pages(ctx, func(page *compute.InstanceList) error {
+    for _, inst := range page.Items {
+        byName[inst.Name] = inst
+    }
+    return nil
+})
+// ... then iterate the managed-instance list and look up byName ...
+```
+
+**Rule**: any time you find yourself writing a per-item `Get` inside a
+list-iteration loop, check whether a parent-scope `List(zone)` or
+`List(region)` returns the same data in one shot. The zone/region call
+is almost always cheaper, even if it returns more resources than you
+strictly need — map lookup is O(1) and the wasted bytes are negligible
+vs. the round-trip count.
+
+This also applies to:
+- IAM `Members.Get` inside a project's policy-binding iteration → use
+  one `Projects.GetIamPolicy` and walk bindings.
+- Network endpoint groups → use one `NetworkEndpointGroups.List` per
+  zone/region instead of per-NEG `Get`.
+- Cloud SQL `Databases.Get` inside an instance iteration → use
+  `Databases.List(instance)` once.
+
+The exception is when the parent-scope list itself doesn't include the
+metadata you need (some APIs strip fields from list responses). In
+that case, falling back to per-item `Get` is unavoidable — but
+parallelize it via a worker pool, don't run it serially.
