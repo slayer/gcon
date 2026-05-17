@@ -343,3 +343,60 @@ case tabs.TabChangedMsg:
 **Symptom**: User reports "I cannot scroll page — some charts are not visible." Tab renders a tall body that ends up taller than the terminal frame.
 
 **Rule**: any tab whose body can plausibly exceed terminal height (multi-chart observability, long forms, long log lists) needs a viewport. List views with their own scroll (tables, log viewer) are exempt — they already manage scrolling internally.
+
+## Stateful Toolbars Stay Visible During Loading
+
+When a view's toolbar reflects user-controlled state (severity toggles,
+filter chips, range bar with the active range highlighted, etc.), the
+loading screen MUST NOT replace it. Hiding the toolbar while a refresh
+is in flight strands the user — they pressed a key, the screen says
+"Loading...", and they have no visual confirmation that their input
+registered or what state the next response will reflect.
+
+```go
+// Wrong — pressing I/W/E on a logs tab flips a toggle, calls Refresh,
+// which sets loading=true and empties entries. View() then replaces
+// EVERYTHING with the loading screen. User can't see whether the
+// toggle they pressed actually flipped.
+func (s *subView) View() string {
+    if s.loading && len(s.entries) == 0 {
+        return renderLoading(s.spinner, "Loading logs...")
+    }
+    var b strings.Builder
+    b.WriteString(s.renderToolbar())
+    // ... body ...
+}
+
+// Correct — toolbar renders FIRST in every state. The loading / error
+// / empty / populated body slots in underneath.
+func (s *subView) View() string {
+    var b strings.Builder
+    b.WriteString(s.renderToolbar())
+    b.WriteString("\n\n")
+    if s.loading && len(s.entries) == 0 {
+        b.WriteString(renderLoading(s.spinner, "Loading logs..."))
+        return b.String()
+    }
+    // ... error / empty / populated body ...
+}
+```
+
+**Rule**: toolbar (or any UI element that reflects current input state)
+goes ABOVE the loading / error / empty branches, not inside them. The
+loading message renders as the BODY underneath, not as a replacement
+for the chrome.
+
+This also applies to range bars on observability tabs ("Loading
+metrics (24h)..." with the [24h] bar still visible), filter chips on
+list views, and any header that shows the active selection.
+
+### Companion: include the active selection in the loading text
+
+When the loading state replaces the body, the message should name what
+it's loading. "Loading nodes (3/5 instance groups)..." or "Loading
+metrics (24h)..." beats a generic "Loading..." — the user can see they
+pressed the right key without leaving the screen.
+
+See: `gke_logs.go` (toolbar visible during refresh),
+`gke_observability.go` (range-aware loading message),
+`gke_nodes.go` (fan-out progress counter).

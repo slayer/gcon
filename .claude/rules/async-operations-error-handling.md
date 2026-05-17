@@ -478,3 +478,137 @@ case networksLoadedMsg:
 ```
 
 **Rule**: When an async fetch populates dropdown options, only overwrite on success. On error, preserve existing options so the form remains submittable with defaults.
+
+## Generation Tokens for Racing Async Fetches
+
+When a view re-fetches in response to user input (time-range change,
+filter toggle, manual refresh, auto-refresh tick), an old in-flight
+request can land *after* a newer one and silently overwrite the fresher
+state. The user sees mismatched UI — chart values that don't match the
+range bar, log lines that don't match the toolbar toggles, etc.
+
+The standard fix is a **generation counter** stored on the view. Every
+re-fetch bumps it; each cmd captures the value at scheduling time; the
+response carries the captured gen back; the handler drops responses
+whose gen doesn't match the current value.
+
+### Where this applies
+
+Any view that satisfies all three:
+1. User input triggers a new fetch (range change, filter, refresh).
+2. The new fetch starts before the previous one finishes.
+3. Both fetches return into the same response handler.
+
+GKE Phase 2a hit this on Observability metrics, Nodes fan-out, Logs
+first-page + LoadMore, and lazy compute-client construction — four
+separate places in one PR.
+
+### Pattern
+
+```go
+type subView struct {
+    // generation increments on every Refresh / Init. Each fetch captures
+    // the current value and tags its response message with it; the
+    // Update handler drops responses whose tag is stale.
+    generation int
+    // ... other state
+}
+
+// Add gen to every response message type.
+type myFetchLoadedMsg struct {
+    gen  int
+    data Foo
+}
+type myFetchErrorMsg struct {
+    gen int
+    err error
+}
+
+func (s *subView) Refresh() tea.Cmd {
+    s.loading = true
+    s.generation++       // bump BEFORE scheduling the new fetch
+    return s.fetch()
+}
+
+func (s *subView) fetch() tea.Cmd {
+    gen := s.generation  // capture in closure at schedule time
+    return func() tea.Msg {
+        data, err := api.Get(ctx)
+        if err != nil {
+            return myFetchErrorMsg{gen: gen, err: err}
+        }
+        return myFetchLoadedMsg{gen: gen, data: data}
+    }
+}
+
+func (s *subView) Update(msg tea.Msg) tea.Cmd {
+    switch m := msg.(type) {
+    case myFetchLoadedMsg:
+        if m.gen != s.generation {
+            return nil   // stale — drop silently
+        }
+        s.loading = false
+        s.data = m.data
+        return nil
+    case myFetchErrorMsg:
+        if m.gen != s.generation {
+            return nil
+        }
+        s.loading = false
+        s.err = m.err
+        return nil
+    }
+}
+```
+
+### Critical: every response carries gen
+
+Forget to tag ONE response type and the bug returns for that path. GKE
+caught this on `initComputeClient` — the error path returned a message
+without gen, so init failures landed with gen=0 while Init had already
+bumped to >=1; the stale-gen guard then dropped the error and the
+loading state never cleared.
+
+### Critical: bump BEFORE scheduling
+
+`Refresh()` must increment `s.generation` before constructing the new
+cmd, so the cmd captures the new value. If you bump after `tea.Batch`
+the captured gen is the old one and your own fresh response gets
+dropped.
+
+### LoadMore / pagination wrinkle
+
+If the view has both first-page and follow-up-page messages, both must
+carry the same gen captured at the same level. Don't bump generation
+inside `LoadMore()` — pagination follow-ups belong to the same logical
+fetch chain as the first page. Refresh is what creates a new chain.
+
+### What NOT to use this for
+
+- Self-rescheduling tick loops (spinner.TickMsg, auto-refresh ticks)
+  — those have their own gating mechanism (`!loading` for spinner,
+  `(autoRefresh && tabActive)` for auto-refresh). Don't double-guard.
+- Strictly serial fetches where there's no possible concurrent issue
+  (e.g. a one-shot Init that can't be re-triggered). Generation tokens
+  are dead weight when the race can't happen.
+
+### Testing
+
+A stale-gen drop test is cheap and high-signal:
+
+```go
+func TestStaleResponseDropped(t *testing.T) {
+    s := newSubView()
+    s.generation = 2
+    s.loading = true
+    s.data = nil
+
+    // A response from the previous (gen=1) fetch arrives late.
+    s.Update(myFetchLoadedMsg{gen: 1, data: Foo{Value: 999}})
+    assert.Nil(t, s.data, "stale-gen response must not populate data")
+    assert.True(t, s.loading, "stale-gen response must not flip loading=false")
+}
+```
+
+See: `gke_observability.go`, `gke_nodes.go`, `gke_logs.go` for the
+full pattern across multiple message types.
