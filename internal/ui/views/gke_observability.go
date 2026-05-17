@@ -88,11 +88,17 @@ func (s *gkeObservability) Init() tea.Cmd {
 	return tea.Batch(s.spinner.Tick, s.fetchAllMetrics(), s.tickAutoRefresh())
 }
 
-// Refresh re-fetches all metrics, clearing prior warnings/errors.
+// Refresh re-fetches all metrics, clearing prior warnings/errors AND
+// the cached metric series so the View() falls back to its loading
+// state. Without the metric clear, switching time ranges would keep
+// the previous range's charts on screen for the duration of the new
+// fetch — disorienting because the chart values silently swap once
+// the new data arrives.
 func (s *gkeObservability) Refresh() tea.Cmd {
 	s.loading = true
 	s.err = nil
 	s.warnings = map[string]error{}
+	s.metrics = gcp.GKEMetrics{}
 	return tea.Batch(s.spinner.Tick, s.fetchAllMetrics())
 }
 
@@ -245,7 +251,10 @@ func (s *gkeObservability) applyDataToCharts() {
 // View renders the Observability tab.
 func (s *gkeObservability) View() string {
 	if s.loading && len(s.metrics.CPUUtilization) == 0 && len(s.metrics.MemoryUtilization) == 0 {
-		return renderLoading(s.spinner, "Loading metrics...")
+		// Surface the range being loaded so the user knows what they're
+		// waiting on after pressing 1-5.
+		rangeLabel := gkeObsRangeLabels[s.rangeIdx]
+		return renderLoading(s.spinner, "Loading metrics ("+rangeLabel+")...")
 	}
 	var b strings.Builder
 	b.WriteString(s.renderRangeBar())
