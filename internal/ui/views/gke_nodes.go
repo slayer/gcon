@@ -40,12 +40,12 @@ type gkeNodes struct {
 
 func newGKENodes(projectID string, details *gcp.ClusterDetails, computeClient *gcp.ComputeClient) *gkeNodes {
 	columns := []table.Column{
-		{Title: "Name", Width: 40},
-		{Title: "Pool", Width: 16},
-		{Title: "Zone", Width: 18},
-		{Title: "Status", Width: 14},
+		{Title: "Name", Width: 40, Sortable: true},
+		{Title: "Pool", Width: 16, Sortable: true},
+		{Title: "Zone", Width: 18, Sortable: true},
+		{Title: "Status", Width: 14, Sortable: true},
 		{Title: "Internal IP", Width: 16},
-		{Title: "Age", Width: 8},
+		{Title: "Age", Width: 8, Sortable: true},
 	}
 	t := table.NewWithColumns(columns, "")
 	return &gkeNodes{
@@ -60,10 +60,20 @@ func newGKENodes(projectID string, details *gcp.ClusterDetails, computeClient *g
 
 func (s *gkeNodes) SetTabActive(active bool) { s.tabActive = active }
 
+// SetDetails replaces the cached ClusterDetails pointer so a parent-level
+// cluster refresh propagates fresh pool / MIG-URL data into the next
+// fanOut. Called by the parent details view on gkeClusterLoadedMsg.
+func (s *gkeNodes) SetDetails(d *gcp.ClusterDetails) { s.details = d }
+
 func (s *gkeNodes) Init() tea.Cmd {
 	s.loading = true
 	s.err = nil
 	s.nodes = nil
+	// Clear stale table rows immediately. Without this, an empty fan-out
+	// (no MIGs, or every fetch fails) leaves the table showing the
+	// previous refresh's rows underneath an inline error — confusing
+	// because the rows look authoritative.
+	s.refreshTable()
 	s.pendingMIGs = 0
 	s.warnings = map[string]error{}
 	// Lazy-construct the compute client when the parent details view
@@ -200,14 +210,16 @@ func (s *gkeNodes) Update(msg tea.Msg) tea.Cmd {
 }
 
 func (s *gkeNodes) handleKey(m tea.KeyMsg) tea.Cmd {
-	if m.String() == "enter" {
+	// Only treat Enter as "open instance details" when the cursor sits on
+	// a real row. While the table's filter input is focused, Enter must
+	// reach the table so it can apply/close the filter — intercepting it
+	// here strands the user mid-filter or fires navigation against the
+	// wrong row.
+	if m.String() == "enter" && !s.table.HasTextInputFocused() {
 		n := s.cursorNode()
 		if n == nil {
 			return nil
 		}
-		// Emit InstanceSelectedMsg with the node's Name and Zone. The
-		// app-level handler (handleInstanceSelected) only reads Name and
-		// Zone, so a minimal gcp.Instance is sufficient.
 		return func() tea.Msg {
 			return InstanceSelectedMsg{Instance: gcp.Instance{
 				Name: n.Name,

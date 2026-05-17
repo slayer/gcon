@@ -171,6 +171,13 @@ func (v *GKEClusterDetailsView) HasTextInputFocused() bool {
 	if v.showConfirm && v.confirmDialog != nil {
 		return v.confirmDialog.HasTextInputFocused()
 	}
+	return v.subViewHasTextInputFocused()
+}
+
+// subViewHasTextInputFocused is the sub-view-only check used to gate
+// parent shortcut handling. The dialog check is intentionally excluded
+// here — dialog input routing happens via showConfirm + confirmDialog.Update.
+func (v *GKEClusterDetailsView) subViewHasTextInputFocused() bool {
 	if v.nodes != nil && v.nodes.HasTextInputFocused() {
 		return true
 	}
@@ -204,7 +211,22 @@ func (v *GKEClusterDetailsView) Update(msg tea.Msg) tea.Cmd {
 		v.details = m.details
 		// Refresh the node pools table now that data is loaded.
 		v.refreshNodePoolsTable()
+		// Propagate the fresh ClusterDetails pointer to any sub-views
+		// that captured the previous one at construction time. Without
+		// this, refreshing from Overview/Node Pools leaves the Nodes
+		// sub-view holding a stale pointer (with possibly stale pool
+		// list / MIG URLs).
+		if v.nodes != nil {
+			v.nodes.SetDetails(m.details)
+		}
 		return nil
+	case gkeNodesComputeClientReadyMsg:
+		// The Nodes sub-view lazy-constructed a ComputeClient. Stitch it
+		// back onto the parent too so handleInstanceSelected's
+		// GetComputeClient() chain can return it for cross-view nav, then
+		// forward to the sub-view so it can proceed with fanOut.
+		v.computeClient = m.client
+		return v.routeToActiveSubView(msg)
 	case gkeClusterErrorMsg:
 		v.loading = false
 		v.err = m.err
@@ -278,15 +300,16 @@ func (v *GKEClusterDetailsView) Update(msg tea.Msg) tea.Cmd {
 		v.confirmDialog = nil
 		return nil
 	case spinner.TickMsg:
-		// Suppress ticks when no async work is in flight — otherwise the
-		// spinner keeps re-emitting ticks forever and drives continuous
-		// redraws even when nothing is loading or deleting.
-		if !v.loading && !v.deleting {
-			return nil
+		// Advance the parent spinner when the parent owns the in-flight
+		// work, AND always forward the tick to the active sub-view so
+		// its own spinner can animate. Without the forward, sub-view
+		// spinners freeze on whatever frame they started on.
+		var parentCmd tea.Cmd
+		if v.loading || v.deleting {
+			v.spinner, parentCmd = v.spinner.Update(m)
 		}
-		var cmd tea.Cmd
-		v.spinner, cmd = v.spinner.Update(m)
-		return cmd
+		subCmd := v.routeToActiveSubView(msg)
+		return tea.Batch(parentCmd, subCmd)
 	case tea.KeyMsg:
 		return v.handleKey(m)
 	}
@@ -322,6 +345,12 @@ func (v *GKEClusterDetailsView) handleKey(m tea.KeyMsg) tea.Cmd {
 	// Route keys to the delete dialog while it's open.
 	if v.showConfirm && v.confirmDialog != nil {
 		return v.confirmDialog.Update(m)
+	}
+	// If a sub-view text input is focused (e.g. the Nodes table filter
+	// input), all keystrokes belong to it — don't let global shortcuts
+	// like `r` / `D` / `1`–`5` swallow letters the user is typing.
+	if v.subViewHasTextInputFocused() {
+		return v.routeToActiveSubView(m)
 	}
 	key := m.String()
 	activeID := v.tabs.ActiveTab().ID

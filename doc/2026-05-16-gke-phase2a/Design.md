@@ -10,13 +10,17 @@ Add three new tabs to the cluster details view shipped in Phase 1:
   Compute Engine instance details view.
 - **Observability** — five cluster-scope charts (CPU%, Memory%, Node
   count, Pod count, Network rx/tx) using the existing `metricchart`
-  package and `kubernetes.io/cluster/*` + `kubernetes.io/node/*` metric
-  families. Time range selector (`1`–`5`) and 30 s auto-refresh.
+  package. GCP has no `kubernetes.io/cluster/*` family, so cluster
+  aggregates are computed by cross-series reduction over
+  `kubernetes.io/node/*` and `kubernetes.io/pod/*` metrics — see
+  `.claude/rules/gcp-api-gotchas.md` for the per-metric mapping. Time
+  range selector (`1`–`5`) and 30 s auto-refresh.
 - **Logs** — filterable embedded log viewer reading from Cloud Logging
   for `k8s_cluster` / `k8s_node` / `k8s_pod` / `k8s_container` resources.
-  Severity toggles (`I` / `W` / `E`), resource-type dropdown (`R`),
-  15 s auto-refresh (opt-in), `L` to jump to the dedicated Logs
-  Explorer view pre-filtered to this cluster.
+  Severity toggles (`I` / `W` / `E`), resource-type cycler (`R` advances
+  through the four resource types and wraps), 15 s auto-refresh (opt-in),
+  `L` to jump to the dedicated Logs Explorer view pre-filtered to this
+  cluster.
 
 All read-only. No node drain/cordon, no kubectl-style workload browsing,
 no Kubernetes API client.
@@ -328,9 +332,13 @@ place of the sparkline.
 
 ### Logs tab
 
-Embedded log viewer using the existing `LoggingClient` + `logviewer`
-component (already used by `cloudrun_observability.go` and the dedicated
-Logs Explorer view).
+Embedded log viewer that fetches via the existing `LoggingClient` and
+renders the resulting entries inline (single line per entry: timestamp +
+severity + payload). The shared `logviewer` component was considered but
+its focused-entry / expansion model is overkill for the cluster-scope
+filter set; inline rendering keeps the sub-view ~250 lines and reuses
+the parent details view's viewport for scroll. Infinite scroll appends
+follow-up pages via `LoadMore()` when the viewport reaches the bottom.
 
 **Default LQL** built at sub-view construction:
 
@@ -338,22 +346,26 @@ Logs Explorer view).
 resource.type = "k8s_cluster"
 AND resource.labels.cluster_name = "<name>"
 AND resource.labels.location = "<location>"
-AND severity >= INFO
+AND timestamp >= "<now − 1h, RFC3339>"
+AND (severity < WARNING OR severity = WARNING OR severity >= ERROR)
 ```
+
+The 1h timestamp bound keeps each refresh cheap; the severity bucket is
+built as a disjunction so toggling individual levels off genuinely
+excludes them (no "lowest enabled threshold" leakage).
 
 **Filter controls:**
 
 | Key | Action |
 |-----|--------|
-| `I` | Toggle INFO severity (default on). |
-| `W` | Toggle WARNING severity (default on). |
-| `E` | Toggle ERROR / CRITICAL severities (default on). |
-| `R` | Open resource-type dropdown (`k8s_cluster` / `k8s_node` / `k8s_pod` / `k8s_container`). |
+| `I` | Toggle INFO/NOTICE/DEBUG bucket (default on). |
+| `W` | Toggle WARNING (default on). |
+| `E` | Toggle ERROR/CRITICAL/ALERT/EMERGENCY bucket (default on). |
+| `R` | Cycle resource type: `k8s_cluster` → `k8s_node` → `k8s_pod` → `k8s_container` → wraps. |
 | `a` | Toggle 15 s auto-refresh (default OFF — logs view is bursty). |
 | `r` | Manual refresh (re-run query). |
 | `L` | Open the full Logs Explorer view with this cluster's filter pre-populated. |
-| `Enter` | Expand the focused log entry. |
-| `Esc` | Collapse / clear / back. |
+| `Esc` | Back. |
 
 Severity toggles work by rewriting the `severity >=` clause and re-fetching.
 Resource type changes rewrite `resource.type` and re-fetch.

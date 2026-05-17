@@ -281,3 +281,76 @@ func TestGKEClusterDetails_LogsViewportScrollKeysFallToViewport(t *testing.T) {
 	assert.True(t, isGKESubViewActionKey("logs", "I"),
 		"I (info toggle) must be routed to logs sub-view, not viewport")
 }
+
+// TestGKEClusterDetails_NodesComputeClientPropagatedToParent guards
+// against the regression where lazy compute-client construction inside
+// gkeNodes stored the new client only on the sub-view, leaving
+// v.computeClient (and thus GetComputeClient(), used by
+// handleInstanceSelected's fallback chain) at nil.
+func TestGKEClusterDetails_NodesComputeClientPropagatedToParent(t *testing.T) {
+	v := gkeDetailsFixture("STANDARD")
+	v.SetContext(&context.ProgramContext{ContentWidth: 180, ContentHeight: 60})
+	v.tabs.SetActiveByID("nodes")
+	v.Update(tabs.TabChangedMsg{})
+	require.NotNil(t, v.nodes)
+	require.Nil(t, v.GetComputeClient(), "fixture starts without a compute client")
+
+	// Simulate the lazy-init success message. The parent should stitch
+	// the client onto itself AND forward to the sub-view.
+	fake := &gcp.ComputeClient{}
+	v.Update(gkeNodesComputeClientReadyMsg{client: fake})
+
+	assert.Same(t, fake, v.GetComputeClient(),
+		"parent must record the lazy-constructed compute client so cross-view nav can find it")
+	assert.Same(t, fake, v.nodes.computeClient,
+		"sub-view must also see the new client so its next fanOut can succeed")
+}
+
+// TestGKEClusterDetails_NodesSeesRefreshedDetails guards against the
+// regression where gkeNodes captured the v.details pointer at tab-create
+// time and ignored subsequent cluster reloads, fanning out against a
+// stale pool / MIG-URL list.
+func TestGKEClusterDetails_NodesSeesRefreshedDetails(t *testing.T) {
+	v := gkeDetailsFixture("STANDARD")
+	v.SetContext(&context.ProgramContext{ContentWidth: 180, ContentHeight: 60})
+	v.tabs.SetActiveByID("nodes")
+	v.Update(tabs.TabChangedMsg{})
+	require.NotNil(t, v.nodes)
+	originalDetails := v.details
+
+	// Simulate a parent-level cluster reload returning a brand-new
+	// ClusterDetails pointer (different pool list).
+	fresh := &gcp.ClusterDetails{
+		Cluster:   gcp.Cluster{Name: "prod", Location: "us-central1"},
+		NodePools: []gcp.NodePool{{Name: "fresh-pool"}},
+	}
+	v.Update(gkeClusterLoadedMsg{details: fresh})
+
+	assert.NotSame(t, originalDetails, v.nodes.details,
+		"sub-view's details pointer must be updated, not the stale one captured at tab create")
+	assert.Same(t, fresh, v.nodes.details)
+}
+
+// TestGKEClusterDetails_ShortcutsBlockedWhileFiltering guards against the
+// regression where typing `r` / `D` / `1`–`5` in a sub-view text input
+// fired the parent shortcut (refresh / delete / tab switch) instead of
+// being typed as input.
+func TestGKEClusterDetails_ShortcutsBlockedWhileFiltering(t *testing.T) {
+	v := gkeDetailsFixture("STANDARD")
+	v.SetContext(&context.ProgramContext{ContentWidth: 180, ContentHeight: 60})
+	v.tabs.SetActiveByID("nodes")
+	v.Update(tabs.TabChangedMsg{})
+	require.NotNil(t, v.nodes)
+	// Seed the sub-view with rows so the table widget will let `/` focus
+	// its filter input.
+	v.nodes.nodes = []gcp.GKENode{{MIGInstance: gcp.MIGInstance{Name: "x", Zone: "z"}, Pool: "p"}}
+	v.nodes.loading = false
+	v.nodes.refreshTable()
+	// Focus the filter.
+	v.nodes.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	require.True(t, v.nodes.HasTextInputFocused(), "filter input should be focused after '/'")
+
+	// `D` should NOT open the delete dialog while the user is typing.
+	v.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'D'}})
+	assert.False(t, v.showConfirm, "D must not open the delete dialog while filter input is focused")
+}

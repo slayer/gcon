@@ -87,3 +87,49 @@ func TestGKENodes_CursorMovementPersists(t *testing.T) {
 	assert.Equal(t, "gke-prod-default-7f3a-efgh", selected.Instance.Name,
 		"Down then Enter must select the second row, not the first")
 }
+
+// TestGKENodes_SortMenuOpensOnS guards against the regression where every
+// column was created with Sortable:false, making the documented S-sort
+// menu a silent no-op (the shared table widget only opens the menu when
+// at least one column has Sortable set).
+func TestGKENodes_SortMenuOpensOnS(t *testing.T) {
+	s := gkeNodesWithFixtures()
+	s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'S'}})
+	assert.True(t, s.table.IsSortMenuOpen(),
+		"S must open the sort menu — requires at least one column with Sortable:true")
+}
+
+// TestGKENodes_EnterWhileFilteringGoesToTable verifies that Enter while
+// the filter input is focused reaches the table widget (which closes /
+// applies the filter), instead of being intercepted to navigate to an
+// instance.
+func TestGKENodes_EnterWhileFilteringGoesToTable(t *testing.T) {
+	s := gkeNodesWithFixtures()
+	// Open the filter input — '/' is the table widget's filter shortcut.
+	s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	require.True(t, s.table.HasTextInputFocused(), "filter input should be focused after '/'")
+
+	cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	// If Enter were misrouted to "open instance details", cmd would
+	// return InstanceSelectedMsg. The table consumes Enter to apply the
+	// filter and returns nil. Either way, the cursor must not have
+	// emitted a navigation message.
+	if cmd != nil {
+		msg := cmd()
+		_, isNav := msg.(InstanceSelectedMsg)
+		assert.False(t, isNav, "Enter while filter input is focused must not emit InstanceSelectedMsg")
+	}
+}
+
+// TestGKENodes_RefreshClearsStaleRows guards against the regression where
+// Init() reset s.nodes but left the table rendering the previous run's
+// rows; on total fan-out failure the user saw old rows under an error
+// banner that looked authoritative.
+func TestGKENodes_RefreshClearsStaleRows(t *testing.T) {
+	s := gkeNodesWithFixtures()
+	// Sanity: fixture populated rows.
+	require.NotEmpty(t, s.table.Rows())
+	// Refresh — no compute client wired, so init returns early at fanOut.
+	s.Refresh()
+	assert.Empty(t, s.table.Rows(), "Refresh must clear stale rows before the new fetch lands")
+}

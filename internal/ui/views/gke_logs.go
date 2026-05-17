@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -35,6 +36,8 @@ type gkeLogs struct {
 	err           error
 	loading       bool
 
+	spinner spinner.Model
+
 	width int
 }
 
@@ -49,6 +52,10 @@ func newGKELogs(projectID, location, clusterName string, client *gcp.Client) *gk
 		errOn:        true,
 		resourceType: "k8s_cluster",
 		autoRefresh:  false,
+		// One persistent spinner that survives across View() calls and
+		// gets advanced by spinner.TickMsg in Update — the previous code
+		// constructed a fresh spinner per render which never animated.
+		spinner: components.NewGCPSpinner(),
 	}
 }
 
@@ -58,17 +65,21 @@ func (s *gkeLogs) SetTabActive(active bool) { s.tabActive = active }
 
 func (s *gkeLogs) Init() tea.Cmd {
 	s.loading = true
-	return tea.Batch(components.NewGCPSpinner().Tick, s.fetchLogs(), s.tickAutoRefresh())
+	return tea.Batch(s.spinner.Tick, s.fetchLogs(), s.tickAutoRefresh())
 }
 
 // Refresh re-runs the current filter without touching toggle state. Resets
-// the pagination token so scrolling fetches a fresh page chain.
+// the pagination token AND the entries slice — without the latter, the
+// view continues rendering log lines from the previous filter while the
+// new request is in flight, making it look like stale results match the
+// new toggles.
 func (s *gkeLogs) Refresh() tea.Cmd {
 	s.loading = true
 	s.err = nil
+	s.entries = nil
 	s.nextPageToken = ""
 	s.loadingMore = false
-	return s.fetchLogs()
+	return tea.Batch(s.spinner.Tick, s.fetchLogs())
 }
 
 func (s *gkeLogs) fetchLogs() tea.Cmd {
@@ -126,11 +137,17 @@ func (s *gkeLogs) LoadMore() tea.Cmd {
 // server-side; enabling only ERROR no longer leaks WARNING/INFO into the
 // response. When every toggle is off we emit an impossible filter so the
 // API returns no rows (matches the View()'s "no toggles selected" state).
+//
+// A 1h timestamp lower-bound is appended so each refresh / auto-refresh
+// tick stays cheap. Mirrors the standalone Logs Explorer's
+// buildEffectiveQuery default; if pagination ever runs to >1h ago, the
+// LoadMore() path inherits the same bound.
 func (s *gkeLogs) buildLQL() string {
 	parts := []string{
 		fmt.Sprintf(`resource.type = %q`, s.resourceType),
 		fmt.Sprintf(`resource.labels.cluster_name = %q`, s.clusterName),
 		fmt.Sprintf(`resource.labels.location = %q`, s.location),
+		fmt.Sprintf(`timestamp >= %q`, time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)),
 	}
 	var sevPredicates []string
 	if s.infoOn {
@@ -167,6 +184,15 @@ func (s *gkeLogs) tickAutoRefresh() tea.Cmd {
 
 func (s *gkeLogs) Update(msg tea.Msg) tea.Cmd {
 	switch m := msg.(type) {
+	case spinner.TickMsg:
+		// Only advance / re-schedule while loading — otherwise the tick
+		// loop runs forever and drives needless redraws.
+		if !s.loading && !s.loadingMore {
+			return nil
+		}
+		var cmd tea.Cmd
+		s.spinner, cmd = s.spinner.Update(m)
+		return cmd
 	case gkeLogsLoadedMsg:
 		s.loading = false
 		s.entries = m.entries
@@ -274,7 +300,7 @@ func (s *gkeLogs) enabledSeverities() []string {
 
 func (s *gkeLogs) View() string {
 	if s.loading && len(s.entries) == 0 {
-		return renderLoading(components.NewGCPSpinner(), "Loading logs...")
+		return renderLoading(s.spinner, "Loading logs...")
 	}
 	if s.err != nil && len(s.entries) == 0 {
 		return components.RenderError(s.err)
@@ -327,8 +353,10 @@ func (s *gkeLogs) renderToolbar() string {
 }
 
 // formatGKELogEntry renders one entry as a single line: timestamp + severity
-// + message (truncated to fit). Multi-line / structured payload rendering
-// can be added in a later phase.
+// + raw message. The parent details view's viewport handles overflow via
+// horizontal scroll; we deliberately don't truncate at the data layer so
+// users can see the full payload by scrolling. Multi-line / structured
+// payload rendering can be added in a later phase.
 func formatGKELogEntry(e *gcp.LogEntry) string {
 	ts := e.Timestamp.UTC().Format("2006-01-02 15:04:05")
 	msg := e.TextPayload
