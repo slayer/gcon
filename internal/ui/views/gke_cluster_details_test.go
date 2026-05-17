@@ -296,9 +296,11 @@ func TestGKEClusterDetails_NodesComputeClientPropagatedToParent(t *testing.T) {
 	require.Nil(t, v.GetComputeClient(), "fixture starts without a compute client")
 
 	// Simulate the lazy-init success message. The parent should stitch
-	// the client onto itself AND forward to the sub-view.
+	// the client onto itself AND forward to the sub-view. Use the
+	// sub-view's current generation so the sub-view's stale-gen guard
+	// accepts the message.
 	fake := &gcp.ComputeClient{}
-	v.Update(gkeNodesComputeClientReadyMsg{client: fake})
+	v.Update(gkeNodesComputeClientReadyMsg{gen: v.nodes.generation, client: fake})
 
 	assert.Same(t, fake, v.GetComputeClient(),
 		"parent must record the lazy-constructed compute client so cross-view nav can find it")

@@ -33,8 +33,13 @@ type gkeLogs struct {
 	entries       []gcp.LogEntry
 	nextPageToken string // seeded by the first fetch; empty when no more pages
 	loadingMore   bool   // gate to dedupe infinite-scroll triggers
-	err           error
-	loading       bool
+	// currentQuery is the LQL captured by the first fetch of the current
+	// page chain — LoadMore reuses it so the `timestamp >= now-1h` lower
+	// bound doesn't drift between pages. Cleared on Refresh so the next
+	// first fetch re-anchors to the new "now".
+	currentQuery string
+	err          error
+	loading      bool
 	// generation increments on every Refresh (toggle / resource change /
 	// manual refresh). Each fetch tags its response with the current
 	// value so stale first-page or load-more responses can't appear
@@ -78,13 +83,15 @@ func (s *gkeLogs) Init() tea.Cmd {
 // the pagination token AND the entries slice — without the latter, the
 // view continues rendering log lines from the previous filter while the
 // new request is in flight, making it look like stale results match the
-// new toggles.
+// new toggles. Also clears the captured currentQuery so the next first
+// fetch re-anchors the timestamp lower bound to the current "now".
 func (s *gkeLogs) Refresh() tea.Cmd {
 	s.loading = true
 	s.err = nil
 	s.entries = nil
 	s.nextPageToken = ""
 	s.loadingMore = false
+	s.currentQuery = ""
 	s.generation++
 	return tea.Batch(s.spinner.Tick, s.fetchLogs())
 }
@@ -93,7 +100,12 @@ func (s *gkeLogs) fetchLogs() tea.Cmd {
 	if s.gcpClient == nil {
 		return nil
 	}
-	query := s.buildLQL()
+	// Anchor the query string for this page chain. LoadMore reuses
+	// currentQuery instead of rebuilding via buildLQL — otherwise each
+	// follow-up page would see a fresh "now-1h" lower bound, drifting
+	// past entries the first page covered.
+	s.currentQuery = s.buildLQL()
+	query := s.currentQuery
 	projectID := s.projectID
 	gen := s.generation
 	return func() tea.Msg {
@@ -116,12 +128,23 @@ func (s *gkeLogs) fetchLogs() tea.Cmd {
 // the parent details view when the user scrolls the viewport to the
 // bottom. Returns nil when no more pages exist or a fetch is already in
 // flight.
+//
+// Reuses the captured currentQuery so the timestamp lower bound doesn't
+// drift between pages — buildLQL bakes in time.Now(), and rebuilding on
+// each LoadMore would silently shrink the result window as time
+// advances.
 func (s *gkeLogs) LoadMore() tea.Cmd {
 	if s.loadingMore || s.nextPageToken == "" || s.gcpClient == nil {
 		return nil
 	}
 	s.loadingMore = true
-	query := s.buildLQL()
+	query := s.currentQuery
+	if query == "" {
+		// Defensive fallback: should never happen because LoadMore
+		// requires a non-empty nextPageToken which is only set by a
+		// preceding fetchLogs call that captured currentQuery.
+		query = s.buildLQL()
+	}
 	token := s.nextPageToken
 	projectID := s.projectID
 	gen := s.generation
@@ -358,8 +381,14 @@ func (s *gkeLogs) View() string {
 		b.WriteString("\n")
 	}
 	// Footer hint so the user knows whether scrolling further fetches more.
+	// A LoadMore error takes precedence over the scroll hint so pagination
+	// failures aren't silent (the renderer used to only show errors when
+	// the entries slice was empty, hiding LoadMore failures entirely).
 	muted := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
+	errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#EA4335"))
 	switch {
+	case s.err != nil:
+		b.WriteString(errStyle.Render(fmt.Sprintf("  ⚠ load more failed: %v — press 'r' to retry", s.err)))
 	case s.loadingMore:
 		b.WriteString(muted.Render("  Loading more entries..."))
 	case s.nextPageToken != "":

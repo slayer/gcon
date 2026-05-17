@@ -307,10 +307,15 @@ Network traffic                                                        (rx green
 - Node count, Pod count: integer-display, default formatter.
 - Network: 2-series overlay (`SetDataSets`) — `rx` (green `#34A853`) and `tx` (yellow `#FBBC04`), `humanYLabel`.
 
-**Fetch coordinator** — single tea.Cmd that fans out all six metric
-calls in parallel and returns `gkeObsMetricsLoadedMsg{GKEMetrics, error}`.
-Per-metric errors don't abort the whole tab; the sub-view holds a
-warnings accumulator (mirrors `loadbalancer_observability.go`).
+**Fetch coordinator** — single tea.Cmd that issues all six metric calls
+sequentially within one goroutine and returns
+`gkeObsMetricsLoadedMsg{gen, GKEMetrics, warnings}`. Per-metric errors
+don't abort the whole tab; the sub-view holds a warnings accumulator
+(mirrors `loadbalancer_observability.go`). Sequential rather than
+parallel: total latency is the sum of 6 calls (~1–2s in practice), and
+the simpler control flow keeps the gen-token race guard trivial. A
+parallel variant is reasonable future work but isn't required for
+Phase 2a's load profile.
 
 **Keys:**
 
@@ -375,7 +380,12 @@ existing Cloud Run observability uses — verify the message name at
 implementation time).
 
 **Page size:** 100 entries per fetch (matches existing Logs Explorer).
-Older entries via `]` (next page) — same component delegation pattern.
+Older entries via infinite scroll: when the parent details view's
+viewport hits the bottom on the Logs tab, it calls the sub-view's
+`LoadMore()` which appends the next page using the captured query (so
+the `timestamp >=` lower bound doesn't drift between pages). No `]`
+keybinding — the scroll trigger is enough and matches how every other
+tall tab in the app handles "more".
 
 ## Auto-refresh + tabActive lifecycle
 
@@ -534,7 +544,12 @@ The `.claude/rules/key-bindings.md` Phase 1 entries grow:
 - Filter `pool:default` narrows correctly.
 - Sort by Age.
 - Enter emits `InstanceSelectedMsg` with correct fields.
-- Incremental loading: one pool fetch loaded, others still in flight — rendered rows from completed pool show up.
+- All-or-nothing loading: while any MIG fetch is still in flight,
+  `View()` keeps the loading indicator (with a `(completed/total
+  instance groups)` counter) and does NOT leak partial rows from
+  completed pools. Showing partial rows was the original plan but
+  turned out to be misleading — the table would look "complete" then
+  suddenly grow when the next pool landed.
 
 ### `internal/ui/views/gke_observability_test.go`
 

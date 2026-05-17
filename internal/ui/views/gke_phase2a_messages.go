@@ -31,8 +31,12 @@ type gkeNodesPoolErrorMsg struct {
 // back to the Nodes sub-view. Emitted by gkeNodes.initComputeClient when
 // the parent details view wasn't seeded with a compute client (e.g. the
 // user navigated straight to GKE from the sidebar). The sub-view stitches
-// the client into its state and proceeds with fanOut.
+// the client into its state and proceeds with fanOut. `gen` matches the
+// pattern used by other sub-view responses so a slow init that completes
+// after a Refresh (which bumped generation) doesn't fire a second
+// concurrent fan-out.
 type gkeNodesComputeClientReadyMsg struct {
+	gen    int
 	client *gcp.ComputeClient
 }
 

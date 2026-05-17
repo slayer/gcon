@@ -47,7 +47,11 @@ func newGKENodes(projectID string, details *gcp.ClusterDetails, computeClient *g
 		{Title: "Zone", Width: 18, Sortable: true},
 		{Title: "Status", Width: 14, Sortable: true},
 		{Title: "Internal IP", Width: 16},
-		{Title: "Age", Width: 8, Sortable: true},
+		// Age intentionally NOT sortable: the table sorts on rendered
+		// strings ("10d", "2h", "30m") lexicographically, which produces
+		// wrong chronological order. Add a numeric SortValue to the
+		// table widget if/when we want age-aware sorting.
+		{Title: "Age", Width: 8},
 	}
 	t := table.NewWithColumns(columns, "")
 	return &gkeNodes{
@@ -95,17 +99,22 @@ func (s *gkeNodes) Init() tea.Cmd {
 // initComputeClient builds a ComputeClient off-thread so the Nodes tab
 // can fan out ListManagedInstances calls. On success the resulting client
 // is stitched back via gkeNodesComputeClientReadyMsg, which fanOut then
-// consumes.
+// consumes. Both success and error messages carry the current generation
+// — without that the Update handler's stale-gen guard would silently
+// drop init failures (Init bumps generation before scheduling this cmd),
+// and the loading state would never clear.
 func (s *gkeNodes) initComputeClient() tea.Cmd {
+	gen := s.generation
 	return func() tea.Msg {
 		c, err := gcp.NewComputeClient(gocontext.Background())
 		if err != nil {
 			return gkeNodesPoolErrorMsg{
+				gen:      gen,
 				poolName: "compute",
 				err:      fmt.Errorf("init compute client: %w", err),
 			}
 		}
-		return gkeNodesComputeClientReadyMsg{client: c}
+		return gkeNodesComputeClientReadyMsg{gen: gen, client: c}
 	}
 }
 
@@ -187,6 +196,12 @@ func parseMIGURL(url string) (zone, name string) {
 func (s *gkeNodes) Update(msg tea.Msg) tea.Cmd {
 	switch m := msg.(type) {
 	case gkeNodesComputeClientReadyMsg:
+		// Drop a slow init that completes after a Refresh — Refresh
+		// kicks its own initComputeClient and we'd otherwise fire two
+		// concurrent fan-outs.
+		if m.gen != s.generation {
+			return nil
+		}
 		s.computeClient = m.client
 		return s.fanOut()
 	case gkeNodesPoolLoadedMsg:
@@ -206,6 +221,16 @@ func (s *gkeNodes) Update(msg tea.Msg) tea.Cmd {
 		return nil
 	case gkeNodesPoolErrorMsg:
 		if m.gen != s.generation {
+			return nil
+		}
+		// "compute" is the sentinel poolName used by initComputeClient
+		// for terminal client-construction errors. Those happen before
+		// any MIG fetch is scheduled, so pendingMIGs is still 0 — flip
+		// loading off and surface as the fatal err instead of just a
+		// per-pool warning.
+		if m.poolName == "compute" {
+			s.loading = false
+			s.err = m.err
 			return nil
 		}
 		s.pendingMIGs--

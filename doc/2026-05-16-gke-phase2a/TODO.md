@@ -13,6 +13,16 @@
 - Closest analogs: `internal/gcp/monitoring_lb.go`, `internal/ui/views/loadbalancer_observability.go`, `internal/ui/views/cloudrun_observability.go`, `internal/ui/views/instance_details.go` (HeightStandard charts)
 - Required project rules: `.claude/rules/adding-new-views.md` (step 14 lazy creation; step 16 client chain), `.claude/rules/async-operations-error-handling.md` (SetError on action failures), `.claude/rules/bubble-tea-rendering.md` (viewport + Unicode width), `.claude/rules/component-patterns.md` (`tea.Tick` stale-message guard), `.claude/rules/gcp-api-gotchas.md` (single resource.type per filter)
 
+> **⚠ Stale plan — read `.claude/rules/gcp-api-gotchas.md` before touching metric filters.**
+> The original plan below references `kubernetes.io/cluster/*` filters
+> (CPU, memory, node_count, pod_count). **That metric family does not
+> exist in GCP** — the shipped implementation uses
+> `kubernetes.io/node/*` and `kubernetes.io/pod/*` with cross-series
+> reducers (REDUCE_MEAN for CPU/memory, REDUCE_COUNT for node/pod count).
+> Source of truth: `internal/gcp/monitoring_gke.go` and the "GKE: No
+> `kubernetes.io/cluster/*` metric family exists" entry in the gotchas
+> rule. Do not re-introduce the cluster filters when updating Phase 2a.
+
 **Pattern reminders worth re-reading before starting:**
 - Sub-views are PLAIN STRUCTS, not `tea.Model` — they expose `Init() tea.Cmd`, `Update(tea.Msg) tea.Cmd`, `View() string`, `SetTabActive(bool)`, `Refresh() tea.Cmd`. The parent `GKEClusterDetailsView` orchestrates.
 - `tea.Tick` messages survive context switches. Every tick handler must guard on `(autoRefresh && tabActive)` and the `tickAutoRefresh()` factory must return nil when either is false.

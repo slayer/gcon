@@ -1,10 +1,12 @@
 package views
 
 import (
+	"errors"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/slayer/gcon/internal/gcp"
 )
@@ -115,6 +117,46 @@ func TestGKELogs_StaleResponseDropped(t *testing.T) {
 		entries: []gcp.LogEntry{{Message: "stale-more"}},
 	})
 	assert.Len(t, s.entries, 1, "stale-gen LoadMore must not append")
+}
+
+// TestGKELogs_LoadMoreReusesAnchoredQuery guards against the regression
+// where LoadMore called buildLQL() afresh each time, baking in a new
+// `timestamp >= now-1h` lower bound for each follow-up page. Older
+// entries the first page covered would become unreachable as the
+// cutoff advanced.
+func TestGKELogs_LoadMoreReusesAnchoredQuery(t *testing.T) {
+	s := newGKELogs("proj", "us-central1", "prod", nil)
+	// Simulate first-page success: currentQuery captured + pagination
+	// token set.
+	s.currentQuery = `resource.type = "k8s_cluster" AND timestamp >= "ANCHORED"`
+	s.nextPageToken = "page-2"
+	// Sanity: a fresh buildLQL would produce a DIFFERENT string (real
+	// timestamp). LoadMore must NOT use that — it must reuse the
+	// anchored query.
+	fresh := s.buildLQL()
+	require.NotEqual(t, s.currentQuery, fresh,
+		"sanity: buildLQL produces a fresh timestamp each call")
+
+	// LoadMore's gcpClient is nil so it returns nil; we only need to
+	// verify currentQuery isn't overwritten between calls.
+	_ = s.LoadMore()
+	assert.Equal(t, `resource.type = "k8s_cluster" AND timestamp >= "ANCHORED"`,
+		s.currentQuery, "LoadMore must not rebuild currentQuery from buildLQL")
+}
+
+// TestGKELogs_LoadMoreErrorVisibleWithEntries guards against the
+// regression where a LoadMore failure was completely hidden because the
+// error renderer only fired when entries were empty.
+func TestGKELogs_LoadMoreErrorVisibleWithEntries(t *testing.T) {
+	s := newGKELogs("proj", "us-central1", "prod", nil)
+	s.entries = []gcp.LogEntry{{Message: "first-page entry"}}
+	s.err = errors.New("page-2 fetch timeout") //nolint:err113 // test fixture
+	s.nextPageToken = "page-2"
+	out := s.View()
+	assert.Contains(t, out, "load more failed",
+		"LoadMore errors must surface in the footer when entries exist")
+	assert.Contains(t, out, "page-2 fetch timeout",
+		"the underlying error message must be shown")
 }
 
 // TestGKELogs_EnabledSeveritiesCoversFullBuckets guards against the

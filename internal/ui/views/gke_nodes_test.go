@@ -1,6 +1,7 @@
 package views
 
 import (
+	"errors"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -132,6 +133,29 @@ func TestGKENodes_RefreshClearsStaleRows(t *testing.T) {
 	// Refresh — no compute client wired, so init returns early at fanOut.
 	s.Refresh()
 	assert.Empty(t, s.table.Rows(), "Refresh must clear stale rows before the new fetch lands")
+}
+
+// TestGKENodes_ComputeClientInitErrorSurfaces guards against the
+// regression where initComputeClient's error message had gen=0 while
+// Init had already bumped generation, so the stale-gen guard silently
+// dropped it and the loading state never cleared.
+func TestGKENodes_ComputeClientInitErrorSurfaces(t *testing.T) {
+	s := gkeNodesWithFixtures()
+	// Simulate post-Init state: loading=true, generation bumped.
+	s.loading = true
+	s.generation = 1
+
+	// Init's initComputeClient cmd would have captured gen=1 in its
+	// closure. Simulate that failed result.
+	s.Update(gkeNodesPoolErrorMsg{
+		gen:      1,
+		poolName: "compute",
+		err:      errors.New("init failed: ADC not configured"), //nolint:err113 // test fixture
+	})
+	assert.False(t, s.loading,
+		"compute-client init failure must clear loading so the user sees the error")
+	require.NotNil(t, s.err, "init failure must surface as a fatal err, not just a per-pool warning")
+	assert.Contains(t, s.err.Error(), "ADC not configured")
 }
 
 // TestGKENodes_StalePoolResponseDropped guards against the regression
