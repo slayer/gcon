@@ -506,12 +506,11 @@ The `.claude/rules/key-bindings.md` Phase 1 entries grow:
 
 | Key | Action |
 |-----|--------|
-| `I` / `W` / `E` | Toggle severity (INFO / WARNING / ERROR). |
-| `R` | Open resource-type dropdown. |
+| `I` / `W` / `E` | Toggle severity bucket (INFO+below / WARNING / ERROR+above). |
+| `R` | Cycle resource type (k8s_cluster → k8s_node → k8s_pod → k8s_container, wraps). |
 | `a` | Toggle auto-refresh (default off, 15 s). |
 | `L` | Open full Logs Explorer pre-filtered for this cluster. |
 | `r` | Manual refresh. |
-| `Enter` | Expand the focused log entry. |
 
 ## Testing strategy
 

@@ -36,6 +36,7 @@ type gkeNodes struct {
 	loading       bool
 	err           error
 	tabActive     bool
+	generation    int // bumped on every fanOut; stale-response guard
 	width, height int
 }
 
@@ -78,6 +79,10 @@ func (s *gkeNodes) Init() tea.Cmd {
 	s.pendingMIGs = 0
 	s.totalMIGs = 0
 	s.warnings = map[string]error{}
+	// Bump the generation so any in-flight responses from the previous
+	// fan-out (e.g. a slow MIG that returns after the user pressed `r`)
+	// are dropped at receipt instead of mixing into the new table.
+	s.generation++
 	// Lazy-construct the compute client when the parent details view
 	// wasn't seeded with one (e.g. the user navigated straight from the
 	// sidebar to GKE without visiting Compute Engine views first).
@@ -145,17 +150,18 @@ func (s *gkeNodes) fanOut() tea.Cmd {
 }
 
 func (s *gkeNodes) fetchMIG(poolName, zone, migName string) tea.Cmd {
+	gen := s.generation
 	return func() tea.Msg {
 		ctx := gocontext.Background()
 		mis, err := s.computeClient.ListManagedInstances(ctx, s.projectID, zone, migName)
 		if err != nil {
-			return gkeNodesPoolErrorMsg{poolName: poolName, err: err}
+			return gkeNodesPoolErrorMsg{gen: gen, poolName: poolName, err: err}
 		}
 		nodes := make([]gcp.GKENode, 0, len(mis))
 		for _, mi := range mis {
 			nodes = append(nodes, gcp.GKENode{MIGInstance: mi, Pool: poolName})
 		}
-		return gkeNodesPoolLoadedMsg{poolName: poolName, nodes: nodes}
+		return gkeNodesPoolLoadedMsg{gen: gen, poolName: poolName, nodes: nodes}
 	}
 }
 
@@ -184,6 +190,12 @@ func (s *gkeNodes) Update(msg tea.Msg) tea.Cmd {
 		s.computeClient = m.client
 		return s.fanOut()
 	case gkeNodesPoolLoadedMsg:
+		// Drop responses from a superseded fan-out so a slow MIG from
+		// the previous Refresh can't mix old nodes into the new table
+		// or wrongly decrement the new fan-out's pendingMIGs counter.
+		if m.gen != s.generation {
+			return nil
+		}
 		s.pendingMIGs--
 		s.nodes = append(s.nodes, m.nodes...)
 		s.dedupeAndSort()
@@ -193,6 +205,9 @@ func (s *gkeNodes) Update(msg tea.Msg) tea.Cmd {
 		}
 		return nil
 	case gkeNodesPoolErrorMsg:
+		if m.gen != s.generation {
+			return nil
+		}
 		s.pendingMIGs--
 		s.warnings[m.poolName] = m.err
 		if s.pendingMIGs <= 0 {

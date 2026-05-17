@@ -69,6 +69,37 @@ func TestGKEObservability_PerMetricErrorSurfaced(t *testing.T) {
 	assert.Contains(t, out, "insufficient permission")
 }
 
+// TestGKEObservability_StaleResponseDropped guards against the regression
+// where a slow response from a superseded range could overwrite the
+// chart with old-range data while the range bar advertised the new
+// range. Generation token must drop the stale response.
+func TestGKEObservability_StaleResponseDropped(t *testing.T) {
+	s := newGKEObservability("proj", "us-central1", "prod", nil)
+	s.tabActive = true
+	s.SetSize(120, 40)
+	// User loads 1h, sees data.
+	s.generation = 1
+	s.Update(gkeObsMetricsLoadedMsg{
+		gen:     1,
+		metrics: gcp.GKEMetrics{CPUUtilization: []gcp.DataPoint{{Value: 50}}},
+	})
+	require.Equal(t, 50.0, s.metrics.CPUUtilization[0].Value)
+
+	// User presses '3' (24h); generation bumps to 2 via Refresh().
+	s.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'3'}})
+	require.Equal(t, 2, s.generation, "Refresh must bump generation")
+	require.Empty(t, s.metrics.CPUUtilization, "Refresh must clear cached metrics")
+
+	// The slow 1h fetch finally returns — must be dropped.
+	s.Update(gkeObsMetricsLoadedMsg{
+		gen:     1,
+		metrics: gcp.GKEMetrics{CPUUtilization: []gcp.DataPoint{{Value: 999}}},
+	})
+	assert.Empty(t, s.metrics.CPUUtilization,
+		"stale-gen response must not overwrite the cleared chart state")
+	assert.True(t, s.loading, "stale-gen response must not flip loading=false")
+}
+
 // TestGKEObservability_RangeChangeShowsLoading guards against the
 // regression where switching time ranges kept the previous range's
 // charts on screen during the new fetch — disorienting because the
@@ -79,7 +110,10 @@ func TestGKEObservability_RangeChangeShowsLoading(t *testing.T) {
 	s.tabActive = true
 	s.SetSize(120, 40)
 	// Seed prior-range data so View() would otherwise show charts.
+	// Gen=0 matches the fresh sub-view's generation, so the message
+	// is accepted.
 	s.Update(gkeObsMetricsLoadedMsg{
+		gen: 0,
 		metrics: gcp.GKEMetrics{
 			CPUUtilization:    []gcp.DataPoint{{Value: 50}},
 			MemoryUtilization: []gcp.DataPoint{{Value: 60}},

@@ -134,6 +134,34 @@ func TestGKENodes_RefreshClearsStaleRows(t *testing.T) {
 	assert.Empty(t, s.table.Rows(), "Refresh must clear stale rows before the new fetch lands")
 }
 
+// TestGKENodes_StalePoolResponseDropped guards against the regression
+// where a fan-out result from a superseded Refresh could decrement
+// pendingMIGs of the new fan-out and mix old nodes into the refreshed
+// table.
+func TestGKENodes_StalePoolResponseDropped(t *testing.T) {
+	s := gkeNodesWithFixtures()
+	s.loading = true
+	s.generation = 2
+	s.pendingMIGs = 3
+	s.totalMIGs = 3
+	prevLen := len(s.nodes)
+
+	// A response from the previous fan-out (gen=1) arrives late.
+	s.Update(gkeNodesPoolLoadedMsg{
+		gen:      1,
+		poolName: "default",
+		nodes: []gcp.GKENode{{
+			MIGInstance: gcp.MIGInstance{Name: "stale-node", Zone: "us-central1-a"},
+			Pool:        "default",
+		}},
+	})
+	assert.Equal(t, prevLen, len(s.nodes),
+		"stale-gen pool response must not append nodes")
+	assert.Equal(t, 3, s.pendingMIGs,
+		"stale-gen response must not decrement the new fan-out's pendingMIGs counter")
+	assert.True(t, s.loading)
+}
+
 // TestGKENodes_LoadingUntilAllMIGsLand guards against the regression
 // where partial fan-out results swapped the loading state for a half-
 // populated table. Until pendingMIGs hits 0, View() must keep showing

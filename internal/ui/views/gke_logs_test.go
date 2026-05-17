@@ -62,6 +62,7 @@ func TestGKELogs_KeyToggleInfo(t *testing.T) {
 func TestGKELogs_FirstFetchStoresPageToken(t *testing.T) {
 	s := newGKELogs("proj", "us-central1", "prod", nil)
 	s.Update(gkeLogsLoadedMsg{
+		gen:           0,
 		entries:       []gcp.LogEntry{{Message: "first"}},
 		nextPageToken: "page-2",
 	})
@@ -78,6 +79,7 @@ func TestGKELogs_MoreLoadedAppendsEntries(t *testing.T) {
 	s.nextPageToken = "page-2"
 	s.loadingMore = true
 	s.Update(gkeLogsMoreLoadedMsg{
+		gen:           0,
 		entries:       []gcp.LogEntry{{Message: "second"}},
 		nextPageToken: "page-3",
 	})
@@ -85,6 +87,56 @@ func TestGKELogs_MoreLoadedAppendsEntries(t *testing.T) {
 	assert.Equal(t, "second", s.entries[1].Message)
 	assert.Equal(t, "page-3", s.nextPageToken)
 	assert.False(t, s.loadingMore, "loadingMore flag must clear so next scroll re-triggers")
+}
+
+// TestGKELogs_StaleResponseDropped guards against the regression where a
+// slow first-page or LoadMore response could appear under a freshly
+// changed toolbar state (severity / resource toggle has bumped the
+// generation).
+func TestGKELogs_StaleResponseDropped(t *testing.T) {
+	s := newGKELogs("proj", "us-central1", "prod", nil)
+	// User toggled severity — generation is now 1, entries cleared, loading=true.
+	s.generation = 1
+	s.loading = true
+	s.entries = nil
+
+	// Slow response from the previous (gen=0) fetch lands.
+	s.Update(gkeLogsLoadedMsg{
+		gen:     0,
+		entries: []gcp.LogEntry{{Message: "stale"}},
+	})
+	assert.Empty(t, s.entries, "stale-gen response must not populate entries")
+	assert.True(t, s.loading, "stale-gen response must not flip loading=false")
+
+	// LoadMore from the same stale generation also dropped.
+	s.entries = []gcp.LogEntry{{Message: "fresh"}}
+	s.Update(gkeLogsMoreLoadedMsg{
+		gen:     0,
+		entries: []gcp.LogEntry{{Message: "stale-more"}},
+	})
+	assert.Len(t, s.entries, 1, "stale-gen LoadMore must not append")
+}
+
+// TestGKELogs_EnabledSeveritiesCoversFullBuckets guards against the
+// regression where enabledSeverities returned only INFO/WARNING/ERROR
+// — the Logs Explorer would then exclude DEBUG/NOTICE/CRITICAL/ALERT/
+// EMERGENCY events that ARE shown in the embedded view.
+func TestGKELogs_EnabledSeveritiesCoversFullBuckets(t *testing.T) {
+	s := newGKELogs("proj", "us-central1", "prod", nil)
+	sevs := s.enabledSeverities()
+	for _, want := range []string{"DEBUG", "INFO", "NOTICE", "DEFAULT", "WARNING", "ERROR", "CRITICAL", "ALERT", "EMERGENCY"} {
+		assert.Contains(t, sevs, want, "default state (all on) must include %s", want)
+	}
+
+	s.infoOn = false
+	s.warnOn = false
+	sevs = s.enabledSeverities()
+	assert.NotContains(t, sevs, "INFO")
+	assert.NotContains(t, sevs, "DEBUG")
+	assert.NotContains(t, sevs, "WARNING")
+	assert.Contains(t, sevs, "ERROR")
+	assert.Contains(t, sevs, "CRITICAL")
+	assert.Contains(t, sevs, "EMERGENCY")
 }
 
 // TestGKELogs_LoadMoreNoOpWithoutToken guards against firing duplicate or

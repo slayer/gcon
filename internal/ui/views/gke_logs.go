@@ -35,6 +35,11 @@ type gkeLogs struct {
 	loadingMore   bool   // gate to dedupe infinite-scroll triggers
 	err           error
 	loading       bool
+	// generation increments on every Refresh (toggle / resource change /
+	// manual refresh). Each fetch tags its response with the current
+	// value so stale first-page or load-more responses can't appear
+	// under a freshly-changed toolbar state.
+	generation int
 
 	spinner spinner.Model
 
@@ -65,6 +70,7 @@ func (s *gkeLogs) SetTabActive(active bool) { s.tabActive = active }
 
 func (s *gkeLogs) Init() tea.Cmd {
 	s.loading = true
+	s.generation++
 	return tea.Batch(s.spinner.Tick, s.fetchLogs(), s.tickAutoRefresh())
 }
 
@@ -79,6 +85,7 @@ func (s *gkeLogs) Refresh() tea.Cmd {
 	s.entries = nil
 	s.nextPageToken = ""
 	s.loadingMore = false
+	s.generation++
 	return tea.Batch(s.spinner.Tick, s.fetchLogs())
 }
 
@@ -88,18 +95,19 @@ func (s *gkeLogs) fetchLogs() tea.Cmd {
 	}
 	query := s.buildLQL()
 	projectID := s.projectID
+	gen := s.generation
 	return func() tea.Msg {
 		ctx, cancel := gocontext.WithTimeout(gocontext.Background(), 30*time.Second)
 		defer cancel()
 		lc, err := s.gcpClient.GetLoggingClient(projectID)
 		if err != nil {
-			return gkeLogsErrorMsg{err: fmt.Errorf("logging client: %w", err)}
+			return gkeLogsErrorMsg{gen: gen, err: fmt.Errorf("logging client: %w", err)}
 		}
 		entries, nextToken, err := lc.ListLogEntries(ctx, query, 100, "")
 		if err != nil {
-			return gkeLogsErrorMsg{err: err}
+			return gkeLogsErrorMsg{gen: gen, err: err}
 		}
-		return gkeLogsLoadedMsg{entries: entries, nextPageToken: nextToken}
+		return gkeLogsLoadedMsg{gen: gen, entries: entries, nextPageToken: nextToken}
 	}
 }
 
@@ -116,18 +124,19 @@ func (s *gkeLogs) LoadMore() tea.Cmd {
 	query := s.buildLQL()
 	token := s.nextPageToken
 	projectID := s.projectID
+	gen := s.generation
 	return func() tea.Msg {
 		ctx, cancel := gocontext.WithTimeout(gocontext.Background(), 30*time.Second)
 		defer cancel()
 		lc, err := s.gcpClient.GetLoggingClient(projectID)
 		if err != nil {
-			return gkeLogsErrorMsg{err: fmt.Errorf("logging client: %w", err)}
+			return gkeLogsErrorMsg{gen: gen, err: fmt.Errorf("logging client: %w", err)}
 		}
 		entries, nextToken, err := lc.ListLogEntries(ctx, query, 100, token)
 		if err != nil {
-			return gkeLogsErrorMsg{err: err}
+			return gkeLogsErrorMsg{gen: gen, err: err}
 		}
-		return gkeLogsMoreLoadedMsg{entries: entries, nextPageToken: nextToken}
+		return gkeLogsMoreLoadedMsg{gen: gen, entries: entries, nextPageToken: nextToken}
 	}
 }
 
@@ -194,16 +203,32 @@ func (s *gkeLogs) Update(msg tea.Msg) tea.Cmd {
 		s.spinner, cmd = s.spinner.Update(m)
 		return cmd
 	case gkeLogsLoadedMsg:
+		// Drop responses from a superseded query — e.g. a slow first-page
+		// fetch that lands after the user toggled severity off and a new
+		// fetch is already in flight. Otherwise stale entries appear
+		// under the new toolbar state.
+		if m.gen != s.generation {
+			return nil
+		}
 		s.loading = false
 		s.entries = m.entries
 		s.nextPageToken = m.nextPageToken
 		return nil
 	case gkeLogsMoreLoadedMsg:
+		// Same guard for infinite-scroll pages: a LoadMore that arrives
+		// after a Refresh would otherwise tack stale entries onto the
+		// new (empty) list.
+		if m.gen != s.generation {
+			return nil
+		}
 		s.loadingMore = false
 		s.entries = append(s.entries, m.entries...)
 		s.nextPageToken = m.nextPageToken
 		return nil
 	case gkeLogsErrorMsg:
+		if m.gen != s.generation {
+			return nil
+		}
 		s.loading = false
 		s.loadingMore = false
 		s.err = m.err
@@ -283,17 +308,23 @@ func nextGKELogsResourceType(current string) string {
 
 // enabledSeverities lists severity tokens for any toggle currently on.
 // The dedicated Logs Explorer accepts these to pre-check its severity
-// filter dropdown.
+// filter dropdown, then adds its own `severity = ...` filter on top of
+// the LQL we hand over. We must list EVERY level each toggle covers —
+// otherwise the Explorer's filter narrows the result beyond what the
+// embedded view shows. The INFO toggle covers INFO/NOTICE/DEBUG/DEFAULT
+// (anything below WARNING); the ERROR toggle covers
+// ERROR/CRITICAL/ALERT/EMERGENCY (anything ≥ ERROR). Keep this in lockstep
+// with the disjuncts in buildLQL.
 func (s *gkeLogs) enabledSeverities() []string {
 	var out []string
 	if s.infoOn {
-		out = append(out, "INFO")
+		out = append(out, "DEFAULT", "DEBUG", "INFO", "NOTICE")
 	}
 	if s.warnOn {
 		out = append(out, "WARNING")
 	}
 	if s.errOn {
-		out = append(out, "ERROR")
+		out = append(out, "ERROR", "CRITICAL", "ALERT", "EMERGENCY")
 	}
 	return out
 }

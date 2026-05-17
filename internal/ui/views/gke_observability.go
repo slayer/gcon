@@ -34,6 +34,13 @@ type gkeObservability struct {
 	autoRefresh bool
 	tabActive   bool
 
+	// generation increments on every Refresh / Init. Each fetch captures
+	// the current value and tags its response message with it; the Update
+	// handler drops responses whose tag is stale. Without this, a slow 7d
+	// response could land after the user has switched to 1h and overwrite
+	// the new chart with old-range data.
+	generation int
+
 	spinner spinner.Model
 	loading bool
 	err     error
@@ -85,6 +92,7 @@ func (s *gkeObservability) SetTabActive(active bool) { s.tabActive = active }
 // Init triggers the first metrics fetch and schedules the first auto-refresh tick.
 func (s *gkeObservability) Init() tea.Cmd {
 	s.loading = true
+	s.generation++
 	return tea.Batch(s.spinner.Tick, s.fetchAllMetrics(), s.tickAutoRefresh())
 }
 
@@ -99,22 +107,27 @@ func (s *gkeObservability) Refresh() tea.Cmd {
 	s.err = nil
 	s.warnings = map[string]error{}
 	s.metrics = gcp.GKEMetrics{}
+	s.generation++
 	return tea.Batch(s.spinner.Tick, s.fetchAllMetrics())
 }
 
 // fetchAllMetrics issues all six monitoring queries sequentially within
 // a single tea.Cmd goroutine. Per-metric errors are collected as warnings
 // so one broken metric doesn't blank the whole tab (mirrors the LB pattern).
+// The current generation is captured at call time and tagged into the
+// response, so the Update handler can drop responses from a superseded
+// range/refresh.
 func (s *gkeObservability) fetchAllMetrics() tea.Cmd {
 	if s.gcpClient == nil {
 		return nil
 	}
 	duration := gkeObsRanges[s.rangeIdx]
+	gen := s.generation
 	return func() tea.Msg {
 		ctx := gocontext.Background()
 		mc, err := s.gcpClient.GetMonitoringClient(s.projectID)
 		if err != nil {
-			return gkeObsMetricsLoadedMsg{warnings: map[string]error{"client": err}}
+			return gkeObsMetricsLoadedMsg{gen: gen, warnings: map[string]error{"client": err}}
 		}
 		var (
 			metrics  gcp.GKEMetrics
@@ -147,7 +160,7 @@ func (s *gkeObservability) fetchAllMetrics() tea.Cmd {
 			metrics.NetworkTxBytes = tx
 		}
 		metrics.LastFetch = time.Now()
-		return gkeObsMetricsLoadedMsg{metrics: metrics, warnings: warnings}
+		return gkeObsMetricsLoadedMsg{gen: gen, metrics: metrics, warnings: warnings}
 	}
 }
 
@@ -184,6 +197,14 @@ func (s *gkeObservability) HasTextInputFocused() bool { return false }
 func (s *gkeObservability) Update(msg tea.Msg) tea.Cmd {
 	switch m := msg.(type) {
 	case gkeObsMetricsLoadedMsg:
+		// Drop responses from a superseded request — e.g. a slow 7d
+		// fetch that lands after the user switched to 1h and a new
+		// fetch is already in flight. Without this guard the stale
+		// response would overwrite the chart with wrong-range data
+		// while the range bar advertises the new range.
+		if m.gen != s.generation {
+			return nil
+		}
 		s.loading = false
 		s.metrics = m.metrics
 		s.warnings = m.warnings

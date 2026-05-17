@@ -442,12 +442,11 @@ arrow does the same without needing to select the row first.
 
 | Key | Action |
 |-----|--------|
-| `I` / `W` / `E` | Toggle severity (INFO / WARNING / ERROR) |
+| `I` / `W` / `E` | Toggle severity bucket (INFO+below / WARNING / ERROR+above) |
 | `R` | Cycle resource type (k8s_cluster → k8s_node → k8s_pod → k8s_container, wraps) |
 | `a` | Toggle auto-refresh (default off, 15 s) |
 | `L` | Open full Logs Explorer pre-filtered for this cluster |
 | `r` | Manual refresh |
-| `Enter` | Expand the focused log entry |
 
 ## SQL Instances View
 
