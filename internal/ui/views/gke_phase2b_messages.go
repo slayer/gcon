@@ -73,6 +73,16 @@ type GKENodePoolUpgradeResultMsg struct {
 	Error error
 }
 
+// === Node pool create (navigation from cluster details) ===
+
+// GKENodePoolCreateRequestedMsg asks the app to open the create-pool form view.
+// Emitted by GKEClusterDetailsView when the user presses `c` on the Node Pools tab.
+//
+//nolint:unused // wired in Task 12 (app handler)
+type GKENodePoolCreateRequestedMsg struct {
+	ProjectID, Location, ClusterName string
+}
+
 // === Operation polling ===
 
 // gkeOperationPollMsg fires after a 5 s tick to re-fetch operation state.
