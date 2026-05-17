@@ -109,3 +109,23 @@ func (c *ContainerClient) UpgradeNodePool(ctx context.Context, projectID, locati
 	}
 	return projectOperation(raw), nil
 }
+
+// CreateNodePool adds a new node pool. The caller composes the
+// container.NodePool with all fields set; buildCreateNodePoolRequest
+// wraps it. Returns the in-flight Operation.
+func (c *ContainerClient) CreateNodePool(ctx context.Context, projectID, location, clusterName string, pool *container.NodePool) (Operation, error) {
+	req := buildCreateNodePoolRequest(pool)
+	raw, err := c.service.Projects.Locations.Clusters.NodePools.
+		Create(clusterFQN(projectID, location, clusterName), req).
+		Context(ctx).Do()
+	if err != nil {
+		return Operation{}, fmt.Errorf("create node pool %s: %w", pool.Name, err)
+	}
+	return projectOperation(raw), nil
+}
+
+func buildCreateNodePoolRequest(pool *container.NodePool) *container.CreateNodePoolRequest {
+	return &container.CreateNodePoolRequest{
+		NodePool: pool,
+	}
+}
