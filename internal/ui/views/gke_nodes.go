@@ -31,6 +31,7 @@ type gkeNodes struct {
 
 	nodes         []gcp.GKENode // accumulated across pool fetches
 	pendingMIGs   int           // counts outstanding ListManagedInstances calls
+	totalMIGs     int           // total MIG fetches kicked off by the current fanOut (for the loading message)
 	warnings      map[string]error
 	loading       bool
 	err           error
@@ -75,6 +76,7 @@ func (s *gkeNodes) Init() tea.Cmd {
 	// because the rows look authoritative.
 	s.refreshTable()
 	s.pendingMIGs = 0
+	s.totalMIGs = 0
 	s.warnings = map[string]error{}
 	// Lazy-construct the compute client when the parent details view
 	// wasn't seeded with one (e.g. the user navigated straight from the
@@ -130,6 +132,7 @@ func (s *gkeNodes) fanOut() tea.Cmd {
 				continue
 			}
 			s.pendingMIGs++
+			s.totalMIGs++
 			poolName := pool.Name
 			cmds = append(cmds, s.fetchMIG(poolName, zone, migName))
 		}
@@ -236,8 +239,20 @@ func (s *gkeNodes) handleKey(m tea.KeyMsg) tea.Cmd {
 }
 
 func (s *gkeNodes) View() string {
-	if s.loading && len(s.nodes) == 0 {
-		return renderLoading(s.spinner, "Loading nodes...")
+	// Keep the loading state up until every MIG fetch has returned.
+	// Showing partial rows during the fan-out is misleading — the table
+	// looks "complete" then suddenly grows when the next instance group
+	// lands. Once totalMIGs is known we surface (completed/total) so the
+	// user knows what's still outstanding. NB: pools and MIGs aren't 1:1
+	// — a regional pool spans one MIG per zone, so the count uses
+	// "instance groups" instead of "pools".
+	if s.loading {
+		msg := "Loading nodes..."
+		if s.totalMIGs > 0 {
+			completed := s.totalMIGs - s.pendingMIGs
+			msg = fmt.Sprintf("Loading nodes (%d/%d instance groups)...", completed, s.totalMIGs)
+		}
+		return renderLoading(s.spinner, msg)
 	}
 	if s.err != nil && len(s.nodes) == 0 {
 		return components.RenderError(s.err)

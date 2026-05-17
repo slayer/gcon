@@ -299,15 +299,24 @@ func (s *gkeLogs) enabledSeverities() []string {
 }
 
 func (s *gkeLogs) View() string {
-	if s.loading && len(s.entries) == 0 {
-		return renderLoading(s.spinner, "Loading logs...")
-	}
-	if s.err != nil && len(s.entries) == 0 {
-		return components.RenderError(s.err)
-	}
+	// The toolbar renders FIRST in every state so the user can see the
+	// effect of severity / resource-type / auto-refresh toggles even
+	// while a refresh is in flight. The previous layout swapped the
+	// whole tab for "Loading logs..." after a toggle press, hiding the
+	// updated toggle indicator and leaving the user unsure their `I` /
+	// `W` / `E` keystroke registered.
 	var b strings.Builder
 	b.WriteString(s.renderToolbar())
 	b.WriteString("\n\n")
+
+	if s.loading && len(s.entries) == 0 {
+		b.WriteString(renderLoading(s.spinner, "Loading logs..."))
+		return b.String()
+	}
+	if s.err != nil && len(s.entries) == 0 {
+		b.WriteString(components.RenderError(s.err))
+		return b.String()
+	}
 	if len(s.entries) == 0 {
 		muted := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
 		b.WriteString(muted.Render("  (no log entries match the current filters)"))

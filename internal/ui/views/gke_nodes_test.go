@@ -133,3 +133,27 @@ func TestGKENodes_RefreshClearsStaleRows(t *testing.T) {
 	s.Refresh()
 	assert.Empty(t, s.table.Rows(), "Refresh must clear stale rows before the new fetch lands")
 }
+
+// TestGKENodes_LoadingUntilAllMIGsLand guards against the regression
+// where partial fan-out results swapped the loading state for a half-
+// populated table. Until pendingMIGs hits 0, View() must keep showing
+// the loading indicator with a (completed/total) hint.
+func TestGKENodes_LoadingUntilAllMIGsLand(t *testing.T) {
+	s := gkeNodesWithFixtures()
+	// Set up an in-progress fan-out: 3 MIGs total, 1 already returned.
+	s.loading = true
+	s.totalMIGs = 3
+	s.pendingMIGs = 2
+	s.nodes = []gcp.GKENode{{
+		MIGInstance: gcp.MIGInstance{Name: "node-a", Zone: "us-central1-a", Status: "RUNNING"},
+		Pool:        "default",
+	}}
+	s.refreshTable()
+	out := s.View()
+	assert.Contains(t, out, "Loading nodes",
+		"View must keep the loading indicator visible while any MIG fetch is in flight")
+	assert.Contains(t, out, "1/3",
+		"loading message should surface completed/total so the user knows progress")
+	assert.NotContains(t, out, "node-a",
+		"partial rows must NOT leak into the loading state — they'd look authoritative")
+}

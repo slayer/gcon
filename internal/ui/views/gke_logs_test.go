@@ -136,6 +136,24 @@ func TestGKELogs_SeverityIndependent(t *testing.T) {
 	assert.Contains(t, q, "NEVERMATCH")
 }
 
+// TestGKELogs_ToolbarVisibleWhileLoading guards against the regression
+// where Refresh blanked the toolbar with "Loading logs...", hiding the
+// severity / resource / auto-refresh toggle state. The user pressed I/W/E
+// and saw no feedback that the toggle had flipped.
+func TestGKELogs_ToolbarVisibleWhileLoading(t *testing.T) {
+	s := newGKELogs("proj", "us-central1", "prod", nil)
+	s.loading = true
+	s.entries = nil
+	out := s.View()
+	assert.Contains(t, out, "Loading logs",
+		"loading message must still render in the body")
+	assert.Contains(t, out, "Severity:",
+		"toolbar must remain visible during loading so toggle feedback is reachable")
+	assert.Contains(t, out, "INFO")
+	assert.Contains(t, out, "WARNING")
+	assert.Contains(t, out, "ERROR")
+}
+
 // TestGKELogs_RCyclesResourceType verifies the R-key handler advances
 // through the resource-type cycle and wraps after the last entry.
 func TestGKELogs_RCyclesResourceType(t *testing.T) {
