@@ -154,3 +154,15 @@ func TestUniformNodeVersion(t *testing.T) {
 	assert.True(t, uniformNodeVersion([]NodePool{{NodeVersion: "1.30"}, {NodeVersion: "1.30"}}))
 	assert.False(t, uniformNodeVersion([]NodePool{{NodeVersion: "1.30"}, {NodeVersion: "1.29"}}))
 }
+
+func TestServerConfigProjection(t *testing.T) {
+	raw := &container.ServerConfig{
+		DefaultClusterVersion: "1.30.5-gke.1014001",
+		ValidMasterVersions:   []string{"1.31.1-gke.1", "1.30.5-gke.1014001"},
+		ValidNodeVersions:     []string{"1.31.1-gke.1", "1.30.5-gke.1014001"},
+	}
+	cfg := projectServerConfig(raw)
+	assert.Equal(t, "1.30.5-gke.1014001", cfg.DefaultClusterVersion)
+	assert.Len(t, cfg.ValidMasterVersions, 2)
+	assert.Equal(t, "1.31.1-gke.1", cfg.ValidMasterVersions[0])
+}

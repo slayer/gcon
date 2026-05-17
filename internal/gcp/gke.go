@@ -293,3 +293,29 @@ type GKENode struct {
 	MIGInstance
 	Pool string
 }
+
+// ServerConfig is the subset of container.ServerConfig the upgrade
+// picker reads. ValidMasterVersions / ValidNodeVersions are sorted
+// newest-first by GCP and we keep that order.
+type ServerConfig struct {
+	DefaultClusterVersion string
+	ValidMasterVersions   []string
+	ValidNodeVersions     []string
+}
+
+func (c *ContainerClient) GetServerConfig(ctx context.Context, projectID, location string) (ServerConfig, error) {
+	parent := fmt.Sprintf("projects/%s/locations/%s", projectID, location)
+	raw, err := c.service.Projects.Locations.GetServerConfig(parent).Context(ctx).Do()
+	if err != nil {
+		return ServerConfig{}, fmt.Errorf("get server config for %s: %w", location, err)
+	}
+	return projectServerConfig(raw), nil
+}
+
+func projectServerConfig(raw *container.ServerConfig) ServerConfig {
+	return ServerConfig{
+		DefaultClusterVersion: raw.DefaultClusterVersion,
+		ValidMasterVersions:   append([]string{}, raw.ValidMasterVersions...),
+		ValidNodeVersions:     append([]string{}, raw.ValidNodeVersions...),
+	}
+}
