@@ -14,7 +14,7 @@ type Operation struct {
 	Name          string
 	Type          string
 	Status        string
-	Target        string
+	Target        string // full resource URL (raw.TargetLink), not the short path
 	StatusMessage string
 	Detail        string
 	StartTime     time.Time
