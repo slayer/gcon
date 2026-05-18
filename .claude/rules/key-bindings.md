@@ -448,6 +448,21 @@ arrow does the same without needing to select the row first.
 | `L` | Open full Logs Explorer pre-filtered for this cluster |
 | `r` | Manual refresh |
 
+### GKE Cluster Details — Overview tab actions
+
+| Key | Action |
+|-----|--------|
+| `u` | Upgrade control plane (version picker; hidden on managed release channels) |
+
+### GKE Cluster Details — Node Pools tab actions (Standard clusters only)
+
+| Key | Action |
+|-----|--------|
+| `c` | Create new node pool (form) |
+| `D` | Delete focused pool (type-to-confirm) |
+| `R` | Resize focused pool (manual or autoscale) |
+| `u` | Upgrade focused pool (version picker) |
+
 ## SQL Instances View
 
 | Key | Action |

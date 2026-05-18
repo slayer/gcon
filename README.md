@@ -338,7 +338,7 @@ Without mise, install Go 1.26+ and `golangci-lint` 2.12+ manually.
 <details>
 <summary><strong>Kubernetes Engine</strong></summary>
 
-- **GKE (Kubernetes Engine)**: clusters list (Autopilot + Standard, zonal + regional), 5-tab cluster details (Overview, Node Pools, Nodes, Observability, Logs), type-to-confirm delete with non-auto-deleted resource warning, cluster-scope monitoring charts with time range + auto-refresh, embedded logs viewer with severity toggles
+- **GKE (Kubernetes Engine)**: clusters list (Autopilot + Standard, zonal + regional), 5-tab cluster details (Overview, Node Pools, Nodes, Observability, Logs), type-to-confirm delete with non-auto-deleted resource warning, cluster-scope monitoring charts with time range + auto-refresh, embedded logs viewer with severity toggles. Phase 2b adds node-pool create/delete/resize and control-plane/node-pool upgrades with footer-tracked long-running operations.
 </details>
 
 <details>
@@ -381,9 +381,7 @@ The following features are planned for future releases:
 
 - [ ] **SSH Integration** - Direct SSH access to instances via gcloud
 - [ ] **Resource Caching** - Local caching layer for faster repeated queries
-- [ ] **Google Kubernetes Engine (GKE) — Phase 2b and beyond**
-  - Node pool create/delete, cluster/pool resize, master + node-pool upgrade
-  - Cluster create wizard (Phase 3)
+- [ ] **Google Kubernetes Engine (GKE) — Phase 3**: cluster create wizard
 - [ ] **Cloud Functions** - Function deployment and monitoring
 - [ ] **Subnets** - Standalone subnet list and management
 - [ ] **Cost Explorer** - Resource cost analysis and budgets

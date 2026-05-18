@@ -353,7 +353,7 @@ On developing or updating a new feature keep in mind the following guidelines:
   - Network LBs (passthrough / proxy / legacy) render an explicit
     placeholder on the Observability tab — `l3/*` metric family is on
     the roadmap.
-- [x] GKE cluster management (Phase 1 + 2a)
+- [x] GKE cluster management (Phase 1 + 2a + 2b)
   - Clusters list across all locations (zonal + regional, Autopilot + Standard)
   - Cluster details with Overview, Node Pools, Nodes, Observability, and Logs tabs
   - Type-to-confirm cluster delete with explicit warning about non-auto-deleted
@@ -365,6 +365,13 @@ On developing or updating a new feature keep in mind the following guidelines:
     Pod count, Network rx/tx) with time range selector and 30s auto-refresh
   - Logs tab: filterable embedded log viewer with severity toggles
     (INFO/WARNING/ERROR) and resource-type dropdown (cluster/node/pod/container)
+  - Phase 2b mutations:
+    - Create node pool with form (machine type, autoscaling, lifecycle settings)
+    - Delete pool with type-to-confirm
+    - Resize pool (manual count or autoscale min/max in one dialog)
+    - Upgrade control plane and individual node pools (version picker)
+    - Long-running operations tracked in footer with 5 s polling; refresh on DONE
+    - Autopilot clusters hide pool actions; release-channel clusters hide master upgrade
 
 ## Planned Features
 - [x] Subnets list and management
@@ -375,5 +382,4 @@ On developing or updating a new feature keep in mind the following guidelines:
   - Hands off via `gcloud compute ssh` by default; falls back to plain `ssh` when gcloud is absent
   - Returns to the TUI on exit; if the binary cannot launch, the error is shown inline (stderr from a started session is printed to the terminal during the session itself, not captured afterward)
 - [ ] Resource caching
-- [ ] GKE cluster management (Phase 2b) — node pool create/delete, cluster/pool resize, master + node-pool upgrade
 - [ ] GKE Phase 3: cluster create wizard
