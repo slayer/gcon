@@ -19,8 +19,9 @@ type GKENodePoolCreateRequestMsg struct {
 
 type GKENodePoolCreateCanceledMsg struct{}
 type GKENodePoolCreateResultMsg struct {
-	Pool  string
-	Error error
+	TaskID string
+	Pool   string
+	Error  error
 }
 
 // === Node pool delete ===
@@ -30,8 +31,9 @@ type GKENodePoolDeleteRequestMsg struct {
 }
 
 type GKENodePoolDeleteResultMsg struct {
-	Pool  string
-	Error error
+	TaskID string
+	Pool   string
+	Error  error
 }
 
 // === Node pool resize ===
@@ -52,8 +54,9 @@ type GKENodePoolResizeRequestMsg struct {
 }
 
 type GKENodePoolResizeResultMsg struct {
-	Pool  string
-	Error error
+	TaskID string
+	Pool   string
+	Error  error
 }
 
 // === Upgrade (master + node pool, share the same dialog) ===
@@ -62,15 +65,17 @@ type GKEMasterUpgradeRequestMsg struct {
 	ProjectID, Location, ClusterName, Version string
 }
 type GKEMasterUpgradeResultMsg struct {
-	Error error
+	TaskID string
+	Error  error
 }
 
 type GKENodePoolUpgradeRequestMsg struct {
 	ProjectID, Location, ClusterName, PoolName, Version string
 }
 type GKENodePoolUpgradeResultMsg struct {
-	Pool  string
-	Error error
+	TaskID string
+	Pool   string
+	Error  error
 }
 
 // === Node pool create (navigation from cluster details) ===

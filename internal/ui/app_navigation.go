@@ -3957,7 +3957,7 @@ func (a *App) handleGKENodePoolCreateRequest(msg views.GKENodePoolCreateRequestM
 	return func() tea.Msg {
 		op, err := cc.CreateNodePool(gocontext.Background(), projectID, location, clusterName, pool)
 		if err != nil {
-			return views.GKENodePoolCreateResultMsg{Pool: poolName, Error: err}
+			return views.GKENodePoolCreateResultMsg{TaskID: taskID, Pool: poolName, Error: err}
 		}
 		return views.GKEOperationPollMsg{
 			TaskID:    taskID,
@@ -3966,12 +3966,12 @@ func (a *App) handleGKENodePoolCreateRequest(msg views.GKENodePoolCreateRequestM
 			Name:      op.Name,
 			OnDone: func() tea.Cmd {
 				return func() tea.Msg {
-					return views.GKENodePoolCreateResultMsg{Pool: poolName}
+					return views.GKENodePoolCreateResultMsg{TaskID: taskID, Pool: poolName}
 				}
 			},
 			OnError: func(opErr error) tea.Cmd {
 				return func() tea.Msg {
-					return views.GKENodePoolCreateResultMsg{Pool: poolName, Error: opErr}
+					return views.GKENodePoolCreateResultMsg{TaskID: taskID, Pool: poolName, Error: opErr}
 				}
 			},
 		}
@@ -3982,10 +3982,17 @@ func (a *App) handleGKENodePoolCreateRequest(msg views.GKENodePoolCreateRequestM
 //
 //nolint:gocritic // hugeParam: message struct passed by value
 func (a *App) handleGKENodePoolCreateResult(msg views.GKENodePoolCreateResultMsg) tea.Cmd {
+	var cmds []tea.Cmd
+	if cmd := a.finishTask(msg.TaskID, msg.Error); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
 	if msg.Error != nil {
 		a.err = msg.Error
 		if a.currentView == ViewGKENodePoolCreate && a.gkeNodePoolCreateView != nil {
 			a.gkeNodePoolCreateView.SetError(msg.Error)
+		}
+		if len(cmds) > 0 {
+			return tea.Batch(cmds...)
 		}
 		return nil
 	}
@@ -4000,7 +4007,8 @@ func (a *App) handleGKENodePoolCreateResult(msg views.GKENodePoolCreateResultMsg
 	}
 	a.gkeNodePoolCreateView = nil
 	a.updateSidebarActiveView()
-	return a.refreshActiveGKECluster()
+	cmds = append(cmds, a.refreshActiveGKECluster())
+	return tea.Batch(cmds...)
 }
 
 // handleGKENodePoolDeleteRequest calls the GKE API to delete the pool.
@@ -4028,7 +4036,7 @@ func (a *App) handleGKENodePoolDeleteRequest(msg views.GKENodePoolDeleteRequestM
 	return func() tea.Msg {
 		op, err := cc.DeleteNodePool(gocontext.Background(), projectID, location, clusterName, poolName)
 		if err != nil {
-			return views.GKENodePoolDeleteResultMsg{Pool: poolName, Error: err}
+			return views.GKENodePoolDeleteResultMsg{TaskID: taskID, Pool: poolName, Error: err}
 		}
 		return views.GKEOperationPollMsg{
 			TaskID:    taskID,
@@ -4037,12 +4045,12 @@ func (a *App) handleGKENodePoolDeleteRequest(msg views.GKENodePoolDeleteRequestM
 			Name:      op.Name,
 			OnDone: func() tea.Cmd {
 				return func() tea.Msg {
-					return views.GKENodePoolDeleteResultMsg{Pool: poolName}
+					return views.GKENodePoolDeleteResultMsg{TaskID: taskID, Pool: poolName}
 				}
 			},
 			OnError: func(opErr error) tea.Cmd {
 				return func() tea.Msg {
-					return views.GKENodePoolDeleteResultMsg{Pool: poolName, Error: opErr}
+					return views.GKENodePoolDeleteResultMsg{TaskID: taskID, Pool: poolName, Error: opErr}
 				}
 			},
 		}
@@ -4053,14 +4061,22 @@ func (a *App) handleGKENodePoolDeleteRequest(msg views.GKENodePoolDeleteRequestM
 //
 //nolint:gocritic // hugeParam: message struct passed by value
 func (a *App) handleGKENodePoolDeleteResult(msg views.GKENodePoolDeleteResultMsg) tea.Cmd {
+	var cmds []tea.Cmd
+	if cmd := a.finishTask(msg.TaskID, msg.Error); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
 	if msg.Error != nil {
 		a.err = msg.Error
 		if a.currentView == ViewGKEClusterDetails && a.gkeClusterDetailsView != nil {
 			a.gkeClusterDetailsView.SetError(msg.Error)
 		}
+		if len(cmds) > 0 {
+			return tea.Batch(cmds...)
+		}
 		return nil
 	}
-	return a.refreshActiveGKECluster()
+	cmds = append(cmds, a.refreshActiveGKECluster())
+	return tea.Batch(cmds...)
 }
 
 // handleGKENodePoolResizeRequest calls the GKE API to resize a pool (manual or autoscale).
@@ -4102,7 +4118,7 @@ func (a *App) handleGKENodePoolResizeRequest(msg views.GKENodePoolResizeRequestM
 			)
 		}
 		if err != nil {
-			return views.GKENodePoolResizeResultMsg{Pool: poolName, Error: err}
+			return views.GKENodePoolResizeResultMsg{TaskID: taskID, Pool: poolName, Error: err}
 		}
 		return views.GKEOperationPollMsg{
 			TaskID:    taskID,
@@ -4111,12 +4127,12 @@ func (a *App) handleGKENodePoolResizeRequest(msg views.GKENodePoolResizeRequestM
 			Name:      op.Name,
 			OnDone: func() tea.Cmd {
 				return func() tea.Msg {
-					return views.GKENodePoolResizeResultMsg{Pool: poolName}
+					return views.GKENodePoolResizeResultMsg{TaskID: taskID, Pool: poolName}
 				}
 			},
 			OnError: func(opErr error) tea.Cmd {
 				return func() tea.Msg {
-					return views.GKENodePoolResizeResultMsg{Pool: poolName, Error: opErr}
+					return views.GKENodePoolResizeResultMsg{TaskID: taskID, Pool: poolName, Error: opErr}
 				}
 			},
 		}
@@ -4127,14 +4143,22 @@ func (a *App) handleGKENodePoolResizeRequest(msg views.GKENodePoolResizeRequestM
 //
 //nolint:gocritic // hugeParam: message struct passed by value
 func (a *App) handleGKENodePoolResizeResult(msg views.GKENodePoolResizeResultMsg) tea.Cmd {
+	var cmds []tea.Cmd
+	if cmd := a.finishTask(msg.TaskID, msg.Error); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
 	if msg.Error != nil {
 		a.err = msg.Error
 		if a.currentView == ViewGKEClusterDetails && a.gkeClusterDetailsView != nil {
 			a.gkeClusterDetailsView.SetError(msg.Error)
 		}
+		if len(cmds) > 0 {
+			return tea.Batch(cmds...)
+		}
 		return nil
 	}
-	return a.refreshActiveGKECluster()
+	cmds = append(cmds, a.refreshActiveGKECluster())
+	return tea.Batch(cmds...)
 }
 
 // handleGKEMasterUpgradeRequest calls the GKE API to upgrade the control plane.
@@ -4159,7 +4183,7 @@ func (a *App) handleGKEMasterUpgradeRequest(msg views.GKEMasterUpgradeRequestMsg
 	return func() tea.Msg {
 		op, err := cc.UpgradeControlPlane(gocontext.Background(), projectID, location, clusterName, version)
 		if err != nil {
-			return views.GKEMasterUpgradeResultMsg{Error: err}
+			return views.GKEMasterUpgradeResultMsg{TaskID: taskID, Error: err}
 		}
 		return views.GKEOperationPollMsg{
 			TaskID:    taskID,
@@ -4167,10 +4191,10 @@ func (a *App) handleGKEMasterUpgradeRequest(msg views.GKEMasterUpgradeRequestMsg
 			Location:  location,
 			Name:      op.Name,
 			OnDone: func() tea.Cmd {
-				return func() tea.Msg { return views.GKEMasterUpgradeResultMsg{} }
+				return func() tea.Msg { return views.GKEMasterUpgradeResultMsg{TaskID: taskID} }
 			},
 			OnError: func(opErr error) tea.Cmd {
-				return func() tea.Msg { return views.GKEMasterUpgradeResultMsg{Error: opErr} }
+				return func() tea.Msg { return views.GKEMasterUpgradeResultMsg{TaskID: taskID, Error: opErr} }
 			},
 		}
 	}
@@ -4180,14 +4204,22 @@ func (a *App) handleGKEMasterUpgradeRequest(msg views.GKEMasterUpgradeRequestMsg
 //
 //nolint:gocritic // hugeParam: message struct passed by value
 func (a *App) handleGKEMasterUpgradeResult(msg views.GKEMasterUpgradeResultMsg) tea.Cmd {
+	var cmds []tea.Cmd
+	if cmd := a.finishTask(msg.TaskID, msg.Error); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
 	if msg.Error != nil {
 		a.err = msg.Error
 		if a.currentView == ViewGKEClusterDetails && a.gkeClusterDetailsView != nil {
 			a.gkeClusterDetailsView.SetError(msg.Error)
 		}
+		if len(cmds) > 0 {
+			return tea.Batch(cmds...)
+		}
 		return nil
 	}
-	return a.refreshActiveGKECluster()
+	cmds = append(cmds, a.refreshActiveGKECluster())
+	return tea.Batch(cmds...)
 }
 
 // handleGKENodePoolUpgradeRequest calls the GKE API to upgrade a node pool's version.
@@ -4269,8 +4301,10 @@ func (a *App) startGKEOperationPoll(taskID, projectID, location, opName string, 
 // that emits gkeOperationPollResultMsg. This keeps the Update() dispatch
 // non-blocking.
 func (a *App) pollGKEOperationOnce(m views.GKEOperationPollMsg) tea.Cmd {
+	// Capture cc on the main goroutine: Bubble Tea is not goroutine-safe, so
+	// the closure cannot read App fields once it runs off-thread.
+	cc := a.borrowContainerClient()
 	return func() tea.Msg {
-		cc := a.borrowContainerClient()
 		if cc == nil {
 			return gkeOperationPollResultMsg{src: m, err: uierrors.ErrGKEClientNotInitialized}
 		}
