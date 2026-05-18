@@ -1,6 +1,7 @@
 package views
 
 import (
+	"errors"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -49,4 +50,20 @@ func TestGKENodePoolCreate_SubmitEmitsRequest(t *testing.T) {
 	require.True(t, found, "batch must contain a GKENodePoolCreateRequestMsg")
 	assert.Equal(t, "gpu-pool", req.Pool.Name)
 	assert.Equal(t, int64(2), req.Pool.InitialNodeCount)
+}
+
+func TestGKENodePoolCreate_SubmitRejectsInvertedAutoscaleRange(t *testing.T) {
+	v := NewGKENodePoolCreateView("proj", "us-central1", "prod", nil)
+	v.Form.SetData(map[string]any{
+		"name":              "gpu-pool",
+		"initial_count":     int64(5),
+		"autoscale_enabled": true,
+		"min_nodes":         int64(8),
+		"max_nodes":         int64(3),
+	})
+	cmd := v.handleSubmit()
+	assert.Nil(t, cmd, "submit must be blocked when min > max")
+	assert.NotNil(t, v.Err)
+	assert.True(t, errors.Is(v.Err, errNodePoolAutoscaleRangeInverted),
+		"error must wrap errNodePoolAutoscaleRangeInverted, got %v", v.Err)
 }

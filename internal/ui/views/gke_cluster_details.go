@@ -682,7 +682,7 @@ func (v *GKEClusterDetailsView) fetchServerConfig() tea.Cmd {
 	location := v.location
 	return func() tea.Msg {
 		if client == nil {
-			return gkeServerConfigLoadedMsg{err: uierrors.ErrClientNotInitialized}
+			return gkeServerConfigLoadedMsg{err: uierrors.ErrGKEClientNotInitialized}
 		}
 		cfg, err := client.GetServerConfig(gocontext.Background(), projectID, location)
 		return gkeServerConfigLoadedMsg{cfg: cfg, err: err}

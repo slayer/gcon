@@ -14,6 +14,9 @@ import (
 // errNodePoolInitialCountTooLow is returned when initial_count < autoscaling min_nodes.
 var errNodePoolInitialCountTooLow = errors.New("initial count must be >= min_nodes when autoscaling is enabled")
 
+// errNodePoolAutoscaleRangeInverted is returned when min_nodes > max_nodes.
+var errNodePoolAutoscaleRangeInverted = errors.New("min_nodes must be <= max_nodes")
+
 // GKENodePoolCreateView is a form-based creation view for new GKE node pools.
 type GKENodePoolCreateView struct {
 	CreateViewBase
@@ -138,10 +141,18 @@ func (v *GKENodePoolCreateView) handleSubmit() tea.Cmd {
 	data := v.Form.GetData()
 	pool := buildNodePoolFromForm(data)
 
-	// Cross-field check: if autoscale enabled, initial count must satisfy min_nodes.
-	if pool.Autoscaling != nil && pool.Autoscaling.Enabled && pool.InitialNodeCount < pool.Autoscaling.MinNodeCount {
-		v.SetError(fmt.Errorf("%w: initial=%d, min=%d", errNodePoolInitialCountTooLow, pool.InitialNodeCount, pool.Autoscaling.MinNodeCount))
-		return nil
+	// Cross-field checks for autoscaling: range must be sane AND initial count
+	// must be high enough to land inside it. min > max is checked first so the
+	// user fixes the range before learning the initial-count constraint.
+	if pool.Autoscaling != nil && pool.Autoscaling.Enabled {
+		if pool.Autoscaling.MinNodeCount > pool.Autoscaling.MaxNodeCount {
+			v.SetError(fmt.Errorf("%w: min=%d, max=%d", errNodePoolAutoscaleRangeInverted, pool.Autoscaling.MinNodeCount, pool.Autoscaling.MaxNodeCount))
+			return nil
+		}
+		if pool.InitialNodeCount < pool.Autoscaling.MinNodeCount {
+			v.SetError(fmt.Errorf("%w: initial=%d, min=%d", errNodePoolInitialCountTooLow, pool.InitialNodeCount, pool.Autoscaling.MinNodeCount))
+			return nil
+		}
 	}
 
 	// Transition to saving state; BeginSaving returns the first spinner tick cmd.

@@ -215,8 +215,10 @@ func (d *GKENodePoolResizeDialog) updateFocusedInput(msg tea.Msg) tea.Cmd {
 		case focusMax:
 			d.maxInput, cmd = d.maxInput.Update(msg)
 		case focusToggle:
-			// Toggle doesn't use textinput; handle space/enter via key handling.
-			if keyMsg, ok := msg.(tea.KeyMsg); ok && (keyMsg.String() == " " || keyMsg.String() == "enter") {
+			// Toggle doesn't use textinput; handle space here. Enter is
+			// intercepted earlier by handleKey to submit the dialog, so it
+			// would never reach this branch.
+			if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.String() == " " {
 				d.autoEnabled = !d.autoEnabled
 			}
 		}
