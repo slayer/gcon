@@ -333,6 +333,43 @@ func TestGKEClusterDetails_NodesSeesRefreshedDetails(t *testing.T) {
 	assert.Same(t, fresh, v.nodes.details)
 }
 
+func TestGKEClusterDetails_NodePoolCreateKeyStandard(t *testing.T) {
+	v := gkeDetailsFixture("STANDARD")
+	v.tabs.SetActiveByID("nodepools")
+	cmd := v.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	require.NotNil(t, cmd)
+	_, ok := cmd().(GKENodePoolCreateRequestedMsg)
+	assert.True(t, ok, "c on Node Pools (Standard) must emit GKENodePoolCreateRequestedMsg")
+}
+
+func TestGKEClusterDetails_NodePoolCreateKeyAutopilotNoOp(t *testing.T) {
+	v := gkeDetailsFixture("AUTOPILOT")
+	v.tabs.SetActiveByID("nodepools")
+	cmd := v.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	assert.Nil(t, cmd, "c on Node Pools (Autopilot) must be a no-op")
+}
+
+func TestGKEClusterDetails_MasterUpgradeKeyOpensDialog(t *testing.T) {
+	v := gkeDetailsFixture("STANDARD")
+	// STATIC channel allows manual upgrade.
+	v.details.ReleaseChannel = "STATIC"
+	v.serverConfig = gcp.ServerConfig{
+		ValidMasterVersions: []string{"1.31.1-gke.1", "1.30.5-gke.1014001"},
+	}
+	v.tabs.SetActiveByID("overview")
+	v.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'u'}})
+	assert.True(t, v.showUpgrade)
+	assert.NotNil(t, v.upgradeDialog)
+}
+
+func TestGKEClusterDetails_MasterUpgradeKeyNoOpOnReleaseChannel(t *testing.T) {
+	v := gkeDetailsFixture("STANDARD")
+	v.details.ReleaseChannel = "REGULAR"
+	v.tabs.SetActiveByID("overview")
+	v.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'u'}})
+	assert.False(t, v.showUpgrade, "u on managed channel must NOT open the dialog")
+}
+
 // TestGKEClusterDetails_ShortcutsBlockedWhileFiltering guards against the
 // regression where typing `r` / `D` / `1`–`5` in a sub-view text input
 // fired the parent shortcut (refresh / delete / tab switch) instead of
