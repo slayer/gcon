@@ -10,6 +10,7 @@ var (
 	ErrIAMClientNotInitialized      = errors.New("iam client not initialized")
 	ErrCloudRunClientNotInitialized = errors.New("cloud run client not initialized")
 	ErrGCPClientNotInitialized      = errors.New("GCP client not initialized")
+	ErrGKEClientNotInitialized      = errors.New("GKE container client not initialized")
 	ErrDetailsNotAvailable          = errors.New("details not available")
 	ErrUnsupportedOS                = errors.New("unsupported operating system")
 	ErrFolderEmpty                  = errors.New("folder is empty")

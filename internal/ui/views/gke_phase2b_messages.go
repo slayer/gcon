@@ -40,7 +40,7 @@ type GKENodePoolResizeMode int
 
 const (
 	GKENodePoolResizeManual    GKENodePoolResizeMode = iota
-	GKENodePoolResizeAutoscale                       //nolint:unused // wired in Task 12 (app operation polling)
+	GKENodePoolResizeAutoscale
 )
 
 type GKENodePoolResizeRequestMsg struct {
@@ -77,21 +77,17 @@ type GKENodePoolUpgradeResultMsg struct {
 
 // GKENodePoolCreateRequestedMsg asks the app to open the create-pool form view.
 // Emitted by GKEClusterDetailsView when the user presses `c` on the Node Pools tab.
-//
-//nolint:unused // wired in Task 12 (app handler)
 type GKENodePoolCreateRequestedMsg struct {
 	ProjectID, Location, ClusterName string
 }
 
 // === Operation polling ===
 
-// gkeOperationPollMsg fires after a 5 s tick to re-fetch operation state.
-// onDone is the cmd to run when Status=="DONE" (e.g. a Refresh for the
+// GKEOperationPollMsg fires after a 5 s tick to re-fetch operation state.
+// OnDone is the cmd to run when Status=="DONE" (e.g. a Refresh for the
 // affected view). Stored as a function so the same poller can target
 // different views.
-//
-//nolint:unused // wired in Task 12 (app operation polling)
-type gkeOperationPollMsg struct {
+type GKEOperationPollMsg struct {
 	ProjectID, Location, Name string
 	TaskID                    string
 	OnDone                    func() tea.Cmd

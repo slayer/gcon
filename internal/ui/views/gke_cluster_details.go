@@ -150,6 +150,10 @@ func (v *GKEClusterDetailsView) Name() string { return v.name }
 // GetComputeClient exposes the compute client for cross-view nav handlers.
 func (v *GKEClusterDetailsView) GetComputeClient() *gcp.ComputeClient { return v.computeClient }
 
+// GetContainerClient exposes the container client so the app can borrow it
+// for Phase 2b mutation handlers (create/delete/resize/upgrade node pools).
+func (v *GKEClusterDetailsView) GetContainerClient() *gcp.ContainerClient { return v.client }
+
 // SetSize updates the inner viewport and node pools table to match the
 // available content area. Leaves 4 rows for the tab bar + status line.
 // Sub-views (nodes/observability/logs) receive their own propagated size.
