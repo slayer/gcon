@@ -1,8 +1,16 @@
 package gcp
 
 import (
+	"context"
+	"errors"
+	"fmt"
+
 	container "google.golang.org/api/container/v1"
 )
+
+// sentinel errors for UpdateClusterBasic dispatch validation.
+var errNoClusterEditFields = errors.New("UpdateClusterBasic: empty edit")
+var errMixedClusterEdit = errors.New("UpdateClusterBasic: labels and services mixed")
 
 // ClusterEdit captures fields editable via Clusters.Update / Clusters.SetResourceLabels.
 // nil pointer = no change; non-nil = apply.
@@ -130,4 +138,119 @@ func buildSetNodePoolManagementRequest(mgmt NodePoolManagement) *container.SetNo
 			ForceSendFields: []string{"AutoUpgrade", "AutoRepair"},
 		},
 	}
+}
+
+// buildSetMaintenancePolicyRequest renders a MaintenanceWindow into the
+// API's nested struct. Kind=="none" clears the window by sending an empty
+// MaintenanceWindow. Kind=="daily" sends DailyMaintenanceWindow with HH:MM.
+func buildSetMaintenancePolicyRequest(mw MaintenanceWindow) *container.SetMaintenancePolicyRequest {
+	policy := &container.MaintenancePolicy{}
+	switch mw.Kind {
+	case MaintenanceKindDaily:
+		policy.Window = &container.MaintenanceWindow{
+			DailyMaintenanceWindow: &container.DailyMaintenanceWindow{StartTime: mw.Daily},
+		}
+	default: // MaintenanceKindNone or unset — empty window clears any existing policy
+		policy.Window = &container.MaintenanceWindow{}
+	}
+	return &container.SetMaintenancePolicyRequest{MaintenancePolicy: policy}
+}
+
+// UpdateClusterBasic dispatches a ClusterEdit to the appropriate GKE API
+// endpoint. Exactly one category may be set per call:
+//   - ResourceLabels != nil  →  Clusters.SetResourceLabels
+//   - LoggingService or MonitoringService set  →  Clusters.Update
+//
+// Passing both categories in one call returns an error; the app layer
+// must submit them as sequential steps.
+func (c *ContainerClient) UpdateClusterBasic(
+	ctx context.Context,
+	projectID, location, clusterName string,
+	edit ClusterEdit,
+) (Operation, error) {
+	hasLabels := edit.ResourceLabels != nil
+	hasService := edit.LoggingService != nil || edit.MonitoringService != nil
+
+	switch {
+	case !hasLabels && !hasService:
+		return Operation{}, fmt.Errorf("%w: no fields to update", errNoClusterEditFields)
+	case hasLabels && hasService:
+		return Operation{}, fmt.Errorf("%w: pass labels and services as separate calls", errMixedClusterEdit)
+	case hasLabels:
+		req := buildSetResourceLabelsRequest(edit)
+		raw, err := c.service.Projects.Locations.Clusters.
+			SetResourceLabels(clusterFQN(projectID, location, clusterName), req).
+			Context(ctx).Do()
+		if err != nil {
+			return Operation{}, fmt.Errorf("set cluster resource labels: %w", err)
+		}
+		return projectOperation(raw), nil
+	default: // hasService
+		upd := buildClusterUpdate(edit)
+		raw, err := c.service.Projects.Locations.Clusters.
+			Update(clusterFQN(projectID, location, clusterName),
+				&container.UpdateClusterRequest{Update: upd}).
+			Context(ctx).Do()
+		if err != nil {
+			return Operation{}, fmt.Errorf("update cluster: %w", err)
+		}
+		return projectOperation(raw), nil
+	}
+}
+
+// SetClusterMaintenancePolicy applies a maintenance window to the cluster.
+// Sending Kind==MaintenanceKindNone clears any existing window.
+func (c *ContainerClient) SetClusterMaintenancePolicy(
+	ctx context.Context,
+	projectID, location, clusterName string,
+	mw MaintenanceWindow,
+) (Operation, error) {
+	req := buildSetMaintenancePolicyRequest(mw)
+	raw, err := c.service.Projects.Locations.Clusters.
+		SetMaintenancePolicy(clusterFQN(projectID, location, clusterName), req).
+		Context(ctx).Do()
+	if err != nil {
+		return Operation{}, fmt.Errorf("set maintenance policy: %w", err)
+	}
+	return projectOperation(raw), nil
+}
+
+// UpdateNodePoolFields patches labels, taints, tags, or upgrade settings on a
+// node pool. At least one field must be set; an empty edit returns an error.
+func (c *ContainerClient) UpdateNodePoolFields(
+	ctx context.Context,
+	projectID, location, clusterName, poolName string,
+	edit NodePoolEdit,
+) (Operation, error) {
+	if edit.Labels == nil && edit.Taints == nil && edit.Tags == nil && edit.UpgradeSettings == nil {
+		return Operation{}, fmt.Errorf("%w: no fields to update", errNoNodePoolEditFields)
+	}
+	req := buildNodePoolUpdate(edit)
+	raw, err := c.service.Projects.Locations.Clusters.NodePools.
+		Update(nodePoolFQN(projectID, location, clusterName, poolName), req).
+		Context(ctx).Do()
+	if err != nil {
+		return Operation{}, fmt.Errorf("update node pool fields: %w", err)
+	}
+	return projectOperation(raw), nil
+}
+
+var errNoNodePoolEditFields = errors.New("UpdateNodePoolFields: empty edit")
+
+// SetNodePoolManagement sets auto-upgrade and auto-repair flags on a node pool.
+// Both bool fields are always sent via ForceSendFields so explicit false values
+// are not silently omitted.
+func (c *ContainerClient) SetNodePoolManagement(
+	ctx context.Context,
+	projectID, location, clusterName, poolName string,
+	mgmt NodePoolManagement,
+) (Operation, error) {
+	req := buildSetNodePoolManagementRequest(mgmt)
+	raw, err := c.service.Projects.Locations.Clusters.NodePools.
+		SetManagement(nodePoolFQN(projectID, location, clusterName, poolName), req).
+		Context(ctx).Do()
+	if err != nil {
+		return Operation{}, fmt.Errorf("set node pool management: %w", err)
+	}
+	return projectOperation(raw), nil
 }

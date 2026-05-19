@@ -164,3 +164,17 @@ func TestBuildSetNodePoolManagementRequest_Mixed(t *testing.T) {
 	assert.Contains(t, req.Management.ForceSendFields, "AutoUpgrade")
 	assert.Contains(t, req.Management.ForceSendFields, "AutoRepair")
 }
+
+func TestBuildSetMaintenancePolicyRequest_None(t *testing.T) {
+	req := buildSetMaintenancePolicyRequest(MaintenanceWindow{Kind: MaintenanceKindNone})
+	require.NotNil(t, req)
+	require.NotNil(t, req.MaintenancePolicy)
+	require.NotNil(t, req.MaintenancePolicy.Window)
+	assert.Nil(t, req.MaintenancePolicy.Window.DailyMaintenanceWindow)
+}
+
+func TestBuildSetMaintenancePolicyRequest_Daily(t *testing.T) {
+	req := buildSetMaintenancePolicyRequest(MaintenanceWindow{Kind: MaintenanceKindDaily, Daily: "03:00"})
+	require.NotNil(t, req.MaintenancePolicy.Window.DailyMaintenanceWindow)
+	assert.Equal(t, "03:00", req.MaintenancePolicy.Window.DailyMaintenanceWindow.StartTime)
+}
