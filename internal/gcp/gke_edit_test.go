@@ -178,3 +178,32 @@ func TestBuildSetMaintenancePolicyRequest_Daily(t *testing.T) {
 	require.NotNil(t, req.MaintenancePolicy.Window.DailyMaintenanceWindow)
 	assert.Equal(t, "03:00", req.MaintenancePolicy.Window.DailyMaintenanceWindow.StartTime)
 }
+
+func TestUpdateClusterBasic_RejectsEmptyEdit(t *testing.T) {
+	// Empty edit short-circuits before any API call — no live client needed.
+	c := &ContainerClient{}
+	_, err := c.UpdateClusterBasic(t.Context(), "p", "us-central1", "prod", ClusterEdit{})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, errNoClusterEditFields)
+}
+
+func TestUpdateClusterBasic_RejectsMixedEdit(t *testing.T) {
+	// Both labels and services set in one call must be rejected so the
+	// app-layer sequential runner splits them into separate steps.
+	labels := map[string]string{"team": "platform"}
+	log := "none"
+	c := &ContainerClient{}
+	_, err := c.UpdateClusterBasic(t.Context(), "p", "us-central1", "prod", ClusterEdit{
+		ResourceLabels: &labels,
+		LoggingService: &log,
+	})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, errMixedClusterEdit)
+}
+
+func TestUpdateNodePoolFields_RejectsEmptyEdit(t *testing.T) {
+	c := &ContainerClient{}
+	_, err := c.UpdateNodePoolFields(t.Context(), "p", "us-central1", "prod", "default", NodePoolEdit{})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, errNoNodePoolEditFields)
+}

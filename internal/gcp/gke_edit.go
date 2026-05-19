@@ -8,9 +8,13 @@ import (
 	container "google.golang.org/api/container/v1"
 )
 
-// sentinel errors for UpdateClusterBasic dispatch validation.
-var errNoClusterEditFields = errors.New("UpdateClusterBasic: empty edit")
-var errMixedClusterEdit = errors.New("UpdateClusterBasic: labels and services mixed")
+// sentinel errors for edit-method dispatch validation. Returned directly
+// (not wrapped) since the sentinel message is self-contained.
+var (
+	errNoClusterEditFields  = errors.New("UpdateClusterBasic: no fields to update")
+	errMixedClusterEdit     = errors.New("UpdateClusterBasic: labels and services must be sent as separate calls")
+	errNoNodePoolEditFields = errors.New("UpdateNodePoolFields: no fields to update")
+)
 
 // ClusterEdit captures fields editable via Clusters.Update / Clusters.SetResourceLabels.
 // nil pointer = no change; non-nil = apply.
@@ -173,9 +177,9 @@ func (c *ContainerClient) UpdateClusterBasic(
 
 	switch {
 	case !hasLabels && !hasService:
-		return Operation{}, fmt.Errorf("%w: no fields to update", errNoClusterEditFields)
+		return Operation{}, errNoClusterEditFields
 	case hasLabels && hasService:
-		return Operation{}, fmt.Errorf("%w: pass labels and services as separate calls", errMixedClusterEdit)
+		return Operation{}, errMixedClusterEdit
 	case hasLabels:
 		req := buildSetResourceLabelsRequest(edit)
 		raw, err := c.service.Projects.Locations.Clusters.
@@ -223,7 +227,7 @@ func (c *ContainerClient) UpdateNodePoolFields(
 	edit NodePoolEdit,
 ) (Operation, error) {
 	if edit.Labels == nil && edit.Taints == nil && edit.Tags == nil && edit.UpgradeSettings == nil {
-		return Operation{}, fmt.Errorf("%w: no fields to update", errNoNodePoolEditFields)
+		return Operation{}, errNoNodePoolEditFields
 	}
 	req := buildNodePoolUpdate(edit)
 	raw, err := c.service.Projects.Locations.Clusters.NodePools.
@@ -234,8 +238,6 @@ func (c *ContainerClient) UpdateNodePoolFields(
 	}
 	return projectOperation(raw), nil
 }
-
-var errNoNodePoolEditFields = errors.New("UpdateNodePoolFields: empty edit")
 
 // SetNodePoolManagement sets auto-upgrade and auto-repair flags on a node pool.
 // Both bool fields are always sent via ForceSendFields so explicit false values
