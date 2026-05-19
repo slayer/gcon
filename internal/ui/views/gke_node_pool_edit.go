@@ -130,12 +130,23 @@ func (v *GKENodePoolEditView) buildForm() {
 	initialStrategy := "SURGE"
 	var initialMaxSurge int64 = 1
 	var initialMaxUnavailable int64
+	unknownStrategy := ""
 
 	if v.pool.UpgradeSettings == nil {
 		upgradeHelpText = "Pool currently has no explicit upgrade settings; submitting will set defaults."
 	} else {
-		if v.pool.UpgradeSettings.Strategy != "" {
+		switch v.pool.UpgradeSettings.Strategy {
+		case "SURGE", "BLUE_GREEN":
 			initialStrategy = v.pool.UpgradeSettings.Strategy
+		case "":
+			// empty == server default; treat as SURGE
+		default:
+			// Unknown strategy (e.g., legacy SHORT_LIVED). Don't pre-select it
+			// into the curated dropdown — the form would silently fall back
+			// to SURGE and computeEdit would then see a false-positive diff.
+			// Force the baseline to SURGE so unchanged form == no diff; the
+			// placeholder tells the user what the pool actually has now.
+			unknownStrategy = v.pool.UpgradeSettings.Strategy
 		}
 		initialMaxSurge = v.pool.UpgradeSettings.MaxSurge
 		initialMaxUnavailable = v.pool.UpgradeSettings.MaxUnavailable
@@ -147,6 +158,10 @@ func (v *GKENodePoolEditView) buildForm() {
 			{Value: "BLUE_GREEN", Label: "Blue-Green"},
 		}).
 		SetHelpText("Strategy for upgrading node pool nodes")
+	if unknownStrategy != "" {
+		strategyField.SetPlaceholder(unknownStrategy)
+		strategyField.SetHelpText(fmt.Sprintf("Pool currently uses %q (not selectable here). Pick SURGE or BLUE_GREEN to migrate.", unknownStrategy))
+	}
 
 	maxSurgeField := forms.NewNumberField("max_surge", "Max Surge").
 		SetHelpText("Max additional nodes during upgrade (0-100)").
@@ -370,18 +385,7 @@ func (v *GKENodePoolEditView) computeEdit(data map[string]any) (*gcp.NodePoolEdi
 	}
 
 	// ── Upgrade settings ──────────────────────────────────────────────────────
-	// Determine initial values (handle nil UpgradeSettings).
-	initialStrategy := "SURGE"
-	var initialMaxSurge int64 = 1
-	var initialMaxUnavailable int64
-
-	if v.pool.UpgradeSettings != nil {
-		if v.pool.UpgradeSettings.Strategy != "" {
-			initialStrategy = v.pool.UpgradeSettings.Strategy
-		}
-		initialMaxSurge = v.pool.UpgradeSettings.MaxSurge
-		initialMaxUnavailable = v.pool.UpgradeSettings.MaxUnavailable
-	}
+	initialStrategy, initialMaxSurge, initialMaxUnavailable := v.initialUpgradeSettings()
 
 	newStrategy := getString("upgrade_strategy")
 	newMaxSurge := getInt64("max_surge")
@@ -499,16 +503,7 @@ func (v *GKENodePoolEditView) renderDiff() string {
 		b.WriteString(sectionStyle.Render("  Upgrade Settings:"))
 		b.WriteString("\n")
 
-		initialStrategy := "SURGE"
-		var initialMaxSurge int64 = 1
-		var initialMaxUnavailable int64
-		if v.pool.UpgradeSettings != nil {
-			if v.pool.UpgradeSettings.Strategy != "" {
-				initialStrategy = v.pool.UpgradeSettings.Strategy
-			}
-			initialMaxSurge = v.pool.UpgradeSettings.MaxSurge
-			initialMaxUnavailable = v.pool.UpgradeSettings.MaxUnavailable
-		}
+		initialStrategy, initialMaxSurge, initialMaxUnavailable := v.initialUpgradeSettings()
 
 		us := v.pendingFields.UpgradeSettings
 		if us.Strategy != initialStrategy {
@@ -544,6 +539,26 @@ func (v *GKENodePoolEditView) renderDiff() string {
 }
 
 // boolToStr converts a bool to a human-readable string.
+// initialUpgradeSettings returns the upgrade-settings baseline used by both
+// computeEdit and renderDiff. When the pool has no UpgradeSettings (or an
+// unknown Strategy that the curated dropdown can't represent), the baseline
+// is the dropdown default (SURGE/1/0). This keeps "user didn't touch the
+// dropdown" === "no diff", even if the underlying pool reports an exotic
+// strategy that we can't preserve.
+func (v *GKENodePoolEditView) initialUpgradeSettings() (strategy string, maxSurge, maxUnavailable int64) {
+	strategy = "SURGE"
+	maxSurge = 1
+	if v.pool.UpgradeSettings != nil {
+		switch v.pool.UpgradeSettings.Strategy {
+		case "SURGE", "BLUE_GREEN":
+			strategy = v.pool.UpgradeSettings.Strategy
+		}
+		maxSurge = v.pool.UpgradeSettings.MaxSurge
+		maxUnavailable = v.pool.UpgradeSettings.MaxUnavailable
+	}
+	return strategy, maxSurge, maxUnavailable
+}
+
 func boolToStr(b bool) string {
 	if b {
 		return "true"

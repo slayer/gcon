@@ -97,3 +97,26 @@ func TestGKENodePoolEdit_ConfirmDeployEmitsRequest(t *testing.T) {
 	}
 	assert.True(t, found)
 }
+
+
+func TestGKENodePoolEdit_UnknownStrategyNoFalsePositive(t *testing.T) {
+	// Regression: a pool reporting an unknown strategy (e.g. "SHORT_LIVED")
+	// must not silently flag a diff when the user has not touched the
+	// dropdown — the baseline is forced to SURGE so the form value equals
+	// the baseline.
+	pool := &gcp.NodePool{
+		Name:        "default",
+		AutoUpgrade: true,
+		AutoRepair:  true,
+		UpgradeSettings: &gcp.UpgradeSettings{
+			MaxSurge:       1,
+			MaxUnavailable: 0,
+			Strategy:       "SHORT_LIVED",
+		},
+	}
+	v := NewGKENodePoolEditView("proj", "us-central1", "prod", pool)
+	cmd := v.handleSubmit()
+	assert.Nil(t, cmd)
+	assert.ErrorIs(t, v.err, errNodePoolEditNoChanges)
+	assert.Equal(t, nodePoolEditStateForm, v.state)
+}
