@@ -64,6 +64,12 @@ func TestBuildSetResourceLabelsRequest_EmptyLabels(t *testing.T) {
 	assert.Equal(t, "fp42", req.LabelFingerprint)
 }
 
+func TestBuildSetResourceLabelsRequest_NilLabelsReturnsNil(t *testing.T) {
+	// Callers branch on nil; the builder must not panic on a zero-value edit.
+	req := buildSetResourceLabelsRequest(ClusterEdit{})
+	assert.Nil(t, req)
+}
+
 func TestBuildNodePoolUpdate_LabelsOnly(t *testing.T) {
 	labels := map[string]string{"role": "gpu"}
 	req := buildNodePoolUpdate(NodePoolEdit{Labels: &labels})

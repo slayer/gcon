@@ -74,9 +74,12 @@ func buildClusterUpdate(edit ClusterEdit) *container.ClusterUpdate {
 }
 
 // buildSetResourceLabelsRequest produces the SetLabelsRequest for the
-// SetResourceLabels endpoint. ResourceLabels and ResourceLabelsFingerprint
-// from the edit struct must be set before calling this.
+// SetResourceLabels endpoint. Returns nil if ResourceLabels is unset —
+// callers should branch on nil rather than rely on a panic.
 func buildSetResourceLabelsRequest(edit ClusterEdit) *container.SetLabelsRequest {
+	if edit.ResourceLabels == nil {
+		return nil
+	}
 	return &container.SetLabelsRequest{
 		ResourceLabels:   *edit.ResourceLabels,
 		LabelFingerprint: edit.ResourceLabelsFingerprint,

@@ -31,8 +31,7 @@ helper until DONE.
 
 | Section | Field | UI | GCP API |
 |---|---|---|---|
-| Basic | description | text | `Clusters.Update` (DesiredResourceUsageExportConfig? no — Description is a direct field) |
-| Basic | resource labels | key/value list | `Clusters.Update` (`DesiredResourceLabels`) |
+| Basic | resource labels | key/value list | `Clusters.SetResourceLabels` (separate endpoint, requires `LabelFingerprint`) |
 | Maintenance | window mode | dropdown: none / daily | `Clusters.SetMaintenancePolicy` |
 | Maintenance | daily start time | text "HH:MM" UTC (validated) | same |
 | Observability | logging service | dropdown: none / SYSTEM / SYSTEM_AND_WORKLOAD | `Clusters.Update` (`DesiredLoggingService`) |
