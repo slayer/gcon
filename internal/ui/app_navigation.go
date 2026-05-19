@@ -4434,13 +4434,18 @@ func (a *App) runGKEEditStep(taskID, projectID, location string, steps []gkeEdit
 //
 //nolint:gocritic // hugeParam: message struct passed by value
 func (a *App) handleGKEClusterEditOpen(msg views.GKEClusterEditOpenMsg) tea.Cmd {
-	a.viewStack = append(a.viewStack, a.currentView)
-	a.currentView = ViewGKEClusterEdit
-
+	// Guard against opening the edit view before details have loaded — the
+	// form pre-populates from details and would nil-deref in buildForm.
 	var details *gcp.ClusterDetails
 	if a.gkeClusterDetailsView != nil {
 		details = a.gkeClusterDetailsView.Details()
 	}
+	if details == nil {
+		return nil
+	}
+
+	a.viewStack = append(a.viewStack, a.currentView)
+	a.currentView = ViewGKEClusterEdit
 	a.gkeClusterEditView = views.NewGKEClusterEditView(msg.ProjectID, msg.Location, msg.ClusterName, details)
 	a.updateViewSizes()
 	a.updateSidebarActiveView()
@@ -4546,17 +4551,28 @@ func (a *App) handleGKEClusterEditResult(msg views.GKEClusterEditResultMsg) tea.
 	return refreshCmd
 }
 
-// handleGKENodePoolEditOpen opens the node pool edit form for the focused pool.
+// handleGKENodePoolEditOpen opens the node pool edit form for the pool
+// named in the message. We resolve by name (not by current focus) so a
+// late-firing message — or a future emitter that doesn't piggyback on the
+// table cursor — still opens the right pool.
 //
 //nolint:gocritic // hugeParam: message struct passed by value
 func (a *App) handleGKENodePoolEditOpen(msg views.GKENodePoolEditOpenMsg) tea.Cmd {
+	if a.gkeClusterDetailsView == nil {
+		return nil
+	}
+	details := a.gkeClusterDetailsView.Details()
+	if details == nil {
+		return nil
+	}
 	var pool *gcp.NodePool
-	if a.gkeClusterDetailsView != nil {
-		pool = a.gkeClusterDetailsView.FocusedPool()
+	for i := range details.NodePools {
+		if details.NodePools[i].Name == msg.PoolName {
+			pool = &details.NodePools[i]
+			break
+		}
 	}
 	if pool == nil {
-		// Shouldn't happen — the details view guards before emitting the
-		// open message. Defensively stay on the current view.
 		return nil
 	}
 

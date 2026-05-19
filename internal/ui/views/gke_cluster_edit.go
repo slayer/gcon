@@ -376,8 +376,20 @@ func (v *GKEClusterEditView) computeEdit(data map[string]any) (*gcp.ClusterEdit,
 	}
 
 	// ── Observability (logging / monitoring) ──────────────────────────────────
+	// Baseline tracks what the form would return for "untouched". When the
+	// cluster's current value is not in the curated dropdown list, the form
+	// is left unpopulated and GetData returns the dropdown's default
+	// (index 0 = "none"). Comparing the cluster's real unknown value would
+	// flag a false-positive diff on every submit; instead we compare
+	// against the same default so unchanged form == no diff.
 	initialLogging := v.details.LoggingService
+	if !isKnownLoggingValue(initialLogging) {
+		initialLogging = "none"
+	}
 	initialMonitoring := v.details.MonitoringService
+	if !isKnownMonitoringValue(initialMonitoring) {
+		initialMonitoring = "none"
+	}
 
 	newLogging := getString("logging_service")
 	newMonitoring := getString("monitoring_service")

@@ -96,3 +96,21 @@ func TestGKEClusterEdit_ConfirmDeployEmitsRequest(t *testing.T) {
 	}
 	assert.True(t, found, "batch must contain GKEClusterEditRequestMsg")
 }
+
+func TestGKEClusterEdit_UnknownLoggingNoFalsePositive(t *testing.T) {
+	// Regression: a cluster reporting a legacy logging service (e.g.
+	// "logging.googleapis.com" without "/kubernetes") must not flag a
+	// diff when the user has not touched the dropdown — the form leaves
+	// the dropdown at its default ("none") and the baseline is forced to
+	// "none" so they match.
+	details := &gcp.ClusterDetails{
+		Cluster:           gcp.Cluster{Name: "prod"},
+		LoggingService:    "logging.googleapis.com",        // legacy, unknown
+		MonitoringService: "monitoring.googleapis.com",     // legacy, unknown
+	}
+	v := NewGKEClusterEditView("proj", "us-central1", "prod", details)
+	cmd := v.handleSubmit()
+	assert.Nil(t, cmd)
+	assert.ErrorIs(t, v.err, errClusterEditNoChanges)
+	assert.Equal(t, clusterEditStateForm, v.state)
+}

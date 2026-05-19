@@ -100,7 +100,7 @@ func (v *GKENodePoolEditView) buildForm() {
 
 	// ── Labels section ────────────────────────────────────────────────────────
 	// k8s labels on NodeConfig — read-only in MVP.
-	labelsDisplay := nodePoolLabelsToDisplay(v.pool.Labels)
+	labelsDisplay := labelsToDisplay(v.pool.Labels)
 	labelsSection := forms.NewSection("labels", "Node Labels").
 		AddField(forms.NewReadOnlyField("node_labels", "Node Labels", labelsDisplay).
 			SetHelpText("Label editing planned for a future PR"))
@@ -133,7 +133,7 @@ func (v *GKENodePoolEditView) buildForm() {
 	unknownStrategy := ""
 
 	if v.pool.UpgradeSettings == nil {
-		upgradeHelpText = "Pool currently has no explicit upgrade settings; submitting will set defaults."
+		upgradeHelpText = "Pool has no explicit upgrade settings; change a value to set them."
 	} else {
 		switch v.pool.UpgradeSettings.Strategy {
 		case "SURGE", "BLUE_GREEN":
@@ -190,24 +190,6 @@ func (v *GKENodePoolEditView) buildForm() {
 		"max_surge":        initialMaxSurge,
 		"max_unavailable":  initialMaxUnavailable,
 	})
-}
-
-// nodePoolLabelsToDisplay formats a node pool label map as "key=value, ..." sorted alphabetically.
-// Returns "(none)" when empty.
-func nodePoolLabelsToDisplay(labels map[string]string) string {
-	if len(labels) == 0 {
-		return "(none)"
-	}
-	keys := make([]string, 0, len(labels))
-	for k := range labels {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	parts := make([]string, 0, len(keys))
-	for _, k := range keys {
-		parts = append(parts, k+"="+labels[k])
-	}
-	return strings.Join(parts, ", ")
 }
 
 // taintsToDisplay formats a slice of node taints as "key=value:effect, ..." sorted by key.
