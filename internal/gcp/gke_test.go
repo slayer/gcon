@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/api/container/v1"
 )
 
@@ -165,4 +166,128 @@ func TestServerConfigProjection(t *testing.T) {
 	assert.Equal(t, "1.30.5-gke.1014001", cfg.DefaultClusterVersion)
 	assert.Len(t, cfg.ValidMasterVersions, 2)
 	assert.Equal(t, "1.31.1-gke.1", cfg.ValidMasterVersions[0])
+}
+
+// ── Phase 2c: edit-form pre-population projection tests ──────────────────────
+
+func buildTestClusterDetails(raw *container.Cluster) *ClusterDetails {
+	out := &ClusterDetails{
+		Cluster:                   convertCluster(raw),
+		ClusterIPv4CIDR:           raw.ClusterIpv4Cidr,
+		Addons:                    convertAddons(raw.AddonsConfig),
+		WorkloadIdentityPool:      workloadIdentityPool(raw),
+		MasterAuthorizedNetworks:  authorizedNetworks(raw),
+		ResourceLabels:            raw.ResourceLabels,
+		ResourceLabelsFingerprint: raw.LabelFingerprint,
+		LoggingService:            raw.LoggingService,
+		MonitoringService:         raw.MonitoringService,
+		MaintenanceDaily:          dailyMaintenanceStart(raw.MaintenancePolicy),
+	}
+	out.DatabaseEncrypted, out.DatabaseKMSKey = databaseEncryption(raw)
+	for _, np := range raw.NodePools {
+		out.NodePools = append(out.NodePools, convertNodePool(np))
+	}
+	return out
+}
+
+func TestConvertCluster_EditFieldsPopulated(t *testing.T) {
+	raw := &container.Cluster{
+		Name:             "prod",
+		ResourceLabels:   map[string]string{"team": "platform"},
+		LabelFingerprint: "fp-abc",
+		LoggingService:   "logging.googleapis.com/kubernetes",
+		MonitoringService: "none",
+		MaintenancePolicy: &container.MaintenancePolicy{
+			Window: &container.MaintenanceWindow{
+				DailyMaintenanceWindow: &container.DailyMaintenanceWindow{StartTime: "03:00"},
+			},
+		},
+	}
+	details := buildTestClusterDetails(raw)
+	assert.Equal(t, "platform", details.ResourceLabels["team"])
+	assert.Equal(t, "fp-abc", details.ResourceLabelsFingerprint)
+	assert.Equal(t, "logging.googleapis.com/kubernetes", details.LoggingService)
+	assert.Equal(t, "none", details.MonitoringService)
+	assert.Equal(t, "03:00", details.MaintenanceDaily)
+}
+
+func TestConvertCluster_NoMaintenanceWindow(t *testing.T) {
+	raw := &container.Cluster{Name: "prod"} // no maintenance policy
+	details := buildTestClusterDetails(raw)
+	assert.Empty(t, details.MaintenanceDaily)
+}
+
+func TestDailyMaintenanceStart(t *testing.T) {
+	cases := []struct {
+		name   string
+		policy *container.MaintenancePolicy
+		want   string
+	}{
+		{"nil policy", nil, ""},
+		{"nil window", &container.MaintenancePolicy{}, ""},
+		{"nil daily window", &container.MaintenancePolicy{Window: &container.MaintenanceWindow{}}, ""},
+		{"recurring only", &container.MaintenancePolicy{Window: &container.MaintenanceWindow{
+			RecurringWindow: &container.RecurringTimeWindow{},
+		}}, ""},
+		{"daily window set", &container.MaintenancePolicy{Window: &container.MaintenanceWindow{
+			DailyMaintenanceWindow: &container.DailyMaintenanceWindow{StartTime: "06:00"},
+		}}, "06:00"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, dailyMaintenanceStart(tc.policy))
+		})
+	}
+}
+
+func TestConvertNodePool_EditFieldsPopulated(t *testing.T) {
+	raw := &container.NodePool{
+		Name: "gpu",
+		Config: &container.NodeConfig{
+			Labels: map[string]string{"role": "gpu"},
+			Taints: []*container.NodeTaint{
+				{Key: "dedicated", Value: "gpu", Effect: "NO_SCHEDULE"},
+			},
+			Tags: []string{"http-server"},
+		},
+		UpgradeSettings: &container.UpgradeSettings{MaxSurge: 2, MaxUnavailable: 0, Strategy: "SURGE"},
+	}
+	pool := convertNodePool(raw)
+	assert.Equal(t, "gpu", pool.Labels["role"])
+	require.Len(t, pool.Taints, 1)
+	assert.Equal(t, "dedicated", pool.Taints[0].Key)
+	assert.Equal(t, "gpu", pool.Taints[0].Value)
+	assert.Equal(t, "NO_SCHEDULE", pool.Taints[0].Effect)
+	assert.Equal(t, []string{"http-server"}, pool.Tags)
+	require.NotNil(t, pool.UpgradeSettings)
+	assert.Equal(t, int64(2), pool.UpgradeSettings.MaxSurge)
+	assert.Equal(t, int64(0), pool.UpgradeSettings.MaxUnavailable)
+	assert.Equal(t, "SURGE", pool.UpgradeSettings.Strategy)
+}
+
+func TestConvertNodePool_MultipleTagsAndTaints(t *testing.T) {
+	raw := &container.NodePool{
+		Name: "multi",
+		Config: &container.NodeConfig{
+			Tags: []string{"tag-a", "tag-b"},
+			Taints: []*container.NodeTaint{
+				{Key: "k1", Value: "v1", Effect: "NO_SCHEDULE"},
+				{Key: "k2", Value: "v2", Effect: "NO_EXECUTE"},
+			},
+		},
+	}
+	pool := convertNodePool(raw)
+	assert.Equal(t, []string{"tag-a", "tag-b"}, pool.Tags)
+	require.Len(t, pool.Taints, 2)
+	assert.Equal(t, "NO_EXECUTE", pool.Taints[1].Effect)
+	assert.Nil(t, pool.UpgradeSettings)
+}
+
+func TestConvertNodePool_NoEditFields(t *testing.T) {
+	raw := &container.NodePool{Name: "default"} // no Config, no UpgradeSettings
+	pool := convertNodePool(raw)
+	assert.Nil(t, pool.Labels)
+	assert.Nil(t, pool.Taints)
+	assert.Nil(t, pool.Tags)
+	assert.Nil(t, pool.UpgradeSettings)
 }

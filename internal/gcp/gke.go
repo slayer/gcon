@@ -50,6 +50,13 @@ type ClusterDetails struct {
 	MasterAuthorizedNetworks []string
 	DatabaseEncrypted        bool
 	DatabaseKMSKey           string // full key URI; empty when not encrypted
+
+	// Fields used for edit form pre-population (Phase 2c).
+	ResourceLabels            map[string]string // billing/org labels on the cluster
+	ResourceLabelsFingerprint string            // required when patching labels to avoid 409 (from LabelFingerprint)
+	LoggingService            string            // e.g. "logging.googleapis.com/kubernetes" or "none"
+	MonitoringService         string
+	MaintenanceDaily          string // "HH:MM" UTC; "" when no daily window is set
 }
 
 // AddonsSummary captures the four addons surfaced in Phase 1.
@@ -79,6 +86,12 @@ type NodePool struct {
 	// one per zone the pool spans. Used by the Nodes sub-view to fan
 	// out ListManagedInstances calls.
 	InstanceGroupUrls []string
+
+	// Fields used for edit form pre-population (Phase 2c).
+	Labels          map[string]string // k8s labels on node config (NOT the pool's resource labels)
+	Taints          []NodeTaint       // node taints from node config; nil when none
+	Tags            []string          // network tags from node config; nil when none
+	UpgradeSettings *UpgradeSettings  // nil when not set by the API
 }
 
 // ContainerClient wraps the GKE container API.
@@ -139,6 +152,25 @@ func convertNodePool(p *container.NodePool) NodePool {
 		out.MachineType = p.Config.MachineType
 		out.DiskSizeGB = p.Config.DiskSizeGb
 		out.DiskType = p.Config.DiskType
+		out.Labels = p.Config.Labels
+		out.Tags = p.Config.Tags
+		if len(p.Config.Taints) > 0 {
+			out.Taints = make([]NodeTaint, 0, len(p.Config.Taints))
+			for _, t := range p.Config.Taints {
+				out.Taints = append(out.Taints, NodeTaint{
+					Key:    t.Key,
+					Value:  t.Value,
+					Effect: t.Effect,
+				})
+			}
+		}
+	}
+	if p.UpgradeSettings != nil {
+		out.UpgradeSettings = &UpgradeSettings{
+			MaxSurge:       p.UpgradeSettings.MaxSurge,
+			MaxUnavailable: p.UpgradeSettings.MaxUnavailable,
+			Strategy:       p.UpgradeSettings.Strategy,
+		}
 	}
 	if p.Autoscaling != nil && p.Autoscaling.Enabled {
 		out.AutoscalingOn = true
@@ -186,11 +218,16 @@ func (c *ContainerClient) GetCluster(ctx context.Context, projectID, location, n
 		return nil, fmt.Errorf("get cluster %s/%s: %w", location, name, err)
 	}
 	out := &ClusterDetails{
-		Cluster:                  convertCluster(raw),
-		ClusterIPv4CIDR:          raw.ClusterIpv4Cidr,
-		Addons:                   convertAddons(raw.AddonsConfig),
-		WorkloadIdentityPool:     workloadIdentityPool(raw),
-		MasterAuthorizedNetworks: authorizedNetworks(raw),
+		Cluster:                   convertCluster(raw),
+		ClusterIPv4CIDR:           raw.ClusterIpv4Cidr,
+		Addons:                    convertAddons(raw.AddonsConfig),
+		WorkloadIdentityPool:      workloadIdentityPool(raw),
+		MasterAuthorizedNetworks:  authorizedNetworks(raw),
+		ResourceLabels:            raw.ResourceLabels,
+		ResourceLabelsFingerprint: raw.LabelFingerprint,
+		LoggingService:            raw.LoggingService,
+		MonitoringService:         raw.MonitoringService,
+		MaintenanceDaily:          dailyMaintenanceStart(raw.MaintenancePolicy),
 	}
 	out.DatabaseEncrypted, out.DatabaseKMSKey = databaseEncryption(raw)
 	if raw.IpAllocationPolicy != nil {
@@ -236,6 +273,16 @@ func authorizedNetworks(c *container.Cluster) []string {
 		out = append(out, b.CidrBlock)
 	}
 	return out
+}
+
+// dailyMaintenanceStart returns the "HH:MM" UTC start time of the cluster's
+// daily maintenance window, or "" when no daily window is configured (absent
+// policy, absent window, absent daily window, or recurring-window-only config).
+func dailyMaintenanceStart(p *container.MaintenancePolicy) string {
+	if p == nil || p.Window == nil || p.Window.DailyMaintenanceWindow == nil {
+		return ""
+	}
+	return p.Window.DailyMaintenanceWindow.StartTime
 }
 
 // databaseEncryption returns whether the cluster has DB encryption enabled and
