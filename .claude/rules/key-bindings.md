@@ -453,6 +453,7 @@ arrow does the same without needing to select the row first.
 | Key | Action |
 |-----|--------|
 | `u` | Upgrade control plane (version picker; hidden on managed release channels) |
+| `e` | Edit cluster — logging/monitoring services + daily maintenance window (diff preview before deploy) |
 
 ### GKE Cluster Details — Node Pools tab actions (Standard clusters only)
 
@@ -462,6 +463,7 @@ arrow does the same without needing to select the row first.
 | `D` | Delete focused pool (type-to-confirm) |
 | `R` | Resize focused pool (manual or autoscale) |
 | `u` | Upgrade focused pool (version picker) |
+| `e` | Edit focused pool — auto-upgrade/auto-repair toggles + upgrade strategy/max-surge/max-unavailable (diff preview) |
 
 ## SQL Instances View
 

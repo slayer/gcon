@@ -353,7 +353,7 @@ On developing or updating a new feature keep in mind the following guidelines:
   - Network LBs (passthrough / proxy / legacy) render an explicit
     placeholder on the Observability tab — `l3/*` metric family is on
     the roadmap.
-- [x] GKE cluster management (Phase 1 + 2a + 2b)
+- [x] GKE cluster management (Phase 1 + 2a + 2b + 2c)
   - Clusters list across all locations (zonal + regional, Autopilot + Standard)
   - Cluster details with Overview, Node Pools, Nodes, Observability, and Logs tabs
   - Type-to-confirm cluster delete with explicit warning about non-auto-deleted
@@ -372,6 +372,11 @@ On developing or updating a new feature keep in mind the following guidelines:
     - Upgrade control plane and individual node pools (version picker)
     - Long-running operations tracked in footer with 5 s polling; refresh on DONE
     - Autopilot clusters hide pool actions; release-channel clusters hide master upgrade
+  - Phase 2c edit flows (`e` key):
+    - Cluster edit (Overview tab, both Standard + Autopilot): logging/monitoring services + daily maintenance window with diff preview before deploy
+    - Node pool edit (Node Pools tab, Standard only): auto-upgrade/auto-repair toggles + upgrade strategy/max-surge/max-unavailable
+    - Multi-endpoint edits (e.g. services + maintenance) run sequentially under one `gke-op:` footer task; status updates as each step lands
+    - Unknown upgrade strategies (legacy `SHORT_LIVED`, etc.) surface as a placeholder without flagging a false-positive diff
 
 ## Planned Features
 - [x] Subnets list and management
