@@ -298,6 +298,11 @@ func (v *GKEClusterEditView) Update(msg tea.Msg) tea.Cmd {
 		return v.handleKeyMsg(msg)
 	}
 
+	// Non-key, non-form-lifecycle messages (textinput.Blink, etc.) must reach
+	// the form so the cursor blinks and any text-input commands run.
+	if v.state == clusterEditStateForm && v.Form != nil {
+		return v.Form.Update(msg)
+	}
 	return nil
 }
 
