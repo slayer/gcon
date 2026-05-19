@@ -1,0 +1,568 @@
+package views
+
+import (
+	"errors"
+	"fmt"
+	"sort"
+	"strings"
+
+	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/spinner"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/slayer/gcon/internal/gcp"
+	"github.com/slayer/gcon/internal/ui/components"
+	"github.com/slayer/gcon/internal/ui/components/forms"
+	"github.com/slayer/gcon/internal/ui/context"
+)
+
+// clusterEditState represents the view lifecycle.
+type clusterEditState int
+
+const (
+	clusterEditStateForm    clusterEditState = iota
+	clusterEditStateDiff                     // preview old vs new
+	clusterEditStateSaving                   // calling API (spinner)
+)
+
+// errClusterEditNoChanges is returned when the user submits without editing anything.
+var errClusterEditNoChanges = errors.New("no changes to apply")
+
+// sentinel errors for maintenance time validation.
+var (
+	errMaintenanceTimeFmt     = errors.New("time must be in HH:MM format (24-hour UTC)")
+	errMaintenanceHourRange   = errors.New("hour must be 00–23")
+	errMaintenanceMinuteRange = errors.New("minutes must be 00–59")
+	errMaintenanceDailyNoTime = errors.New("daily maintenance window requires a start time")
+)
+
+// clusterEditKeyMap defines key bindings for the cluster edit view.
+type clusterEditKeyMap struct {
+	Submit key.Binding
+	Cancel key.Binding
+	Enter  key.Binding
+}
+
+func defaultClusterEditKeyMap() clusterEditKeyMap {
+	return clusterEditKeyMap{
+		Submit: key.NewBinding(
+			key.WithKeys("ctrl+s"),
+			key.WithHelp("ctrl+s", "preview changes"),
+		),
+		Cancel: key.NewBinding(
+			key.WithKeys("esc"),
+			key.WithHelp("esc", "cancel / back to form"),
+		),
+		Enter: key.NewBinding(
+			key.WithKeys("enter"),
+			key.WithHelp("enter", "confirm deploy"),
+		),
+	}
+}
+
+// GKEClusterEditView is a 3-state form view for editing a GKE cluster.
+// States: form → diff (preview) → saving.
+type GKEClusterEditView struct {
+	projectID, location, clusterName string
+	details                          *gcp.ClusterDetails
+	Form                             *forms.Form
+
+	state   clusterEditState
+	err     error
+	width   int
+	height  int
+	ctx     *context.ProgramContext
+	spinner spinner.Model
+	keys    clusterEditKeyMap
+
+	// pendingBasic and pendingMaintenance are captured at submit time,
+	// shown in the diff state, and sent on confirm-deploy.
+	pendingBasic       *gcp.ClusterEdit
+	pendingMaintenance *gcp.MaintenanceWindow
+}
+
+// NewGKEClusterEditView creates a new cluster edit view pre-populated from details.
+func NewGKEClusterEditView(projectID, location, clusterName string, details *gcp.ClusterDetails) *GKEClusterEditView {
+	v := &GKEClusterEditView{
+		projectID:   projectID,
+		location:    location,
+		clusterName: clusterName,
+		details:     details,
+		spinner:     components.NewGCPSpinner(),
+		keys:        defaultClusterEditKeyMap(),
+	}
+	v.buildForm()
+	return v
+}
+
+// buildForm constructs the edit form with Basic, Maintenance, and Observability sections.
+func (v *GKEClusterEditView) buildForm() {
+	v.Form = forms.NewForm(
+		fmt.Sprintf("Edit Cluster: %s", v.clusterName),
+		forms.FormModeEdit,
+	).EnableViewport()
+
+	// ── Basic section ────────────────────────────────────────────────────────
+	// Resource labels: deferred (no key/value map editor in the forms framework yet).
+	// Show a read-only summary and a help-text note.
+	labelsDisplay := labelsToDisplay(v.details.ResourceLabels)
+	basicSection := forms.NewSection("basic", "Basic").
+		AddField(forms.NewReadOnlyField("resource_labels", "Resource Labels", labelsDisplay).
+			SetHelpText("Resource label editing planned for a future PR"))
+
+	v.Form.AddSection(basicSection)
+
+	// ── Maintenance section ───────────────────────────────────────────────────
+	initialKind := "none"
+	if v.details.MaintenanceDaily != "" {
+		initialKind = "daily"
+	}
+
+	maintenanceSection := forms.NewSection("maintenance", "Maintenance").
+		AddField(forms.NewDropdownField("maintenance_kind", "Maintenance Window").
+			SetOptions([]forms.Option{
+				{Value: "none", Label: "None (clear)"},
+				{Value: "daily", Label: "Daily window"},
+			}).
+			SetHelpText("When to allow GKE to perform maintenance on the cluster")).
+		AddField(forms.NewTextField("maintenance_daily_start", "Daily Start Time (UTC)").
+			SetPlaceholder("HH:MM (UTC)").
+			SetHelpText("Time the daily maintenance window begins, e.g. 03:00").
+			SetValidator(validateMaintenanceTime))
+
+	v.Form.AddSection(maintenanceSection)
+
+	// ── Observability section ─────────────────────────────────────────────────
+	loggingOptions := []forms.Option{
+		{Value: "none", Label: "Disabled"},
+		{Value: "logging.googleapis.com/kubernetes", Label: "System and workload"},
+	}
+	monitoringOptions := []forms.Option{
+		{Value: "none", Label: "Disabled"},
+		{Value: "monitoring.googleapis.com/kubernetes", Label: "System and workload"},
+	}
+
+	loggingField := forms.NewDropdownField("logging_service", "Logging").
+		SetOptions(loggingOptions).
+		SetHelpText("Cloud Logging integration for the cluster")
+	monitoringField := forms.NewDropdownField("monitoring_service", "Monitoring").
+		SetOptions(monitoringOptions).
+		SetHelpText("Cloud Monitoring integration for the cluster")
+
+	// If the current value is not in the curated list, show it as a placeholder.
+	if !isKnownLoggingValue(v.details.LoggingService) && v.details.LoggingService != "" {
+		loggingField.SetPlaceholder(v.details.LoggingService).
+			SetHelpText(fmt.Sprintf("Current value %q is not in the curated list; select an option to change it", v.details.LoggingService))
+	}
+	if !isKnownMonitoringValue(v.details.MonitoringService) && v.details.MonitoringService != "" {
+		monitoringField.SetPlaceholder(v.details.MonitoringService).
+			SetHelpText(fmt.Sprintf("Current value %q is not in the curated list; select an option to change it", v.details.MonitoringService))
+	}
+
+	observabilitySection := forms.NewSection("observability", "Observability").
+		AddField(loggingField).
+		AddField(monitoringField)
+
+	v.Form.AddSection(observabilitySection)
+
+	// Pre-populate defaults from details.
+	v.Form.SetData(map[string]any{
+		"maintenance_kind":        initialKind,
+		"maintenance_daily_start": v.details.MaintenanceDaily,
+	})
+
+	// Pre-populate dropdowns only when the value is in the curated list.
+	if isKnownLoggingValue(v.details.LoggingService) {
+		v.Form.SetData(map[string]any{"logging_service": v.details.LoggingService})
+	}
+	if isKnownMonitoringValue(v.details.MonitoringService) {
+		v.Form.SetData(map[string]any{"monitoring_service": v.details.MonitoringService})
+	}
+}
+
+// validateMaintenanceTime accepts empty strings (meaning "no time set") or
+// a valid HH:MM value.
+func validateMaintenanceTime(value any) error {
+	s, ok := value.(string)
+	if !ok {
+		return nil
+	}
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil // empty is allowed; the kind field controls whether it's required
+	}
+	// Validate HH:MM format: must be exactly 5 chars, colon at position 2,
+	// all other characters must be ASCII digits.
+	if len(s) != 5 || s[2] != ':' {
+		return errMaintenanceTimeFmt
+	}
+	for _, i := range []int{0, 1, 3, 4} {
+		if s[i] < '0' || s[i] > '9' {
+			return errMaintenanceTimeFmt
+		}
+	}
+	if s[0] != '0' && s[0] != '1' && s[0] != '2' {
+		return errMaintenanceHourRange
+	}
+	hours := int(s[0]-'0')*10 + int(s[1]-'0')
+	minutes := int(s[3]-'0')*10 + int(s[4]-'0')
+	if hours > 23 {
+		return errMaintenanceHourRange
+	}
+	if minutes > 59 {
+		return errMaintenanceMinuteRange
+	}
+	return nil
+}
+
+// isKnownLoggingValue returns true when the value is one of the dropdown options.
+func isKnownLoggingValue(v string) bool {
+	return v == "none" || v == "logging.googleapis.com/kubernetes"
+}
+
+// isKnownMonitoringValue returns true when the value is one of the dropdown options.
+func isKnownMonitoringValue(v string) bool {
+	return v == "none" || v == "monitoring.googleapis.com/kubernetes"
+}
+
+// labelsToDisplay formats a label map as "key=value, key=value" sorted alphabetically.
+// Returns "(none)" when empty.
+func labelsToDisplay(labels map[string]string) string {
+	if len(labels) == 0 {
+		return "(none)"
+	}
+	keys := make([]string, 0, len(labels))
+	for k := range labels {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		parts = append(parts, k+"="+labels[k])
+	}
+	return strings.Join(parts, ", ")
+}
+
+// Init initializes the view.
+func (v *GKEClusterEditView) Init() tea.Cmd {
+	return tea.Batch(v.spinner.Tick, v.Form.Init())
+}
+
+// SetSize implements the View interface.
+func (v *GKEClusterEditView) SetSize(width, height int) {
+	v.width = width
+	v.height = height
+	if v.Form != nil {
+		v.Form.SetSize(width-formWidthPadding, height-formHeightPadding)
+	}
+}
+
+// SetContext implements the View interface.
+func (v *GKEClusterEditView) SetContext(ctx *context.ProgramContext) {
+	v.ctx = ctx
+	v.SetSize(ctx.ContentWidth, ctx.ContentHeight)
+}
+
+// HasTextInputFocused returns true when a text input is active (form state only).
+func (v *GKEClusterEditView) HasTextInputFocused() bool {
+	if v.state == clusterEditStateForm && v.Form != nil {
+		return v.Form.HasTextInputFocused()
+	}
+	return false
+}
+
+// SetError resets the view to form state and displays the error.
+func (v *GKEClusterEditView) SetError(err error) {
+	v.state = clusterEditStateForm
+	v.err = err
+}
+
+// Update handles messages for the cluster edit view.
+func (v *GKEClusterEditView) Update(msg tea.Msg) tea.Cmd {
+	switch msg := msg.(type) {
+	case spinner.TickMsg:
+		if v.state == clusterEditStateSaving {
+			var cmd tea.Cmd
+			v.spinner, cmd = v.spinner.Update(msg)
+			return cmd
+		}
+		return nil
+
+	case forms.FormSubmitMsg:
+		return v.handleSubmit()
+
+	case forms.FormCancelMsg:
+		return func() tea.Msg { return GKEClusterEditCanceledMsg{} }
+
+	case tea.KeyMsg:
+		return v.handleKeyMsg(msg)
+	}
+
+	return nil
+}
+
+func (v *GKEClusterEditView) handleKeyMsg(msg tea.KeyMsg) tea.Cmd {
+	// Saving state: only allow cancel.
+	if v.state == clusterEditStateSaving {
+		if key.Matches(msg, v.keys.Cancel) {
+			return func() tea.Msg { return GKEClusterEditCanceledMsg{} }
+		}
+		return nil
+	}
+
+	// Diff state: Enter confirms deploy, Esc returns to form.
+	if v.state == clusterEditStateDiff {
+		if key.Matches(msg, v.keys.Enter) {
+			return v.confirmDeploy()
+		}
+		if key.Matches(msg, v.keys.Cancel) {
+			v.state = clusterEditStateForm
+			return nil
+		}
+		return nil
+	}
+
+	// Form state.
+	if v.state == clusterEditStateForm {
+		if key.Matches(msg, v.keys.Submit) {
+			return v.handleSubmit()
+		}
+		if key.Matches(msg, v.keys.Cancel) {
+			return func() tea.Msg { return GKEClusterEditCanceledMsg{} }
+		}
+		if v.Form != nil {
+			return v.Form.Update(msg)
+		}
+	}
+
+	return nil
+}
+
+// handleSubmit validates the form, computes the edit diff, and transitions to the diff state.
+func (v *GKEClusterEditView) handleSubmit() tea.Cmd {
+	if errs := v.Form.Validate(); len(errs) > 0 {
+		return nil
+	}
+	data := v.Form.GetData()
+	basic, maintenance, err := v.computeEdit(data)
+	if err != nil {
+		v.err = err
+		return nil
+	}
+	if basic == nil && maintenance == nil {
+		v.err = errClusterEditNoChanges
+		return nil
+	}
+	v.pendingBasic = basic
+	v.pendingMaintenance = maintenance
+	v.err = nil
+	v.state = clusterEditStateDiff
+	return nil
+}
+
+// computeEdit compares form data against the snapshot and returns non-nil edit
+// structs only for the categories that actually changed.
+func (v *GKEClusterEditView) computeEdit(data map[string]any) (*gcp.ClusterEdit, *gcp.MaintenanceWindow, error) {
+	getString := func(key string) string {
+		if s, ok := data[key].(string); ok {
+			return s
+		}
+		return ""
+	}
+
+	// ── Observability (logging / monitoring) ──────────────────────────────────
+	initialLogging := v.details.LoggingService
+	initialMonitoring := v.details.MonitoringService
+
+	newLogging := getString("logging_service")
+	newMonitoring := getString("monitoring_service")
+
+	var basic *gcp.ClusterEdit
+	if newLogging != initialLogging || newMonitoring != initialMonitoring {
+		basic = &gcp.ClusterEdit{}
+		if newLogging != initialLogging {
+			s := newLogging
+			basic.LoggingService = &s
+		}
+		if newMonitoring != initialMonitoring {
+			s := newMonitoring
+			basic.MonitoringService = &s
+		}
+	}
+
+	// ── Maintenance window ────────────────────────────────────────────────────
+	initialKind := gcp.MaintenanceKindNone
+	if v.details.MaintenanceDaily != "" {
+		initialKind = gcp.MaintenanceKindDaily
+	}
+	initialDaily := v.details.MaintenanceDaily
+
+	newKindStr := getString("maintenance_kind")
+	newKind := gcp.MaintenanceKind(newKindStr)
+	newDaily := strings.TrimSpace(getString("maintenance_daily_start"))
+
+	// Validate: daily kind requires a non-empty start time.
+	if newKind == gcp.MaintenanceKindDaily && newDaily == "" {
+		return nil, nil, errMaintenanceDailyNoTime
+	}
+
+	var maint *gcp.MaintenanceWindow
+	if newKind != initialKind || newDaily != initialDaily {
+		maint = &gcp.MaintenanceWindow{
+			Kind:  newKind,
+			Daily: newDaily,
+		}
+	}
+
+	return basic, maint, nil
+}
+
+// confirmDeploy transitions to saving state and emits the edit request.
+func (v *GKEClusterEditView) confirmDeploy() tea.Cmd {
+	v.state = clusterEditStateSaving
+	basic := v.pendingBasic
+	maintenance := v.pendingMaintenance
+	return tea.Batch(
+		v.spinner.Tick,
+		func() tea.Msg {
+			return GKEClusterEditRequestMsg{
+				ProjectID:   v.projectID,
+				Location:    v.location,
+				ClusterName: v.clusterName,
+				Basic:       basic,
+				Maintenance: maintenance,
+			}
+		},
+	)
+}
+
+// View renders the current state.
+func (v *GKEClusterEditView) View() string {
+	switch v.state {
+	case clusterEditStateSaving:
+		return renderSaving(v.spinner, "Updating cluster...")
+
+	case clusterEditStateDiff:
+		return v.renderDiff()
+
+	case clusterEditStateForm:
+		content := ""
+		if v.Form != nil {
+			content = v.Form.View()
+		}
+		if v.err != nil {
+			content += components.RenderInlineError(v.err)
+		}
+		return content
+	}
+
+	return ""
+}
+
+// renderDiff renders a color-coded preview of pending changes.
+func (v *GKEClusterEditView) renderDiff() string {
+	var b strings.Builder
+
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#4285F4"))
+	sectionStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#9AA0A6"))
+	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
+	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6")).Faint(true)
+
+	b.WriteString("\n")
+	b.WriteString(titleStyle.Render(fmt.Sprintf("  Review changes for cluster %q:", v.clusterName)))
+	b.WriteString("\n\n")
+
+	anyChange := false
+
+	// ── Observability ─────────────────────────────────────────────────────────
+	if v.pendingBasic != nil {
+		b.WriteString(sectionStyle.Render("  Observability:"))
+		b.WriteString("\n")
+		if v.pendingBasic.LoggingService != nil {
+			old := v.details.LoggingService
+			nw := *v.pendingBasic.LoggingService
+			line := fmt.Sprintf("    %-28s %s → %s", "logging_service:", old, nw)
+			b.WriteString(diffServiceStyle(old, nw).Render(line))
+			b.WriteString("\n")
+			anyChange = true
+		}
+		if v.pendingBasic.MonitoringService != nil {
+			old := v.details.MonitoringService
+			nw := *v.pendingBasic.MonitoringService
+			line := fmt.Sprintf("    %-28s %s → %s", "monitoring_service:", old, nw)
+			b.WriteString(diffServiceStyle(old, nw).Render(line))
+			b.WriteString("\n")
+			anyChange = true
+		}
+		b.WriteString("\n")
+	}
+
+	// ── Maintenance ───────────────────────────────────────────────────────────
+	if v.pendingMaintenance != nil {
+		b.WriteString(sectionStyle.Render("  Maintenance:"))
+		b.WriteString("\n")
+
+		initialKind := gcp.MaintenanceKindNone
+		if v.details.MaintenanceDaily != "" {
+			initialKind = gcp.MaintenanceKindDaily
+		}
+		if v.pendingMaintenance.Kind != initialKind {
+			line := fmt.Sprintf("    %-28s %s → %s", "kind:", string(initialKind), string(v.pendingMaintenance.Kind))
+			changedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FBBC04"))
+			b.WriteString(changedStyle.Render(line))
+			b.WriteString("\n")
+			anyChange = true
+		}
+		if v.pendingMaintenance.Daily != v.details.MaintenanceDaily {
+			old := v.details.MaintenanceDaily
+			if old == "" {
+				old = "(none)"
+			}
+			nw := v.pendingMaintenance.Daily
+			if nw == "" {
+				nw = "(none)"
+			}
+			line := fmt.Sprintf("    %-28s %s → %s", "daily_start:", old, nw)
+			b.WriteString(diffMaintenanceDailyStyle(v.pendingMaintenance.Kind, v.details.MaintenanceDaily).Render(line))
+			b.WriteString("\n")
+			anyChange = true
+		}
+		b.WriteString("\n")
+	}
+
+	if !anyChange {
+		b.WriteString(mutedStyle.Render("  (no changes)"))
+		b.WriteString("\n\n")
+	}
+
+	b.WriteString(helpStyle.Render("  Enter: apply   Esc: back to form"))
+	b.WriteString("\n")
+
+	return b.String()
+}
+
+// diffServiceStyle returns the diff color for a service (logging/monitoring) change.
+// Green = new value being added (old was empty); red = being disabled; yellow = modified.
+func diffServiceStyle(old, newVal string) lipgloss.Style {
+	switch {
+	case old == "":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#34A853"))
+	case newVal == "" || newVal == "none":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#EA4335"))
+	default:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#FBBC04"))
+	}
+}
+
+// diffMaintenanceDailyStyle returns the diff color for a daily_start change.
+// Red = window being cleared; green = new window added; yellow = time changed.
+func diffMaintenanceDailyStyle(newKind gcp.MaintenanceKind, oldDaily string) lipgloss.Style {
+	switch {
+	case newKind == gcp.MaintenanceKindNone:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#EA4335"))
+	case oldDaily == "":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#34A853"))
+	default:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#FBBC04"))
+	}
+}
