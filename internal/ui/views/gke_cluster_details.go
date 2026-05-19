@@ -21,6 +21,14 @@ import (
 	"github.com/slayer/gcon/internal/ui/overlay"
 )
 
+// upgradeTarget distinguishes which resource a pending upgrade dialog targets.
+type upgradeTarget int
+
+const (
+	upgradeTargetMaster   upgradeTarget = iota
+	upgradeTargetNodePool upgradeTarget = iota
+)
+
 // GKEClusterDetailsView shows a single GKE cluster's overview and node pools.
 // Phase 2a surface: 5 tabs — Overview, Node Pools, Nodes, Observability, Logs.
 // The latter three are lazy-loaded on first visit; sub-views own their state
@@ -47,10 +55,24 @@ type GKEClusterDetailsView struct {
 	observability *gkeObservability
 	logs          *gkeLogs
 
-	// Delete dialog
-	confirmDialog *confirm.TypeConfirmDialog
-	showConfirm   bool
-	deleting      bool
+	// Delete dialog (shared for cluster delete and node pool delete)
+	confirmDialog    *confirm.TypeConfirmDialog
+	showConfirm      bool
+	confirmIsPoolDel bool   // true when confirming a node pool delete (not cluster)
+	confirmPoolName  string // pool name for pool delete confirm
+	deleting         bool
+
+	// Upgrade dialog (shared for master + node pool)
+	upgradeDialog       *GKEUpgradeDialog
+	showUpgrade         bool
+	upgradeTarget       upgradeTarget
+	upgradePool         string // pool name when upgradeTarget == upgradeTargetNodePool
+	serverConfig        gcp.ServerConfig
+	serverConfigLoading bool
+
+	// Resize dialog
+	resizeDialog *GKENodePoolResizeDialog
+	showResize   bool
 
 	err     error
 	loading bool
@@ -128,6 +150,10 @@ func (v *GKEClusterDetailsView) Name() string { return v.name }
 // GetComputeClient exposes the compute client for cross-view nav handlers.
 func (v *GKEClusterDetailsView) GetComputeClient() *gcp.ComputeClient { return v.computeClient }
 
+// GetContainerClient exposes the container client so the app can borrow it
+// for Phase 2b mutation handlers (create/delete/resize/upgrade node pools).
+func (v *GKEClusterDetailsView) GetContainerClient() *gcp.ContainerClient { return v.client }
+
 // SetSize updates the inner viewport and node pools table to match the
 // available content area. Leaves 4 rows for the tab bar + status line.
 // Sub-views (nodes/observability/logs) receive their own propagated size.
@@ -171,6 +197,9 @@ func (v *GKEClusterDetailsView) HasTextInputFocused() bool {
 	if v.showConfirm && v.confirmDialog != nil {
 		return v.confirmDialog.HasTextInputFocused()
 	}
+	if v.showResize && v.resizeDialog != nil {
+		return v.resizeDialog.HasTextInputFocused()
+	}
 	return v.subViewHasTextInputFocused()
 }
 
@@ -191,7 +220,25 @@ func (v *GKEClusterDetailsView) subViewHasTextInputFocused() bool {
 // routes Esc back to the view (which then closes the dialog) instead of
 // navigating back.
 func (v *GKEClusterDetailsView) IsMenuOpen() bool {
-	return v.showConfirm
+	return v.showConfirm || v.showUpgrade || v.showResize
+}
+
+// canMutatePools returns true when the cluster is Standard (not Autopilot).
+// Autopilot clusters own their own node pools; resize/upgrade/create/delete
+// are all disabled.
+func (v *GKEClusterDetailsView) canMutatePools() bool {
+	return v.details != nil && v.details.Mode != "AUTOPILOT"
+}
+
+// canUpgradeMaster returns true when the cluster's release channel allows
+// manual control-plane upgrades. REGULAR / RAPID / STABLE are fully managed;
+// only STATIC / UNSPECIFIED / "" accept explicit version pins.
+func (v *GKEClusterDetailsView) canUpgradeMaster() bool {
+	if v.details == nil {
+		return false
+	}
+	rc := v.details.ReleaseChannel
+	return rc == "" || rc == "UNSPECIFIED" || rc == "STATIC"
 }
 
 // SetError lets the app propagate async errors (e.g. delete failures) back
@@ -278,26 +325,79 @@ func (v *GKEClusterDetailsView) Update(msg tea.Msg) tea.Cmd {
 		}
 		return nil
 	case confirm.TypeConfirmMsg:
-		// User typed the cluster name and pressed Enter. Close the dialog,
-		// flip into deleting state, and emit the request for the app handler.
+		// User typed the name and pressed Enter. Close the dialog and emit
+		// the appropriate delete request.
 		v.showConfirm = false
 		if v.details == nil {
 			return nil
 		}
+		if v.confirmIsPoolDel {
+			// Node pool delete.
+			poolName := v.confirmPoolName
+			v.confirmIsPoolDel = false
+			v.confirmPoolName = ""
+			projectID := v.projectID
+			location := v.location
+			name := v.name
+			return func() tea.Msg {
+				return GKENodePoolDeleteRequestMsg{
+					ProjectID:   projectID,
+					Location:    location,
+					ClusterName: name,
+					PoolName:    poolName,
+				}
+			}
+		}
+		// Cluster delete.
 		v.deleting = true
-		name := v.details.Name
+		clusterName := v.details.Name
 		location := v.details.Location
 		projectID := v.projectID
 		return func() tea.Msg {
 			return GKEClusterDeleteRequestMsg{
 				ProjectID: projectID,
 				Location:  location,
-				Name:      name,
+				Name:      clusterName,
 			}
 		}
 	case confirm.TypeCancelMsg:
 		v.showConfirm = false
 		v.confirmDialog = nil
+		v.confirmIsPoolDel = false
+		v.confirmPoolName = ""
+		return nil
+	case GKEUpgradeCanceledMsg:
+		v.showUpgrade = false
+		v.upgradeDialog = nil
+		return nil
+	case GKENodePoolResizeCanceledMsg:
+		v.showResize = false
+		v.resizeDialog = nil
+		return nil
+	case GKENodePoolResizeSubmitMsg:
+		v.showResize = false
+		v.resizeDialog = nil
+		projectID := v.projectID
+		location := v.location
+		name := v.name
+		return func() tea.Msg {
+			return GKENodePoolResizeRequestMsg{
+				ProjectID:        projectID,
+				Location:         location,
+				ClusterName:      name,
+				PoolName:         m.PoolName,
+				Mode:             m.Mode,
+				NodeCount:        m.NodeCount,
+				AutoscaleEnabled: m.AutoscaleEnabled,
+				MinNodes:         m.MinNodes,
+				MaxNodes:         m.MaxNodes,
+			}
+		}
+	case gkeServerConfigLoadedMsg:
+		v.serverConfigLoading = false
+		if m.err == nil {
+			v.serverConfig = m.cfg
+		}
 		return nil
 	case spinner.TickMsg:
 		// Advance the parent spinner when the parent owns the in-flight
@@ -312,6 +412,12 @@ func (v *GKEClusterDetailsView) Update(msg tea.Msg) tea.Cmd {
 		return tea.Batch(parentCmd, subCmd)
 	case tea.KeyMsg:
 		return v.handleKey(m)
+	}
+	// Forward non-key messages to the resize dialog (textinput.Blink etc.)
+	// so its cursor blinks correctly. Upgrade dialog has no text inputs.
+	if v.showResize && v.resizeDialog != nil {
+		cmd, _ := v.resizeDialog.Update(msg)
+		return cmd
 	}
 	// Fallthrough: route the message to the active sub-view so its async
 	// messages (fan-out results, metric loads, log loads, refresh ticks) get
@@ -342,7 +448,17 @@ func (v *GKEClusterDetailsView) routeToActiveSubView(msg tea.Msg) tea.Cmd {
 }
 
 func (v *GKEClusterDetailsView) handleKey(m tea.KeyMsg) tea.Cmd {
-	// Route keys to the delete dialog while it's open.
+	// Route keys to the highest-priority open dialog first (per z-order rule).
+	if v.showResize && v.resizeDialog != nil {
+		if cmd, consumed := v.resizeDialog.Update(m); consumed {
+			return cmd
+		}
+	}
+	if v.showUpgrade && v.upgradeDialog != nil {
+		if cmd, consumed := v.upgradeDialog.Update(m); consumed {
+			return cmd
+		}
+	}
 	if v.showConfirm && v.confirmDialog != nil {
 		return v.confirmDialog.Update(m)
 	}
@@ -355,35 +471,9 @@ func (v *GKEClusterDetailsView) handleKey(m tea.KeyMsg) tea.Cmd {
 	key := m.String()
 	activeID := v.tabs.ActiveTab().ID
 
-	// Cross-cutting actions (delete dialog, per-tab refresh).
-	switch key {
-	case "D":
-		v.openDeleteDialog()
-		if v.confirmDialog != nil {
-			return v.confirmDialog.Init()
-		}
-		return nil
-	case "r":
-		switch activeID {
-		case "nodes":
-			if v.nodes != nil {
-				return v.nodes.Refresh()
-			}
-		case "observability":
-			if v.observability != nil {
-				return v.observability.Refresh()
-			}
-		case "logs":
-			if v.logs != nil {
-				return v.logs.Refresh()
-			}
-		}
-		v.loading = true
-		v.err = nil
-		if v.client == nil {
-			return tea.Batch(v.spinner.Tick, v.initClient())
-		}
-		return tea.Batch(v.spinner.Tick, v.load())
+	// Action keys — each extracted to a helper to keep cognitive complexity low.
+	if cmd, handled := v.handleActionKey(key, activeID); handled {
+		return cmd
 	}
 
 	// Sub-view-owned action keys: route to sub-view before parent tab
@@ -435,6 +525,83 @@ func (v *GKEClusterDetailsView) handleKey(m tea.KeyMsg) tea.Cmd {
 		return cmd
 	}
 	return nil
+}
+
+// handleActionKey processes cross-cutting action keys (D, u, c, R, r).
+// Returns (cmd, true) if the key was handled, (nil, false) to fall through.
+func (v *GKEClusterDetailsView) handleActionKey(key, activeID string) (tea.Cmd, bool) {
+	switch key {
+	case "D":
+		if activeID == "nodepools" && v.canMutatePools() {
+			return v.openNodePoolDeleteConfirm(), true
+		}
+		// Default: cluster delete (Overview tab or when can't mutate pools).
+		v.openDeleteDialog()
+		if v.confirmDialog != nil {
+			return v.confirmDialog.Init(), true
+		}
+		return nil, true
+	case "u":
+		if activeID == "overview" && v.canUpgradeMaster() {
+			return v.openMasterUpgradeDialog(), true
+		}
+		if activeID == "nodepools" && v.canMutatePools() {
+			return v.openNodePoolUpgradeDialog(), true
+		}
+		return nil, true
+	case "c":
+		if activeID == "nodepools" && v.canMutatePools() {
+			return v.emitNodePoolCreateRequested(), true
+		}
+		return nil, false
+	case "R":
+		if activeID == "nodepools" && v.canMutatePools() {
+			return v.openNodePoolResizeDialog(), true
+		}
+		return nil, false
+	case "r":
+		return v.handleRefreshKey(activeID), true
+	}
+	return nil, false
+}
+
+// handleRefreshKey performs a per-tab refresh for the `r` key.
+func (v *GKEClusterDetailsView) handleRefreshKey(activeID string) tea.Cmd {
+	switch activeID {
+	case "nodes":
+		if v.nodes != nil {
+			return v.nodes.Refresh()
+		}
+	case "observability":
+		if v.observability != nil {
+			return v.observability.Refresh()
+		}
+	case "logs":
+		if v.logs != nil {
+			return v.logs.Refresh()
+		}
+	}
+	v.loading = true
+	v.err = nil
+	if v.client == nil {
+		return tea.Batch(v.spinner.Tick, v.initClient())
+	}
+	return tea.Batch(v.spinner.Tick, v.load())
+}
+
+// emitNodePoolCreateRequested emits the navigation message to open the
+// node pool create view.
+func (v *GKEClusterDetailsView) emitNodePoolCreateRequested() tea.Cmd {
+	projectID := v.projectID
+	location := v.location
+	name := v.name
+	return func() tea.Msg {
+		return GKENodePoolCreateRequestedMsg{
+			ProjectID:   projectID,
+			Location:    location,
+			ClusterName: name,
+		}
+	}
 }
 
 // isGKESubViewActionKey reports whether the key belongs to a sub-view's own
@@ -501,6 +668,165 @@ func (v *GKEClusterDetailsView) openDeleteDialog() {
 	v.showConfirm = true
 }
 
+// gkeServerConfigLoadedMsg carries the result of a GetServerConfig call.
+type gkeServerConfigLoadedMsg struct {
+	cfg gcp.ServerConfig
+	err error
+}
+
+// fetchServerConfig issues a GetServerConfig call and returns the result
+// as a gkeServerConfigLoadedMsg.
+func (v *GKEClusterDetailsView) fetchServerConfig() tea.Cmd {
+	client := v.client
+	projectID := v.projectID
+	location := v.location
+	return func() tea.Msg {
+		if client == nil {
+			return gkeServerConfigLoadedMsg{err: uierrors.ErrGKEClientNotInitialized}
+		}
+		cfg, err := client.GetServerConfig(gocontext.Background(), projectID, location)
+		return gkeServerConfigLoadedMsg{cfg: cfg, err: err}
+	}
+}
+
+// openMasterUpgradeDialog opens the upgrade dialog for the control plane.
+// If the server config has not been fetched yet, it starts the fetch and
+// returns; the user can press `u` again once the config is ready.
+func (v *GKEClusterDetailsView) openMasterUpgradeDialog() tea.Cmd {
+	if len(v.serverConfig.ValidMasterVersions) == 0 {
+		if !v.serverConfigLoading {
+			v.serverConfigLoading = true
+			return v.fetchServerConfig()
+		}
+		// Already loading — let the user press `u` again when config arrives.
+		return nil
+	}
+	v.upgradeTarget = upgradeTargetMaster
+	v.upgradePool = ""
+	currentVersion := ""
+	if v.details != nil {
+		currentVersion = v.details.MasterVersion
+	}
+	projectID := v.projectID
+	location := v.location
+	name := v.name
+	v.upgradeDialog = NewGKEUpgradeDialog(
+		"Upgrade control plane",
+		currentVersion,
+		v.serverConfig.ValidMasterVersions,
+		func(version string) tea.Msg {
+			return GKEMasterUpgradeRequestMsg{
+				ProjectID:   projectID,
+				Location:    location,
+				ClusterName: name,
+				Version:     version,
+			}
+		},
+	)
+	v.showUpgrade = true
+	return v.upgradeDialog.Init()
+}
+
+// openNodePoolUpgradeDialog opens the upgrade dialog for the focused node pool.
+func (v *GKEClusterDetailsView) openNodePoolUpgradeDialog() tea.Cmd {
+	if len(v.serverConfig.ValidNodeVersions) == 0 {
+		if !v.serverConfigLoading {
+			v.serverConfigLoading = true
+			return v.fetchServerConfig()
+		}
+		return nil
+	}
+	pool := v.focusedPool()
+	if pool == nil {
+		return nil
+	}
+	poolName := pool.Name
+	currentVersion := pool.NodeVersion
+	projectID := v.projectID
+	location := v.location
+	name := v.name
+	v.upgradeTarget = upgradeTargetNodePool
+	v.upgradePool = poolName
+	v.upgradeDialog = NewGKEUpgradeDialog(
+		"Upgrade node pool: "+poolName,
+		currentVersion,
+		v.serverConfig.ValidNodeVersions,
+		func(version string) tea.Msg {
+			return GKENodePoolUpgradeRequestMsg{
+				ProjectID:   projectID,
+				Location:    location,
+				ClusterName: name,
+				PoolName:    poolName,
+				Version:     version,
+			}
+		},
+	)
+	v.showUpgrade = true
+	return v.upgradeDialog.Init()
+}
+
+// openNodePoolResizeDialog opens the resize dialog for the focused node pool.
+func (v *GKEClusterDetailsView) openNodePoolResizeDialog() tea.Cmd {
+	pool := v.focusedPool()
+	if pool == nil {
+		return nil
+	}
+	v.resizeDialog = NewGKENodePoolResizeDialog(
+		pool.Name,
+		int64(pool.NodeCount),
+		pool.AutoscalingOn,
+		int64(pool.AutoscalingMin),
+		int64(pool.AutoscalingMax),
+	)
+	v.showResize = true
+	return v.resizeDialog.Init()
+}
+
+// openNodePoolDeleteConfirm opens a type-to-confirm dialog for the focused pool.
+func (v *GKEClusterDetailsView) openNodePoolDeleteConfirm() tea.Cmd {
+	pool := v.focusedPool()
+	if pool == nil {
+		return nil
+	}
+	poolName := pool.Name
+	detailLines := []string{
+		fmt.Sprintf("Pool: %s", poolName),
+		fmt.Sprintf("Nodes: %d", pool.NodeCount),
+		fmt.Sprintf("Machine type: %s", pool.MachineType),
+		"",
+		"This will permanently delete the node pool and drain all",
+		"workloads running on its nodes.",
+	}
+	v.confirmDialog = confirm.NewTypeConfirmDialog(
+		"Delete Node Pool",
+		poolName,
+		detailLines,
+	)
+	v.confirmIsPoolDel = true
+	v.confirmPoolName = poolName
+	v.showConfirm = true
+	return v.confirmDialog.Init()
+}
+
+// focusedPool returns the NodePool currently selected in the pools table,
+// or nil if the pool list is empty.
+func (v *GKEClusterDetailsView) focusedPool() *gcp.NodePool {
+	if v.details == nil || len(v.details.NodePools) == 0 {
+		return nil
+	}
+	row := v.poolsTable.SelectedRow()
+	if row == nil {
+		return nil
+	}
+	// Rows are keyed by pool name (set as Row.ID in refreshNodePoolsTable).
+	for i := range v.details.NodePools {
+		if v.details.NodePools[i].Name == row.ID {
+			return &v.details.NodePools[i]
+		}
+	}
+	return nil
+}
+
 func (v *GKEClusterDetailsView) View() string {
 	if v.loading && v.details == nil {
 		return renderLoading(v.spinner, "Loading cluster...")
@@ -552,12 +878,19 @@ func (v *GKEClusterDetailsView) View() string {
 	}
 	mainContent := b.String()
 
-	// Overlay the delete dialog on top of the main content. Per the
-	// bubble-tea-rendering rule on dialog z-order, dialogs must render
-	// ABOVE the parent body.
+	// Overlay dialogs on top of the main content in priority order (highest first).
+	// Per the bubble-tea-rendering rule: higher-priority dialogs render on top.
 	if v.showConfirm && v.confirmDialog != nil {
 		contentHeight := lipgloss.Height(mainContent)
 		return overlay.Center(mainContent, v.confirmDialog.View(), v.width, contentHeight)
+	}
+	if v.showResize && v.resizeDialog != nil {
+		contentHeight := lipgloss.Height(mainContent)
+		return overlay.Center(mainContent, v.resizeDialog.View(), v.width, contentHeight)
+	}
+	if v.showUpgrade && v.upgradeDialog != nil {
+		contentHeight := lipgloss.Height(mainContent)
+		return overlay.Center(mainContent, v.upgradeDialog.View(), v.width, contentHeight)
 	}
 	return mainContent
 }
@@ -576,7 +909,11 @@ func (v *GKEClusterDetailsView) renderOverview() string {
 	row("Mode", humanMode(d.Mode))
 	row("Status", statusBadge(d.Status))
 	row("Location", fmt.Sprintf("%s (%s)", d.Location, humanLocationType(d.LocationType)))
-	row("Master version", d.MasterVersion)
+	masterVersionDisplay := d.MasterVersion
+	if rc := d.ReleaseChannel; rc != "" && rc != "UNSPECIFIED" && rc != "STATIC" {
+		masterVersionDisplay = fmt.Sprintf("%s (managed by %s channel)", d.MasterVersion, rc)
+	}
+	row("Master version", masterVersionDisplay)
 	nv := d.NodeVersion
 	if !d.NodeVersionsUniform {
 		nv = "(varies)"
@@ -627,7 +964,15 @@ func (v *GKEClusterDetailsView) renderNodePools() string {
 	if len(v.details.NodePools) == 0 {
 		return "(no node pools)"
 	}
-	return v.poolsTable.View()
+	var b strings.Builder
+	b.WriteString(v.poolsTable.View())
+	if !v.canMutatePools() {
+		mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA0A6"))
+		b.WriteString("\n")
+		b.WriteString(mutedStyle.Render("  ▒ Pool mutations are managed by Autopilot"))
+		b.WriteString("\n")
+	}
+	return b.String()
 }
 
 func (v *GKEClusterDetailsView) refreshNodePoolsTable() {

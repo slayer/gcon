@@ -41,7 +41,7 @@ func (a *App) renderHeader() string {
 			category = "Logging"
 		case ViewLoadBalancers, ViewLoadBalancerDetails:
 			category = "Network Services"
-		case ViewGKEClusters, ViewGKEClusterDetails:
+		case ViewGKEClusters, ViewGKEClusterDetails, ViewGKENodePoolCreate:
 			category = "Kubernetes Engine"
 		}
 	}
@@ -379,6 +379,10 @@ func (a *App) renderCurrentView() string {
 	case ViewGKEClusterDetails:
 		if a.gkeClusterDetailsView != nil {
 			return a.gkeClusterDetailsView.View()
+		}
+	case ViewGKENodePoolCreate:
+		if a.gkeNodePoolCreateView != nil {
+			return a.gkeNodePoolCreateView.View()
 		}
 	case ViewFormDemo:
 		if a.formDemoView != nil {

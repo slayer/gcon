@@ -82,7 +82,8 @@ const (
 	ViewLoadBalancerDetails
 	ViewGKEClusters
 	ViewGKEClusterDetails
-	ViewFormDemo // Demo view for testing form components
+	ViewGKENodePoolCreate // Creating a new node pool in a GKE cluster
+	ViewFormDemo          // Demo view for testing form components
 )
 
 // FocusedPanel indicates which panel has keyboard focus
@@ -162,6 +163,7 @@ type App struct {
 	loadBalancerDetailsView    *views.LoadBalancerDetailsView
 	gkeClustersView            *views.GKEClustersView
 	gkeClusterDetailsView      *views.GKEClusterDetailsView
+	gkeNodePoolCreateView      *views.GKENodePoolCreateView
 	formDemoView               *views.FormDemoView
 
 	// Selected context
@@ -458,6 +460,8 @@ func (a *App) getCurrentViewModel() views.View {
 		return a.gkeClustersView
 	case ViewGKEClusterDetails:
 		return a.gkeClusterDetailsView
+	case ViewGKENodePoolCreate:
+		return a.gkeNodePoolCreateView
 	case ViewFormDemo:
 		return a.formDemoView
 	}
@@ -1019,6 +1023,63 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
 		return a, a.handleGKEClusterActionResult(msg)
 
+	// GKE Phase 2b — node pool lifecycle + operation polling
+	case views.GKENodePoolCreateRequestedMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleGKENodePoolCreateRequested(msg)
+
+	case views.GKENodePoolCreateCanceledMsg:
+		a.handleGKENodePoolCreateCanceled()
+		return a, nil
+
+	case views.GKENodePoolCreateRequestMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleGKENodePoolCreateRequest(msg)
+
+	case views.GKENodePoolCreateResultMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleGKENodePoolCreateResult(msg)
+
+	case views.GKENodePoolDeleteRequestMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleGKENodePoolDeleteRequest(msg)
+
+	case views.GKENodePoolDeleteResultMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleGKENodePoolDeleteResult(msg)
+
+	case views.GKENodePoolResizeRequestMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleGKENodePoolResizeRequest(msg)
+
+	case views.GKENodePoolResizeResultMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleGKENodePoolResizeResult(msg)
+
+	case views.GKEMasterUpgradeRequestMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleGKEMasterUpgradeRequest(msg)
+
+	case views.GKEMasterUpgradeResultMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleGKEMasterUpgradeResult(msg)
+
+	case views.GKENodePoolUpgradeRequestMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleGKENodePoolUpgradeRequest(msg)
+
+	case views.GKENodePoolUpgradeResultMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleGKENodePoolUpgradeResult(msg)
+
+	case views.GKEOperationPollMsg:
+		cmd := a.pollGKEOperationOnce(msg)
+		return a, cmd
+
+	case gkeOperationPollResultMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleGKEOperationPollResult(msg)
+
 	case views.SubnetSelectedMsg:
 		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
 		return a, a.handleSubnetSelected(msg)
@@ -1577,6 +1638,17 @@ func (a *App) updateViewSizes() {
 	if a.gkeClusterDetailsView != nil {
 		a.gkeClusterDetailsView.SetContext(a.ctx)
 	}
+	if a.gkeNodePoolCreateView != nil {
+		a.gkeNodePoolCreateView.SetContext(a.ctx)
+	}
+}
+
+// gkeOperationPollResultMsg is the internal result of a single GKE operation poll.
+// Carries the operation state (or error) back from the async fetch cmd.
+type gkeOperationPollResultMsg struct {
+	src views.GKEOperationPollMsg
+	op  gcp.Operation
+	err error
 }
 
 // View implements tea.Model
