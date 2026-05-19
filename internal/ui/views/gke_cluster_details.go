@@ -154,6 +154,15 @@ func (v *GKEClusterDetailsView) GetComputeClient() *gcp.ComputeClient { return v
 // for Phase 2b mutation handlers (create/delete/resize/upgrade node pools).
 func (v *GKEClusterDetailsView) GetContainerClient() *gcp.ContainerClient { return v.client }
 
+// Details exposes the loaded ClusterDetails so the app can pre-populate
+// the cluster edit form (Phase 2c). Returns nil while details are loading.
+func (v *GKEClusterDetailsView) Details() *gcp.ClusterDetails { return v.details }
+
+// FocusedPool exposes the pool currently selected on the Node Pools tab so
+// the app can pre-populate the pool edit form. Returns nil when no pool is
+// focused (e.g., loading or list is empty).
+func (v *GKEClusterDetailsView) FocusedPool() *gcp.NodePool { return v.focusedPool() }
+
 // SetSize updates the inner viewport and node pools table to match the
 // available content area. Leaves 4 rows for the tab bar + status line.
 // Sub-views (nodes/observability/logs) receive their own propagated size.
@@ -554,6 +563,16 @@ func (v *GKEClusterDetailsView) handleActionKey(key, activeID string) (tea.Cmd, 
 			return v.emitNodePoolCreateRequested(), true
 		}
 		return nil, false
+	case "e":
+		if activeID == "overview" {
+			// Cluster edit is allowed on both Standard and Autopilot —
+			// labels / maintenance / logging are top-level cluster knobs.
+			return v.emitClusterEditOpen(), true
+		}
+		if activeID == "nodepools" && v.canMutatePools() {
+			return v.emitNodePoolEditOpen(), true
+		}
+		return nil, false
 	case "R":
 		if activeID == "nodepools" && v.canMutatePools() {
 			return v.openNodePoolResizeDialog(), true
@@ -600,6 +619,42 @@ func (v *GKEClusterDetailsView) emitNodePoolCreateRequested() tea.Cmd {
 			ProjectID:   projectID,
 			Location:    location,
 			ClusterName: name,
+		}
+	}
+}
+
+// emitClusterEditOpen emits the navigation message to open the cluster
+// edit view (allowed on both Standard and Autopilot clusters).
+func (v *GKEClusterDetailsView) emitClusterEditOpen() tea.Cmd {
+	projectID := v.projectID
+	location := v.location
+	name := v.name
+	return func() tea.Msg {
+		return GKEClusterEditOpenMsg{
+			ProjectID:   projectID,
+			Location:    location,
+			ClusterName: name,
+		}
+	}
+}
+
+// emitNodePoolEditOpen emits the navigation message to open the node pool
+// edit view for the focused pool. No-op when no pool is focused.
+func (v *GKEClusterDetailsView) emitNodePoolEditOpen() tea.Cmd {
+	pool := v.focusedPool()
+	if pool == nil {
+		return nil
+	}
+	projectID := v.projectID
+	location := v.location
+	name := v.name
+	poolName := pool.Name
+	return func() tea.Msg {
+		return GKENodePoolEditOpenMsg{
+			ProjectID:   projectID,
+			Location:    location,
+			ClusterName: name,
+			PoolName:    poolName,
 		}
 	}
 }
