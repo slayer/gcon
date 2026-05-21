@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -36,6 +37,7 @@ var (
 	errMaintenanceHourRange   = errors.New("hour must be 00–23")
 	errMaintenanceMinuteRange = errors.New("minutes must be 00–59")
 	errMaintenanceDailyNoTime = errors.New("daily maintenance window requires a start time")
+	errMaintenanceDaysEmpty   = errors.New("recurring maintenance requires at least one day")
 )
 
 // clusterEditKeyMap defines key bindings for the cluster edit view.
@@ -120,8 +122,11 @@ func (v *GKEClusterEditView) buildForm() {
 
 	// ── Maintenance section ───────────────────────────────────────────────────
 	initialKind := "none"
-	if v.details.MaintenanceDaily != "" {
+	switch {
+	case v.details.MaintenanceDaily != "":
 		initialKind = "daily"
+	case v.details.MaintenanceRecurring != nil:
+		initialKind = "recurring"
 	}
 
 	maintenanceSection := forms.NewSection("maintenance", "Maintenance").
@@ -129,12 +134,31 @@ func (v *GKEClusterEditView) buildForm() {
 			SetOptions([]forms.Option{
 				{Value: "none", Label: "None (clear)"},
 				{Value: "daily", Label: "Daily window"},
+				{Value: "recurring", Label: "Recurring (weekly)"},
 			}).
 			SetHelpText("When to allow GKE to perform maintenance on the cluster")).
 		AddField(forms.NewTextField("maintenance_daily_start", "Daily Start Time (UTC)").
 			SetPlaceholder("HH:MM (UTC)").
 			SetHelpText("Time the daily maintenance window begins, e.g. 03:00").
-			SetValidator(validateMaintenanceTime))
+			SetValidator(validateMaintenanceTime)).
+		AddField(forms.NewMultiSelectField("maintenance_days", "Days").
+			SetOptions([]forms.Option{
+				{Value: "MO", Label: "Mon"},
+				{Value: "TU", Label: "Tue"},
+				{Value: "WE", Label: "Wed"},
+				{Value: "TH", Label: "Thu"},
+				{Value: "FR", Label: "Fri"},
+				{Value: "SA", Label: "Sat"},
+				{Value: "SU", Label: "Sun"},
+			}).
+			SetHelpText("Days of week the recurring window applies")).
+		AddField(forms.NewTextField("maintenance_recurring_start", "Recurring Start (UTC)").
+			SetPlaceholder("HH:MM").
+			SetHelpText("Time the recurring window begins each occurrence").
+			SetValidator(validateMaintenanceTime)).
+		AddField(forms.NewNumberField("maintenance_recurring_duration", "Recurring Duration (hours)").
+			SetHelpText("How long each occurrence lasts (1-23)").
+			SetValidator(forms.ValidateNumber(1, 23)))
 
 	v.Form.AddSection(maintenanceSection)
 
@@ -172,10 +196,27 @@ func (v *GKEClusterEditView) buildForm() {
 	v.Form.AddSection(observabilitySection)
 
 	// Pre-populate defaults from details.
+	recurringDays := []string{"MO", "WE", "FR"}
+	recurringStart := "03:00"
+	var recurringDuration int64 = 4
+	if v.details.MaintenanceRecurring != nil {
+		rw := v.details.MaintenanceRecurring
+		recurringDays = append([]string(nil), rw.Days...)
+		recurringStart = rw.Start
+		if h := parseDurationHours(rw.Duration); h > 0 {
+			recurringDuration = int64(h)
+		}
+	}
 	v.Form.SetData(map[string]any{
-		"maintenance_kind":        initialKind,
-		"maintenance_daily_start": v.details.MaintenanceDaily,
+		"maintenance_kind":               initialKind,
+		"maintenance_daily_start":        v.details.MaintenanceDaily,
+		"maintenance_days":               recurringDays,
+		"maintenance_recurring_start":    recurringStart,
+		"maintenance_recurring_duration": recurringDuration,
 	})
+
+	// Sync visibility so initial kind hides the inapplicable fields.
+	v.syncMaintenanceVisibility()
 
 	// Pre-populate dropdowns only when the value is in the curated list.
 	if isKnownLoggingValue(v.details.LoggingService) {
@@ -219,6 +260,38 @@ func validateMaintenanceTime(value any) error {
 		return errMaintenanceMinuteRange
 	}
 	return nil
+}
+
+// syncMaintenanceVisibility hides the maintenance fields that don't apply
+// to the currently-selected kind. Called from buildForm (after SetData)
+// and from Update on each key event (cheap, idempotent).
+func (v *GKEClusterEditView) syncMaintenanceVisibility() {
+	if v.Form == nil {
+		return
+	}
+	var kind string
+	if s, ok := v.Form.GetData()["maintenance_kind"].(string); ok {
+		kind = s
+	}
+	if f := v.Form.GetField("maintenance_daily_start"); f != nil {
+		f.SetHidden(kind != "daily")
+	}
+	for _, id := range []string{"maintenance_days", "maintenance_recurring_start", "maintenance_recurring_duration"} {
+		if f := v.Form.GetField(id); f != nil {
+			f.SetHidden(kind != "recurring")
+		}
+	}
+}
+
+// parseDurationHours parses a duration string like "4h" into an integer hour count.
+// Returns 0 for values outside [1, 23] or unparseable strings.
+func parseDurationHours(s string) int {
+	s = strings.TrimSuffix(s, "h")
+	n, err := strconv.Atoi(s)
+	if err != nil || n < 1 || n > 23 {
+		return 0
+	}
+	return n
 }
 
 // isKnownLoggingValue returns true when the value is one of the dropdown options.
@@ -369,7 +442,9 @@ func (v *GKEClusterEditView) Update(msg tea.Msg) tea.Cmd {
 	// Non-key, non-form-lifecycle messages (textinput.Blink, etc.) must reach
 	// the form so the cursor blinks and any text-input commands run.
 	if v.state == clusterEditStateForm && v.Form != nil {
-		return v.Form.Update(msg)
+		cmd := v.Form.Update(msg)
+		v.syncMaintenanceVisibility()
+		return cmd
 	}
 	return nil
 }
@@ -409,7 +484,9 @@ func (v *GKEClusterEditView) handleKeyMsg(msg tea.KeyMsg) tea.Cmd {
 			return v.openLabelEditor()
 		}
 		if v.Form != nil {
-			return v.Form.Update(msg)
+			cmd := v.Form.Update(msg)
+			v.syncMaintenanceVisibility()
+			return cmd
 		}
 	}
 
@@ -418,6 +495,9 @@ func (v *GKEClusterEditView) handleKeyMsg(msg tea.KeyMsg) tea.Cmd {
 
 // handleSubmit validates the form, computes the edit diff, and transitions to the diff state.
 func (v *GKEClusterEditView) handleSubmit() tea.Cmd {
+	// Sync visibility before validating/extracting data so that the correct
+	// fields are shown/hidden based on the currently selected maintenance kind.
+	v.syncMaintenanceVisibility()
 	if errs := v.Form.Validate(); len(errs) > 0 {
 		return nil
 	}
@@ -446,6 +526,18 @@ func (v *GKEClusterEditView) computeEdit(data map[string]any) (*gcp.ClusterEdit,
 			return s
 		}
 		return ""
+	}
+	getInt64 := func(key string) int64 {
+		if n, ok := data[key].(int64); ok {
+			return n
+		}
+		return 0
+	}
+	getStringSlice := func(key string) []string {
+		if v, ok := data[key].([]string); ok {
+			return v
+		}
+		return nil
 	}
 
 	// ── Observability (logging / monitoring) ──────────────────────────────────
@@ -482,25 +574,68 @@ func (v *GKEClusterEditView) computeEdit(data map[string]any) (*gcp.ClusterEdit,
 
 	// ── Maintenance window ────────────────────────────────────────────────────
 	initialKind := gcp.MaintenanceKindNone
-	if v.details.MaintenanceDaily != "" {
+	switch {
+	case v.details.MaintenanceDaily != "":
 		initialKind = gcp.MaintenanceKindDaily
+	case v.details.MaintenanceRecurring != nil:
+		initialKind = gcp.MaintenanceKindRecurring
 	}
 	initialDaily := v.details.MaintenanceDaily
 
 	newKindStr := getString("maintenance_kind")
 	newKind := gcp.MaintenanceKind(newKindStr)
-	newDaily := strings.TrimSpace(getString("maintenance_daily_start"))
-
-	// Validate: daily kind requires a non-empty start time.
-	if newKind == gcp.MaintenanceKindDaily && newDaily == "" {
-		return nil, nil, errMaintenanceDailyNoTime
-	}
 
 	var maint *gcp.MaintenanceWindow
-	if newKind != initialKind || newDaily != initialDaily {
-		maint = &gcp.MaintenanceWindow{
-			Kind:  newKind,
-			Daily: newDaily,
+	switch newKind {
+	case gcp.MaintenanceKindNone:
+		if initialKind != gcp.MaintenanceKindNone {
+			maint = &gcp.MaintenanceWindow{Kind: gcp.MaintenanceKindNone}
+		}
+
+	case gcp.MaintenanceKindDaily:
+		newDaily := strings.TrimSpace(getString("maintenance_daily_start"))
+		if newDaily == "" {
+			return nil, nil, errMaintenanceDailyNoTime
+		}
+		if initialKind != gcp.MaintenanceKindDaily || initialDaily != newDaily {
+			maint = &gcp.MaintenanceWindow{Kind: gcp.MaintenanceKindDaily, Daily: newDaily}
+		}
+
+	case gcp.MaintenanceKindRecurring:
+		days := getStringSlice("maintenance_days")
+		start := strings.TrimSpace(getString("maintenance_recurring_start"))
+		durationHours := getInt64("maintenance_recurring_duration")
+		duration := fmt.Sprintf("%dh", durationHours)
+
+		if len(days) == 0 {
+			return nil, nil, errMaintenanceDaysEmpty
+		}
+
+		// Baseline comparison: same kind + same days (sorted) + same start + same duration → no change.
+		var initialDays []string
+		initialStart := ""
+		initialDuration := ""
+		if v.details.MaintenanceRecurring != nil {
+			initialDays = append([]string(nil), v.details.MaintenanceRecurring.Days...)
+			initialStart = v.details.MaintenanceRecurring.Start
+			initialDuration = v.details.MaintenanceRecurring.Duration
+		}
+
+		sortedNew := append([]string(nil), days...)
+		sort.Strings(sortedNew)
+		sortedInit := append([]string(nil), initialDays...)
+		sort.Strings(sortedInit)
+
+		if initialKind != gcp.MaintenanceKindRecurring ||
+			!slicesEqual(sortedInit, sortedNew) ||
+			initialStart != start ||
+			initialDuration != duration {
+			maint = &gcp.MaintenanceWindow{
+				Kind:     gcp.MaintenanceKindRecurring,
+				Days:     sortedNew,
+				Start:    start,
+				Duration: duration,
+			}
 		}
 	}
 
@@ -639,33 +774,10 @@ func (v *GKEClusterEditView) renderDiff() string {
 	if v.pendingMaintenance != nil {
 		b.WriteString(sectionStyle.Render("  Maintenance:"))
 		b.WriteString("\n")
-
-		initialKind := gcp.MaintenanceKindNone
-		if v.details.MaintenanceDaily != "" {
-			initialKind = gcp.MaintenanceKindDaily
-		}
-		if v.pendingMaintenance.Kind != initialKind {
-			line := fmt.Sprintf("    %-28s %s → %s", "kind:", string(initialKind), string(v.pendingMaintenance.Kind))
-			changedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FBBC04"))
-			b.WriteString(changedStyle.Render(line))
-			b.WriteString("\n")
-			anyChange = true
-		}
-		if v.pendingMaintenance.Daily != v.details.MaintenanceDaily {
-			old := v.details.MaintenanceDaily
-			if old == "" {
-				old = "(none)"
-			}
-			nw := v.pendingMaintenance.Daily
-			if nw == "" {
-				nw = "(none)"
-			}
-			line := fmt.Sprintf("    %-28s %s → %s", "daily_start:", old, nw)
-			b.WriteString(diffMaintenanceDailyStyle(v.pendingMaintenance.Kind, v.details.MaintenanceDaily).Render(line))
-			b.WriteString("\n")
-			anyChange = true
-		}
+		changed := v.renderMaintenanceDiff()
+		b.WriteString(changed)
 		b.WriteString("\n")
+		anyChange = true
 	}
 
 	if !anyChange {
@@ -675,6 +787,96 @@ func (v *GKEClusterEditView) renderDiff() string {
 
 	b.WriteString(helpStyle.Render("  Enter: apply   Esc: back to form"))
 	b.WriteString("\n")
+
+	return b.String()
+}
+
+// renderMaintenanceDiff renders the per-field maintenance diff lines.
+// Called from renderDiff when pendingMaintenance is non-nil.
+func (v *GKEClusterEditView) renderMaintenanceDiff() string {
+	var b strings.Builder
+
+	changedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FBBC04"))
+	addedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#34A853"))
+
+	initialKind := gcp.MaintenanceKindNone
+	switch {
+	case v.details.MaintenanceDaily != "":
+		initialKind = gcp.MaintenanceKindDaily
+	case v.details.MaintenanceRecurring != nil:
+		initialKind = gcp.MaintenanceKindRecurring
+	}
+
+	if v.pendingMaintenance.Kind != initialKind {
+		line := fmt.Sprintf("    %-28s %s → %s", "kind:", string(initialKind), string(v.pendingMaintenance.Kind))
+		b.WriteString(changedStyle.Render(line))
+		b.WriteString("\n")
+	}
+
+	switch v.pendingMaintenance.Kind {
+	case gcp.MaintenanceKindDaily:
+		old := v.details.MaintenanceDaily
+		if old == "" {
+			old = "(none)"
+		}
+		nw := v.pendingMaintenance.Daily
+		if nw == "" {
+			nw = "(none)"
+		}
+		if old != nw {
+			line := fmt.Sprintf("    %-28s %s → %s", "daily_start:", old, nw)
+			b.WriteString(diffMaintenanceDailyStyle(v.pendingMaintenance.Kind, v.details.MaintenanceDaily).Render(line))
+			b.WriteString("\n")
+		}
+
+	case gcp.MaintenanceKindRecurring:
+		b.WriteString(v.renderRecurringDiff(changedStyle, addedStyle))
+	}
+
+	return b.String()
+}
+
+// renderRecurringDiff renders the days/start/duration delta lines for a recurring window change.
+func (v *GKEClusterEditView) renderRecurringDiff(changedStyle, addedStyle lipgloss.Style) string {
+	var b strings.Builder
+
+	var oldDays []string
+	oldStart := ""
+	oldDuration := ""
+	if v.details.MaintenanceRecurring != nil {
+		oldDays = v.details.MaintenanceRecurring.Days
+		oldStart = v.details.MaintenanceRecurring.Start
+		oldDuration = v.details.MaintenanceRecurring.Duration
+	}
+
+	newDaysStr := strings.Join(v.pendingMaintenance.Days, ",")
+	oldDaysStr := strings.Join(oldDays, ",")
+	if oldDaysStr != newDaysStr {
+		if oldDaysStr == "" {
+			oldDaysStr = "(none)"
+		}
+		line := fmt.Sprintf("    %-28s %s → %s", "days:", oldDaysStr, newDaysStr)
+		b.WriteString(addedStyle.Render(line))
+		b.WriteString("\n")
+	}
+	if oldStart != v.pendingMaintenance.Start {
+		old := oldStart
+		if old == "" {
+			old = "(none)"
+		}
+		line := fmt.Sprintf("    %-28s %s → %s", "start:", old, v.pendingMaintenance.Start)
+		b.WriteString(changedStyle.Render(line))
+		b.WriteString("\n")
+	}
+	if oldDuration != v.pendingMaintenance.Duration {
+		old := oldDuration
+		if old == "" {
+			old = "(none)"
+		}
+		line := fmt.Sprintf("    %-28s %s → %s", "duration:", old, v.pendingMaintenance.Duration)
+		b.WriteString(changedStyle.Render(line))
+		b.WriteString("\n")
+	}
 
 	return b.String()
 }
