@@ -10,6 +10,44 @@ import (
 	"github.com/slayer/gcon/internal/gcp"
 )
 
+// ── Task 7: k8s labels editor sub-state ──────────────────────────────────────
+
+func TestGKENodePoolEdit_LabelsEditedTransitionsToDiff(t *testing.T) {
+	pool := &gcp.NodePool{Name: "default", Labels: map[string]string{"role": "worker"}}
+	v := NewGKENodePoolEditView("proj", "us-central1", "prod", pool)
+	v.editingLabels = map[string]string{"role": "gpu"}
+	cmd := v.handleSubmit()
+	assert.Nil(t, cmd)
+	assert.Equal(t, nodePoolEditStateDiff, v.state)
+	require.NotNil(t, v.pendingFields)
+	require.NotNil(t, v.pendingFields.Labels)
+	assert.Equal(t, "gpu", (*v.pendingFields.Labels)["role"])
+}
+
+func TestGKENodePoolEdit_LabelsUnchangedNoDiff(t *testing.T) {
+	pool := &gcp.NodePool{Name: "default", Labels: map[string]string{"role": "worker"}}
+	v := NewGKENodePoolEditView("proj", "us-central1", "prod", pool)
+	v.editingLabels = map[string]string{"role": "worker"} // identical
+	cmd := v.handleSubmit()
+	assert.Nil(t, cmd)
+	assert.ErrorIs(t, v.err, errNodePoolEditNoChanges)
+}
+
+func TestGKENodePoolEdit_OpenLabelEditorUsesK8sValidators(t *testing.T) {
+	pool := &gcp.NodePool{Name: "default", Labels: map[string]string{"role": "worker"}}
+	v := NewGKENodePoolEditView("proj", "us-central1", "prod", pool)
+	v.SetSize(120, 40)
+	v.openLabelEditor()
+	require.NotNil(t, v.labelEditor)
+	assert.Equal(t, nodePoolEditStateEditingLabels, v.state)
+	// Smoke test: k8s key regex must accept "kubernetes.io/role" (prefix/name form).
+	assert.True(t, k8sLabelKeyPattern.MatchString("kubernetes.io/role"),
+		"k8s label key regex should accept DNS-prefixed key")
+	// k8s value regex must accept empty (empty-value taints are valid).
+	assert.True(t, k8sLabelValuePattern.MatchString(""),
+		"k8s label value regex should accept empty string")
+}
+
 func TestGKENodePoolEdit_NoChangesRejected(t *testing.T) {
 	pool := &gcp.NodePool{
 		Name:        "default",
