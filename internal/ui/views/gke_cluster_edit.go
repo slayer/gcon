@@ -13,6 +13,7 @@ import (
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/forms"
+	"github.com/slayer/gcon/internal/ui/components/labeledit"
 	"github.com/slayer/gcon/internal/ui/context"
 )
 
@@ -20,9 +21,10 @@ import (
 type clusterEditState int
 
 const (
-	clusterEditStateForm    clusterEditState = iota
-	clusterEditStateDiff                     // preview old vs new
-	clusterEditStateSaving                   // calling API (spinner)
+	clusterEditStateForm          clusterEditState = iota
+	clusterEditStateEditingLabels                  // labeledit overlay
+	clusterEditStateDiff                           // preview old vs new
+	clusterEditStateSaving                         // calling API (spinner)
 )
 
 // errClusterEditNoChanges is returned when the user submits without editing anything.
@@ -60,8 +62,8 @@ func defaultClusterEditKeyMap() clusterEditKeyMap {
 	}
 }
 
-// GKEClusterEditView is a 3-state form view for editing a GKE cluster.
-// States: form → diff (preview) → saving.
+// GKEClusterEditView is a 4-state form view for editing a GKE cluster.
+// States: form → editingLabels → diff (preview) → saving.
 type GKEClusterEditView struct {
 	projectID, location, clusterName string
 	details                          *gcp.ClusterDetails
@@ -79,6 +81,10 @@ type GKEClusterEditView struct {
 	// shown in the diff state, and sent on confirm-deploy.
 	pendingBasic       *gcp.ClusterEdit
 	pendingMaintenance *gcp.MaintenanceWindow
+
+	// Labels editor sub-state.
+	labelEditor   *labeledit.Editor
+	editingLabels map[string]string // last-saved snapshot; nil = user never opened it
 }
 
 // NewGKEClusterEditView creates a new cluster edit view pre-populated from details.
@@ -103,12 +109,12 @@ func (v *GKEClusterEditView) buildForm() {
 	).EnableViewport()
 
 	// ── Basic section ────────────────────────────────────────────────────────
-	// Resource labels: deferred (no key/value map editor in the forms framework yet).
-	// Show a read-only summary and a help-text note.
+	// Resource labels: show a read-only summary; user presses Enter or `l` to
+	// open the labeledit overlay.
 	labelsDisplay := labelsToDisplay(v.details.ResourceLabels)
 	basicSection := forms.NewSection("basic", "Basic").
 		AddField(forms.NewReadOnlyField("resource_labels", "Resource Labels", labelsDisplay).
-			SetHelpText("Resource label editing planned for a future PR"))
+			SetHelpText("Press Enter or `l` to edit"))
 
 	v.Form.AddSection(basicSection)
 
@@ -255,6 +261,9 @@ func (v *GKEClusterEditView) SetSize(width, height int) {
 	if v.Form != nil {
 		v.Form.SetSize(width-formWidthPadding, height-formHeightPadding)
 	}
+	if v.labelEditor != nil {
+		v.labelEditor.SetSize(width-4, height-8)
+	}
 }
 
 // SetContext implements the View interface.
@@ -263,8 +272,11 @@ func (v *GKEClusterEditView) SetContext(ctx *context.ProgramContext) {
 	v.SetSize(ctx.ContentWidth, ctx.ContentHeight)
 }
 
-// HasTextInputFocused returns true when a text input is active (form state only).
+// HasTextInputFocused returns true when a text input is active.
 func (v *GKEClusterEditView) HasTextInputFocused() bool {
+	if v.state == clusterEditStateEditingLabels && v.labelEditor != nil {
+		return v.labelEditor.HasTextInputFocused()
+	}
 	if v.state == clusterEditStateForm && v.Form != nil {
 		return v.Form.HasTextInputFocused()
 	}
@@ -277,8 +289,64 @@ func (v *GKEClusterEditView) SetError(err error) {
 	v.err = err
 }
 
+// openLabelEditor initializes the labeledit overlay and switches to editing state.
+func (v *GKEClusterEditView) openLabelEditor() tea.Cmd {
+	initial := v.editingLabels
+	if initial == nil {
+		// First open — clone from details so the editor has the current map.
+		initial = make(map[string]string, len(v.details.ResourceLabels))
+		for k, val := range v.details.ResourceLabels {
+			initial[k] = val
+		}
+	}
+	v.labelEditor = labeledit.New(initial)
+	v.labelEditor.SetSize(v.width-4, v.height-8)
+	v.state = clusterEditStateEditingLabels
+	// labeledit.Editor has no Init method — return nil.
+	return nil
+}
+
+// refreshLabelsDisplay updates the read-only labels field to reflect the
+// most-recent editingLabels snapshot (or the original details if not yet opened).
+func (v *GKEClusterEditView) refreshLabelsDisplay() {
+	if v.Form == nil {
+		return
+	}
+	f := v.Form.GetField("resource_labels")
+	if f == nil {
+		return
+	}
+	var current map[string]string
+	if v.editingLabels != nil {
+		current = v.editingLabels
+	} else {
+		current = v.details.ResourceLabels
+	}
+	f.SetValue(labelsToDisplay(current))
+}
+
 // Update handles messages for the cluster edit view.
 func (v *GKEClusterEditView) Update(msg tea.Msg) tea.Cmd {
+	// Route all messages to the labels editor while it is active.
+	if v.state == clusterEditStateEditingLabels && v.labelEditor != nil {
+		switch m := msg.(type) {
+		case labeledit.SaveRequestedMsg:
+			v.editingLabels = v.labelEditor.GetLabels()
+			v.labelEditor = nil
+			v.state = clusterEditStateForm
+			v.refreshLabelsDisplay()
+			return nil
+		case tea.KeyMsg:
+			// Esc when not in editing mode closes the editor without saving.
+			if m.String() == "esc" && !v.labelEditor.IsEditing() {
+				v.labelEditor = nil
+				v.state = clusterEditStateForm
+				return nil
+			}
+		}
+		return v.labelEditor.Update(msg)
+	}
+
 	switch msg := msg.(type) {
 	case spinner.TickMsg:
 		if v.state == clusterEditStateSaving {
@@ -334,6 +402,11 @@ func (v *GKEClusterEditView) handleKeyMsg(msg tea.KeyMsg) tea.Cmd {
 		}
 		if key.Matches(msg, v.keys.Cancel) {
 			return func() tea.Msg { return GKEClusterEditCanceledMsg{} }
+		}
+		// `l` opens the label editor when no text input is active (so typing
+		// 'l' in a text field such as the maintenance time still works).
+		if msg.String() == "l" && v.Form != nil && !v.Form.HasTextInputFocused() {
+			return v.openLabelEditor()
 		}
 		if v.Form != nil {
 			return v.Form.Update(msg)
@@ -431,6 +504,19 @@ func (v *GKEClusterEditView) computeEdit(data map[string]any) (*gcp.ClusterEdit,
 		}
 	}
 
+	// ── Resource labels ───────────────────────────────────────────────────────
+	if v.editingLabels != nil && !mapsEqual(v.details.ResourceLabels, v.editingLabels) {
+		if basic == nil {
+			basic = &gcp.ClusterEdit{}
+		}
+		cloned := make(map[string]string, len(v.editingLabels))
+		for k, val := range v.editingLabels {
+			cloned[k] = val
+		}
+		basic.ResourceLabels = &cloned
+		basic.ResourceLabelsFingerprint = v.details.ResourceLabelsFingerprint
+	}
+
 	return basic, maint, nil
 }
 
@@ -456,6 +542,11 @@ func (v *GKEClusterEditView) confirmDeploy() tea.Cmd {
 // View renders the current state.
 func (v *GKEClusterEditView) View() string {
 	switch v.state {
+	case clusterEditStateEditingLabels:
+		if v.labelEditor != nil {
+			return v.labelEditor.View()
+		}
+
 	case clusterEditStateSaving:
 		return renderSaving(v.spinner, "Updating cluster...")
 
@@ -491,8 +582,38 @@ func (v *GKEClusterEditView) renderDiff() string {
 
 	anyChange := false
 
+	// ── Resource labels ───────────────────────────────────────────────────────
+	if v.pendingBasic != nil && v.pendingBasic.ResourceLabels != nil {
+		b.WriteString(sectionStyle.Render("  Basic:"))
+		b.WriteString("\n")
+
+		addedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#34A853"))
+		removedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#EA4335"))
+		changedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FBBC04"))
+
+		newLabels := *v.pendingBasic.ResourceLabels
+		oldLabels := v.details.ResourceLabels
+
+		keys := mergedSortedKeys(oldLabels, newLabels)
+		for _, k := range keys {
+			oldV, hadOld := oldLabels[k]
+			newV, hasNew := newLabels[k]
+			switch {
+			case hadOld && !hasNew:
+				b.WriteString(removedStyle.Render(fmt.Sprintf("    - %s=%s", k, oldV)))
+			case !hadOld && hasNew:
+				b.WriteString(addedStyle.Render(fmt.Sprintf("    + %s=%s", k, newV)))
+			case hadOld && hasNew && oldV != newV:
+				b.WriteString(changedStyle.Render(fmt.Sprintf("    ! %s: %s → %s", k, oldV, newV)))
+			}
+			b.WriteString("\n")
+		}
+		b.WriteString("\n")
+		anyChange = true
+	}
+
 	// ── Observability ─────────────────────────────────────────────────────────
-	if v.pendingBasic != nil {
+	if v.pendingBasic != nil && (v.pendingBasic.LoggingService != nil || v.pendingBasic.MonitoringService != nil) {
 		b.WriteString(sectionStyle.Render("  Observability:"))
 		b.WriteString("\n")
 		if v.pendingBasic.LoggingService != nil {
@@ -582,4 +703,35 @@ func diffMaintenanceDailyStyle(newKind gcp.MaintenanceKind, oldDaily string) lip
 	default:
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("#FBBC04"))
 	}
+}
+
+// mapsEqual returns true when a and b contain exactly the same key-value pairs.
+func mapsEqual(a, b map[string]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		if bv, ok := b[k]; !ok || bv != v {
+			return false
+		}
+	}
+	return true
+}
+
+// mergedSortedKeys returns a deduplicated, alphabetically sorted slice of all
+// keys present in either a or b.
+func mergedSortedKeys(a, b map[string]string) []string {
+	seen := make(map[string]struct{}, len(a)+len(b))
+	for k := range a {
+		seen[k] = struct{}{}
+	}
+	for k := range b {
+		seen[k] = struct{}{}
+	}
+	keys := make([]string, 0, len(seen))
+	for k := range seen {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
