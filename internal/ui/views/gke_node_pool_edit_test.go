@@ -48,6 +48,49 @@ func TestGKENodePoolEdit_OpenLabelEditorUsesK8sValidators(t *testing.T) {
 		"k8s label value regex should accept empty string")
 }
 
+// ── Task 8: taints editor sub-state ──────────────────────────────────────────
+
+func TestGKENodePoolEdit_TaintsEditedTransitionsToDiff(t *testing.T) {
+	pool := &gcp.NodePool{Name: "default", Taints: nil}
+	v := NewGKENodePoolEditView("proj", "us-central1", "prod", pool)
+	v.editingTaints = []gcp.NodeTaint{
+		{Key: "dedicated", Value: "gpu", Effect: "NO_SCHEDULE"},
+	}
+	cmd := v.handleSubmit()
+	assert.Nil(t, cmd)
+	assert.Equal(t, nodePoolEditStateDiff, v.state)
+	require.NotNil(t, v.pendingFields)
+	require.NotNil(t, v.pendingFields.Taints)
+	require.Len(t, *v.pendingFields.Taints, 1)
+	assert.Equal(t, "dedicated", (*v.pendingFields.Taints)[0].Key)
+}
+
+func TestGKENodePoolEdit_TaintsUnchangedNoDiff(t *testing.T) {
+	initial := []gcp.NodeTaint{{Key: "k", Value: "v", Effect: "NO_SCHEDULE"}}
+	pool := &gcp.NodePool{Name: "default", Taints: initial}
+	v := NewGKENodePoolEditView("proj", "us-central1", "prod", pool)
+	v.editingTaints = append([]gcp.NodeTaint(nil), initial...)
+	cmd := v.handleSubmit()
+	assert.Nil(t, cmd)
+	assert.ErrorIs(t, v.err, errNodePoolEditNoChanges)
+}
+
+func TestGKENodePoolEdit_TaintsOrderInsensitive(t *testing.T) {
+	pool := &gcp.NodePool{Name: "default", Taints: []gcp.NodeTaint{
+		{Key: "a", Value: "1", Effect: "NO_SCHEDULE"},
+		{Key: "b", Value: "2", Effect: "NO_EXECUTE"},
+	}}
+	v := NewGKENodePoolEditView("proj", "us-central1", "prod", pool)
+	// Same set, different order — must NOT be a diff.
+	v.editingTaints = []gcp.NodeTaint{
+		{Key: "b", Value: "2", Effect: "NO_EXECUTE"},
+		{Key: "a", Value: "1", Effect: "NO_SCHEDULE"},
+	}
+	cmd := v.handleSubmit()
+	assert.Nil(t, cmd)
+	assert.ErrorIs(t, v.err, errNodePoolEditNoChanges)
+}
+
 func TestGKENodePoolEdit_NoChangesRejected(t *testing.T) {
 	pool := &gcp.NodePool{
 		Name:        "default",
