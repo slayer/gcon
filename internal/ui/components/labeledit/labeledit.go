@@ -21,6 +21,24 @@ var (
 	valuePattern = regexp.MustCompile(`^[a-z0-9_-]*$`)
 )
 
+// Validators overrides the default GCP-label validation patterns. Pass to
+// SetValidators after New() — the default Editor uses GCP-label rules
+// (lowercase alphanumerics + `-_`) for backwards compatibility.
+type Validators struct {
+	KeyPattern   *regexp.Regexp
+	ValuePattern *regexp.Regexp
+	KeyError     string // human-readable error when key fails KeyPattern
+	ValueError   string // human-readable error when value fails ValuePattern
+}
+
+// defaultValidators holds GCP-label rules — the backwards-compatible default.
+var defaultValidators = Validators{
+	KeyPattern:   keyPattern,
+	ValuePattern: valuePattern,
+	KeyError:     "Key must start with a lowercase letter and contain only lowercase letters, numbers, hyphens, and underscores",
+	ValueError:   "Value must contain only lowercase letters, numbers, hyphens, and underscores",
+}
+
 // Colors
 var (
 	colorPrimary   = lipgloss.Color("#4285F4")
@@ -176,6 +194,9 @@ type Editor struct {
 	// Bindings and styles
 	keys   keyMap
 	styles styles
+
+	// Validation — callers may override via SetValidators
+	validators Validators
 }
 
 // New creates a new label editor with the given labels
@@ -225,7 +246,14 @@ func New(labels map[string]string) *Editor {
 		focusKey:       true,
 		keys:           defaultKeyMap(),
 		styles:         defaultStyles(),
+		validators:     defaultValidators,
 	}
+}
+
+// SetValidators overrides the default GCP-label patterns. Call after New().
+// If a pattern field is nil, that field is treated as "no validation".
+func (e *Editor) SetValidators(v Validators) {
+	e.validators = v
 }
 
 // SetSize sets the editor dimensions
@@ -414,14 +442,14 @@ func (e *Editor) submitEdit() tea.Cmd {
 		e.err = "Key cannot be empty"
 		return nil
 	}
-	if !keyPattern.MatchString(keyVal) {
-		e.err = "Key must start with lowercase letter, contain only lowercase letters, numbers, hyphens, underscores"
+	if e.validators.KeyPattern != nil && !e.validators.KeyPattern.MatchString(keyVal) {
+		e.err = e.validators.KeyError
 		return nil
 	}
 
 	// Validate value (can be empty)
-	if valueVal != "" && !valuePattern.MatchString(valueVal) {
-		e.err = "Value must contain only lowercase letters, numbers, hyphens, underscores"
+	if valueVal != "" && e.validators.ValuePattern != nil && !e.validators.ValuePattern.MatchString(valueVal) {
+		e.err = e.validators.ValueError
 		return nil
 	}
 
