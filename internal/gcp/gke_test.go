@@ -184,6 +184,9 @@ func buildTestClusterDetails(raw *container.Cluster) *ClusterDetails {
 		MaintenanceDaily:          dailyMaintenanceStart(raw.MaintenancePolicy),
 	}
 	out.DatabaseEncrypted, out.DatabaseKMSKey = databaseEncryption(raw)
+	if rw := maintenanceRecurringPolicy(raw); rw != nil {
+		out.MaintenanceRecurring = rw
+	}
 	for _, np := range raw.NodePools {
 		out.NodePools = append(out.NodePools, convertNodePool(np))
 	}
@@ -290,4 +293,92 @@ func TestConvertNodePool_NoEditFields(t *testing.T) {
 	assert.Nil(t, pool.Taints)
 	assert.Nil(t, pool.Tags)
 	assert.Nil(t, pool.UpgradeSettings)
+}
+
+// ── Phase 2d: recurring window projection tests ──────────────────────────────
+
+func TestConvertCluster_RecurringWindow(t *testing.T) {
+	raw := &container.Cluster{
+		Name: "prod",
+		MaintenancePolicy: &container.MaintenancePolicy{
+			Window: &container.MaintenanceWindow{
+				RecurringWindow: &container.RecurringTimeWindow{
+					Window: &container.TimeWindow{
+						StartTime: "2026-01-05T03:00:00Z",
+						EndTime:   "2026-01-05T07:00:00Z",
+					},
+					Recurrence: "FREQ=WEEKLY;BYDAY=MO,WE,FR",
+				},
+			},
+		},
+	}
+	details := buildTestClusterDetails(raw)
+	require.NotNil(t, details.MaintenanceRecurring)
+	assert.Equal(t, []string{"MO", "WE", "FR"}, details.MaintenanceRecurring.Days)
+	assert.Equal(t, "03:00", details.MaintenanceRecurring.Start)
+	assert.Equal(t, "4h", details.MaintenanceRecurring.Duration)
+}
+
+func TestConvertCluster_RecurringSingleDay(t *testing.T) {
+	raw := &container.Cluster{
+		MaintenancePolicy: &container.MaintenancePolicy{
+			Window: &container.MaintenanceWindow{
+				RecurringWindow: &container.RecurringTimeWindow{
+					Window: &container.TimeWindow{
+						StartTime: "2026-01-04T02:00:00Z",
+						EndTime:   "2026-01-04T03:00:00Z",
+					},
+					Recurrence: "FREQ=WEEKLY;BYDAY=SU",
+				},
+			},
+		},
+	}
+	details := buildTestClusterDetails(raw)
+	require.NotNil(t, details.MaintenanceRecurring)
+	assert.Equal(t, []string{"SU"}, details.MaintenanceRecurring.Days)
+	assert.Equal(t, "02:00", details.MaintenanceRecurring.Start)
+	assert.Equal(t, "1h", details.MaintenanceRecurring.Duration)
+}
+
+func TestConvertCluster_RecurringUnsupportedRRULE(t *testing.T) {
+	raw := &container.Cluster{
+		MaintenancePolicy: &container.MaintenancePolicy{
+			Window: &container.MaintenanceWindow{
+				RecurringWindow: &container.RecurringTimeWindow{
+					Window: &container.TimeWindow{StartTime: "2026-01-04T03:00:00Z", EndTime: "2026-01-04T07:00:00Z"},
+					Recurrence: "FREQ=MONTHLY;BYMONTHDAY=1",
+				},
+			},
+		},
+	}
+	details := buildTestClusterDetails(raw)
+	assert.Nil(t, details.MaintenanceRecurring, "monthly RRULE must not parse")
+}
+
+func TestConvertCluster_NoRecurringWindow(t *testing.T) {
+	raw := &container.Cluster{Name: "prod"} // no maintenance policy
+	details := buildTestClusterDetails(raw)
+	assert.Nil(t, details.MaintenanceRecurring)
+}
+
+func TestParseWeeklyByday(t *testing.T) {
+	assert.Equal(t, []string{"MO", "WE", "FR"}, parseWeeklyByday("FREQ=WEEKLY;BYDAY=MO,WE,FR"))
+	assert.Equal(t, []string{"SU"}, parseWeeklyByday("BYDAY=SU;FREQ=WEEKLY")) // order flexible
+	assert.Nil(t, parseWeeklyByday("FREQ=MONTHLY;BYDAY=MO"))
+	assert.Nil(t, parseWeeklyByday("FREQ=WEEKLY;BYDAY=ZZ"))
+	assert.Nil(t, parseWeeklyByday("FREQ=WEEKLY")) // no BYDAY
+	assert.Nil(t, parseWeeklyByday(""))
+}
+
+func TestParseRecurringWindowTimes(t *testing.T) {
+	start, dur := parseRecurringWindowTimes("2026-01-04T03:00:00Z", "2026-01-04T07:00:00Z")
+	assert.Equal(t, "03:00", start)
+	assert.Equal(t, "4h", dur)
+
+	start, dur = parseRecurringWindowTimes("bad", "2026-01-04T07:00:00Z")
+	assert.Empty(t, start)
+	assert.Empty(t, dur)
+
+	start, _ = parseRecurringWindowTimes("2026-01-04T07:00:00Z", "2026-01-04T03:00:00Z") // end before start
+	assert.Empty(t, start)
 }
