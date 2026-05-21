@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
+	"time"
 
 	container "google.golang.org/api/container/v1"
 )
@@ -25,11 +28,16 @@ type ClusterEdit struct {
 	MonitoringService         *string
 }
 
-// MaintenanceWindow is set via Clusters.SetMaintenancePolicy. MVP supports
-// "none" (clear) and "daily" (single time-of-day) only.
+// MaintenanceWindow is set via Clusters.SetMaintenancePolicy.
 type MaintenanceWindow struct {
 	Kind  MaintenanceKind
 	Daily string // "HH:MM" UTC, required when Kind == MaintenanceKindDaily
+
+	// ─── Phase 2d: recurring (weekly) ───
+	// Used when Kind == MaintenanceKindRecurring.
+	Days     []string // subset of {"MO","TU","WE","TH","FR","SA","SU"}, sorted by caller
+	Start    string   // "HH:MM" UTC
+	Duration string   // "Nh", 1-23
 }
 
 // MaintenanceKind identifies the style of maintenance window.
@@ -40,6 +48,9 @@ const (
 	MaintenanceKindNone MaintenanceKind = "none"
 	// MaintenanceKindDaily sets a recurring daily maintenance window.
 	MaintenanceKindDaily MaintenanceKind = "daily"
+	// MaintenanceKindRecurring sets a weekly recurring maintenance window by
+	// day-of-week, start time, and duration.
+	MaintenanceKindRecurring MaintenanceKind = "recurring"
 )
 
 // NodePoolEdit captures fields editable via NodePools.Update.
@@ -147,6 +158,7 @@ func buildSetNodePoolManagementRequest(mgmt NodePoolManagement) *container.SetNo
 // buildSetMaintenancePolicyRequest renders a MaintenanceWindow into the
 // API's nested struct. Kind=="none" clears the window by sending an empty
 // MaintenanceWindow. Kind=="daily" sends DailyMaintenanceWindow with HH:MM.
+// Kind=="recurring" sends a RecurringTimeWindow with a weekly RRULE.
 func buildSetMaintenancePolicyRequest(mw MaintenanceWindow) *container.SetMaintenancePolicyRequest {
 	policy := &container.MaintenancePolicy{}
 	switch mw.Kind {
@@ -154,10 +166,74 @@ func buildSetMaintenancePolicyRequest(mw MaintenanceWindow) *container.SetMainte
 		policy.Window = &container.MaintenanceWindow{
 			DailyMaintenanceWindow: &container.DailyMaintenanceWindow{StartTime: mw.Daily},
 		}
+	case MaintenanceKindRecurring:
+		start := composeRecurringStart(mw.Start)
+		end := composeRecurringEnd(mw.Start, mw.Duration)
+		policy.Window = &container.MaintenanceWindow{
+			RecurringWindow: &container.RecurringTimeWindow{
+				Window:     &container.TimeWindow{StartTime: start, EndTime: end},
+				Recurrence: "FREQ=WEEKLY;BYDAY=" + strings.Join(mw.Days, ","),
+			},
+		}
 	default: // MaintenanceKindNone or unset — empty window clears any existing policy
 		policy.Window = &container.MaintenanceWindow{}
 	}
 	return &container.SetMaintenancePolicyRequest{MaintenancePolicy: policy}
+}
+
+// recurringBaseline is the baseline date for the recurring window's first
+// occurrence. 2026-01-04 is a Sunday — a convenient anchor since the RRULE
+// makes the actual date irrelevant (GCP only uses time-of-day and BYDAY).
+var recurringBaseline = time.Date(2026, 1, 4, 0, 0, 0, 0, time.UTC)
+
+// composeRecurringStart returns the RFC3339 datetime for the first
+// occurrence's start. "HH:MM" gets layered onto the baseline date.
+// On parse failure, returns the baseline at midnight.
+func composeRecurringStart(timeOfDay string) string {
+	h, m, ok := parseHHMM(timeOfDay)
+	if !ok {
+		return recurringBaseline.Format(time.RFC3339)
+	}
+	return recurringBaseline.Add(time.Duration(h)*time.Hour + time.Duration(m)*time.Minute).Format(time.RFC3339)
+}
+
+// composeRecurringEnd returns the RFC3339 datetime for the first
+// occurrence's end. duration is "Nh"; clamped to 1-23, fallback 4.
+func composeRecurringEnd(timeOfDay, duration string) string {
+	h, m, ok := parseHHMM(timeOfDay)
+	if !ok {
+		h, m = 0, 0
+	}
+	dur := parseHoursOr(duration, 4)
+	return recurringBaseline.
+		Add(time.Duration(h)*time.Hour + time.Duration(m)*time.Minute + time.Duration(dur)*time.Hour).
+		Format(time.RFC3339)
+}
+
+// parseHHMM parses a "HH:MM" string into hours and minutes.
+// Returns (h, m int, ok bool); ok is false if the format is invalid or values are out of range.
+func parseHHMM(s string) (h int, m int, ok bool) {
+	if len(s) != 5 || s[2] != ':' {
+		return 0, 0, false
+	}
+	var err1, err2 error
+	h, err1 = strconv.Atoi(s[0:2])
+	m, err2 = strconv.Atoi(s[3:5])
+	if err1 != nil || err2 != nil || h < 0 || h > 23 || m < 0 || m > 59 {
+		return 0, 0, false
+	}
+	return h, m, true
+}
+
+// parseHoursOr parses a duration string like "4h" into an integer hour count.
+// Values outside [1, 23] return the fallback.
+func parseHoursOr(s string, fallback int) int {
+	s = strings.TrimSuffix(s, "h")
+	n, err := strconv.Atoi(s)
+	if err != nil || n < 1 || n > 23 {
+		return fallback
+	}
+	return n
 }
 
 // UpdateClusterBasic dispatches a ClusterEdit to the appropriate GKE API
