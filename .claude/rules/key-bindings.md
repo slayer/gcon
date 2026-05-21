@@ -465,6 +465,38 @@ arrow does the same without needing to select the row first.
 | `u` | Upgrade focused pool (version picker) |
 | `e` | Edit focused pool — auto-upgrade/auto-repair toggles + upgrade strategy/max-surge/max-unavailable (diff preview) |
 
+### GKE Cluster Edit — sub-editor keys (Phase 2d)
+
+Inside the cluster edit form (`e` on Overview):
+
+| Key | Action |
+|-----|--------|
+| `l` | Open resource labels editor (`labeledit` overlay, GCP-label rules) |
+
+Recurring maintenance: pick "Recurring (weekly)" from the kind dropdown to reveal days multi-select + start time + duration fields.
+
+### GKE Pool Edit — sub-editor keys (Phase 2d)
+
+Inside the pool edit form (`e` on Node Pools):
+
+| Key | Action |
+|-----|--------|
+| `l` | Open k8s labels editor (`labeledit` overlay, k8s rules — DNS prefix + uppercase + dots) |
+| `t` | Open taints editor (`taintedit` overlay, key/value/effect rows) |
+
+### `taintedit` overlay (taints editor)
+
+| Key | Action |
+|-----|--------|
+| `↑/k` `↓/j` | Move row cursor |
+| `a` | Add new taint |
+| `e` / `Enter` | Edit selected taint |
+| `x` / `Delete` | Delete taint |
+| `Tab` | Cycle key → value → effect (within an editing row) |
+| `Space` | Cycle effect (NO_SCHEDULE → PREFER_NO_SCHEDULE → NO_EXECUTE) when focused |
+| `Ctrl+S` | Save + return to form |
+| `Esc` | Cancel + return |
+
 ## SQL Instances View
 
 | Key | Action |
