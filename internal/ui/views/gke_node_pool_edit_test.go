@@ -43,7 +43,7 @@ func TestGKENodePoolEdit_OpenLabelEditorUsesK8sValidators(t *testing.T) {
 	// Smoke test: k8s key regex must accept "kubernetes.io/role" (prefix/name form).
 	assert.True(t, k8sLabelKeyPattern.MatchString("kubernetes.io/role"),
 		"k8s label key regex should accept DNS-prefixed key")
-	// k8s value regex must accept empty (empty-value taints are valid).
+	// k8s value regex must accept the empty string (empty label values are valid).
 	assert.True(t, k8sLabelValuePattern.MatchString(""),
 		"k8s label value regex should accept empty string")
 }
