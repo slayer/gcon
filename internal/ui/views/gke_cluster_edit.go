@@ -116,7 +116,7 @@ func (v *GKEClusterEditView) buildForm() {
 	labelsDisplay := labelsToDisplay(v.details.ResourceLabels)
 	basicSection := forms.NewSection("basic", "Basic").
 		AddField(forms.NewReadOnlyField("resource_labels", "Resource Labels", labelsDisplay).
-			SetHelpText("Press Enter or `l` to edit"))
+			SetHelpText("Press `l` to edit"))
 
 	v.Form.AddSection(basicSection)
 
@@ -129,6 +129,12 @@ func (v *GKEClusterEditView) buildForm() {
 		initialKind = "recurring"
 	}
 
+	maintenanceHelp := "When to allow GKE to perform maintenance on the cluster"
+	if v.details.MaintenanceRecurringUnsupported {
+		maintenanceHelp = "Cluster has a recurring window with an RRULE not editable here (e.g. monthly). " +
+			"Use `gcloud container clusters update` to edit it; selecting Daily or None here will REPLACE it."
+	}
+
 	maintenanceSection := forms.NewSection("maintenance", "Maintenance").
 		AddField(forms.NewDropdownField("maintenance_kind", "Maintenance Window").
 			SetOptions([]forms.Option{
@@ -136,7 +142,7 @@ func (v *GKEClusterEditView) buildForm() {
 				{Value: "daily", Label: "Daily window"},
 				{Value: "recurring", Label: "Recurring (weekly)"},
 			}).
-			SetHelpText("When to allow GKE to perform maintenance on the cluster")).
+			SetHelpText(maintenanceHelp)).
 		AddField(forms.NewTextField("maintenance_daily_start", "Daily Start Time (UTC)").
 			SetPlaceholder("HH:MM (UTC)").
 			SetHelpText("Time the daily maintenance window begins, e.g. 03:00").
@@ -573,11 +579,15 @@ func (v *GKEClusterEditView) computeEdit(data map[string]any) (*gcp.ClusterEdit,
 	}
 
 	// ── Maintenance window ────────────────────────────────────────────────────
+	// An "unsupported" recurring window (RRULE we can't parse) is treated as
+	// initialKind=Recurring for change detection so that selecting None
+	// actually emits a clear request and selecting Daily/Recurring emits a
+	// replacement.
 	initialKind := gcp.MaintenanceKindNone
 	switch {
 	case v.details.MaintenanceDaily != "":
 		initialKind = gcp.MaintenanceKindDaily
-	case v.details.MaintenanceRecurring != nil:
+	case v.details.MaintenanceRecurring != nil || v.details.MaintenanceRecurringUnsupported:
 		initialKind = gcp.MaintenanceKindRecurring
 	}
 	initialDaily := v.details.MaintenanceDaily
@@ -612,6 +622,7 @@ func (v *GKEClusterEditView) computeEdit(data map[string]any) (*gcp.ClusterEdit,
 		}
 
 		// Baseline comparison: same kind + same days (sorted) + same start + same duration → no change.
+		// Unsupported recurring windows have no parseable baseline, so any submit must emit a change.
 		var initialDays []string
 		initialStart := ""
 		initialDuration := ""
@@ -626,7 +637,8 @@ func (v *GKEClusterEditView) computeEdit(data map[string]any) (*gcp.ClusterEdit,
 		sortedInit := append([]string(nil), initialDays...)
 		sort.Strings(sortedInit)
 
-		if initialKind != gcp.MaintenanceKindRecurring ||
+		if v.details.MaintenanceRecurringUnsupported ||
+			initialKind != gcp.MaintenanceKindRecurring ||
 			!slicesEqual(sortedInit, sortedNew) ||
 			initialStart != start ||
 			initialDuration != duration {
@@ -798,12 +810,13 @@ func (v *GKEClusterEditView) renderMaintenanceDiff() string {
 
 	changedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FBBC04"))
 	addedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#34A853"))
+	removedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#EA4335"))
 
 	initialKind := gcp.MaintenanceKindNone
 	switch {
 	case v.details.MaintenanceDaily != "":
 		initialKind = gcp.MaintenanceKindDaily
-	case v.details.MaintenanceRecurring != nil:
+	case v.details.MaintenanceRecurring != nil || v.details.MaintenanceRecurringUnsupported:
 		initialKind = gcp.MaintenanceKindRecurring
 	}
 
@@ -813,6 +826,33 @@ func (v *GKEClusterEditView) renderMaintenanceDiff() string {
 		b.WriteString("\n")
 	}
 
+	// Render fields that are being implicitly CLEARED because the kind is
+	// changing away from them. (When kind is unchanged these branches are skipped.)
+	if initialKind == gcp.MaintenanceKindDaily && v.pendingMaintenance.Kind != gcp.MaintenanceKindDaily {
+		line := fmt.Sprintf("    %-28s %s → %s", "daily_start:", v.details.MaintenanceDaily, "(none)")
+		b.WriteString(removedStyle.Render(line))
+		b.WriteString("\n")
+	}
+	if initialKind == gcp.MaintenanceKindRecurring && v.pendingMaintenance.Kind != gcp.MaintenanceKindRecurring {
+		if v.details.MaintenanceRecurring != nil {
+			rw := v.details.MaintenanceRecurring
+			oldDays := strings.Join(rw.Days, ",")
+			if oldDays == "" {
+				oldDays = "(none)"
+			}
+			b.WriteString(removedStyle.Render(fmt.Sprintf("    %-28s %s → %s", "days:", oldDays, "(none)")))
+			b.WriteString("\n")
+			b.WriteString(removedStyle.Render(fmt.Sprintf("    %-28s %s → %s", "start:", rw.Start, "(none)")))
+			b.WriteString("\n")
+			b.WriteString(removedStyle.Render(fmt.Sprintf("    %-28s %s → %s", "duration:", rw.Duration, "(none)")))
+			b.WriteString("\n")
+		} else if v.details.MaintenanceRecurringUnsupported {
+			b.WriteString(removedStyle.Render("    (unsupported recurring window will be cleared)"))
+			b.WriteString("\n")
+		}
+	}
+
+	// Render fields for the NEW kind.
 	switch v.pendingMaintenance.Kind {
 	case gcp.MaintenanceKindDaily:
 		old := v.details.MaintenanceDaily
