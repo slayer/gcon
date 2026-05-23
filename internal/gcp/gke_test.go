@@ -184,9 +184,11 @@ func buildTestClusterDetails(raw *container.Cluster) *ClusterDetails {
 		MaintenanceDaily:          dailyMaintenanceStart(raw.MaintenancePolicy),
 	}
 	out.DatabaseEncrypted, out.DatabaseKMSKey = databaseEncryption(raw)
-	if rw := maintenanceRecurringPolicy(raw); rw != nil {
+	rw, rwUnsupported := maintenanceRecurringPolicy(raw)
+	if rw != nil {
 		out.MaintenanceRecurring = rw
 	}
+	out.MaintenanceRecurringUnsupported = rwUnsupported
 	for _, np := range raw.NodePools {
 		out.NodePools = append(out.NodePools, convertNodePool(np))
 	}
@@ -345,7 +347,7 @@ func TestConvertCluster_RecurringUnsupportedRRULE(t *testing.T) {
 		MaintenancePolicy: &container.MaintenancePolicy{
 			Window: &container.MaintenanceWindow{
 				RecurringWindow: &container.RecurringTimeWindow{
-					Window: &container.TimeWindow{StartTime: "2026-01-04T03:00:00Z", EndTime: "2026-01-04T07:00:00Z"},
+					Window:     &container.TimeWindow{StartTime: "2026-01-04T03:00:00Z", EndTime: "2026-01-04T07:00:00Z"},
 					Recurrence: "FREQ=MONTHLY;BYMONTHDAY=1",
 				},
 			},
@@ -353,12 +355,16 @@ func TestConvertCluster_RecurringUnsupportedRRULE(t *testing.T) {
 	}
 	details := buildTestClusterDetails(raw)
 	assert.Nil(t, details.MaintenanceRecurring, "monthly RRULE must not parse")
+	assert.True(t, details.MaintenanceRecurringUnsupported,
+		"unsupported RRULE must surface as Unsupported=true so UI can warn")
 }
 
 func TestConvertCluster_NoRecurringWindow(t *testing.T) {
 	raw := &container.Cluster{Name: "prod"} // no maintenance policy
 	details := buildTestClusterDetails(raw)
 	assert.Nil(t, details.MaintenanceRecurring)
+	assert.False(t, details.MaintenanceRecurringUnsupported,
+		"absent policy must NOT set Unsupported=true")
 }
 
 func TestParseWeeklyByday(t *testing.T) {

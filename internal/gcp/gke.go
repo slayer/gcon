@@ -71,6 +71,13 @@ type ClusterDetails struct {
 
 	// Phase 2d: recurring window pre-population.
 	MaintenanceRecurring *RecurringWindow // nil when absent or RRULE shape not supported
+
+	// MaintenanceRecurringUnsupported is true when the cluster has a recurring
+	// maintenance window in the raw policy that does NOT match the supported
+	// "FREQ=WEEKLY;BYDAY=..." shape (so MaintenanceRecurring is nil but a
+	// policy still exists server-side). The UI uses this to warn the user
+	// that an uneditable window will be replaced if they change maintenance.
+	MaintenanceRecurringUnsupported bool
 }
 
 // AddonsSummary captures the four addons surfaced in Phase 1.
@@ -243,9 +250,11 @@ func (c *ContainerClient) GetCluster(ctx context.Context, projectID, location, n
 		MonitoringService:         raw.MonitoringService,
 		MaintenanceDaily:          dailyMaintenanceStart(raw.MaintenancePolicy),
 	}
-	if rw := maintenanceRecurringPolicy(raw); rw != nil {
+	rw, rwUnsupported := maintenanceRecurringPolicy(raw)
+	if rw != nil {
 		out.MaintenanceRecurring = rw
 	}
+	out.MaintenanceRecurringUnsupported = rwUnsupported
 	out.DatabaseEncrypted, out.DatabaseKMSKey = databaseEncryption(raw)
 	if raw.IpAllocationPolicy != nil {
 		out.ServicesIPv4CIDR = raw.IpAllocationPolicy.ServicesIpv4CidrBlock
@@ -302,28 +311,31 @@ func dailyMaintenanceStart(p *container.MaintenancePolicy) string {
 	return p.Window.DailyMaintenanceWindow.StartTime
 }
 
-// maintenanceRecurringPolicy extracts a RecurringWindow from the raw
-// cluster. Returns nil if the cluster has no recurring window OR the
-// RRULE is not the supported "FREQ=WEEKLY;BYDAY=..." shape.
-func maintenanceRecurringPolicy(c *container.Cluster) *RecurringWindow {
+// maintenanceRecurringPolicy extracts a RecurringWindow from the raw cluster.
+// Returns (nil, false) if no recurring window is configured.
+// Returns (nil, true) if a recurring window IS configured but its RRULE is not
+// the supported "FREQ=WEEKLY;BYDAY=..." shape — callers should warn the user
+// that the window exists but can't be edited from this UI.
+// Returns (window, false) on a fully parseable supported window.
+func maintenanceRecurringPolicy(c *container.Cluster) (*RecurringWindow, bool) {
 	if c.MaintenancePolicy == nil ||
 		c.MaintenancePolicy.Window == nil ||
 		c.MaintenancePolicy.Window.RecurringWindow == nil {
-		return nil
+		return nil, false
 	}
 	rw := c.MaintenancePolicy.Window.RecurringWindow
 	days := parseWeeklyByday(rw.Recurrence)
 	if len(days) == 0 {
-		return nil
+		return nil, true
 	}
 	if rw.Window == nil {
-		return nil
+		return nil, true
 	}
 	start, dur := parseRecurringWindowTimes(rw.Window.StartTime, rw.Window.EndTime)
 	if start == "" {
-		return nil
+		return nil, true
 	}
-	return &RecurringWindow{Days: days, Start: start, Duration: dur}
+	return &RecurringWindow{Days: days, Start: start, Duration: dur}, false
 }
 
 // parseWeeklyByday parses "FREQ=WEEKLY;BYDAY=MO,WE,FR" (field order flexible)
