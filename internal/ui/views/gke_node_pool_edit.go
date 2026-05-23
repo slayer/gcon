@@ -575,14 +575,27 @@ func (v *GKENodePoolEditView) computeEdit(data map[string]any) (*gcp.NodePoolEdi
 }
 
 // taintsEqual returns true when a and b contain the same taints (order-insensitive).
+// Sort key is the full (Key, Effect, Value) tuple so duplicate keys with
+// different effects/values compare deterministically.
 func taintsEqual(a, b []gcp.NodeTaint) bool {
 	if len(a) != len(b) {
 		return false
 	}
 	sa := append([]gcp.NodeTaint(nil), a...)
 	sb := append([]gcp.NodeTaint(nil), b...)
-	sort.Slice(sa, func(i, j int) bool { return sa[i].Key < sa[j].Key })
-	sort.Slice(sb, func(i, j int) bool { return sb[i].Key < sb[j].Key })
+	less := func(s []gcp.NodeTaint) func(i, j int) bool {
+		return func(i, j int) bool {
+			if s[i].Key != s[j].Key {
+				return s[i].Key < s[j].Key
+			}
+			if s[i].Effect != s[j].Effect {
+				return s[i].Effect < s[j].Effect
+			}
+			return s[i].Value < s[j].Value
+		}
+	}
+	sort.Slice(sa, less(sa))
+	sort.Slice(sb, less(sb))
 	for i := range sa {
 		if sa[i] != sb[i] {
 			return false

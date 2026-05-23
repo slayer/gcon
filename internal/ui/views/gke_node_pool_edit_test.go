@@ -91,6 +91,26 @@ func TestGKENodePoolEdit_TaintsOrderInsensitive(t *testing.T) {
 	assert.ErrorIs(t, v.err, errNodePoolEditNoChanges)
 }
 
+// Duplicate keys with differing effect/value must compare equal as a multiset.
+// Sorting by Key alone would be non-deterministic and could miss real changes.
+func TestTaintsEqual_DuplicateKeysFullTupleSort(t *testing.T) {
+	a := []gcp.NodeTaint{
+		{Key: "dedicated", Value: "gpu", Effect: "NO_SCHEDULE"},
+		{Key: "dedicated", Value: "tpu", Effect: "NO_EXECUTE"},
+	}
+	b := []gcp.NodeTaint{
+		{Key: "dedicated", Value: "tpu", Effect: "NO_EXECUTE"},
+		{Key: "dedicated", Value: "gpu", Effect: "NO_SCHEDULE"},
+	}
+	assert.True(t, taintsEqual(a, b), "same multiset different order must compare equal")
+
+	c := []gcp.NodeTaint{
+		{Key: "dedicated", Value: "gpu", Effect: "NO_SCHEDULE"},
+		{Key: "dedicated", Value: "gpu", Effect: "NO_EXECUTE"}, // different effect
+	}
+	assert.False(t, taintsEqual(a, c), "different effect on same key must compare unequal")
+}
+
 func TestGKENodePoolEdit_NoChangesRejected(t *testing.T) {
 	pool := &gcp.NodePool{
 		Name:        "default",
