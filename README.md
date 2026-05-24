@@ -338,7 +338,7 @@ Without mise, install Go 1.26+ and `golangci-lint` 2.12+ manually.
 <details>
 <summary><strong>Kubernetes Engine</strong></summary>
 
-- **GKE (Kubernetes Engine)**: clusters list (Autopilot + Standard, zonal + regional), 5-tab cluster details (Overview, Node Pools, Nodes, Observability, Logs), type-to-confirm delete with non-auto-deleted resource warning, cluster-scope monitoring charts with time range + auto-refresh, embedded logs viewer with severity toggles. Phase 2b adds node-pool create/delete/resize and control-plane/node-pool upgrades with footer-tracked long-running operations. Phase 2c adds cluster + node-pool edit flows (`e` key) with diff preview — logging/monitoring + daily maintenance for clusters, management toggles + upgrade settings for pools.
+- **GKE (Kubernetes Engine)**: clusters list (Autopilot + Standard, zonal + regional), 5-tab cluster details (Overview, Node Pools, Nodes, Observability, Logs), type-to-confirm delete with non-auto-deleted resource warning, cluster-scope monitoring charts with time range + auto-refresh, embedded logs viewer with severity toggles. Phase 2b adds node-pool create/delete/resize and control-plane/node-pool upgrades with footer-tracked long-running operations. Phase 2c adds cluster + node-pool edit flows (`e` key) with diff preview — logging/monitoring + daily maintenance for clusters, management toggles + upgrade settings for pools. Phase 2d completes the editors with resource-labels (cluster) + k8s-labels + taints (pool) overlays and recurring (weekly) maintenance windows.
 </details>
 
 <details>

@@ -3,6 +3,7 @@ package views
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -13,6 +14,8 @@ import (
 	"github.com/slayer/gcon/internal/gcp"
 	"github.com/slayer/gcon/internal/ui/components"
 	"github.com/slayer/gcon/internal/ui/components/forms"
+	"github.com/slayer/gcon/internal/ui/components/labeledit"
+	"github.com/slayer/gcon/internal/ui/components/taintedit"
 	"github.com/slayer/gcon/internal/ui/context"
 )
 
@@ -20,9 +23,21 @@ import (
 type nodePoolEditState int
 
 const (
-	nodePoolEditStateForm    nodePoolEditState = iota
-	nodePoolEditStateDiff                      // preview old vs new
-	nodePoolEditStateSaving                    // calling API (spinner)
+	nodePoolEditStateForm          nodePoolEditState = iota
+	nodePoolEditStateEditingLabels                   // labeledit overlay
+	nodePoolEditStateEditingTaints                   // taintedit overlay (Task 8)
+	nodePoolEditStateDiff                            // preview old vs new
+	nodePoolEditStateSaving                          // calling API (spinner)
+)
+
+// k8s label key: optional DNS prefix (subdomain/name) + name segment.
+var k8sLabelKeyPattern = regexp.MustCompile(
+	`^([a-z0-9]([-a-z0-9.]*[a-z0-9])?/)?[A-Za-z0-9]([-A-Za-z0-9_.]*[A-Za-z0-9])?$`,
+)
+
+// k8s label value: empty OR alphanumeric start/end with hyphens/underscores/dots inside.
+var k8sLabelValuePattern = regexp.MustCompile(
+	`^$|^[A-Za-z0-9]([-A-Za-z0-9_.]*[A-Za-z0-9])?$`,
 )
 
 // errNodePoolEditNoChanges is returned when the user submits without editing anything.
@@ -55,8 +70,8 @@ func defaultNodePoolEditKeyMap() nodePoolEditKeyMap {
 	}
 }
 
-// GKENodePoolEditView is a 3-state form view for editing a GKE node pool.
-// States: form → diff (preview) → saving.
+// GKENodePoolEditView is a multi-state form view for editing a GKE node pool.
+// States: form → editingLabels → editingTaints → diff (preview) → saving.
 type GKENodePoolEditView struct {
 	projectID, location, clusterName, poolName string
 	pool                                       *gcp.NodePool
@@ -74,6 +89,14 @@ type GKENodePoolEditView struct {
 	// shown in the diff state, and sent on confirm-deploy.
 	pendingFields     *gcp.NodePoolEdit
 	pendingManagement *gcp.NodePoolManagement
+
+	// Labels editor sub-state (Task 7).
+	labelEditor   *labeledit.Editor
+	editingLabels map[string]string // last-saved snapshot; nil = user never opened it
+
+	// Taints editor sub-state (Task 8).
+	taintEditor   *taintedit.Editor
+	editingTaints []gcp.NodeTaint // last-saved snapshot; nil = user never opened it
 }
 
 // NewGKENodePoolEditView creates a new node pool edit view pre-populated from pool.
@@ -99,20 +122,20 @@ func (v *GKENodePoolEditView) buildForm() {
 	).EnableViewport()
 
 	// ── Labels section ────────────────────────────────────────────────────────
-	// k8s labels on NodeConfig — read-only in MVP.
+	// k8s labels on NodeConfig — press `l` to open the labeledit overlay.
 	labelsDisplay := labelsToDisplay(v.pool.Labels)
 	labelsSection := forms.NewSection("labels", "Node Labels").
 		AddField(forms.NewReadOnlyField("node_labels", "Node Labels", labelsDisplay).
-			SetHelpText("Label editing planned for a future PR"))
+			SetHelpText("Press `l` to edit"))
 
 	v.Form.AddSection(labelsSection)
 
 	// ── Taints section ────────────────────────────────────────────────────────
-	// Node taints — read-only in MVP.
+	// Node taints — press `t` to open the taintedit overlay.
 	taintsDisplay := taintsToDisplay(v.pool.Taints)
 	taintsSection := forms.NewSection("taints", "Node Taints").
 		AddField(forms.NewReadOnlyField("node_taints", "Node Taints", taintsDisplay).
-			SetHelpText("Taint editing planned for a future PR"))
+			SetHelpText("Press `t` to edit"))
 
 	v.Form.AddSection(taintsSection)
 
@@ -210,6 +233,81 @@ func taintsToDisplay(taints []gcp.NodeTaint) string {
 	return strings.Join(parts, ", ")
 }
 
+// openLabelEditor initializes the labeledit overlay with k8s validators and
+// switches to the editing state.
+func (v *GKENodePoolEditView) openLabelEditor() tea.Cmd {
+	initial := v.editingLabels
+	if initial == nil {
+		// First open — clone from pool so the editor has the current map.
+		initial = make(map[string]string, len(v.pool.Labels))
+		for k, val := range v.pool.Labels {
+			initial[k] = val
+		}
+	}
+	v.labelEditor = labeledit.New(initial)
+	v.labelEditor.SetValidators(labeledit.Validators{
+		KeyPattern:   k8sLabelKeyPattern,
+		ValuePattern: k8sLabelValuePattern,
+		KeyError:     "Invalid k8s label key (optional DNS prefix + name)",
+		ValueError:   "Invalid k8s label value (may be empty)",
+	})
+	v.labelEditor.SetSize(v.width-4, v.height-8)
+	v.state = nodePoolEditStateEditingLabels
+	// labeledit.Editor has no Init method — return nil.
+	return nil
+}
+
+// refreshLabelsDisplay updates the read-only labels field to reflect the
+// most-recent editingLabels snapshot (or the original pool if not yet opened).
+func (v *GKENodePoolEditView) refreshLabelsDisplay() {
+	if v.Form == nil {
+		return
+	}
+	f := v.Form.GetField("node_labels")
+	if f == nil {
+		return
+	}
+	var current map[string]string
+	if v.editingLabels != nil {
+		current = v.editingLabels
+	} else {
+		current = v.pool.Labels
+	}
+	f.SetValue(labelsToDisplay(current))
+}
+
+// openTaintEditor initializes the taintedit overlay and switches to the editing state.
+func (v *GKENodePoolEditView) openTaintEditor() tea.Cmd {
+	initial := v.editingTaints
+	if initial == nil {
+		// First open — clone from pool.
+		initial = append([]gcp.NodeTaint(nil), v.pool.Taints...)
+	}
+	v.taintEditor = taintedit.New(initial)
+	v.taintEditor.SetSize(v.width-4, v.height-8)
+	v.state = nodePoolEditStateEditingTaints
+	return nil
+}
+
+// refreshTaintsDisplay updates the read-only taints field to reflect the
+// most-recent editingTaints snapshot (or the original pool if not yet opened).
+func (v *GKENodePoolEditView) refreshTaintsDisplay() {
+	if v.Form == nil {
+		return
+	}
+	f := v.Form.GetField("node_taints")
+	if f == nil {
+		return
+	}
+	var current []gcp.NodeTaint
+	if v.editingTaints != nil {
+		current = v.editingTaints
+	} else {
+		current = v.pool.Taints
+	}
+	f.SetValue(taintsToDisplay(current))
+}
+
 // Init initializes the view.
 func (v *GKENodePoolEditView) Init() tea.Cmd {
 	return tea.Batch(v.spinner.Tick, v.Form.Init())
@@ -222,6 +320,12 @@ func (v *GKENodePoolEditView) SetSize(width, height int) {
 	if v.Form != nil {
 		v.Form.SetSize(width-formWidthPadding, height-formHeightPadding)
 	}
+	if v.labelEditor != nil {
+		v.labelEditor.SetSize(width-4, height-8)
+	}
+	if v.taintEditor != nil {
+		v.taintEditor.SetSize(width-4, height-8)
+	}
 }
 
 // SetContext implements the View interface.
@@ -230,8 +334,14 @@ func (v *GKENodePoolEditView) SetContext(ctx *context.ProgramContext) {
 	v.SetSize(ctx.ContentWidth, ctx.ContentHeight)
 }
 
-// HasTextInputFocused returns true when a text input is active (form state only).
+// HasTextInputFocused returns true when a text input is active.
 func (v *GKENodePoolEditView) HasTextInputFocused() bool {
+	if v.state == nodePoolEditStateEditingLabels && v.labelEditor != nil {
+		return v.labelEditor.HasTextInputFocused()
+	}
+	if v.state == nodePoolEditStateEditingTaints && v.taintEditor != nil {
+		return v.taintEditor.HasTextInputFocused()
+	}
 	if v.state == nodePoolEditStateForm && v.Form != nil {
 		return v.Form.HasTextInputFocused()
 	}
@@ -246,6 +356,43 @@ func (v *GKENodePoolEditView) SetError(err error) {
 
 // Update handles messages for the node pool edit view.
 func (v *GKENodePoolEditView) Update(msg tea.Msg) tea.Cmd {
+	// Route all messages to the labels editor while it is active.
+	if v.state == nodePoolEditStateEditingLabels && v.labelEditor != nil {
+		switch m := msg.(type) {
+		case labeledit.SaveRequestedMsg:
+			v.editingLabels = v.labelEditor.GetLabels()
+			v.labelEditor = nil
+			v.state = nodePoolEditStateForm
+			v.refreshLabelsDisplay()
+			return nil
+		case tea.KeyMsg:
+			// Esc when not in row-edit mode closes the editor without saving.
+			if m.String() == "esc" && !v.labelEditor.IsEditing() {
+				v.labelEditor = nil
+				v.state = nodePoolEditStateForm
+				return nil
+			}
+		}
+		return v.labelEditor.Update(msg)
+	}
+
+	// Route all messages to the taints editor while it is active.
+	if v.state == nodePoolEditStateEditingTaints && v.taintEditor != nil {
+		switch msg.(type) {
+		case taintedit.SaveRequestedMsg:
+			v.editingTaints = v.taintEditor.GetTaints()
+			v.taintEditor = nil
+			v.state = nodePoolEditStateForm
+			v.refreshTaintsDisplay()
+			return nil
+		case taintedit.CancelRequestedMsg:
+			v.taintEditor = nil
+			v.state = nodePoolEditStateForm
+			return nil
+		}
+		return v.taintEditor.Update(msg)
+	}
+
 	switch msg := msg.(type) {
 	case spinner.TickMsg:
 		if v.state == nodePoolEditStateSaving {
@@ -301,6 +448,14 @@ func (v *GKENodePoolEditView) handleKeyMsg(msg tea.KeyMsg) tea.Cmd {
 		}
 		if key.Matches(msg, v.keys.Cancel) {
 			return func() tea.Msg { return GKENodePoolEditCanceledMsg{} }
+		}
+		// `l` opens the label editor when no text input is active.
+		if msg.String() == "l" && v.Form != nil && !v.Form.HasTextInputFocused() {
+			return v.openLabelEditor()
+		}
+		// `t` opens the taint editor when no text input is active.
+		if msg.String() == "t" && v.Form != nil && !v.Form.HasTextInputFocused() {
+			return v.openTaintEditor()
 		}
 		if v.Form != nil {
 			return v.Form.Update(msg)
@@ -395,7 +550,58 @@ func (v *GKENodePoolEditView) computeEdit(data map[string]any) (*gcp.NodePoolEdi
 		}
 	}
 
+	// ── Labels ────────────────────────────────────────────────────────────────
+	if v.editingLabels != nil && !mapsEqual(v.pool.Labels, v.editingLabels) {
+		if fields == nil {
+			fields = &gcp.NodePoolEdit{}
+		}
+		cloned := make(map[string]string, len(v.editingLabels))
+		for k, val := range v.editingLabels {
+			cloned[k] = val
+		}
+		fields.Labels = &cloned
+	}
+
+	// ── Taints ────────────────────────────────────────────────────────────────
+	if v.editingTaints != nil && !taintsEqual(v.pool.Taints, v.editingTaints) {
+		if fields == nil {
+			fields = &gcp.NodePoolEdit{}
+		}
+		cloned := append([]gcp.NodeTaint(nil), v.editingTaints...)
+		fields.Taints = &cloned
+	}
+
 	return fields, management, nil
+}
+
+// taintsEqual returns true when a and b contain the same taints (order-insensitive).
+// Sort key is the full (Key, Effect, Value) tuple so duplicate keys with
+// different effects/values compare deterministically.
+func taintsEqual(a, b []gcp.NodeTaint) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	sa := append([]gcp.NodeTaint(nil), a...)
+	sb := append([]gcp.NodeTaint(nil), b...)
+	less := func(s []gcp.NodeTaint) func(i, j int) bool {
+		return func(i, j int) bool {
+			if s[i].Key != s[j].Key {
+				return s[i].Key < s[j].Key
+			}
+			if s[i].Effect != s[j].Effect {
+				return s[i].Effect < s[j].Effect
+			}
+			return s[i].Value < s[j].Value
+		}
+	}
+	sort.Slice(sa, less(sa))
+	sort.Slice(sb, less(sb))
+	for i := range sa {
+		if sa[i] != sb[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // confirmDeploy transitions to saving state and emits the edit request.
@@ -421,6 +627,16 @@ func (v *GKENodePoolEditView) confirmDeploy() tea.Cmd {
 // View renders the current state.
 func (v *GKENodePoolEditView) View() string {
 	switch v.state {
+	case nodePoolEditStateEditingLabels:
+		if v.labelEditor != nil {
+			return v.labelEditor.View()
+		}
+
+	case nodePoolEditStateEditingTaints:
+		if v.taintEditor != nil {
+			return v.taintEditor.View()
+		}
+
 	case nodePoolEditStateSaving:
 		return renderSaving(v.spinner, "Updating node pool...")
 
@@ -456,6 +672,36 @@ func (v *GKENodePoolEditView) renderDiff() string {
 	b.WriteString("\n\n")
 
 	anyChange := false
+
+	// ── Labels ────────────────────────────────────────────────────────────────
+	if v.pendingFields != nil && v.pendingFields.Labels != nil {
+		b.WriteString(sectionStyle.Render("  Node Labels:"))
+		b.WriteString("\n")
+
+		addedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#34A853"))
+		removedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#EA4335"))
+		labelChangedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FBBC04"))
+
+		newLabels := *v.pendingFields.Labels
+		oldLabels := v.pool.Labels
+
+		keys := mergedSortedKeys(oldLabels, newLabels)
+		for _, k := range keys {
+			oldV, hadOld := oldLabels[k]
+			newV, hasNew := newLabels[k]
+			switch {
+			case hadOld && !hasNew:
+				b.WriteString(removedStyle.Render(fmt.Sprintf("    - %s=%s", k, oldV)))
+			case !hadOld && hasNew:
+				b.WriteString(addedStyle.Render(fmt.Sprintf("    + %s=%s", k, newV)))
+			case hadOld && hasNew && oldV != newV:
+				b.WriteString(labelChangedStyle.Render(fmt.Sprintf("    ! %s: %s → %s", k, oldV, newV)))
+			}
+			b.WriteString("\n")
+		}
+		b.WriteString("\n")
+		anyChange = true
+	}
 
 	// ── Management ────────────────────────────────────────────────────────────
 	if v.pendingManagement != nil {
@@ -507,6 +753,62 @@ func (v *GKENodePoolEditView) renderDiff() string {
 			anyChange = true
 		}
 		b.WriteString("\n")
+	}
+
+	// ── Taints ────────────────────────────────────────────────────────────────
+	if v.pendingFields != nil && v.pendingFields.Taints != nil {
+		b.WriteString(sectionStyle.Render("  Node Taints:"))
+		b.WriteString("\n")
+
+		addedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#34A853"))
+		removedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#EA4335"))
+
+		newTaints := *v.pendingFields.Taints
+		oldTaints := v.pool.Taints
+
+		// Build maps keyed by taint key for diff display.
+		oldByKey := make(map[string]gcp.NodeTaint, len(oldTaints))
+		for _, t := range oldTaints {
+			oldByKey[t.Key] = t
+		}
+		newByKey := make(map[string]gcp.NodeTaint, len(newTaints))
+		for _, t := range newTaints {
+			newByKey[t.Key] = t
+		}
+		// Collect all keys from both sides, sorted.
+		allKeys := mergedSortedKeys(
+			func() map[string]string {
+				m := make(map[string]string, len(oldTaints))
+				for _, t := range oldTaints {
+					m[t.Key] = t.Value + ":" + t.Effect
+				}
+				return m
+			}(),
+			func() map[string]string {
+				m := make(map[string]string, len(newTaints))
+				for _, t := range newTaints {
+					m[t.Key] = t.Value + ":" + t.Effect
+				}
+				return m
+			}(),
+		)
+		for _, k := range allKeys {
+			oldT, hadOld := oldByKey[k]
+			newT, hasNew := newByKey[k]
+			oldStr := fmt.Sprintf("%s=%s:%s", oldT.Key, oldT.Value, oldT.Effect)
+			newStr := fmt.Sprintf("%s=%s:%s", newT.Key, newT.Value, newT.Effect)
+			switch {
+			case hadOld && !hasNew:
+				b.WriteString(removedStyle.Render(fmt.Sprintf("    - %s", oldStr)))
+			case !hadOld && hasNew:
+				b.WriteString(addedStyle.Render(fmt.Sprintf("    + %s", newStr)))
+			case hadOld && hasNew && oldT != newT:
+				b.WriteString(changedStyle.Render(fmt.Sprintf("    ! %s → %s", oldStr, newStr)))
+			}
+			b.WriteString("\n")
+		}
+		b.WriteString("\n")
+		anyChange = true
 	}
 
 	if !anyChange {

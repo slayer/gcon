@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"google.golang.org/api/container/v1"
 	"google.golang.org/api/option"
@@ -39,6 +40,16 @@ type Cluster struct {
 	CreatedAt           string // raw CreationTimestamp pass-through (RFC3339)
 }
 
+// RecurringWindow is the projection of a GKE recurring maintenance window.
+// Populated only when the cluster's RRULE matches the supported
+// "FREQ=WEEKLY;BYDAY=..." shape; nil otherwise (the UI then shows a
+// "not editable here, use gcloud" placeholder).
+type RecurringWindow struct {
+	Days     []string // BYDAY codes, e.g. "MO","WE","FR"
+	Start    string   // "HH:MM" UTC
+	Duration string   // "Nh"
+}
+
 // ClusterDetails is the full projection used by the details view.
 type ClusterDetails struct {
 	Cluster
@@ -57,6 +68,16 @@ type ClusterDetails struct {
 	LoggingService            string            // e.g. "logging.googleapis.com/kubernetes" or "none"
 	MonitoringService         string
 	MaintenanceDaily          string // "HH:MM" UTC; "" when no daily window is set
+
+	// Phase 2d: recurring window pre-population.
+	MaintenanceRecurring *RecurringWindow // nil when absent or RRULE shape not supported
+
+	// MaintenanceRecurringUnsupported is true when the cluster has a recurring
+	// maintenance window in the raw policy that does NOT match the supported
+	// "FREQ=WEEKLY;BYDAY=..." shape (so MaintenanceRecurring is nil but a
+	// policy still exists server-side). The UI uses this to warn the user
+	// that an uneditable window will be replaced if they change maintenance.
+	MaintenanceRecurringUnsupported bool
 }
 
 // AddonsSummary captures the four addons surfaced in Phase 1.
@@ -229,6 +250,11 @@ func (c *ContainerClient) GetCluster(ctx context.Context, projectID, location, n
 		MonitoringService:         raw.MonitoringService,
 		MaintenanceDaily:          dailyMaintenanceStart(raw.MaintenancePolicy),
 	}
+	rw, rwUnsupported := maintenanceRecurringPolicy(raw)
+	if rw != nil {
+		out.MaintenanceRecurring = rw
+	}
+	out.MaintenanceRecurringUnsupported = rwUnsupported
 	out.DatabaseEncrypted, out.DatabaseKMSKey = databaseEncryption(raw)
 	if raw.IpAllocationPolicy != nil {
 		out.ServicesIPv4CIDR = raw.IpAllocationPolicy.ServicesIpv4CidrBlock
@@ -283,6 +309,102 @@ func dailyMaintenanceStart(p *container.MaintenancePolicy) string {
 		return ""
 	}
 	return p.Window.DailyMaintenanceWindow.StartTime
+}
+
+// maintenanceRecurringPolicy extracts a RecurringWindow from the raw cluster.
+// Returns (nil, false) if no recurring window is configured.
+// Returns (nil, true) if a recurring window IS configured but its RRULE is not
+// the supported "FREQ=WEEKLY;BYDAY=..." shape — callers should warn the user
+// that the window exists but can't be edited from this UI.
+// Returns (window, false) on a fully parseable supported window.
+func maintenanceRecurringPolicy(c *container.Cluster) (*RecurringWindow, bool) {
+	if c.MaintenancePolicy == nil ||
+		c.MaintenancePolicy.Window == nil ||
+		c.MaintenancePolicy.Window.RecurringWindow == nil {
+		return nil, false
+	}
+	rw := c.MaintenancePolicy.Window.RecurringWindow
+	days := parseWeeklyByday(rw.Recurrence)
+	if len(days) == 0 {
+		return nil, true
+	}
+	if rw.Window == nil {
+		return nil, true
+	}
+	start, dur := parseRecurringWindowTimes(rw.Window.StartTime, rw.Window.EndTime)
+	if start == "" {
+		return nil, true
+	}
+	return &RecurringWindow{Days: days, Start: start, Duration: dur}, false
+}
+
+// parseWeeklyByday parses "FREQ=WEEKLY;BYDAY=MO,WE,FR" (field order flexible)
+// into a slice of day codes. Returns nil for anything else.
+//
+// Accepts the seven canonical codes: MO TU WE TH FR SA SU.
+func parseWeeklyByday(rrule string) []string {
+	parts := strings.Split(rrule, ";")
+	var byday string
+	freqOK := false
+	for _, p := range parts {
+		kv := strings.SplitN(p, "=", 2)
+		if len(kv) != 2 {
+			return nil
+		}
+		switch strings.ToUpper(kv[0]) {
+		case "FREQ":
+			if !strings.EqualFold(kv[1], "WEEKLY") {
+				return nil
+			}
+			freqOK = true
+		case "BYDAY":
+			byday = kv[1]
+		}
+	}
+	if !freqOK || byday == "" {
+		return nil
+	}
+	allowed := map[string]bool{"MO": true, "TU": true, "WE": true, "TH": true, "FR": true, "SA": true, "SU": true}
+	raw := strings.Split(byday, ",")
+	days := make([]string, 0, len(raw))
+	for _, d := range raw {
+		d = strings.ToUpper(strings.TrimSpace(d))
+		if !allowed[d] {
+			return nil // any non-canonical token → reject the whole rule
+		}
+		days = append(days, d)
+	}
+	return days
+}
+
+// parseRecurringWindowTimes pulls "HH:MM" + "Nh" from RFC3339 start/end
+// timestamps. Returns ("", "") on any parse failure.
+func parseRecurringWindowTimes(startRFC, endRFC string) (start, duration string) {
+	st, err := time.Parse(time.RFC3339, startRFC)
+	if err != nil {
+		return "", ""
+	}
+	et, err := time.Parse(time.RFC3339, endRFC)
+	if err != nil {
+		return "", ""
+	}
+	diff := et.Sub(st)
+	if diff <= 0 {
+		return "", ""
+	}
+	hour := st.UTC().Hour()
+	minute := st.UTC().Minute()
+	start = fmt.Sprintf("%02d:%02d", hour, minute)
+	// Duration: round down to whole hours; clamp 1-23 per our spec
+	dur := int(diff / time.Hour)
+	if dur < 1 {
+		dur = 1
+	}
+	if dur > 23 {
+		dur = 23
+	}
+	duration = fmt.Sprintf("%dh", dur)
+	return start, duration
 }
 
 // databaseEncryption returns whether the cluster has DB encryption enabled and

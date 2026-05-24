@@ -207,3 +207,68 @@ func TestUpdateNodePoolFields_RejectsEmptyEdit(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, errNoNodePoolEditFields)
 }
+
+func TestBuildSetMaintenancePolicyRequest_Recurring(t *testing.T) {
+	req := buildSetMaintenancePolicyRequest(MaintenanceWindow{
+		Kind:     MaintenanceKindRecurring,
+		Days:     []string{"MO", "WE", "FR"},
+		Start:    "03:00",
+		Duration: "4h",
+	})
+	require.NotNil(t, req.MaintenancePolicy)
+	require.NotNil(t, req.MaintenancePolicy.Window)
+	require.NotNil(t, req.MaintenancePolicy.Window.RecurringWindow)
+	rw := req.MaintenancePolicy.Window.RecurringWindow
+	assert.Equal(t, "FREQ=WEEKLY;BYDAY=MO,WE,FR", rw.Recurrence)
+	require.NotNil(t, rw.Window)
+	// Start at 03:00 on baseline date (2026-01-04, Sunday)
+	assert.Equal(t, "2026-01-04T03:00:00Z", rw.Window.StartTime)
+	// End at 07:00 (start + 4h)
+	assert.Equal(t, "2026-01-04T07:00:00Z", rw.Window.EndTime)
+}
+
+func TestBuildSetMaintenancePolicyRequest_RecurringSingleDay(t *testing.T) {
+	req := buildSetMaintenancePolicyRequest(MaintenanceWindow{
+		Kind:     MaintenanceKindRecurring,
+		Days:     []string{"SU"},
+		Start:    "02:00",
+		Duration: "1h",
+	})
+	rw := req.MaintenancePolicy.Window.RecurringWindow
+	assert.Equal(t, "FREQ=WEEKLY;BYDAY=SU", rw.Recurrence)
+	assert.Equal(t, "2026-01-04T02:00:00Z", rw.Window.StartTime)
+	assert.Equal(t, "2026-01-04T03:00:00Z", rw.Window.EndTime)
+}
+
+func TestBuildSetMaintenancePolicyRequest_RecurringInvalidStartFallsBackToMidnight(t *testing.T) {
+	req := buildSetMaintenancePolicyRequest(MaintenanceWindow{
+		Kind:     MaintenanceKindRecurring,
+		Days:     []string{"MO"},
+		Start:    "bad-format",
+		Duration: "4h",
+	})
+	rw := req.MaintenancePolicy.Window.RecurringWindow
+	assert.Equal(t, "2026-01-04T00:00:00Z", rw.Window.StartTime)
+	assert.Equal(t, "2026-01-04T04:00:00Z", rw.Window.EndTime)
+}
+
+func TestParseHHMM(t *testing.T) {
+	h, m, ok := parseHHMM("03:00")
+	require.True(t, ok)
+	assert.Equal(t, 3, h)
+	assert.Equal(t, 0, m)
+
+	_, _, ok = parseHHMM("bad")
+	assert.False(t, ok)
+
+	_, _, ok = parseHHMM("25:00") // out of range
+	assert.False(t, ok)
+}
+
+func TestParseHoursOr(t *testing.T) {
+	assert.Equal(t, 4, parseHoursOr("4h", 1))
+	assert.Equal(t, 12, parseHoursOr("12h", 1))
+	assert.Equal(t, 1, parseHoursOr("bad", 1))
+	assert.Equal(t, 1, parseHoursOr("0h", 1))  // out of range → fallback
+	assert.Equal(t, 1, parseHoursOr("24h", 1)) // out of range → fallback
+}
