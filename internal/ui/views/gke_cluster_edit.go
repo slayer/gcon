@@ -169,14 +169,12 @@ func (v *GKEClusterEditView) buildForm() {
 	v.Form.AddSection(maintenanceSection)
 
 	// ── Observability section ─────────────────────────────────────────────────
-	loggingOptions := []forms.Option{
-		{Value: "none", Label: "Disabled"},
-		{Value: "logging.googleapis.com/kubernetes", Label: "System and workload"},
-	}
-	monitoringOptions := []forms.Option{
-		{Value: "none", Label: "Disabled"},
-		{Value: "monitoring.googleapis.com/kubernetes", Label: "System and workload"},
-	}
+	// If the cluster's current value isn't in the curated list, inject it as a
+	// synthetic option so it (a) renders inside the dropdown as the selected
+	// choice and (b) can be re-selected without spurious diffs. SetPlaceholder
+	// is not used because dropdowns only render Placeholder when len(Options)==0.
+	loggingOptions := loggingOptionsFor(v.details.LoggingService)
+	monitoringOptions := monitoringOptionsFor(v.details.MonitoringService)
 
 	loggingField := forms.NewDropdownField("logging_service", "Logging").
 		SetOptions(loggingOptions).
@@ -184,16 +182,6 @@ func (v *GKEClusterEditView) buildForm() {
 	monitoringField := forms.NewDropdownField("monitoring_service", "Monitoring").
 		SetOptions(monitoringOptions).
 		SetHelpText("Cloud Monitoring integration for the cluster")
-
-	// If the current value is not in the curated list, show it as a placeholder.
-	if !isKnownLoggingValue(v.details.LoggingService) && v.details.LoggingService != "" {
-		loggingField.SetPlaceholder(v.details.LoggingService).
-			SetHelpText(fmt.Sprintf("Current value %q is not in the curated list; select an option to change it", v.details.LoggingService))
-	}
-	if !isKnownMonitoringValue(v.details.MonitoringService) && v.details.MonitoringService != "" {
-		monitoringField.SetPlaceholder(v.details.MonitoringService).
-			SetHelpText(fmt.Sprintf("Current value %q is not in the curated list; select an option to change it", v.details.MonitoringService))
-	}
 
 	observabilitySection := forms.NewSection("observability", "Observability").
 		AddField(loggingField).
@@ -224,13 +212,41 @@ func (v *GKEClusterEditView) buildForm() {
 	// Sync visibility so initial kind hides the inapplicable fields.
 	v.syncMaintenanceVisibility()
 
-	// Pre-populate dropdowns only when the value is in the curated list.
-	if isKnownLoggingValue(v.details.LoggingService) {
+	// Pre-populate dropdowns. The synthetic-option helpers above guarantee
+	// the current value is always present as an option, so SetData always
+	// matches and the dropdown shows the actual current value.
+	if v.details.LoggingService != "" {
 		v.Form.SetData(map[string]any{"logging_service": v.details.LoggingService})
 	}
-	if isKnownMonitoringValue(v.details.MonitoringService) {
+	if v.details.MonitoringService != "" {
 		v.Form.SetData(map[string]any{"monitoring_service": v.details.MonitoringService})
 	}
+}
+
+// loggingOptionsFor returns the curated logging dropdown options, plus the
+// current value as a synthetic "(custom)" option if it's not already in the list.
+// This guarantees the user can see what's currently set and re-select it.
+func loggingOptionsFor(current string) []forms.Option {
+	base := []forms.Option{
+		{Value: "none", Label: "Disabled"},
+		{Value: "logging.googleapis.com/kubernetes", Label: "System and workload"},
+	}
+	if current != "" && !isKnownLoggingValue(current) {
+		base = append(base, forms.Option{Value: current, Label: fmt.Sprintf("%s (current, custom)", current)})
+	}
+	return base
+}
+
+// monitoringOptionsFor mirrors loggingOptionsFor for the monitoring dropdown.
+func monitoringOptionsFor(current string) []forms.Option {
+	base := []forms.Option{
+		{Value: "none", Label: "Disabled"},
+		{Value: "monitoring.googleapis.com/kubernetes", Label: "System and workload"},
+	}
+	if current != "" && !isKnownMonitoringValue(current) {
+		base = append(base, forms.Option{Value: current, Label: fmt.Sprintf("%s (current, custom)", current)})
+	}
+	return base
 }
 
 // validateMaintenanceTime accepts empty strings (meaning "no time set") or
@@ -547,20 +563,13 @@ func (v *GKEClusterEditView) computeEdit(data map[string]any) (*gcp.ClusterEdit,
 	}
 
 	// ── Observability (logging / monitoring) ──────────────────────────────────
-	// Baseline tracks what the form would return for "untouched". When the
-	// cluster's current value is not in the curated dropdown list, the form
-	// is left unpopulated and GetData returns the dropdown's default
-	// (index 0 = "none"). Comparing the cluster's real unknown value would
-	// flag a false-positive diff on every submit; instead we compare
-	// against the same default so unchanged form == no diff.
+	// The dropdowns inject the cluster's current value as a synthetic option
+	// when it isn't in the curated list (see loggingOptionsFor /
+	// monitoringOptionsFor), so the baseline is always the actual value.
+	// Selecting "none" (or any other option) against an unknown current value
+	// now correctly registers as a diff.
 	initialLogging := v.details.LoggingService
-	if !isKnownLoggingValue(initialLogging) {
-		initialLogging = "none"
-	}
 	initialMonitoring := v.details.MonitoringService
-	if !isKnownMonitoringValue(initialMonitoring) {
-		initialMonitoring = "none"
-	}
 
 	newLogging := getString("logging_service")
 	newMonitoring := getString("monitoring_service")

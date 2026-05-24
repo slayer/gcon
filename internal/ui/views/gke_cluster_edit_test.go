@@ -98,11 +98,10 @@ func TestGKEClusterEdit_ConfirmDeployEmitsRequest(t *testing.T) {
 }
 
 func TestGKEClusterEdit_UnknownLoggingNoFalsePositive(t *testing.T) {
-	// Regression: a cluster reporting a legacy logging service (e.g.
-	// "logging.googleapis.com" without "/kubernetes") must not flag a
-	// diff when the user has not touched the dropdown — the form leaves
-	// the dropdown at its default ("none") and the baseline is forced to
-	// "none" so they match.
+	// A cluster reporting a legacy logging service (e.g. "logging.googleapis.com"
+	// without "/kubernetes") gets its value injected into the dropdown as a
+	// synthetic option. The baseline matches what's selected, so an untouched
+	// submit registers no diff.
 	details := &gcp.ClusterDetails{
 		Cluster:           gcp.Cluster{Name: "prod"},
 		LoggingService:    "logging.googleapis.com",    // legacy, unknown
@@ -113,6 +112,57 @@ func TestGKEClusterEdit_UnknownLoggingNoFalsePositive(t *testing.T) {
 	assert.Nil(t, cmd)
 	assert.ErrorIs(t, v.err, errClusterEditNoChanges)
 	assert.Equal(t, clusterEditStateForm, v.state)
+}
+
+func TestGKEClusterEdit_UnknownServicesShowSyntheticOption(t *testing.T) {
+	// Custom (non-curated) logging / monitoring services must appear as
+	// real dropdown options so the user can see what's currently configured
+	// and the form is pre-populated to the actual value.
+	details := &gcp.ClusterDetails{
+		Cluster:           gcp.Cluster{Name: "prod"},
+		LoggingService:    "logging.googleapis.com",
+		MonitoringService: "monitoring.googleapis.com",
+	}
+	v := NewGKEClusterEditView("proj", "us-central1", "prod", details)
+
+	logging := v.Form.GetField("logging_service")
+	require.NotNil(t, logging)
+	var loggingValues []string
+	for _, opt := range logging.Options {
+		loggingValues = append(loggingValues, opt.Value)
+	}
+	assert.Contains(t, loggingValues, "logging.googleapis.com",
+		"unknown logging service must be present as an option")
+	got, ok := logging.GetValue().(string)
+	require.True(t, ok)
+	assert.Equal(t, "logging.googleapis.com", got, "logging dropdown must preselect the actual value")
+
+	monitoring := v.Form.GetField("monitoring_service")
+	require.NotNil(t, monitoring)
+	var monitoringValues []string
+	for _, opt := range monitoring.Options {
+		monitoringValues = append(monitoringValues, opt.Value)
+	}
+	assert.Contains(t, monitoringValues, "monitoring.googleapis.com",
+		"unknown monitoring service must be present as an option")
+}
+
+func TestGKEClusterEdit_UnknownLoggingSelectNoneEmitsDiff(t *testing.T) {
+	// Selecting "none" (or any other curated value) against an unknown
+	// current value must register as a real diff. Previously the baseline
+	// was forced to "none" so the diff was invisible.
+	details := &gcp.ClusterDetails{
+		Cluster:        gcp.Cluster{Name: "prod"},
+		LoggingService: "logging.googleapis.com",
+	}
+	v := NewGKEClusterEditView("proj", "us-central1", "prod", details)
+	v.Form.SetData(map[string]any{"logging_service": "none"})
+	cmd := v.handleSubmit()
+	assert.Nil(t, cmd)
+	assert.Equal(t, clusterEditStateDiff, v.state)
+	require.NotNil(t, v.pendingBasic)
+	require.NotNil(t, v.pendingBasic.LoggingService)
+	assert.Equal(t, "none", *v.pendingBasic.LoggingService)
 }
 
 func TestGKEClusterEdit_LabelsEditedTransitionsToDiff(t *testing.T) {
