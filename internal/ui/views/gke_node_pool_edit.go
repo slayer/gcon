@@ -150,41 +150,22 @@ func (v *GKENodePoolEditView) buildForm() {
 
 	// ── Upgrade Settings section ──────────────────────────────────────────────
 	upgradeHelpText := ""
-	initialStrategy := "SURGE"
-	var initialMaxSurge int64 = 1
-	var initialMaxUnavailable int64
-	unknownStrategy := ""
-
+	initialStrategy, initialMaxSurge, initialMaxUnavailable := v.initialUpgradeSettings()
 	if v.pool.UpgradeSettings == nil {
 		upgradeHelpText = "Pool has no explicit upgrade settings; change a value to set them."
-	} else {
-		switch v.pool.UpgradeSettings.Strategy {
-		case "SURGE", "BLUE_GREEN":
-			initialStrategy = v.pool.UpgradeSettings.Strategy
-		case "":
-			// empty == server default; treat as SURGE
-		default:
-			// Unknown strategy (e.g., legacy SHORT_LIVED). Don't pre-select it
-			// into the curated dropdown — the form would silently fall back
-			// to SURGE and computeEdit would then see a false-positive diff.
-			// Force the baseline to SURGE so unchanged form == no diff; the
-			// placeholder tells the user what the pool actually has now.
-			unknownStrategy = v.pool.UpgradeSettings.Strategy
-		}
-		initialMaxSurge = v.pool.UpgradeSettings.MaxSurge
-		initialMaxUnavailable = v.pool.UpgradeSettings.MaxUnavailable
 	}
 
-	strategyField := forms.NewDropdownField("upgrade_strategy", "Upgrade Strategy").
-		SetOptions([]forms.Option{
-			{Value: "SURGE", Label: "Surge"},
-			{Value: "BLUE_GREEN", Label: "Blue-Green"},
-		}).
-		SetHelpText("Strategy for upgrading node pool nodes")
-	if unknownStrategy != "" {
-		strategyField.SetPlaceholder(unknownStrategy)
-		strategyField.SetHelpText(fmt.Sprintf("Pool currently uses %q (not selectable here). Pick SURGE or BLUE_GREEN to migrate.", unknownStrategy))
+	// Build strategy options. An unknown strategy (e.g. legacy SHORT_LIVED)
+	// is injected as a synthetic option so the user can see what the pool
+	// actually has now and re-select it without spurious diffs. SetPlaceholder
+	// is not used because dropdowns only render Placeholder when len(Options)==0.
+	strategyHelp := "Strategy for upgrading node pool nodes"
+	if v.pool.UpgradeSettings != nil && !isKnownUpgradeStrategy(v.pool.UpgradeSettings.Strategy) && v.pool.UpgradeSettings.Strategy != "" {
+		strategyHelp = fmt.Sprintf("Pool currently uses %q. Pick SURGE or BLUE_GREEN to migrate.", v.pool.UpgradeSettings.Strategy)
 	}
+	strategyField := forms.NewDropdownField("upgrade_strategy", "Upgrade Strategy").
+		SetOptions(upgradeStrategyOptionsFor(v.pool.UpgradeSettings)).
+		SetHelpText(strategyHelp)
 
 	maxSurgeField := forms.NewNumberField("max_surge", "Max Surge").
 		SetHelpText("Max additional nodes during upgrade (0-100)").
@@ -822,19 +803,16 @@ func (v *GKENodePoolEditView) renderDiff() string {
 	return b.String()
 }
 
-// boolToStr converts a bool to a human-readable string.
 // initialUpgradeSettings returns the upgrade-settings baseline used by both
-// computeEdit and renderDiff. When the pool has no UpgradeSettings (or an
-// unknown Strategy that the curated dropdown can't represent), the baseline
-// is the dropdown default (SURGE/1/0). This keeps "user didn't touch the
-// dropdown" === "no diff", even if the underlying pool reports an exotic
-// strategy that we can't preserve.
+// computeEdit and renderDiff. When the pool has no UpgradeSettings, the
+// baseline is the dropdown default (SURGE/1/0). Unknown strategies (e.g.
+// legacy SHORT_LIVED) are returned as-is — the dropdown surfaces them via
+// a synthetic option so "user didn't touch" still equals "no diff".
 func (v *GKENodePoolEditView) initialUpgradeSettings() (strategy string, maxSurge, maxUnavailable int64) {
 	strategy = "SURGE"
 	maxSurge = 1
 	if v.pool.UpgradeSettings != nil {
-		switch v.pool.UpgradeSettings.Strategy {
-		case "SURGE", "BLUE_GREEN":
+		if v.pool.UpgradeSettings.Strategy != "" {
 			strategy = v.pool.UpgradeSettings.Strategy
 		}
 		maxSurge = v.pool.UpgradeSettings.MaxSurge
@@ -843,6 +821,27 @@ func (v *GKENodePoolEditView) initialUpgradeSettings() (strategy string, maxSurg
 	return strategy, maxSurge, maxUnavailable
 }
 
+// isKnownUpgradeStrategy reports whether s is one of the curated dropdown values.
+func isKnownUpgradeStrategy(s string) bool {
+	return s == "SURGE" || s == "BLUE_GREEN"
+}
+
+// upgradeStrategyOptionsFor returns the curated upgrade-strategy options, plus
+// the pool's current strategy as a synthetic "(current, custom)" option if it
+// isn't already in the list. This guarantees the dropdown can display whatever
+// the pool actually has, including legacy values like SHORT_LIVED.
+func upgradeStrategyOptionsFor(us *gcp.UpgradeSettings) []forms.Option {
+	base := []forms.Option{
+		{Value: "SURGE", Label: "Surge"},
+		{Value: "BLUE_GREEN", Label: "Blue-Green"},
+	}
+	if us == nil || us.Strategy == "" || isKnownUpgradeStrategy(us.Strategy) {
+		return base
+	}
+	return append(base, forms.Option{Value: us.Strategy, Label: fmt.Sprintf("%s (current, custom)", us.Strategy)})
+}
+
+// boolToStr converts a bool to a human-readable string.
 func boolToStr(b bool) string {
 	if b {
 		return "true"

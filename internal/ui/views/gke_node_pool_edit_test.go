@@ -201,10 +201,9 @@ func TestGKENodePoolEdit_ConfirmDeployEmitsRequest(t *testing.T) {
 
 
 func TestGKENodePoolEdit_UnknownStrategyNoFalsePositive(t *testing.T) {
-	// Regression: a pool reporting an unknown strategy (e.g. "SHORT_LIVED")
-	// must not silently flag a diff when the user has not touched the
-	// dropdown — the baseline is forced to SURGE so the form value equals
-	// the baseline.
+	// A pool reporting an unknown strategy (e.g. "SHORT_LIVED") is shown in
+	// the dropdown as a synthetic "(current, custom)" option. The baseline
+	// matches what's selected, so an untouched submit registers no diff.
 	pool := &gcp.NodePool{
 		Name:        "default",
 		AutoUpgrade: true,
@@ -220,4 +219,29 @@ func TestGKENodePoolEdit_UnknownStrategyNoFalsePositive(t *testing.T) {
 	assert.Nil(t, cmd)
 	assert.ErrorIs(t, v.err, errNodePoolEditNoChanges)
 	assert.Equal(t, nodePoolEditStateForm, v.state)
+}
+
+func TestGKENodePoolEdit_UnknownStrategyShowsSyntheticOption(t *testing.T) {
+	// The strategy dropdown must include the pool's actual unknown strategy
+	// as a real option (not just a placeholder), so the user can see what's
+	// currently configured and the field can be pre-populated to it.
+	pool := &gcp.NodePool{
+		Name: "default",
+		UpgradeSettings: &gcp.UpgradeSettings{
+			Strategy:       "SHORT_LIVED",
+			MaxSurge:       1,
+			MaxUnavailable: 0,
+		},
+	}
+	v := NewGKENodePoolEditView("proj", "us-central1", "prod", pool)
+	field := v.Form.GetField("upgrade_strategy")
+	require.NotNil(t, field)
+	values := make([]string, 0, len(field.Options))
+	for _, opt := range field.Options {
+		values = append(values, opt.Value)
+	}
+	assert.Contains(t, values, "SHORT_LIVED", "unknown strategy must be present as an option")
+	got, ok := field.GetValue().(string)
+	require.True(t, ok)
+	assert.Equal(t, "SHORT_LIVED", got, "dropdown must be preselected to the pool's actual strategy")
 }
