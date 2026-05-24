@@ -4524,31 +4524,48 @@ func (a *App) handleGKEClusterEditRequest(msg views.GKEClusterEditRequestMsg) te
 
 // handleGKEClusterEditResult processes the outcome of a cluster edit.
 //
+// Cancel-during-saving guard: if the user pressed Esc while the operation was
+// in flight, handleGKEClusterEditCanceled has already popped viewStack and
+// cleared the edit view. We must NOT pop again or navigate the user away from
+// wherever they went after canceling. The presence/absence of
+// gkeClusterEditView is the canonical signal for "user is still here".
+//
 //nolint:gocritic // hugeParam: message struct passed by value
 func (a *App) handleGKEClusterEditResult(msg views.GKEClusterEditResultMsg) tea.Cmd {
 	finishCmd := a.finishTask(msg.TaskID, msg.Error)
+	userStillOnEditView := a.currentView == ViewGKEClusterEdit && a.gkeClusterEditView != nil
+
 	if msg.Error != nil {
 		a.err = msg.Error
-		if a.gkeClusterEditView != nil {
+		if userStillOnEditView {
 			a.gkeClusterEditView.SetError(msg.Error)
 		}
 		return finishCmd
 	}
-	// Success: pop back to cluster details view and refresh.
-	a.gkeClusterEditView = nil
-	if len(a.viewStack) > 0 {
-		lastIdx := len(a.viewStack) - 1
-		a.currentView = a.viewStack[lastIdx]
-		a.viewStack = a.viewStack[:lastIdx]
-	} else {
-		a.currentView = ViewGKEClusterDetails
+
+	// Success path. Only navigate if the user is still on the edit view; a
+	// stale result for an operation the user already abandoned just refreshes
+	// the cluster details quietly if that's where they ended up.
+	if userStillOnEditView {
+		a.gkeClusterEditView = nil
+		if len(a.viewStack) > 0 {
+			lastIdx := len(a.viewStack) - 1
+			a.currentView = a.viewStack[lastIdx]
+			a.viewStack = a.viewStack[:lastIdx]
+		} else {
+			a.currentView = ViewGKEClusterDetails
+		}
+		a.updateSidebarActiveView()
 	}
-	a.updateSidebarActiveView()
-	refreshCmd := a.refreshActiveGKECluster()
-	if finishCmd != nil {
-		return tea.Batch(finishCmd, refreshCmd)
+
+	if a.currentView == ViewGKEClusterDetails {
+		refreshCmd := a.refreshActiveGKECluster()
+		if finishCmd != nil {
+			return tea.Batch(finishCmd, refreshCmd)
+		}
+		return refreshCmd
 	}
-	return refreshCmd
+	return finishCmd
 }
 
 // handleGKENodePoolEditOpen opens the node pool edit form for the pool
@@ -4659,29 +4676,40 @@ func (a *App) handleGKENodePoolEditRequest(msg views.GKENodePoolEditRequestMsg) 
 
 // handleGKENodePoolEditResult processes the outcome of a node pool edit.
 //
+// Cancel-during-saving guard: see handleGKEClusterEditResult for the same
+// pattern — if the user canceled mid-flight, we must not double-pop.
+//
 //nolint:gocritic // hugeParam: message struct passed by value
 func (a *App) handleGKENodePoolEditResult(msg views.GKENodePoolEditResultMsg) tea.Cmd {
 	finishCmd := a.finishTask(msg.TaskID, msg.Error)
+	userStillOnEditView := a.currentView == ViewGKENodePoolEdit && a.gkeNodePoolEditView != nil
+
 	if msg.Error != nil {
 		a.err = msg.Error
-		if a.gkeNodePoolEditView != nil {
+		if userStillOnEditView {
 			a.gkeNodePoolEditView.SetError(msg.Error)
 		}
 		return finishCmd
 	}
-	// Success: pop back to cluster details view and refresh.
-	a.gkeNodePoolEditView = nil
-	if len(a.viewStack) > 0 {
-		lastIdx := len(a.viewStack) - 1
-		a.currentView = a.viewStack[lastIdx]
-		a.viewStack = a.viewStack[:lastIdx]
-	} else {
-		a.currentView = ViewGKEClusterDetails
+
+	if userStillOnEditView {
+		a.gkeNodePoolEditView = nil
+		if len(a.viewStack) > 0 {
+			lastIdx := len(a.viewStack) - 1
+			a.currentView = a.viewStack[lastIdx]
+			a.viewStack = a.viewStack[:lastIdx]
+		} else {
+			a.currentView = ViewGKEClusterDetails
+		}
+		a.updateSidebarActiveView()
 	}
-	a.updateSidebarActiveView()
-	refreshCmd := a.refreshActiveGKECluster()
-	if finishCmd != nil {
-		return tea.Batch(finishCmd, refreshCmd)
+
+	if a.currentView == ViewGKEClusterDetails {
+		refreshCmd := a.refreshActiveGKECluster()
+		if finishCmd != nil {
+			return tea.Batch(finishCmd, refreshCmd)
+		}
+		return refreshCmd
 	}
-	return refreshCmd
+	return finishCmd
 }
