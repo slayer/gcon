@@ -83,7 +83,9 @@ const (
 	ViewGKEClusters
 	ViewGKEClusterDetails
 	ViewGKENodePoolCreate // Creating a new node pool in a GKE cluster
-	ViewFormDemo          // Demo view for testing form components
+	ViewGKEClusterEdit   // Editing an existing GKE cluster
+	ViewGKENodePoolEdit  // Editing an existing GKE node pool
+	ViewFormDemo         // Demo view for testing form components
 )
 
 // FocusedPanel indicates which panel has keyboard focus
@@ -164,6 +166,8 @@ type App struct {
 	gkeClustersView            *views.GKEClustersView
 	gkeClusterDetailsView      *views.GKEClusterDetailsView
 	gkeNodePoolCreateView      *views.GKENodePoolCreateView
+	gkeClusterEditView         *views.GKEClusterEditView
+	gkeNodePoolEditView        *views.GKENodePoolEditView
 	formDemoView               *views.FormDemoView
 
 	// Selected context
@@ -462,6 +466,10 @@ func (a *App) getCurrentViewModel() views.View {
 		return a.gkeClusterDetailsView
 	case ViewGKENodePoolCreate:
 		return a.gkeNodePoolCreateView
+	case ViewGKEClusterEdit:
+		return a.gkeClusterEditView
+	case ViewGKENodePoolEdit:
+		return a.gkeNodePoolEditView
 	case ViewFormDemo:
 		return a.formDemoView
 	}
@@ -1072,6 +1080,39 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
 		return a, a.handleGKENodePoolUpgradeResult(msg)
 
+	// GKE Phase 2c — cluster edit + node pool edit
+	case views.GKEClusterEditOpenMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleGKEClusterEditOpen(msg)
+
+	case views.GKEClusterEditCanceledMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleGKEClusterEditCanceled()
+
+	case views.GKEClusterEditRequestMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleGKEClusterEditRequest(msg)
+
+	case views.GKEClusterEditResultMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleGKEClusterEditResult(msg)
+
+	case views.GKENodePoolEditOpenMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleGKENodePoolEditOpen(msg)
+
+	case views.GKENodePoolEditCanceledMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleGKENodePoolEditCanceled()
+
+	case views.GKENodePoolEditRequestMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleGKENodePoolEditRequest(msg)
+
+	case views.GKENodePoolEditResultMsg:
+		//nolint:gocritic // evalOrder: return pattern is intentional for Bubble Tea model
+		return a, a.handleGKENodePoolEditResult(msg)
+
 	case views.GKEOperationPollMsg:
 		cmd := a.pollGKEOperationOnce(msg)
 		return a, cmd
@@ -1640,6 +1681,12 @@ func (a *App) updateViewSizes() {
 	}
 	if a.gkeNodePoolCreateView != nil {
 		a.gkeNodePoolCreateView.SetContext(a.ctx)
+	}
+	if a.gkeClusterEditView != nil {
+		a.gkeClusterEditView.SetContext(a.ctx)
+	}
+	if a.gkeNodePoolEditView != nil {
+		a.gkeNodePoolEditView.SetContext(a.ctx)
 	}
 }
 

@@ -393,3 +393,39 @@ func TestGKEClusterDetails_ShortcutsBlockedWhileFiltering(t *testing.T) {
 	v.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'D'}})
 	assert.False(t, v.showConfirm, "D must not open the delete dialog while filter input is focused")
 }
+
+func TestGKEClusterDetails_EditKeyOnOverview(t *testing.T) {
+	v := gkeDetailsFixture("STANDARD")
+	v.tabs.SetActiveByID("overview")
+	cmd := v.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	require.NotNil(t, cmd)
+	_, ok := cmd().(GKEClusterEditOpenMsg)
+	assert.True(t, ok, "e on Overview must emit GKEClusterEditOpenMsg")
+}
+
+func TestGKEClusterDetails_EditKeyOnOverviewAutopilot(t *testing.T) {
+	v := gkeDetailsFixture("AUTOPILOT")
+	v.tabs.SetActiveByID("overview")
+	cmd := v.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	require.NotNil(t, cmd, "cluster edit must be allowed on Autopilot")
+	_, ok := cmd().(GKEClusterEditOpenMsg)
+	assert.True(t, ok)
+}
+
+func TestGKEClusterDetails_EditKeyOnNodePoolsStandard(t *testing.T) {
+	v := gkeDetailsFixture("STANDARD")
+	v.refreshNodePoolsTable() // populate table so focusedPool() resolves
+	v.tabs.SetActiveByID("nodepools")
+	cmd := v.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	require.NotNil(t, cmd, "e on Node Pools (Standard) must emit GKENodePoolEditOpenMsg")
+	msg, ok := cmd().(GKENodePoolEditOpenMsg)
+	require.True(t, ok)
+	assert.Equal(t, "default", msg.PoolName)
+}
+
+func TestGKEClusterDetails_EditKeyOnNodePoolsAutopilotNoOp(t *testing.T) {
+	v := gkeDetailsFixture("AUTOPILOT")
+	v.tabs.SetActiveByID("nodepools")
+	cmd := v.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	assert.Nil(t, cmd, "e on Node Pools (Autopilot) must be a no-op")
+}

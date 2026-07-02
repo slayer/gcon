@@ -41,7 +41,7 @@ func (a *App) renderHeader() string {
 			category = "Logging"
 		case ViewLoadBalancers, ViewLoadBalancerDetails:
 			category = "Network Services"
-		case ViewGKEClusters, ViewGKEClusterDetails, ViewGKENodePoolCreate:
+		case ViewGKEClusters, ViewGKEClusterDetails, ViewGKENodePoolCreate, ViewGKEClusterEdit, ViewGKENodePoolEdit:
 			category = "Kubernetes Engine"
 		}
 	}
@@ -171,6 +171,14 @@ func (a *App) renderHeader() string {
 	case ViewGKEClusterDetails:
 		if a.gkeClusterDetailsView != nil {
 			resources = append(resources, a.gkeClusterDetailsView.Name())
+		}
+	case ViewGKEClusterEdit:
+		if a.gkeClusterDetailsView != nil {
+			resources = append(resources, a.gkeClusterDetailsView.Name(), "Edit Cluster")
+		}
+	case ViewGKENodePoolEdit:
+		if a.gkeClusterDetailsView != nil {
+			resources = append(resources, a.gkeClusterDetailsView.Name(), "Edit Node Pool")
 		}
 	}
 	a.header.SetResources(resources)
@@ -383,6 +391,14 @@ func (a *App) renderCurrentView() string {
 	case ViewGKENodePoolCreate:
 		if a.gkeNodePoolCreateView != nil {
 			return a.gkeNodePoolCreateView.View()
+		}
+	case ViewGKEClusterEdit:
+		if a.gkeClusterEditView != nil {
+			return a.gkeClusterEditView.View()
+		}
+	case ViewGKENodePoolEdit:
+		if a.gkeNodePoolEditView != nil {
+			return a.gkeNodePoolEditView.View()
 		}
 	case ViewFormDemo:
 		if a.formDemoView != nil {

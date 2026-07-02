@@ -364,7 +364,7 @@ func (a *App) handleSidebarNavigation(msg sidebar.NavigateMsg) tea.Cmd {
 		}
 
 	case sidebar.ViewGKEClusters:
-		if a.currentView != ViewGKEClusters && a.currentView != ViewGKEClusterDetails && a.currentView != ViewGKENodePoolCreate {
+		if a.currentView != ViewGKEClusters && a.currentView != ViewGKEClusterDetails && a.currentView != ViewGKENodePoolCreate && a.currentView != ViewGKEClusterEdit && a.currentView != ViewGKENodePoolEdit {
 			a.currentView = ViewGKEClusters
 			a.gkeClusterDetailsView = nil
 			a.gkeNodePoolCreateView = nil
@@ -425,7 +425,7 @@ func (a *App) updateSidebarActiveView() {
 		a.sidebar.SetActiveView(sidebar.ViewLogs)
 	case ViewLoadBalancers, ViewLoadBalancerDetails:
 		a.sidebar.SetActiveView(sidebar.ViewLoadBalancers)
-	case ViewGKEClusters, ViewGKEClusterDetails, ViewGKENodePoolCreate:
+	case ViewGKEClusters, ViewGKEClusterDetails, ViewGKENodePoolCreate, ViewGKEClusterEdit, ViewGKENodePoolEdit:
 		a.sidebar.SetActiveView(sidebar.ViewGKEClusters)
 	}
 }
@@ -767,6 +767,8 @@ func (a *App) clearAllViews() {
 	a.gkeClustersView = nil
 	a.gkeClusterDetailsView = nil
 	a.gkeNodePoolCreateView = nil
+	a.gkeClusterEditView = nil
+	a.gkeNodePoolEditView = nil
 	a.formDemoView = nil
 
 	// Clear view stack
@@ -4378,4 +4380,336 @@ func (a *App) handleGKEOperationPollResult(m gkeOperationPollResultMsg) tea.Cmd 
 		m.src.TaskID, m.src.ProjectID, m.src.Location, m.src.Name,
 		m.src.OnDone, m.src.OnError,
 	)
+}
+
+// ── GKE Phase 2c — cluster edit + node pool edit ─────────────────────────────
+
+// gkeEditStep is one API call within a multi-step edit. fn invokes the GCP
+// method and returns the Operation to poll.
+type gkeEditStep struct {
+	label string
+	fn    func() (gcp.Operation, error)
+}
+
+// runGKEEditSequence kicks step 0. Each step's OnDone schedules step idx+1
+// via runGKEEditStep; the final step's OnDone calls onComplete(nil).
+func (a *App) runGKEEditSequence(taskID, projectID, location string, steps []gkeEditStep, onComplete func(error) tea.Cmd) tea.Cmd {
+	return a.runGKEEditStep(taskID, projectID, location, steps, 0, onComplete)
+}
+
+// runGKEEditStep starts step idx. Each step captures its index at schedule
+// time so recursive calls don't alias the loop variable.
+func (a *App) runGKEEditStep(taskID, projectID, location string, steps []gkeEditStep, idx int, onComplete func(error) tea.Cmd) tea.Cmd {
+	if idx >= len(steps) {
+		return onComplete(nil)
+	}
+	a.updateRunningTask(taskID, fmt.Sprintf("Updating (%s, %d/%d)...", steps[idx].label, idx+1, len(steps)))
+	// Capture step.fn at schedule time. The closure must not read 'idx' or
+	// 'steps' after the cmd starts running off-thread.
+	stepFn := steps[idx].fn
+	return func() tea.Msg {
+		op, err := stepFn()
+		if err != nil {
+			// Step's API call failed before polling started; deliver the
+			// result message directly.
+			return onComplete(err)()
+		}
+		nextIdx := idx + 1
+		return views.GKEOperationPollMsg{
+			TaskID:    taskID,
+			ProjectID: projectID,
+			Location:  location,
+			Name:      op.Name,
+			OnDone: func() tea.Cmd {
+				return a.runGKEEditStep(taskID, projectID, location, steps, nextIdx, onComplete)
+			},
+			OnError: func(opErr error) tea.Cmd {
+				return onComplete(opErr)
+			},
+		}
+	}
+}
+
+// handleGKEClusterEditOpen opens the cluster edit form.
+//
+//nolint:gocritic // hugeParam: message struct passed by value
+func (a *App) handleGKEClusterEditOpen(msg views.GKEClusterEditOpenMsg) tea.Cmd {
+	// Guard against opening the edit view before details have loaded — the
+	// form pre-populates from details and would nil-deref in buildForm.
+	var details *gcp.ClusterDetails
+	if a.gkeClusterDetailsView != nil {
+		details = a.gkeClusterDetailsView.Details()
+	}
+	if details == nil {
+		return nil
+	}
+
+	a.viewStack = append(a.viewStack, a.currentView)
+	a.currentView = ViewGKEClusterEdit
+	a.gkeClusterEditView = views.NewGKEClusterEditView(msg.ProjectID, msg.Location, msg.ClusterName, details)
+	a.updateViewSizes()
+	a.updateSidebarActiveView()
+	return a.gkeClusterEditView.Init()
+}
+
+// handleGKEClusterEditCanceled navigates back from the cluster edit form.
+func (a *App) handleGKEClusterEditCanceled() tea.Cmd {
+	a.gkeClusterEditView = nil
+	if len(a.viewStack) > 0 {
+		lastIdx := len(a.viewStack) - 1
+		a.currentView = a.viewStack[lastIdx]
+		a.viewStack = a.viewStack[:lastIdx]
+	} else {
+		a.currentView = ViewGKEClusterDetails
+	}
+	a.updateSidebarActiveView()
+	return nil
+}
+
+// handleGKEClusterEditRequest dispatches the multi-step cluster edit.
+//
+//nolint:gocritic // hugeParam: message struct passed by value
+func (a *App) handleGKEClusterEditRequest(msg views.GKEClusterEditRequestMsg) tea.Cmd {
+	// borrowContainerClient must be called on the main goroutine.
+	cc := a.borrowContainerClient()
+	if cc == nil {
+		if a.gkeClusterEditView != nil {
+			a.gkeClusterEditView.SetError(uierrors.ErrGKEClientNotInitialized)
+		}
+		return nil
+	}
+	if msg.Basic == nil && msg.Maintenance == nil {
+		// Defensive: form should prevent this, but navigate back gracefully.
+		return a.handleGKEClusterEditCanceled()
+	}
+
+	taskID := fmt.Sprintf("gke-op:edit-cluster:%s", msg.ClusterName)
+	a.registerRunningTask(taskID, fmt.Sprintf("Updating cluster %s...", msg.ClusterName))
+
+	var steps []gkeEditStep
+	if msg.Basic != nil {
+		basic := *msg.Basic
+		projectID := msg.ProjectID
+		location := msg.Location
+		clusterName := msg.ClusterName
+		steps = append(steps, gkeEditStep{
+			label: "services",
+			fn: func() (gcp.Operation, error) {
+				return cc.UpdateClusterBasic(gocontext.Background(), projectID, location, clusterName, basic)
+			},
+		})
+	}
+	if msg.Maintenance != nil {
+		mw := *msg.Maintenance
+		projectID := msg.ProjectID
+		location := msg.Location
+		clusterName := msg.ClusterName
+		steps = append(steps, gkeEditStep{
+			label: "maintenance",
+			fn: func() (gcp.Operation, error) {
+				return cc.SetClusterMaintenancePolicy(gocontext.Background(), projectID, location, clusterName, mw)
+			},
+		})
+	}
+
+	clusterName := msg.ClusterName
+	projectID := msg.ProjectID
+	location := msg.Location
+	return a.runGKEEditSequence(taskID, projectID, location, steps, func(err error) tea.Cmd {
+		return func() tea.Msg {
+			return views.GKEClusterEditResultMsg{TaskID: taskID, ClusterName: clusterName, Error: err}
+		}
+	})
+}
+
+// handleGKEClusterEditResult processes the outcome of a cluster edit.
+//
+// Cancel-during-saving guard: if the user pressed Esc while the operation was
+// in flight, handleGKEClusterEditCanceled has already popped viewStack and
+// cleared the edit view. We must NOT pop again or navigate the user away from
+// wherever they went after canceling. The presence/absence of
+// gkeClusterEditView is the canonical signal for "user is still here".
+//
+//nolint:gocritic // hugeParam: message struct passed by value
+func (a *App) handleGKEClusterEditResult(msg views.GKEClusterEditResultMsg) tea.Cmd {
+	finishCmd := a.finishTask(msg.TaskID, msg.Error)
+	userStillOnEditView := a.currentView == ViewGKEClusterEdit && a.gkeClusterEditView != nil
+
+	if msg.Error != nil {
+		a.err = msg.Error
+		if userStillOnEditView {
+			a.gkeClusterEditView.SetError(msg.Error)
+		}
+		return finishCmd
+	}
+
+	// Success path. Only navigate if the user is still on the edit view; a
+	// stale result for an operation the user already abandoned just refreshes
+	// the cluster details quietly if that's where they ended up.
+	if userStillOnEditView {
+		a.gkeClusterEditView = nil
+		if len(a.viewStack) > 0 {
+			lastIdx := len(a.viewStack) - 1
+			a.currentView = a.viewStack[lastIdx]
+			a.viewStack = a.viewStack[:lastIdx]
+		} else {
+			a.currentView = ViewGKEClusterDetails
+		}
+		a.updateSidebarActiveView()
+	}
+
+	if a.currentView == ViewGKEClusterDetails {
+		refreshCmd := a.refreshActiveGKECluster()
+		if finishCmd != nil {
+			return tea.Batch(finishCmd, refreshCmd)
+		}
+		return refreshCmd
+	}
+	return finishCmd
+}
+
+// handleGKENodePoolEditOpen opens the node pool edit form for the pool
+// named in the message. We resolve by name (not by current focus) so a
+// late-firing message — or a future emitter that doesn't piggyback on the
+// table cursor — still opens the right pool.
+//
+//nolint:gocritic // hugeParam: message struct passed by value
+func (a *App) handleGKENodePoolEditOpen(msg views.GKENodePoolEditOpenMsg) tea.Cmd {
+	if a.gkeClusterDetailsView == nil {
+		return nil
+	}
+	details := a.gkeClusterDetailsView.Details()
+	if details == nil {
+		return nil
+	}
+	var pool *gcp.NodePool
+	for i := range details.NodePools {
+		if details.NodePools[i].Name == msg.PoolName {
+			pool = &details.NodePools[i]
+			break
+		}
+	}
+	if pool == nil {
+		return nil
+	}
+
+	a.viewStack = append(a.viewStack, a.currentView)
+	a.currentView = ViewGKENodePoolEdit
+	a.gkeNodePoolEditView = views.NewGKENodePoolEditView(msg.ProjectID, msg.Location, msg.ClusterName, pool)
+	a.updateViewSizes()
+	a.updateSidebarActiveView()
+	return a.gkeNodePoolEditView.Init()
+}
+
+// handleGKENodePoolEditCanceled navigates back from the node pool edit form.
+func (a *App) handleGKENodePoolEditCanceled() tea.Cmd {
+	a.gkeNodePoolEditView = nil
+	if len(a.viewStack) > 0 {
+		lastIdx := len(a.viewStack) - 1
+		a.currentView = a.viewStack[lastIdx]
+		a.viewStack = a.viewStack[:lastIdx]
+	} else {
+		a.currentView = ViewGKEClusterDetails
+	}
+	a.updateSidebarActiveView()
+	return nil
+}
+
+// handleGKENodePoolEditRequest dispatches the multi-step node pool edit.
+//
+//nolint:gocritic // hugeParam: message struct passed by value
+func (a *App) handleGKENodePoolEditRequest(msg views.GKENodePoolEditRequestMsg) tea.Cmd {
+	// borrowContainerClient must be called on the main goroutine.
+	cc := a.borrowContainerClient()
+	if cc == nil {
+		if a.gkeNodePoolEditView != nil {
+			a.gkeNodePoolEditView.SetError(uierrors.ErrGKEClientNotInitialized)
+		}
+		return nil
+	}
+	if msg.Fields == nil && msg.Management == nil {
+		// Defensive: form should prevent this, but navigate back gracefully.
+		return a.handleGKENodePoolEditCanceled()
+	}
+
+	taskID := fmt.Sprintf("gke-op:edit-pool:%s:%s", msg.ClusterName, msg.PoolName)
+	a.registerRunningTask(taskID, fmt.Sprintf("Updating pool %s...", msg.PoolName))
+
+	var steps []gkeEditStep
+	if msg.Fields != nil {
+		fields := *msg.Fields
+		projectID := msg.ProjectID
+		location := msg.Location
+		clusterName := msg.ClusterName
+		poolName := msg.PoolName
+		steps = append(steps, gkeEditStep{
+			label: "fields",
+			fn: func() (gcp.Operation, error) {
+				return cc.UpdateNodePoolFields(gocontext.Background(), projectID, location, clusterName, poolName, fields)
+			},
+		})
+	}
+	if msg.Management != nil {
+		mgmt := *msg.Management
+		projectID := msg.ProjectID
+		location := msg.Location
+		clusterName := msg.ClusterName
+		poolName := msg.PoolName
+		steps = append(steps, gkeEditStep{
+			label: "management",
+			fn: func() (gcp.Operation, error) {
+				return cc.SetNodePoolManagement(gocontext.Background(), projectID, location, clusterName, poolName, mgmt)
+			},
+		})
+	}
+
+	clusterName := msg.ClusterName
+	poolName := msg.PoolName
+	projectID := msg.ProjectID
+	location := msg.Location
+	return a.runGKEEditSequence(taskID, projectID, location, steps, func(err error) tea.Cmd {
+		return func() tea.Msg {
+			return views.GKENodePoolEditResultMsg{TaskID: taskID, ClusterName: clusterName, PoolName: poolName, Error: err}
+		}
+	})
+}
+
+// handleGKENodePoolEditResult processes the outcome of a node pool edit.
+//
+// Cancel-during-saving guard: see handleGKEClusterEditResult for the same
+// pattern — if the user canceled mid-flight, we must not double-pop.
+//
+//nolint:gocritic // hugeParam: message struct passed by value
+func (a *App) handleGKENodePoolEditResult(msg views.GKENodePoolEditResultMsg) tea.Cmd {
+	finishCmd := a.finishTask(msg.TaskID, msg.Error)
+	userStillOnEditView := a.currentView == ViewGKENodePoolEdit && a.gkeNodePoolEditView != nil
+
+	if msg.Error != nil {
+		a.err = msg.Error
+		if userStillOnEditView {
+			a.gkeNodePoolEditView.SetError(msg.Error)
+		}
+		return finishCmd
+	}
+
+	if userStillOnEditView {
+		a.gkeNodePoolEditView = nil
+		if len(a.viewStack) > 0 {
+			lastIdx := len(a.viewStack) - 1
+			a.currentView = a.viewStack[lastIdx]
+			a.viewStack = a.viewStack[:lastIdx]
+		} else {
+			a.currentView = ViewGKEClusterDetails
+		}
+		a.updateSidebarActiveView()
+	}
+
+	if a.currentView == ViewGKEClusterDetails {
+		refreshCmd := a.refreshActiveGKECluster()
+		if finishCmd != nil {
+			return tea.Batch(finishCmd, refreshCmd)
+		}
+		return refreshCmd
+	}
+	return finishCmd
 }

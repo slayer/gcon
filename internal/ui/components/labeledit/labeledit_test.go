@@ -1,6 +1,7 @@
 package labeledit
 
 import (
+	"regexp"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -408,4 +409,42 @@ func TestEditor_TabSwitchesFocus(t *testing.T) {
 	// Tab back to key
 	editor.Update(tea.KeyMsg{Type: tea.KeyTab})
 	assert.True(t, editor.focusKey)
+}
+
+func TestEditor_DefaultValidatorsAcceptGCPLabels(t *testing.T) {
+	e := New(map[string]string{})
+	// Default rules: keys lowercase, alphanumerics + -_
+	assert.True(t, e.validators.KeyPattern.MatchString("team"))
+	assert.True(t, e.validators.KeyPattern.MatchString("my-team_1"))
+	assert.False(t, e.validators.KeyPattern.MatchString("Team"))              // uppercase
+	assert.False(t, e.validators.KeyPattern.MatchString("kubernetes.io/role")) // slash
+}
+
+func TestEditor_SetValidatorsAcceptsK8sLabels(t *testing.T) {
+	e := New(map[string]string{})
+	e.SetValidators(Validators{
+		KeyPattern:   regexp.MustCompile(`^([a-z0-9]([-a-z0-9.]*[a-z0-9])?/)?[A-Za-z0-9]([-A-Za-z0-9_.]*[A-Za-z0-9])?$`),
+		ValuePattern: regexp.MustCompile(`^$|^[A-Za-z0-9]([-A-Za-z0-9_.]*[A-Za-z0-9])?$`),
+		KeyError:     "Invalid k8s label key",
+		ValueError:   "Invalid k8s label value",
+	})
+	assert.True(t, e.validators.KeyPattern.MatchString("kubernetes.io/role"))
+	assert.True(t, e.validators.KeyPattern.MatchString("simple-key"))
+	assert.True(t, e.validators.KeyPattern.MatchString("MixedCase"))
+	assert.True(t, e.validators.ValuePattern.MatchString(""))      // empty value OK
+	assert.True(t, e.validators.ValuePattern.MatchString("worker"))
+	assert.False(t, e.validators.KeyPattern.MatchString("invalid key")) // space
+}
+
+func TestEditor_NilKeyPatternSkipsValidation(t *testing.T) {
+	e := New(map[string]string{})
+	e.SetValidators(Validators{
+		KeyPattern:   nil,
+		ValuePattern: nil,
+	})
+	// Spot-check: any string is "valid" when patterns are nil. We don't
+	// exercise the editor's submit flow here, but the nil-guard inside
+	// submitEdit must not panic.
+	assert.Nil(t, e.validators.KeyPattern)
+	assert.Nil(t, e.validators.ValuePattern)
 }
