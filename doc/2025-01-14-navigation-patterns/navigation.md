@@ -36,8 +36,9 @@ Design a comprehensive, consistent navigation and hotkey framework for current a
 | Key | Action | Views |
 |-----|--------|-------|
 | `r` | Refresh current view | All views |
-| `/` | Start search/filter | List views |
-| `n` | Next page / Next result | Paginated views |
+| `/` | Start search/filter | List views, Detail views |
+| `n` | Next page / Next result / Next search match | Paginated views, Detail views with search |
+| `N` | Previous search match | Detail views with search |
 | `p` | Previous page | Paginated views |
 | `1-9` | Quick-select numbered item | Sidebar, numbered lists |
 
@@ -91,11 +92,11 @@ State: Loading -> List -> (Enter folder) -> Loading -> List -> ...
 Keys: Enter drills down, Esc/Backspace/h goes up
 ```
 
-### 2.4 Detail/Info Views (Instance Details)
+### 2.4 Detail/Info Views (Instance Details, Cloud Run Service Details)
 
 ```
 State: Loading -> Content (scrollable)
-Keys: j/k scroll, Ctrl+u/d page scroll, action keys apply to item
+Keys: j/k scroll, Ctrl+u/d page scroll, / search within content, n/N navigate matches, action keys apply to item
 ```
 
 ### 2.5 Filter/Query Views (Logging)
@@ -350,11 +351,13 @@ type HelpProvider interface {
 
 ### 7.3 Cloud Run Services
 
-**Type:** List with Actions
+**Type:** List with Actions + Detail View with Search
 
 | Key | Action |
 |-----|--------|
 | `Enter` | View service details |
+| `/` | Search within details (in detail view) |
+| `n` / `N` | Next/previous search match (in detail view) |
 | `s` | Start traffic |
 | `x` | Stop traffic |
 | `D` | Delete service |

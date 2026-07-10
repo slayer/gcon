@@ -18,6 +18,7 @@ import (
 	"github.com/slayer/gcon/internal/ui/components/actionmenu"
 	"github.com/slayer/gcon/internal/ui/components/confirm"
 	"github.com/slayer/gcon/internal/ui/components/tabs"
+	"github.com/slayer/gcon/internal/ui/components/viewportsearch"
 	"github.com/slayer/gcon/internal/ui/context"
 	uierrors "github.com/slayer/gcon/internal/ui/errors"
 	"github.com/slayer/gcon/internal/ui/focus"
@@ -98,6 +99,9 @@ type CloudRunServiceDetailsView struct {
 	observability *cloudRunObservability
 	gcpClient     *gcp.Client
 
+	// Search functionality
+	search viewportsearch.Model
+
 	keys crServiceDetailsKeyMap
 }
 
@@ -109,6 +113,9 @@ type crServiceDetailsKeyMap struct {
 	Edit         key.Binding
 	TrafficSplit key.Binding
 	ActionMenu   key.Binding
+	Search       key.Binding
+	NextMatch    key.Binding
+	PrevMatch    key.Binding
 }
 
 func defaultCRServiceDetailsKeyMap() crServiceDetailsKeyMap {
@@ -140,6 +147,18 @@ func defaultCRServiceDetailsKeyMap() crServiceDetailsKeyMap {
 		ActionMenu: key.NewBinding(
 			key.WithKeys("."),
 			key.WithHelp(".", "actions"),
+		),
+		Search: key.NewBinding(
+			key.WithKeys("/"),
+			key.WithHelp("/", "search"),
+		),
+		NextMatch: key.NewBinding(
+			key.WithKeys("n"),
+			key.WithHelp("n", "next match"),
+		),
+		PrevMatch: key.NewBinding(
+			key.WithKeys("N"),
+			key.WithHelp("N", "prev match"),
 		),
 	}
 }
@@ -175,6 +194,7 @@ func NewCloudRunServiceDetailsView(projectID, serviceName, fullName string, runC
 		tabViewports:     make([]viewport.Model, 4),
 		focusMgr:         fm,
 		regionMgr:        mouse.NewRegionManager(),
+		search:           viewportsearch.New(),
 	}
 }
 
@@ -371,6 +391,25 @@ func (v *CloudRunServiceDetailsView) Update(msg tea.Msg) tea.Cmd {
 			return v.deleteConfirm.Update(msg)
 		}
 
+		// Handle search input when active
+		if v.search.IsActive() {
+			switch msg.String() {
+			case "esc":
+				v.search.Deactivate()
+				v.updateViewportContent()
+				return nil
+			case "enter":
+				v.search.Deactivate()
+				v.updateViewportContent()
+				return nil
+			default:
+				var cmd tea.Cmd
+				v.search, cmd = v.search.Update(msg)
+				v.updateViewportContent()
+				return cmd
+			}
+		}
+
 		// Handle Tab/Shift+Tab for cycling between focus regions
 		if focusMsg := v.focusMgr.HandleKey(msg); focusMsg != nil {
 			v.updateViewportContent()
@@ -379,6 +418,25 @@ func (v *CloudRunServiceDetailsView) Update(msg tea.Msg) tea.Cmd {
 
 		// Action keys work regardless of focused region
 		switch {
+		case key.Matches(msg, v.keys.Search):
+			cmd := v.search.Activate()
+			v.updateViewportContent()
+			return cmd
+
+		case key.Matches(msg, v.keys.NextMatch):
+			if v.search.IsActive() && v.search.GetQuery() != "" {
+				v.search.NextMatch()
+				v.updateViewportContent()
+			}
+			return nil
+
+		case key.Matches(msg, v.keys.PrevMatch):
+			if v.search.IsActive() && v.search.GetQuery() != "" {
+				v.search.PrevMatch()
+				v.updateViewportContent()
+			}
+			return nil
+
 		case key.Matches(msg, v.keys.ActionMenu):
 			if v.details != nil {
 				v.actionMenu = actionmenu.New("Cloud Run Actions", v.buildActions())
@@ -554,7 +612,13 @@ func (v *CloudRunServiceDetailsView) View() string {
 	helpText := v.buildHelpText()
 	help := helpStyle.Render(helpText) + " " + scrollInfo
 
-	mainContent := tabBar + "\n" + viewportContent + help
+	// Add search bar if active
+	var searchBar string
+	if v.search.IsActive() {
+		searchBar = "\n  " + v.search.View()
+	}
+
+	mainContent := tabBar + "\n" + viewportContent + searchBar + help
 
 	// Render overlays in z-order: traffic dialog > delete confirm > action menu
 	if v.showTrafficDialog && v.trafficDialog != nil {
@@ -607,6 +671,9 @@ func (v *CloudRunServiceDetailsView) GetCloudRunClient() *gcp.CloudRunClient {
 
 // HasTextInputFocused returns true when text input in delete confirm or traffic dialog is active
 func (v *CloudRunServiceDetailsView) HasTextInputFocused() bool {
+	if v.search.IsActive() {
+		return true
+	}
 	if v.showDeleteConfirm && v.deleteConfirm != nil {
 		return v.deleteConfirm.HasTextInputFocused()
 	}
@@ -626,6 +693,9 @@ func (v *CloudRunServiceDetailsView) applySize(width, height int) {
 	if viewportWidth < 1 {
 		viewportWidth = 1
 	}
+
+	// Set search width
+	v.search.SetWidth(viewportWidth)
 
 	if !v.ready {
 		for i := range v.tabViewports {
@@ -675,6 +745,9 @@ func (v *CloudRunServiceDetailsView) updateViewportContent() {
 	default:
 		content = v.renderDetailsTab()
 	}
+
+	// Apply search highlighting if active
+	content = v.search.HighlightMatches(content)
 
 	v.tabViewports[activeIdx].SetContent(content)
 }
@@ -864,16 +937,20 @@ func (v *CloudRunServiceDetailsView) buildHelpText() string {
 	badge := focus.FormatRegionBadge(v.focusMgr.Active())
 
 	var actionHints string
-	switch v.tabs.ActiveTab().ID {
-	case runTabIDObservability:
-		actionHints = "1-5: range • a: auto-refresh • I/W/E: logs • r: refresh"
-	case runTabIDRevisions:
-		actionHints = ".: actions • D: delete"
-		if len(v.revisions) > 0 {
-			actionHints += " • t: traffic"
+	if v.search.IsActive() {
+		actionHints = "esc/enter: exit search • n/N: next/prev match"
+	} else {
+		switch v.tabs.ActiveTab().ID {
+		case runTabIDObservability:
+			actionHints = "1-5: range • a: auto-refresh • I/W/E: logs • r: refresh • /: search"
+		case runTabIDRevisions:
+			actionHints = ".: actions • D: delete • /: search"
+			if len(v.revisions) > 0 {
+				actionHints += " • t: traffic"
+			}
+		default:
+			actionHints = ".: actions • D: delete • /: search"
 		}
-	default:
-		actionHints = ".: actions • D: delete"
 	}
 
 	if badge != "" {

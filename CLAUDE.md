@@ -177,6 +177,7 @@ README.md files in internal packages should include:
 - Display errors inline with retry option
 - Use consistent color scheme via Lip Gloss styles (GCP colors)
 - Status indicators: ● green (running), ● red (stopped), ○ yellow (transitioning)
+- Detail views with text content should support in-view search (`/` to activate, `n`/`N` to navigate matches)
 
 ## Feature Development Guidelines
 
@@ -185,6 +186,7 @@ On developing or updating a new feature keep in mind the following guidelines:
 - Add new key bindings to global key bindings list in `internal/ui/keys.go` and document them in README.md, navigation.md, etc.
 - For view related actions - add them to context menu (ActionMenu) if applicable.
 - Ensure that breadcrumbs are updated properly when navigating between views.
+- For detail views with text content, integrate viewport search component (`internal/ui/components/viewportsearch`) to enable in-view search with `/` key and `n`/`N` navigation
 
 ## Implemented Features
 
